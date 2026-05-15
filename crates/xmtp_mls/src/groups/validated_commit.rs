@@ -439,24 +439,77 @@ impl ValidatedCommit {
         let proposals_enabled = super::check_proposals_enabled(existing_group_extensions);
         let new_group_extensions = staged_commit.group_context().extensions();
 
-        let metadata_validation_info = if is_migrated {
-            // On migrated groups, metadata changes flow as
-            // AppDataUpdate proposals — there is no legacy
-            // GroupMutableMetadata extension on either side to diff.
-            // Per-component policy enforcement happens through
-            // `validate_app_data_update_proposals_in_commit` below;
-            // character limits are enforced at the sender (host APIs
-            // like `update_group_name`) and via Component-level
-            // `validate_invariant` hooks. An empty struct is the
-            // correct "no legacy metadata changes" view.
-            MutableMetadataValidationInfo::default()
+        // On migrated groups, load the pre-commit COMPONENT_REGISTRY
+        // exactly once and thread it through both
+        // `read_post_commit_component_bytes` (here) and
+        // `validate_app_data_update_proposals_in_commit` (further
+        // down). This collapses two independent dict reads on every
+        // migrated-commit validation into one.
+        //
+        // Pre-commit semantics are the documented convention across
+        // the migrated commit path — see the doc on
+        // `read_post_commit_component_bytes` for the full statement
+        // and the bootstrap-commit carve-out.
+        //
+        // On migrated groups, metadata changes flow as AppDataUpdate
+        // proposals — there is no legacy GroupMutableMetadata
+        // extension on either side to diff. Per-component policy
+        // enforcement happens through
+        // `validate_app_data_update_proposals_in_commit` below;
+        // character limits are enforced at the sender (host APIs like
+        // `update_group_name`) and via Component-level
+        // `validate_invariant` hooks. An empty struct is the correct
+        // "no legacy metadata changes" view — *except* for
+        // `MIN_SUPPORTED_PROTOCOL_VERSION`, where the validator below
+        // relies on the post-commit floor being surfaced so old
+        // clients reject commits raising the floor above their
+        // pkg_version. Compute it capability-aware: pre-commit dict
+        // overlaid with any `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)`
+        // proposals carried by the staged commit, last-write-wins.
+        // Mirrors the unmigrated branch's reliance on
+        // `extract_metadata_changes` returning the new GMM attribute
+        // even when nothing else changed.
+        let (metadata_validation_info, migrated_registry) = if is_migrated {
+            let registry = super::app_data::load_component_registry(openmls_group)
+                .map_err(GroupMutableMetadataError::from)?;
+            let min_version_bytes =
+                super::app_data::component_source::read_post_commit_component_bytes(
+                    xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                    openmls_group,
+                    staged_commit,
+                    &registry,
+                )
+                .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
+            let minimum_supported_protocol_version = match min_version_bytes {
+                Some(bytes) => Some(String::from_utf8(bytes).map_err(|e| {
+                    CommitValidationError::GroupMutableMetadata(
+                        GroupMutableMetadataError::MalformedComponent {
+                            component_id: Some(
+                                xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                            ),
+                            reason: format!("invalid utf-8: {e}"),
+                        },
+                    )
+                })?),
+                None => None,
+            };
+            (
+                MutableMetadataValidationInfo {
+                    minimum_supported_protocol_version,
+                    ..Default::default()
+                },
+                Some(registry),
+            )
         } else {
-            extract_metadata_changes(
-                &immutable_metadata,
-                &mutable_metadata,
-                existing_group_extensions,
-                new_group_extensions,
-            )?
+            (
+                extract_metadata_changes(
+                    &immutable_metadata,
+                    &mutable_metadata,
+                    existing_group_extensions,
+                    new_group_extensions,
+                )?,
+                None,
+            )
         };
 
         // Enforce character limits for specific metadata fields
@@ -532,6 +585,7 @@ impl ValidatedCommit {
             openmls_group,
             &immutable_metadata,
             &mutable_metadata,
+            migrated_registry.as_ref(),
         )?;
 
         // Get the installations actually added and removed in the commit
@@ -1368,11 +1422,32 @@ pub(super) fn app_data_update_proposer_leaf(
 /// Delegates the per-proposal permission check to
 /// [`validate_one_app_data_update`] so the core logic stays shared with
 /// the standalone-proposal path in [`validate_proposal`].
+///
+/// # Registry semantics
+///
+/// `preloaded_registry`, when `Some`, is the **pre-commit**
+/// `COMPONENT_REGISTRY` — the same view used by
+/// [`super::app_data::component_source::read_post_commit_component_bytes`]
+/// and any other per-component check on this commit. Pre-commit (not
+/// post-commit) is the documented convention across the migrated commit
+/// path: registry mutations and writes that depend on those mutations
+/// MUST land in separate commits. Bootstrap commits are the only
+/// "register + write in the same commit" legitimate pattern and route
+/// through a dedicated validator instead.
+///
+/// `None` defers the registry load to this function, which only
+/// materializes it lazily after a peek confirms at least one
+/// `AppDataUpdate` proposal exists. The split lets the caller share a
+/// single registry across this helper and
+/// `read_post_commit_component_bytes` on the migrated branch, while
+/// unmigrated callers (or commits with zero `AppDataUpdate` proposals)
+/// pay zero load cost.
 fn validate_app_data_update_proposals_in_commit(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
+    preloaded_registry: Option<&xmtp_mls_common::app_data::component_registry::ComponentRegistry>,
 ) -> Result<(), CommitValidationError> {
     use super::app_data::load_component_registry;
     use std::collections::HashMap;
@@ -1395,7 +1470,18 @@ fn validate_app_data_update_proposals_in_commit(
         return Ok(());
     }
 
-    let registry = load_component_registry(openmls_group)?;
+    // Use the caller's pre-loaded registry when available; otherwise
+    // load lazily. `owned_registry` keeps the loaded value alive for
+    // the `registry` borrow.
+    let owned_registry;
+    let registry = match preloaded_registry {
+        Some(r) => r,
+        None => {
+            owned_registry = load_component_registry(openmls_group)?;
+            &owned_registry
+        }
+    };
+
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
     // re-walk the admin lists and re-parse the credential for every one.
@@ -1422,7 +1508,7 @@ fn validate_app_data_update_proposals_in_commit(
             app_data.operation(),
             ActorAuthority::from(proposer),
             &proposer.inbox_id,
-            &registry,
+            registry,
             openmls_group,
         )?;
     }

@@ -33,7 +33,7 @@
 
 use openmls::{
     extensions::Extensions,
-    group::{GroupContext, MlsGroup as OpenMlsGroup},
+    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::AppDataUpdateOperation,
 };
 use tls_codec::{Deserialize, Serialize};
@@ -352,6 +352,102 @@ pub(crate) fn read_component_bytes(
     } else {
         read_from_legacy(id, mls_group.extensions())
     }
+}
+
+/// Compute the post-commit value of a single component on a migrated group
+/// by overlaying the staged commit's `AppDataUpdate` proposals on top of
+/// the pre-commit dict. Last-write-wins matches the lazy-batching apply
+/// order in [`super::accumulate_app_data_updates`]: every `Update(payload)`
+/// is decoded against the running value (so collection deltas compose),
+/// and `Remove` collapses to `None`.
+///
+/// Returns `Ok(None)` when the component is absent both before and after
+/// the commit, or when it was explicitly removed. Returns `Err` only when
+/// an `Update` payload fails to decode against the running value — the
+/// same condition `validate_app_data_update_proposals_in_commit` would
+/// also reject upstream, so callers can treat decode failure here as
+/// "validator will surface the real error" and short-circuit.
+///
+/// Used by the commit validator to evaluate per-component invariants
+/// (notably `MIN_SUPPORTED_PROTOCOL_VERSION`) that need the post-commit
+/// view on migrated groups, where the legacy `GroupMutableMetadata`
+/// extension diff that drives the same check on unmigrated groups is
+/// unavailable.
+///
+/// # Registry semantics
+///
+/// `registry` is the **pre-commit** `COMPONENT_REGISTRY` (i.e. the state
+/// of the dictionary entry before the staged commit applies). Callers
+/// should load it once via [`super::load_component_registry`] on the
+/// live `mls_group` and reuse it across all validator helpers — same
+/// registry feeds [`super::validate_app_data_update_proposals_in_commit`]
+/// and any other per-component checks.
+///
+/// **Implication for commits that modify `COMPONENT_REGISTRY` in the
+/// same commit as a write to a newly-registered component**: such a
+/// write fails with `UnknownComponent` here because the new entry is
+/// not yet visible in the pre-commit registry. This matches what the
+/// receiver-side validator
+/// ([`super::validate_app_data_update_proposals_in_commit`]) enforces
+/// today and is the documented convention across the migrated commit
+/// path: registry mutations and writes that depend on those mutations
+/// MUST land in separate commits.
+///
+/// The bootstrap commit is the only legitimate "register + write in
+/// the same commit" pattern and is routed through a dedicated
+/// validator ([`super::bootstrap_validator::validate_bootstrap_commit`])
+/// that does not flow through this function.
+pub(crate) fn read_post_commit_component_bytes(
+    id: ComponentId,
+    mls_group: &OpenMlsGroup,
+    staged_commit: &StagedCommit,
+    registry: &ComponentRegistry,
+) -> Result<Option<Vec<u8>>, ComponentSourceError> {
+    let openmls_id: openmls::component::ComponentId = id.as_u16();
+
+    // Owned snapshot of operations targeting this specific component.
+    // Iterating `app_data_update_proposals()` yields short-lived
+    // `QueuedAppDataUpdateProposal` views that borrow into the staged
+    // commit — we can't hold their byte slices across iterations, so
+    // we materialize an owned form up front. `Update` payloads are
+    // typically tiny (version strings, single-key deltas), so the
+    // clone cost is negligible.
+    enum Op {
+        Update(Vec<u8>),
+        Remove,
+    }
+    let ops: Vec<Op> = staged_commit
+        .app_data_update_proposals()
+        .filter_map(|queued| {
+            let proposal = queued.app_data_update_proposal();
+            if proposal.component_id() != openmls_id {
+                return None;
+            }
+            Some(match proposal.operation() {
+                AppDataUpdateOperation::Update(payload) => Op::Update(payload.as_slice().to_vec()),
+                AppDataUpdateOperation::Remove => Op::Remove,
+            })
+        })
+        .collect();
+    if ops.is_empty() {
+        return Ok(read_from_app_data_dict(id, mls_group));
+    }
+
+    let mut current = read_from_app_data_dict(id, mls_group);
+    for op in &ops {
+        match op {
+            Op::Update(payload) => {
+                current = Some(apply_app_data_update_payload(
+                    id,
+                    payload,
+                    current.as_deref(),
+                    registry,
+                )?);
+            }
+            Op::Remove => current = None,
+        }
+    }
+    Ok(current)
 }
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.
