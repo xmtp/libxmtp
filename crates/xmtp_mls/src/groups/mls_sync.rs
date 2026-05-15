@@ -728,7 +728,7 @@ where
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(self.group_id),
+                            group_id = %self.group_id,
                             cursor = %cursor,
                             intent.id,
                             intent.kind = %intent.kind,
@@ -769,7 +769,7 @@ where
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
                                 installation_id = %self.context.installation_id(),
-                                group_id = hex::encode(self.group_id),
+                                group_id = %self.group_id,
                                 cursor = %cursor,
                                 intent_id = intent.id,
                                 intent.kind = %intent.kind,
@@ -805,7 +805,7 @@ where
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
                                 installation_id = %self.context.installation_id(),
-                                group_id = hex::encode(self.group_id),
+                                group_id = %self.group_id,
                                 cursor = %cursor,
                                 intent.id,
                                 intent.kind = %intent.kind,
@@ -896,7 +896,7 @@ where
         tracing::debug!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = hex::encode(self.group_id),
+            group_id = %self.group_id,
             cursor = %cursor,
             intent.id,
             intent.kind = %intent.kind,
@@ -1080,7 +1080,7 @@ where
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
-            group_id = hex::encode(self.group_id),
+            group_id = %self.group_id,
             current_epoch = mls_group.epoch().as_u64(),
             msg_epoch = processed_message.epoch().as_u64(),
             msg_group_id = hex::encode(processed_message.group_id().as_slice()),
@@ -1139,7 +1139,7 @@ where
                 {
                     tracing::warn!(
                         inbox_id = self.context.inbox_id(),
-                        group_id = hex::encode(self.group_id),
+                        group_id = %self.group_id,
                         ?proposal_type,
                         "Received proposal but proposals are not enabled on this group"
                     );
@@ -1243,7 +1243,7 @@ where
                     tracing::warn!(
                         inbox_id = self.context.inbox_id(),
                         installation_id = %self.context.installation_id(),
-                        group_id = hex::encode(self.group_id),
+                        group_id = %self.group_id,
                         proposal_type = ?queued_proposal.proposal().proposal_type(),
                         error = %e,
                         "Received invalid proposal, rejecting"
@@ -1266,7 +1266,7 @@ where
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 current_epoch = mls_group.epoch().as_u64(),
                 msg_epoch = processed_message.epoch().as_u64(),
                 cursor = ?cursor,
@@ -1434,7 +1434,7 @@ where
                 tracing::debug!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     proposal_type = ?proposal_ptr.proposal().proposal_type(),
                     "Received and storing proposal in proposal store"
                 );
@@ -1791,14 +1791,14 @@ where
         {
             Ok(_) => {
                 tracing::info!(
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     removed_inboxes = ?removed_inbox_ids,
                     "Successfully removed left/removed members from pending_remove list"
                 );
             }
             Err(e) => {
                 tracing::info!(
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     removed_inboxes = ?removed_inbox_ids,
                     error = %e,
                     "Failed to clean pending_remove list for removed members"
@@ -1848,7 +1848,7 @@ where
                 }
                 Err(e) => {
                     tracing::info!(
-                        group_id = hex::encode(self.group_id),
+                        group_id = %self.group_id,
                         inbox_id = %current_inbox_id,
                         error = %e,
                         "Failed to get pending remove users after promotion"
@@ -1869,7 +1869,7 @@ where
         // This is where we would mark the group as having/not having pending remove requests
         if has_pending_removes {
             tracing::info!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 inbox_id = %self.context.inbox_id(),
                 "Group has pending remove requests requiring admin action"
             );
@@ -1881,13 +1881,13 @@ where
                 tracing::error!(
                     error = %e,
                     operation = "set_group_pending_status",
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     "Failed to mark group as having pending leave requests"
                 );
             }
         } else {
             tracing::debug!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 inbox_id = %self.context.inbox_id(),
                 "Group has no pending remove requests"
             );
@@ -1898,7 +1898,7 @@ where
             {
                 tracing::error!(
                     operation = "set_group_pending_status",
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     "Failed to mark group as not having pending leave requests {}",
                     e,
                 );
@@ -1970,7 +1970,7 @@ where
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(envelope.group_id),
+                    group_id = %envelope.group_id,
                     "Message already processed: skipped cursor:[{}] last cursor in db: [{}]",
                     envelope.cursor,
                     last_cursor
@@ -2041,7 +2041,7 @@ where
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = hex::encode(self.group_id),
+            group_id = %self.group_id,
             cursor = %envelope.cursor,
             "Processing envelope with hash {}, cursor = {}, is_own_intent={}",
             hex::encode(&envelope.payload_hash),
@@ -2057,7 +2057,7 @@ where
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     cursor = %envelope.cursor,
                     intent_id,
                     intent.kind = %intent.kind,
@@ -2157,7 +2157,7 @@ where
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     cursor = %envelope.cursor,
                     "client [{}] is about to process external envelope [{}]",
                     self.context.inbox_id(),
@@ -2550,7 +2550,7 @@ where
             tracing::error!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 original_error = error.to_string(),
                 fork_details
             );
@@ -2591,7 +2591,7 @@ where
                                 intent.id,
                                 intent.kind = %intent.kind,
                                 inbox_id = self.context.inbox_id(),
-                                installation_id = %self.context.installation_id(),group_id = hex::encode(self.group_id),
+                                installation_id = %self.context.installation_id(),group_id = %self.group_id,
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
@@ -2633,7 +2633,7 @@ where
                             installation_id = %self.context.installation_id(),
                             intent.id,
                             intent.kind = %intent.kind,
-                            group_id = hex::encode(self.group_id),
+                            group_id = %self.group_id,
                             "[{}] set stored intent [{}] with hash [{}] to state `published`",
                             self.context.inbox_id(),
                             intent.id,
@@ -2782,7 +2782,7 @@ where
                 let registry_populated =
                     !super::app_data::load_component_registry(openmls_group)?.is_empty();
                 tracing::debug!(
-                    group_id = hex::encode(self.group_id.as_slice()),
+                    group_id = %self.group_id,
                     proposals_enabled = proposals_on,
                     registry_populated,
                     path = if proposals_on && registry_populated {
@@ -2896,7 +2896,7 @@ where
                 // path honest about what "migrated" means.
                 let is_migrated = super::app_data::is_migrated_group(openmls_group);
                 tracing::debug!(
-                    group_id = hex::encode(self.group_id.as_slice()),
+                    group_id = %self.group_id,
                     is_migrated,
                     path = if is_migrated {
                         "app_data_update"
@@ -2953,7 +2953,7 @@ where
                 // predicate.
                 let is_migrated = super::app_data::is_migrated_group(openmls_group);
                 tracing::debug!(
-                    group_id = hex::encode(self.group_id.as_slice()),
+                    group_id = %self.group_id,
                     is_migrated,
                     path = if is_migrated {
                         "app_data_update"
@@ -3178,7 +3178,7 @@ where
                 if proposal_payloads.is_empty() {
                     tracing::debug!(
                         inbox_id = self.context.inbox_id(),
-                        group_id = hex::encode(self.group_id),
+                        group_id = %self.group_id,
                         add_inbox_ids = ?intent_data.add_inbox_ids,
                         remove_inbox_ids = ?intent_data.remove_inbox_ids,
                         "ProposeMemberUpdate produced no proposals (members may already be in desired state)"

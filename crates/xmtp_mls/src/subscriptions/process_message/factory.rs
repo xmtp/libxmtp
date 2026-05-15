@@ -142,7 +142,7 @@ where
             Err(summary) => {
                 tracing::warn!(
                     inbox_id = self.0.inbox_id(),
-                    group_id = hex::encode(msg.group_id),
+                    group_id = %msg.group_id,
                     cursor_id = %msg.cursor,
                     "recovery sync triggered by streamed message failed",
                 );
@@ -289,7 +289,7 @@ where
                 // This should never occur because we map the error to `ReceiveGroup`
                 // But still exists defensively
                 tracing::error!(
-                    group_id = hex::encode(msg.group_id),
+                    group_id = %msg.group_id,
                     cursor_id = %msg.cursor,
                     err = e.to_string(),
                     "process stream entry {:?}",
@@ -300,7 +300,7 @@ where
             Ok(processed_msg) => {
                 tracing::trace!(
                     cursor_id = %msg.cursor,
-                    group_id = hex::encode(msg.group_id),
+                    group_id = %msg.group_id,
                     "message process in stream success, synced single msg @cursor={},group_id={}",
                     processed_msg.cursor,
                     xmtp_common::fmt::truncate_hex(hex::encode(processed_msg.group_id))

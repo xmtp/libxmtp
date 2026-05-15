@@ -69,7 +69,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(group_id)))]
+    #[tracing::instrument(level = "trace", skip_all, fields(group_id = %group_id))]
     pub async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>> {
         self.api_client
             .query_group_messages(group_id)
@@ -78,13 +78,13 @@ where
     }
 
     /// Query for the latest message on a group
-    #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(group_id)))]
+    #[tracing::instrument(level = "trace", skip_all, fields(group_id = %group_id))]
     pub async fn query_latest_group_message(
         &self,
         group_id: GroupId,
     ) -> Result<Option<GroupMessage>> {
         tracing::debug!(
-            group_id = hex::encode(group_id),
+            group_id = %group_id,
             inbox_id = self.inbox_id,
             "query latest group message"
         );

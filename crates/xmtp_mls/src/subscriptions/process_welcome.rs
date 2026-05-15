@@ -352,7 +352,7 @@ where
         };
         tracing::info!(
             inbox_id = self.context.inbox_id(),
-            group_id = hex::encode(group.id),
+            group_id = %group.id,
             dm_id = group.dm_id,
             welcome_id = ?group.sequence_id,
             "loading existing group for welcome_id: {:?}",

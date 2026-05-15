@@ -391,7 +391,7 @@ where
                 id: welcome_id,
             }) => {
                 tracing::debug!(
-                    group_id = hex::encode(group.group_id),
+                    group_id = %group.group_id,
                     "finished processing with group {}",
                     hex::encode(group.group_id)
                 );
@@ -414,7 +414,7 @@ where
                 maybe_originator,
             }) => {
                 tracing::debug!(
-                    group_id = hex::encode(group.group_id),
+                    group_id = %group.group_id,
                     "finished processing with group {}",
                     hex::encode(group.group_id)
                 );

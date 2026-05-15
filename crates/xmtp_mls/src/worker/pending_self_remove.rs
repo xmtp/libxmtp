@@ -109,7 +109,7 @@ where
         mls_group: &MlsGroup<Context>,
     ) -> Result<(), PendingSelfRemoveWorkerError> {
         tracing::info!(
-            group_id = hex::encode(mls_group.group_id),
+            group_id = %mls_group.group_id,
             "Processing pending leave requests for group"
         );
         mls_group.remove_members_pending_removal().await?;
@@ -135,7 +135,7 @@ where
                                 .await
                             {
                                 tracing::error!(
-                                    group_id = hex::encode(group_id),
+                                    group_id = %group_id,
                                     error = %e,
                                     "Failed to process pending leave request for group"
                                 );
@@ -143,7 +143,7 @@ where
                         }
                         Err(e) => {
                             tracing::error!(
-                                group_id = hex::encode(group_id),
+                                group_id = %group_id,
                                 error = %e,
                                 "Failed to load MLS group from store"
                             );

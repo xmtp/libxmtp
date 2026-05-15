@@ -381,7 +381,7 @@ where
                 // distinguish "legitimately old group" from "fresh
                 // welcome that should have had GMM" when triaging.
                 tracing::debug!(
-                    group_id = hex::encode(group_id),
+                    group_id = %group_id,
                     "welcome carries no legacy GroupMutableMetadata extension; \
                      disappearing-settings and paused_for_version fall back to defaults"
                 );
@@ -394,7 +394,7 @@ where
                 // — the welcome still completes with default settings
                 // rather than failing the join.
                 tracing::warn!(
-                    group_id = hex::encode(group_id),
+                    group_id = %group_id,
                     error = ?e,
                     "welcome-time GroupMutableMetadata read failed; \
                      disappearing-settings and paused_for_version will fall back to defaults"
@@ -437,13 +437,13 @@ where
         // Otherwise, new members start in PENDING state
         let membership_state = if is_readd_after_leaving {
             tracing::info!(
-                group_id = hex::encode(group_id),
+                group_id = %group_id,
                 "User is being re-added after leaving/removal, setting membership state to ALLOWED"
             );
             GroupMembershipState::Allowed
         } else {
             tracing::debug!(
-                group_id = hex::encode(group_id),
+                group_id = %group_id,
                 "User is being added to new group, setting membership state to PENDING"
             );
             GroupMembershipState::Pending
@@ -498,7 +498,7 @@ where
         // before calling insert_or_replace_group
         if is_readd_after_leaving && let Some(ref existing) = existing_group {
             tracing::info!(
-                group_id = hex::encode(existing.id),
+                group_id = %existing.id,
                 "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
             );
             db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
@@ -594,7 +594,7 @@ where
             // If user is being re-added after leaving, reset consent to Unknown
             // This requires the user to explicitly accept being added back
             tracing::info!(
-                group_id = hex::encode(group.group_id),
+                group_id = %group.group_id,
                 "Resetting consent state to Unknown for re-added user"
             );
             group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
@@ -617,7 +617,7 @@ where
         tracing::info!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
-            group_id = %hex::encode(group.group_id),
+            group_id = %group.group_id,
             welcome_id = welcome.cursor.sequence_id,
             originator_id = welcome.cursor.originator_id,
             cursor = cursor,

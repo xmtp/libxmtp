@@ -944,7 +944,7 @@ where
         if has_pending {
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 "Found pending proposals, committing before sending message"
             );
 
@@ -1500,7 +1500,7 @@ where
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 inbox_id = %self.context.inbox_id(),
                 "Group has no pending removal members"
             );
@@ -1510,7 +1510,7 @@ where
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         if !is_super_admin {
             tracing::debug!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 inbox_id = %self.context.inbox_id(),
                 "Current inbox ID is not in admin or super admin list, skipping pending removal processing"
             );
@@ -1531,7 +1531,7 @@ where
 
         if valid_removals.is_empty() {
             tracing::warn!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 pending_count = pending_removal_list.len(),
                 "No valid members found in pending removal list"
             );
@@ -1545,7 +1545,7 @@ where
 
         if !invalid_removals.is_empty() {
             tracing::warn!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 invalid_members = ?invalid_removals,
                 "Some members in pending removal list are not in the group"
             );
@@ -1553,7 +1553,7 @@ where
 
         // Remove all valid members at once
         tracing::info!(
-            group_id = hex::encode(self.group_id),
+            group_id = %self.group_id,
             removing_count = valid_removals.len(),
             members_to_remove = ?valid_removals,
             "Removing pending members from group"
@@ -1562,7 +1562,7 @@ where
         match self.remove_members(&valid_removals).await {
             Ok(_) => {
                 tracing::info!(
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     removed_count = valid_removals.len(),
                     removed_members = ?valid_removals,
                     "Successfully removed all pending members from group"
@@ -1570,7 +1570,7 @@ where
             }
             Err(e) => {
                 tracing::error!(
-                    group_id = hex::encode(self.group_id),
+                    group_id = %self.group_id,
                     members = ?valid_removals,
                     error = %e,
                     "Failed to remove pending members from group"
@@ -1594,7 +1594,7 @@ where
     /// * `Err(GroupError)` - Failed to retrieve data or update the pending list
     pub async fn cleanup_pending_removal_list(&self) -> Result<(), GroupError> {
         tracing::debug!(
-            group_id = hex::encode(self.group_id),
+            group_id = %self.group_id,
             "Starting pending removal list cleanup"
         );
 
@@ -1603,7 +1603,7 @@ where
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 "No pending removals to clean up"
             );
             // Clear the pending leave request status
@@ -1629,7 +1629,7 @@ where
 
         if !removed_members.is_empty() {
             tracing::info!(
-                group_id = hex::encode(self.group_id),
+                group_id = %self.group_id,
                 removed_count = removed_members.len(),
                 removed_members = ?removed_members,
                 "Removing members from pending removal list - they are no longer in the group"
@@ -1651,7 +1651,7 @@ where
         }
 
         tracing::info!(
-            group_id = hex::encode(self.group_id),
+            group_id = %self.group_id,
             remaining_pending = remaining_pending_list.len(),
             "Finished cleaning up pending removal list"
         );
@@ -2170,7 +2170,7 @@ where
                             // (admin_list / super_admin_list return
                             // `Ok(vec![])` here, not `Err`).
                             tracing::debug!(
-                                group_id = hex::encode(self.group_id.as_slice()),
+                                group_id = %self.group_id,
                                 kind = ?kind,
                                 "unmigrated group has no legacy GroupMutableMetadata extension; returning empty admin set"
                             );

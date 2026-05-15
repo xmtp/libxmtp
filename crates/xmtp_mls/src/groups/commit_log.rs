@@ -639,13 +639,13 @@ where
         // Check if a readd request has already been sent for this group
         if conn.is_awaiting_readd(&group_id, self.context.installation_id().as_slice())? {
             tracing::debug!(
-                group_id = hex::encode(group_id),
+                group_id = %group_id,
                 "Skipping readd request for group because it has already been requested"
             );
             return Ok(());
         }
 
-        tracing::info!(group_id = hex::encode(group_id), "Sending readd request");
+        tracing::info!(group_id = %group_id, "Sending readd request");
 
         // Send oneshot message with readd request to super admins
         let latest_commit_sequence_id =
@@ -663,13 +663,13 @@ where
         };
         let readders = self.permitted_readders(&group_id).await?;
         tracing::info!(
-            group_id = hex::encode(group_id),
+            group_id = %group_id,
             "Sending readd request to {:?}",
             readders
         );
         Oneshot::send_message(self.context.clone(), readders, oneshot_message).await?;
 
-        tracing::info!(group_id = hex::encode(group_id), "Sent readd request",);
+        tracing::info!(group_id = %group_id, "Sent readd request",);
 
         // Mark readd as requested
         conn.update_requested_at_sequence_id(
@@ -679,7 +679,7 @@ where
         )?;
 
         tracing::info!(
-            group_id = hex::encode(group_id),
+            group_id = %group_id,
             sequence_id = latest_commit_sequence_id,
             "Updated requested readd sequence id",
         );
@@ -726,7 +726,7 @@ where
             // Process the readd request and log any errors
             if let Err(e) = self.request_readd(group_info).await {
                 tracing::error!(
-                    group_id = hex::encode(group_id),
+                    group_id = %group_id,
                     error = ?e,
                     "Failed to send readd request for group"
                 );
@@ -771,13 +771,13 @@ where
                 }
                 Err(e) => {
                     tracing::warn!(
-                        group_id = hex::encode(group.group_id),
+                        group_id = %group.group_id,
                         "Failed to validate readd requests for group: {}",
                         e
                     );
                     if !e.is_retryable() {
                         tracing::warn!(
-                            group_id = hex::encode(group.group_id),
+                            group_id = %group.group_id,
                             "Deleting readd statuses for group because it failed validation: {}",
                             e
                         );
@@ -801,7 +801,7 @@ where
     ) -> Result<HashSet<Vec<u8>>, CommitLogError> {
         let (mls_group, _) = MlsGroup::new_cached(self.context.clone(), &group.group_id)?;
         tracing::debug!(
-            group_id = hex::encode(mls_group.group_id),
+            group_id = %mls_group.group_id,
             "Processing readd requests for group"
         );
 
@@ -831,7 +831,7 @@ where
             ));
         } else if fork_state.is_none() {
             tracing::info!(
-                group_id = hex::encode(mls_group.group_id),
+                group_id = %mls_group.group_id,
                 "Local commit log ahead of remote, skipping group"
             );
             return Ok(HashSet::new());
@@ -859,7 +859,7 @@ where
             })
             .await?;
         tracing::debug!(
-            group_id = hex::encode(mls_group.group_id),
+            group_id = %mls_group.group_id,
             "{} readd requests were for non-members, while {} were for members",
             unverified.len(),
             verified.len()

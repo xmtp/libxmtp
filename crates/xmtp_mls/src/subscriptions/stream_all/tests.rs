@@ -318,7 +318,7 @@ async fn test_stream_all_messages_detached_group_changes() {
                         message_id = hex::encode(&msg.id),
                         sender_inbox_id = msg.sender_inbox_id,
                         sender_installation_id = hex::encode(&msg.sender_installation_id),
-                        group_id = hex::encode(msg.group_id),
+                        group_id = %msg.group_id,
                         "GOT MESSAGE {}, text={}",
                         messages.len(),
                         String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())
