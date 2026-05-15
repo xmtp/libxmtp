@@ -5,6 +5,7 @@ use rand::{
     distr::{Distribution, StandardUniform},
     prelude::IteratorRandom,
 };
+use xmtp_common::Generate;
 use xmtp_proto::types::{Cursor, GroupId};
 
 use crate::{
@@ -75,7 +76,7 @@ impl Distribution<NotFound> for StandardUniform {
             ),
             11 => NotFound::CipherSalt("random salt for testing".into()),
             12 => NotFound::SyncGroup(xmtp_common::rand_array::<32>().into()),
-            13 => NotFound::MlsGroup(GroupId::from(xmtp_common::rand_array::<16>())),
+            13 => NotFound::MlsGroup(GroupId::generate()),
             _ => unreachable!(),
         }
     }

@@ -490,7 +490,7 @@ mock! {
 
         fn clear_messages<'a>(
             &self,
-            group_ids: Option<&'a [Vec<u8>]>,
+            group_ids: Option<&'a [GroupId]>,
             retention_days: Option<u32>,
         ) -> Result<usize, crate::ConnectionError>;
     }

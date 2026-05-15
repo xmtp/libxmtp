@@ -4414,6 +4414,7 @@ pub(crate) mod tests {
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
     use mockall::predicate::eq;
     use std::sync::Arc;
+    use xmtp_common::Generate;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::mock::MockDbQuery;
 
@@ -4496,7 +4497,7 @@ pub(crate) mod tests {
         let intent = StoredGroupIntent {
             id: 42,
             kind: IntentKind::SendMessage,
-            group_id: GroupId::from(xmtp_common::rand_array::<16>()),
+            group_id: GroupId::generate(),
             data: Vec::new(),
             state: IntentState::Published,
             payload_hash: Some(xmtp_common::rand_vec::<32>()),

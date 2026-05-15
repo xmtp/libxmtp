@@ -360,6 +360,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_common::Generate;
     use xmtp_proto::types::Cursor;
 
     use crate::Store;
@@ -369,7 +370,7 @@ mod tests {
     use super::*;
 
     fn create_test_group(conn: &impl crate::DbQuery) -> GroupId {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
         let group = StoredGroup {
             id: group_id,
             created_at_ns: 0,

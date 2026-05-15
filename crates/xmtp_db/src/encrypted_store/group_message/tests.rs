@@ -1,6 +1,6 @@
 use super::*;
 use crate::{Store, group::tests::generate_group, prelude::*, test_utils::with_connection};
-use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
+use xmtp_common::{Generate, assert_err, assert_ok, rand_time, rand_vec};
 
 pub(crate) fn generate_message(
     kind: Option<GroupMessageKind>,
@@ -12,9 +12,7 @@ pub(crate) fn generate_message(
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id
-            .copied()
-            .unwrap_or_else(|| GroupId::from(xmtp_common::rand_array::<16>())),
+        group_id: group_id.copied().unwrap_or_else(GroupId::generate),
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
         sender_installation_id: rand_vec::<24>(),

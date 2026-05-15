@@ -691,7 +691,7 @@ pub(crate) mod tests {
         group::{GroupMembershipState, StoredGroup},
         test_utils::with_connection,
     };
-    use xmtp_common::rand_vec;
+    use xmtp_common::{Generate, rand_vec};
 
     fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: GroupId) {
         StoredGroup::builder()
@@ -738,7 +738,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_store_and_fetch() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
         let data = rand_vec::<24>();
         let kind = IntentKind::UpdateGroupMembership;
         let state = IntentState::ToPublish;
@@ -770,7 +770,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_query() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
 
         let test_intents: Vec<NewGroupIntent> = vec![
             NewGroupIntent::new_test(
@@ -848,7 +848,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn find_by_payload_hash() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
 
         with_connection(|conn| {
             insert_group(conn, group_id);
@@ -890,7 +890,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_happy_path_state_transitions() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
 
         with_connection(|conn| {
             insert_group(conn, group_id);
@@ -936,7 +936,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_republish_state_transition() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
 
         with_connection(|conn| {
             insert_group(conn, group_id);
@@ -980,7 +980,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_invalid_state_transition() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
 
         with_connection(|conn| {
             insert_group(conn, group_id);
@@ -1015,7 +1015,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_increment_publish_attempts() {
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
         with_connection(|conn| {
             insert_group(conn, group_id);
             NewGroupIntent::new(
@@ -1043,7 +1043,7 @@ pub(crate) mod tests {
     fn test_find_dependant_commits() {
         use crate::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};
 
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
         let payload_hash1 = rand_vec::<24>();
         let payload_hash2 = rand_vec::<24>();
 
@@ -1094,7 +1094,7 @@ pub(crate) mod tests {
         // Exercises both the i32 → IntentKind::BootstrapMigration arm
         // and the Display impl. Cheap coverage for the new variant
         // that would otherwise sit dead until end-to-end migration tests.
-        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
+        let group_id = GroupId::generate();
         let data = rand_vec::<24>();
         let kind = IntentKind::BootstrapMigration;
         let to_insert =

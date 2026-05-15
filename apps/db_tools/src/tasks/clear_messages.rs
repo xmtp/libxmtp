@@ -1,12 +1,14 @@
 use anyhow::Result;
-use xmtp_db::{ConnectionExt, DbConnection, group_message::QueryGroupMessage};
+use xmtp_db::{
+    ConnectionExt, DbConnection, group_message::QueryGroupMessage, proto::types::GroupId,
+};
 
 use crate::confirm_destructive;
 
 pub fn clear_all_messages<C: ConnectionExt>(
     conn: &C,
     limit_days: Option<u32>,
-    group_ids: Option<&[Vec<u8>]>,
+    group_ids: Option<&[GroupId]>,
 ) -> Result<()> {
     confirm_destructive()?;
     clear_all_messages_confirmed(conn, limit_days, group_ids)
@@ -15,7 +17,7 @@ pub fn clear_all_messages<C: ConnectionExt>(
 pub fn clear_all_messages_confirmed<C: ConnectionExt>(
     conn: &C,
     limit_days: Option<u32>,
-    group_ids: Option<&[Vec<u8>]>,
+    group_ids: Option<&[GroupId]>,
 ) -> Result<()> {
     let db = DbConnection::new(conn);
     db.clear_messages(group_ids, limit_days)?;
@@ -53,11 +55,10 @@ mod tests {
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 2);
 
-        let dm_group_id_vec = alix_bo_dm.group_id.to_vec();
         clear_all_messages_confirmed(
             &alix.db(),
             None,
-            Some(std::slice::from_ref(&dm_group_id_vec)),
+            Some(std::slice::from_ref(&alix_bo_dm.group_id)),
         )?;
         let alix_msgs = alix_bo_dm.find_messages(&MsgQueryArgs::default())?;
         // Commit and application msg

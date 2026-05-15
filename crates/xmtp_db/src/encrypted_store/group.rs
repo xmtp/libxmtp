@@ -1344,7 +1344,7 @@ pub(crate) mod tests {
         schema::groups::dsl::groups,
         test_utils::{with_connection, with_connection_async},
     };
-    use xmtp_common::{assert_ok, rand_vec, time::now_ns};
+    use xmtp_common::{Generate, assert_ok, rand_vec, time::now_ns};
     use xmtp_configuration::Originators;
 
     /// Generate a test group
@@ -1357,7 +1357,7 @@ pub(crate) mod tests {
         state: Option<GroupMembershipState>,
         created_at_ns: i64,
     ) -> StoredGroup {
-        let id = GroupId::from(xmtp_common::rand_array::<16>());
+        let id = GroupId::generate();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::builder()
             .id(id)
@@ -1373,7 +1373,7 @@ pub(crate) mod tests {
         state: Option<GroupMembershipState>,
         welcome_id: Option<i64>,
     ) -> StoredGroup {
-        let id = GroupId::from(xmtp_common::rand_array::<16>());
+        let id = GroupId::generate();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::builder()

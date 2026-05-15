@@ -243,6 +243,7 @@ impl QueueIntent {
 mod tests {
     use std::{iter, sync::Arc};
     use tokio::sync::Mutex;
+    use xmtp_common::Generate;
     use xmtp_db::group::{GroupMembershipState, StoredGroup};
     use xmtp_proto::types::GroupId;
 
@@ -252,7 +253,7 @@ mod tests {
     use rstest::*;
 
     fn group<C: XmtpSharedContext>(context: &C, id: Option<GroupId>) -> MlsGroup<&C> {
-        let id = id.unwrap_or_else(|| GroupId::from(xmtp_common::rand_array::<16>()));
+        let id = id.unwrap_or_else(GroupId::generate);
         StoredGroup::builder()
             .id(id)
             .created_at_ns(1)
