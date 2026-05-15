@@ -7,6 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::app::health::conditions::Conditions;
+
 /// Projection trait. The `KIND` associated constant lets the trait describe
 /// itself in panic messages ("op", "validator").
 ///
@@ -21,61 +23,128 @@ pub trait RegistryEntry: 'static {
 
     fn depends_on(&self) -> &'static [&'static str];
     fn value(&self) -> &'static Self::Item;
+
+    /// Condition bits this entry needs to be runnable. Default
+    /// `ALWAYS` (entry runs in any active set). Entries with non-empty
+    /// `requires` are filtered out of `topo_sort` when the active set
+    /// doesn't cover them, and recorded as `SkippedEntry` in the
+    /// returned build.
+    fn requires(&self) -> Conditions {
+        Conditions::ALWAYS
+    }
 }
 
-/// Topologically sort a stream of entries by their `depends_on` edges.
-///
-/// Each entry must implement `Named` (via `value()`) so the sort can read
-/// names through the trait object. Ties (entries with the same satisfied-
-/// dep set) are broken alphabetically by name.
-///
-/// Panics on dependency cycles, unknown `depends_on` references, or
-/// duplicate names.
-pub fn topo_sort<E>(stream: impl IntoIterator<Item = &'static E>) -> Vec<&'static E::Item>
+/// One entry that was filtered out of `topo_sort` because the active
+/// condition set didn't cover its `requires`. Surfaced so the runner
+/// can emit a `Status::Skipped` row.
+pub struct SkippedEntry {
+    pub name: &'static str,
+    pub missing: Conditions,
+}
+
+/// Result of building a registry against an active condition set.
+pub struct RegistryBuild<I: ?Sized + 'static> {
+    /// Topologically-sorted entries that passed the condition filter.
+    pub items: Vec<&'static I>,
+    /// Entries filtered out, in alphabetical order by name.
+    pub skipped: Vec<SkippedEntry>,
+}
+
+/// Collect entries by name, panicking on duplicate registrations.
+fn index_by_name<E: RegistryEntry>(
+    stream: impl IntoIterator<Item = &'static E>,
+) -> BTreeMap<&'static str, &'static E>
 where
-    E: RegistryEntry,
     E::Item: Named,
 {
-    let mut entries: BTreeMap<&'static str, &'static E> = BTreeMap::new();
+    let mut out: BTreeMap<&'static str, &'static E> = BTreeMap::new();
     for e in stream {
         let n = e.value().name();
-        if entries.insert(n, e).is_some() {
+        if out.insert(n, e).is_some() {
             panic!("duplicate {} name '{}'", E::KIND, n);
         }
     }
+    out
+}
 
-    // Validate dependency references.
-    for e in entries.values() {
-        for dep in e.depends_on() {
-            if !entries.contains_key(dep) {
-                panic!(
-                    "{} '{}' depends on unknown {} '{}'",
-                    E::KIND,
-                    e.value().name(),
-                    E::KIND,
-                    dep
-                );
-            }
+/// Partition entries into runnable (filter passes) and skipped (filter
+/// reports missing condition bits). Skipped entries come out in
+/// alphabetical order — the input map is already a `BTreeMap`, and
+/// `partition_map` preserves iteration order.
+fn partition_by_conditions<E: RegistryEntry>(
+    all: BTreeMap<&'static str, &'static E>,
+    active: Conditions,
+) -> (BTreeMap<&'static str, &'static E>, Vec<SkippedEntry>) {
+    use itertools::{Either, Itertools};
+    all.into_iter().partition_map(|(name, e)| {
+        let missing = e.requires().missing_from(active);
+        if missing.is_empty() {
+            Either::Left((name, e))
+        } else {
+            Either::Right(SkippedEntry { name, missing })
         }
-    }
+    })
+}
 
-    let mut in_degree: BTreeMap<&'static str, usize> = entries.keys().map(|n| (*n, 0)).collect();
-    for e in entries.values() {
-        *in_degree.get_mut(e.value().name()).unwrap() = e.depends_on().len();
-    }
+/// Panic if any runnable entry depends on a name that either doesn't
+/// exist or was filtered out as skipped. A runnable depending on a
+/// skipped is a configuration bug — gate the dependent on the same
+/// condition or drop the dependency.
+fn validate_deps<E: RegistryEntry>(
+    runnable: &BTreeMap<&'static str, &'static E>,
+    skipped: &[SkippedEntry],
+) where
+    E::Item: Named,
+{
+    // Flatten (entry, dep) pairs, stop at the first missing dep.
+    let bad = runnable
+        .values()
+        .flat_map(|e| e.depends_on().iter().map(move |d| (e, d)))
+        .find(|(_, dep)| !runnable.contains_key(*dep));
 
-    // BTreeSet keeps the ready set sorted for stable output.
+    let Some((e, dep)) = bad else { return };
+    if let Some(sk) = skipped.iter().find(|s| s.name == *dep) {
+        panic!(
+            "{} '{}' depends on {} '{}' which was skipped (missing {:?}). \
+             Either gate '{}' on the same condition or drop the dependency.",
+            E::KIND,
+            e.value().name(),
+            E::KIND,
+            dep,
+            sk.missing,
+            e.value().name(),
+        );
+    }
+    panic!(
+        "{} '{}' depends on unknown {} '{}'",
+        E::KIND,
+        e.value().name(),
+        E::KIND,
+        dep,
+    );
+}
+
+/// Run Kahn's algorithm over the validated runnable set. Returns the
+/// topo-sorted name sequence; panics on cycle. Ties are broken
+/// alphabetically because the ready set is a `BTreeSet`.
+fn topo_order<E: RegistryEntry>(runnable: &BTreeMap<&'static str, &'static E>) -> Vec<&'static str>
+where
+    E::Item: Named,
+{
+    let mut in_degree: BTreeMap<&'static str, usize> = runnable
+        .iter()
+        .map(|(n, e)| (*n, e.depends_on().len()))
+        .collect();
     let mut ready: BTreeSet<&'static str> = in_degree
         .iter()
         .filter(|&(_, &d)| d == 0)
         .map(|(n, _)| *n)
         .collect();
-
-    let mut order: Vec<&'static str> = Vec::with_capacity(entries.len());
+    let mut order = Vec::with_capacity(runnable.len());
     while let Some(&name) = ready.iter().next() {
         ready.remove(name);
         order.push(name);
-        for e in entries.values() {
+        for e in runnable.values() {
             if e.depends_on().contains(&name) {
                 let d = in_degree.get_mut(e.value().name()).unwrap();
                 *d -= 1;
@@ -85,8 +154,7 @@ where
             }
         }
     }
-
-    if order.len() != entries.len() {
+    if order.len() != runnable.len() {
         let remaining: Vec<&str> = in_degree
             .iter()
             .filter(|&(_, &d)| d > 0)
@@ -94,8 +162,30 @@ where
             .collect();
         panic!("{} dependency cycle among: {remaining:?}", E::KIND);
     }
+    order
+}
 
-    order.into_iter().map(|n| entries[n].value()).collect()
+/// Topologically sort a stream of entries by their `depends_on` edges,
+/// filtering by the active condition set.
+///
+/// Ties (entries with the same satisfied-dep set) are broken
+/// alphabetically by name. Panics on dependency cycles, unknown
+/// `depends_on` references, duplicate names, or a runnable entry that
+/// depends on a skipped entry.
+pub fn topo_sort<E>(
+    stream: impl IntoIterator<Item = &'static E>,
+    active: Conditions,
+) -> RegistryBuild<E::Item>
+where
+    E: RegistryEntry,
+    E::Item: Named,
+{
+    let all = index_by_name::<E>(stream);
+    let (runnable, skipped) = partition_by_conditions::<E>(all, active);
+    validate_deps::<E>(&runnable, &skipped);
+    let order = topo_order::<E>(&runnable);
+    let items = order.into_iter().map(|n| runnable[n].value()).collect();
+    RegistryBuild { items, skipped }
 }
 
 /// Items materialized through a `RegistryEntry` must expose a static name.
@@ -148,7 +238,11 @@ mod tests {
     #[test]
     fn empty_input_returns_empty() {
         let entries: Vec<&'static TestEntry> = Vec::new();
-        assert!(topo_sort::<TestEntry>(entries).is_empty());
+        assert!(
+            topo_sort::<TestEntry>(entries, Conditions::empty())
+                .items
+                .is_empty()
+        );
     }
 
     #[test]
@@ -157,7 +251,7 @@ mod tests {
             item: &A_ITEM,
             deps: &[],
         };
-        let out = topo_sort::<TestEntry>(vec![&A]);
+        let out = topo_sort::<TestEntry>(vec![&A], Conditions::empty()).items;
         assert_eq!(names(out), vec!["A"]);
     }
 
@@ -175,7 +269,7 @@ mod tests {
             item: &C_ITEM,
             deps: &["B"],
         };
-        let out = topo_sort::<TestEntry>(vec![&C, &A, &B]);
+        let out = topo_sort::<TestEntry>(vec![&C, &A, &B], Conditions::empty()).items;
         assert_eq!(names(out), vec!["A", "B", "C"]);
     }
 
@@ -197,7 +291,7 @@ mod tests {
             item: &D_ITEM,
             deps: &["B", "C"],
         };
-        let out = names(topo_sort::<TestEntry>(vec![&A, &B, &C, &D]));
+        let out = names(topo_sort::<TestEntry>(vec![&A, &B, &C, &D], Conditions::empty()).items);
         assert_eq!(out, vec!["A", "B", "C", "D"]);
     }
 
@@ -211,7 +305,7 @@ mod tests {
             item: &Z_ITEM,
             deps: &[],
         };
-        let out = names(topo_sort::<TestEntry>(vec![&Z, &A]));
+        let out = names(topo_sort::<TestEntry>(vec![&Z, &A], Conditions::empty()).items);
         assert_eq!(out, vec!["A", "Z"]);
     }
 
@@ -226,7 +320,7 @@ mod tests {
             item: &A_ITEM,
             deps: &[],
         };
-        let _ = topo_sort::<TestEntry>(vec![&A1, &A2]);
+        let _ = topo_sort::<TestEntry>(vec![&A1, &A2], Conditions::empty());
     }
 
     #[test]
@@ -236,7 +330,7 @@ mod tests {
             item: &A_ITEM,
             deps: &["X"],
         };
-        let _ = topo_sort::<TestEntry>(vec![&A]);
+        let _ = topo_sort::<TestEntry>(vec![&A], Conditions::empty());
     }
 
     #[test]
@@ -250,6 +344,55 @@ mod tests {
             item: &B_ITEM,
             deps: &["A"],
         };
-        let _ = topo_sort::<TestEntry>(vec![&A, &B]);
+        let _ = topo_sort::<TestEntry>(vec![&A, &B], Conditions::empty());
+    }
+
+    static GATED_ITEM: TestItem = TestItem("Gated");
+
+    /// A TestEntry that requires STRICT_VERSIONING — used to exercise
+    /// the condition-filter path without polluting the default
+    /// TestEntry shape used by every other test.
+    struct GatedEntry {
+        item: &'static TestItem,
+        deps: &'static [&'static str],
+    }
+
+    impl RegistryEntry for GatedEntry {
+        type Item = TestItem;
+        const KIND: &'static str = "test";
+
+        fn depends_on(&self) -> &'static [&'static str] {
+            self.deps
+        }
+        fn value(&self) -> &'static TestItem {
+            self.item
+        }
+        fn requires(&self) -> Conditions {
+            Conditions::STRICT_VERSIONING
+        }
+    }
+
+    #[test]
+    fn gated_entry_skipped_when_condition_inactive() {
+        static G: GatedEntry = GatedEntry {
+            item: &GATED_ITEM,
+            deps: &[],
+        };
+        let build = topo_sort::<GatedEntry>(vec![&G], Conditions::empty());
+        assert!(build.items.is_empty());
+        assert_eq!(build.skipped.len(), 1);
+        assert_eq!(build.skipped[0].name, "Gated");
+        assert_eq!(build.skipped[0].missing, Conditions::STRICT_VERSIONING);
+    }
+
+    #[test]
+    fn gated_entry_runs_when_condition_active() {
+        static G: GatedEntry = GatedEntry {
+            item: &GATED_ITEM,
+            deps: &[],
+        };
+        let build = topo_sort::<GatedEntry>(vec![&G], Conditions::STRICT_VERSIONING);
+        assert_eq!(names(build.items), vec!["Gated"]);
+        assert!(build.skipped.is_empty());
     }
 }

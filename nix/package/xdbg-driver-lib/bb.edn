@@ -1,0 +1,14 @@
+{:paths ["." "src" "test"]
+ :tasks
+ {test {:doc "Run all tests"
+        :requires ([clojure.test])
+        :task (do
+                (require 'xdbg-driver-lib.git-test
+                         'xdbg-driver-lib.versions-test
+                         'xdbg-driver-lib.xdbg-test)
+                (let [{:keys [fail error]}
+                      (clojure.test/run-tests
+                        'xdbg-driver-lib.git-test
+                        'xdbg-driver-lib.versions-test
+                        'xdbg-driver-lib.xdbg-test)]
+                  (System/exit (if (zero? (+ fail error)) 0 1))))}}}

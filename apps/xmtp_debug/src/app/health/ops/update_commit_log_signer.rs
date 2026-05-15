@@ -25,15 +25,9 @@ impl HealthOp for UpdateCommitLogSigner {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
                 let signer: Secret = vec![0u8; 32].into();
-                group
-                    .update_commit_log_signer(signer)
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                group.update_commit_log_signer(signer).await?;
                 Ok(())
             }
             .await;
@@ -67,5 +61,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateCommitLogSigner,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

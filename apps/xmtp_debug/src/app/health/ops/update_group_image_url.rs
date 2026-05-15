@@ -24,14 +24,10 @@ impl HealthOp for UpdateGroupImageUrlSquare {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
                 group
                     .update_group_image_url_square("https://example.invalid/img.png".into())
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                    .await?;
                 Ok(())
             }
             .await;
@@ -67,5 +63,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateGroupImageUrlSquare,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

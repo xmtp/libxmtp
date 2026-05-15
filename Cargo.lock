@@ -13987,6 +13987,7 @@ version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
+ "bitflags 2.11.1",
  "chrono",
  "clap",
  "clap-verbosity-flag",
@@ -14023,6 +14024,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-appender",
+ "tracing-error",
  "tracing-log",
  "tracing-logfmt",
  "tracing-subscriber",

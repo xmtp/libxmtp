@@ -1,23 +1,31 @@
-name: cross-version-test
+name: cross-test
 
-# Sanity-check that xdbg builds across recent versions remain compatible
-# when sharing one xdbg data dir. Two jobs run in parallel for every
-# PR / cron / dispatch:
+# Sanity-check that xdbg builds across recent versions remain
+# compatible. Two dimensions × two values = 4 jobs run in parallel for
+# every PR / cron / dispatch:
 #
-#   stable-only — last two stable release branches + HEAD. Strict.
-#                 Catches regressions that affect what we'd ship in a
-#                 release; unaffected by broken nightlies.
+#   kind:
+#     cross-version — share one xdbg data dir across versions; tests
+#                     DB-format / migration compatibility.
+#     cross-talk    — each version runs under --strict-versioning
+#                     against a shared XDBG_DB_ROOT; tests wire-level
+#                     MLS interop instead of DB-format compat.
 #
-#   with-nightlies — same + N most-recent nightlies. Lenient (a nightly
-#                    runtime failure warns + continues, doesn't fail the
-#                    job). Covers main-branch drift between releases.
+#   profile:
+#     stable        — last two stable release branches + HEAD. Strict.
+#                     Catches regressions that affect what we'd ship in
+#                     a release; unaffected by broken nightlies.
+#     nightly       — same + N most-recent nightlies. Lenient (nightly
+#                     runtime failure warns + continues, doesn't fail
+#                     the job). Covers main-branch drift between
+#                     releases.
 #
-# Two jobs because a single broken nightly otherwise blocks the whole
-# run, including the stable-only signal we actually need for releases.
+# Each (kind, profile) is independently meaningful: a broken nightly
+# in cross-talk shouldn't mask a stable cross-version regression, and
+# vice versa.
 #
-# All logic lives in the packaged driver; this workflow only wires
-# triggers + nix invocations. See:
-#   docs/superpowers/specs/2026-05-08-xdbg-cross-version-compat-design.md
+# All logic lives in the packaged drivers; this workflow only wires
+# triggers + nix invocations.
 
 on:
   pull_request:
@@ -40,7 +48,7 @@ on:
       - "Cargo.lock"
       - "flake.nix"
       - "nix/**"
-      - ".github/workflows/cross-version-test.yml"
+      - ".github/workflows/cross-test.yml"
   push:
     branches:
       - main
@@ -67,21 +75,27 @@ concurrency:
 
 jobs:
   compat:
-    name: ${{ matrix.profile }}
+    name: ${{ matrix.kind }} (${{ matrix.profile }})
     runs-on: warp-ubuntu-latest-x64-16x
     strategy:
-      # Both profiles always run; one is independently meaningful even if
-      # the other fails (e.g. nightly breakage doesn't mask stable signal).
+      # All four cells always run; each (kind, profile) is independently
+      # meaningful — broken nightlies in cross-talk don't mask stable
+      # cross-version signal, and vice versa.
       fail-fast: false
       matrix:
         include:
-          - profile: stable
+          - kind: cross-version
+            profile: stable
             sample-size: "0"
-            lenient: ""
-          - profile: nightly
-            # sample-size resolved at runtime from inputs.nightly-sample-size
+          - kind: cross-version
+            profile: nightly
             sample-size: ""
-            lenient: "--lenient-nightlies"
+          - kind: cross-talk
+            profile: stable
+            sample-size: "0"
+          - kind: cross-talk
+            profile: nightly
+            sample-size: ""
     steps:
       # Shallow clone of just the PR ref, with NO tags. The repo carries
       # ~1500 tags (per-commit cli/binding tags) that otherwise dominate
@@ -93,43 +107,13 @@ jobs:
           fetch-depth: 1
           fetch-tags: false
 
-      - name: Fetch release branches + nightly tags
-        run: |
-          set -euo pipefail
-          # Stable branches for last_two_stable_branches() resolution.
-          git fetch origin \
-            '+refs/heads/release/*:refs/remotes/origin/release/*' \
-            --no-tags --depth=1
-
-          # Nightly tags only (skip ~1500 cli/kotlin/swift/ios per-commit
-          # tags that dominate fetch time). `git fetch` refspecs reject
-          # mid-pattern globs, so list remote tags first, filter to the
-          # nightly-binding patterns the script's regex actually matches,
-          # then fetch by exact name.
-          mapfile -t nightly_tags < <(
-            git ls-remote --tags --refs origin \
-              | awk '{print $2}' \
-              | sed 's|^refs/tags/||' \
-              | grep -E '^(node-bindings|wasm-bindings|android|ios)-.*-nightly\.[0-9]{8}\.[0-9a-f]{7}$'
-          )
-          if [ "${#nightly_tags[@]}" -eq 0 ]; then
-            echo "::warning::no nightly tags matched; nightly sampling will be empty"
-          else
-            echo "Fetching ${#nightly_tags[@]} nightly tags"
-            # Build refspec list: refs/tags/<name>:refs/tags/<name>
-            refspecs=()
-            for t in "${nightly_tags[@]}"; do
-              refspecs+=("refs/tags/${t}:refs/tags/${t}")
-            done
-            git fetch origin --no-tags --depth=1 "${refspecs[@]}"
-          fi
-
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          with-warpbuild-cache: "false"
+          with-warpbuild-cache: "true"
+          gc-max-store-size: "5G"
 
       - name: Resolve sample size
         id: sample
@@ -148,34 +132,22 @@ jobs:
           fi
           echo "size=$size" >> "$GITHUB_OUTPUT"
 
-      - name: Pick versions
-        id: pick
-        env:
-          SAMPLE_SIZE: ${{ steps.sample.outputs.size }}
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          set -euo pipefail
-          nix run .#cross-version-test -- pick-versions \
-            --sample-size "$SAMPLE_SIZE" \
-            > plan.json
-          jq . plan.json
-          {
-            echo "## xdbg cross-version plan ($PROFILE, sample-size: $SAMPLE_SIZE)"
-            echo
-            echo '```json'
-            jq . plan.json
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Run sequence
         id: run
         env:
           BACKEND: ${{ inputs.backend || 'dev' }}
-          LENIENT: ${{ matrix.lenient }}
+          PROFILE: ${{ matrix.profile }}
+          SAMPLE_SIZE: ${{ steps.sample.outputs.size }}
+          KIND: ${{ matrix.kind }}
+        # The driver handles bootstrap-fetch, version picking, plan
+        # emission to GITHUB_STEP_SUMMARY, plan.json artifact, and the
+        # phase loop. The matrix.profile value ("stable" or "nightly")
+        # also controls lenient-nightly handling inside the driver.
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2086  # LENIENT is either empty or a single flag
-          nix run .#cross-version-test -- run-sequence $LENIENT plan.json
+          nix run ".#${KIND}-test" -- run \
+            --profile "$PROFILE" \
+            --sample-size "$SAMPLE_SIZE"
 
       # xdbg's NDJSON log files are named "YYYY-MM-DD HH:MM:SS.json".
       # actions/upload-artifact rejects filenames with `:`, `<`, `>`, etc.
@@ -184,7 +156,7 @@ jobs:
         # Belt-and-suspenders: require out_dir to be set AND look like one
         # of our temp dirs so a bug elsewhere can't expand the glob into
         # an absolute root path (`/**/*.json`).
-        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        if: always() && steps.run.outputs.out_dir != '' && (contains(steps.run.outputs.out_dir, 'xvt-out') || contains(steps.run.outputs.out_dir, 'ctt-out'))
         env:
           OUT_DIR: ${{ steps.run.outputs.out_dir }}
         run: |
@@ -207,10 +179,10 @@ jobs:
         # Belt-and-suspenders: require out_dir to be set AND look like one
         # of our temp dirs so a bug elsewhere can't expand the glob into
         # an absolute root path (`/**/*.json`).
-        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        if: always() && steps.run.outputs.out_dir != '' && (contains(steps.run.outputs.out_dir, 'xvt-out') || contains(steps.run.outputs.out_dir, 'ctt-out'))
         uses: actions/upload-artifact@v7
         with:
-          name: cross-version-test-${{ matrix.profile }}-summary-${{ github.run_id }}
+          name: ${{ matrix.kind }}-${{ matrix.profile }}-summary-${{ github.run_id }}
           path: |
             plan.json
             ${{ steps.run.outputs.out_dir }}/summary.json
@@ -221,10 +193,10 @@ jobs:
         # Belt-and-suspenders: require out_dir to be set AND look like one
         # of our temp dirs so a bug elsewhere can't expand the glob into
         # an absolute root path (`/**/*.json`).
-        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        if: always() && steps.run.outputs.out_dir != '' && (contains(steps.run.outputs.out_dir, 'xvt-out') || contains(steps.run.outputs.out_dir, 'ctt-out'))
         uses: actions/upload-artifact@v7
         with:
-          name: cross-version-test-${{ matrix.profile }}-libxmtp-logs-${{ github.run_id }}
+          name: ${{ matrix.kind }}-${{ matrix.profile }}-libxmtp-logs-${{ github.run_id }}
           path: |
             ${{ steps.run.outputs.out_dir }}/**/*.json
             !${{ steps.run.outputs.out_dir }}/summary.json

@@ -75,11 +75,19 @@
             ios = pkgs.callPackage ./nix/shells/ios.nix { };
           };
           packages = {
-            inherit (pkgs.xmtp) ffi-uniffi-bindgen;
-            inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
+            inherit (pkgs.xmtp)
+              ffi-uniffi-bindgen
+              mkBabashkaApp
+              xdbg-driver-lib
+              cross-talk-test
+              cross-version-test
+              ;
+            inherit (pkgs)
+              napi-rs-cli
+              wasm-bindgen-cli
+              ;
             wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
             wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
-            cross-version-test = pkgs.callPackage ./nix/package/cross-version-test { };
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
             # stdenvNoCC is passed to callPackage (for the aggregate derivation).

@@ -9,7 +9,13 @@ use color_eyre::eyre::{Result, eyre};
 use openmls_rust_crypto::RustCrypto;
 use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_proto::mls_v1::fetch_key_packages_response;
+use xmtp_proto::{
+    mls_v1::{PagingInfo, fetch_key_packages_response},
+    xmtp::mls::{
+        api::v1::{BatchQueryCommitLogRequest, FetchKeyPackagesRequest, SortDirection},
+        message_contents::{CommitResult, PlaintextCommitLogEntry},
+    },
+};
 
 pub struct Query {
     opts: args::Query,
@@ -30,6 +36,7 @@ impl Query {
             args::Query::FetchKeyPackages(opts) => self.fetch_key_packages(opts).await,
             args::Query::BatchQueryCommitLog(opts) => self.batch_query_commit_log(opts).await,
             args::Query::AllKeyPackages => self.all_key_packages().await,
+            args::Query::Welcomes => self.welcomes().await,
         }
     }
 
@@ -124,7 +131,7 @@ impl Query {
 
         let client = self.network.connect()?;
         let res = client
-            .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
+            .fetch_key_packages(FetchKeyPackagesRequest {
                 installation_keys: installation_keys.iter().cloned().collect(),
             })
             .await?;
@@ -141,9 +148,9 @@ impl Query {
             .iter()
             .map(|x| {
                 Ok(xmtp_proto::xmtp::mls::api::v1::QueryCommitLogRequest {
-                    group_id: hex::decode(x).map_err(color_eyre::eyre::Report::from)?,
-                    paging_info: Some(xmtp_proto::xmtp::mls::api::v1::PagingInfo {
-                        direction: xmtp_proto::xmtp::mls::api::v1::SortDirection::Ascending as i32,
+                    group_id: hex::decode(x)?,
+                    paging_info: Some(PagingInfo {
+                        direction: SortDirection::Ascending as i32,
                         limit: 100,
                         id_cursor: 0,
                     }),
@@ -152,9 +159,7 @@ impl Query {
             .collect::<Result<Vec<_>>>()?;
         let client = self.network.connect()?;
         let res = client
-            .query_commit_log(xmtp_proto::xmtp::mls::api::v1::BatchQueryCommitLogRequest {
-                requests,
-            })
+            .query_commit_log(BatchQueryCommitLogRequest { requests })
             .await?;
         for response in res.responses {
             println!(
@@ -164,18 +169,10 @@ impl Query {
             );
             for commit in response.commit_log_entries {
                 let entry =
-                    xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry::decode(
-                        commit.serialized_commit_log_entry.as_slice(),
-                    )?;
-                let commit_result =
-                    xmtp_proto::xmtp::mls::message_contents::CommitResult::try_from(
-                        entry.commit_result,
-                    )
-                    .unwrap_or(xmtp_proto::xmtp::mls::message_contents::CommitResult::Unspecified);
-                if opts.skip_unspecified
-                    && commit_result
-                        == xmtp_proto::xmtp::mls::message_contents::CommitResult::Unspecified
-                {
+                    PlaintextCommitLogEntry::decode(commit.serialized_commit_log_entry.as_slice())?;
+                let commit_result = CommitResult::try_from(entry.commit_result)
+                    .unwrap_or(CommitResult::Unspecified);
+                if opts.skip_unspecified && commit_result == CommitResult::Unspecified {
                     continue;
                 }
                 println!("    sequence_id: {}", commit.sequence_id);
@@ -216,7 +213,7 @@ impl Query {
             "fetching key packages"
         );
         let res = client
-            .fetch_key_packages(xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest {
+            .fetch_key_packages(FetchKeyPackagesRequest {
                 installation_keys: keys.iter().map(Vec::from).collect(),
             })
             .await?;
@@ -225,6 +222,41 @@ impl Query {
             "{} total KeyPackages for {} identities",
             res.key_packages.len(),
             keys.len()
+        );
+        Ok(())
+    }
+
+    pub async fn welcomes(&self) -> Result<()> {
+        let store: IdentityStore = self.db.clone().into();
+        let network = u64::from(&self.network);
+        let identities = store
+            .load(network)?
+            .ok_or(eyre!("no identities in db, try generating some"))?;
+
+        let installations: Vec<([u8; 32], [u8; 32])> = identities
+            .map(|guard| {
+                let id = guard.value();
+                let cred = XmtpInstallationCredential::from_bytes(&id.installation_key).unwrap();
+                (*cred.public_bytes(), id.inbox_id)
+            })
+            .collect();
+
+        let client = self.network.connect()?;
+        let mut total = 0usize;
+        for (installation_id, inbox_id) in &installations {
+            let res = client
+                .query_welcome_messages((*installation_id).into())
+                .await?;
+            println!("  installation_id: {}", hex::encode(installation_id));
+            println!("    inbox_id: {}", hex::encode(inbox_id));
+            println!("    welcomes: {}", res.len());
+            total += res.len();
+            print_welcomes(&res);
+        }
+        tracing::info!(
+            "{} total welcomes across {} installations",
+            total,
+            installations.len()
         );
         Ok(())
     }
@@ -272,4 +304,40 @@ fn print_kps(
         );
     }
     Ok(())
+}
+
+fn print_welcomes(welcomes: &[xmtp_proto::types::WelcomeMessage]) {
+    use xmtp_common::fmt::debug_hex;
+    use xmtp_proto::types::WelcomeMessageType;
+
+    for w in welcomes {
+        println!("    - sequence_id: {}", w.sequence_id());
+        println!("      originator_id: {}", w.originator_id());
+        println!("      created: {}", w.created_ns);
+        match &w.variant {
+            WelcomeMessageType::V1(v1) => {
+                println!("      variant: V1");
+                println!("      installation_key: {}", v1.installation_key);
+                println!("      hpke_public_key: {}", debug_hex(&v1.hpke_public_key));
+                println!("      wrapper_algorithm: {:?}", v1.wrapper_algorithm);
+                println!("      data_bytes: {}", v1.data.len());
+                println!(
+                    "      welcome_metadata_bytes: {}",
+                    v1.welcome_metadata.len()
+                );
+            }
+            WelcomeMessageType::WelcomePointer(p) => {
+                println!("      variant: WelcomePointer");
+                println!("      installation_key: {}", p.installation_key);
+                println!("      hpke_public_key: {}", debug_hex(&p.hpke_public_key));
+                println!("      wrapper_algorithm: {:?}", p.wrapper_algorithm);
+                println!("      welcome_pointer_bytes: {}", p.welcome_pointer.len());
+            }
+            WelcomeMessageType::DecryptedWelcomePointer(d) => {
+                println!("      variant: DecryptedWelcomePointer");
+                println!("      destination: {}", d.destination);
+                println!("      aead_type: {:?}", d.aead_type);
+            }
+        }
+    }
 }

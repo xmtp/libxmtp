@@ -139,6 +139,7 @@
   perSystem =
     {
       pkgs,
+      lib,
       ...
     }:
     let
@@ -147,27 +148,31 @@
         napiBuild = final.callPackage ./napiBuild.nix { };
         uniffiGenerate = final.callPackage ./uniffiGenerate.nix { };
       };
-      mkToolchain = pkgs.callPackage ./mkToolchain.nix { inherit inputs; };
-    in
-    {
-      overlayAttrs = {
+      callPackage = lib.callPackageWith (pkgs // packages);
+      packages = rec {
+        mkBabashkaApp = callPackage ./mkBabashkaApp.nix { };
         xmtp = {
-          inherit mkToolchain;
-          # toolchain with native pkgs
-          mkNativeToolchain = mkToolchain pkgs;
           filesets = pkgs.callPackage ./filesets.nix { };
+          mkToolchain = callPackage ./mkToolchain.nix { inherit inputs; };
+          mkNativeToolchain = xmtp.mkToolchain pkgs;
+          xdbg-driver-lib = callPackage ./../package/xdbg-driver-lib { };
           craneLib = (inputs.crane.mkLib pkgs).overrideScope craneConfig;
-          base = pkgs.callPackage ./base.nix { };
-          androidEnv = pkgs.callPackage ./android-env.nix { };
-          iosEnv = pkgs.callPackage ./ios-env.nix { };
-          ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };
-          shellCommon = pkgs.callPackage ./shell-common.nix { };
+          base = callPackage ./base.nix { };
+          androidEnv = callPackage ./android-env.nix { };
+          iosEnv = callPackage ./ios-env.nix { };
+          ffi-uniffi-bindgen = callPackage ./packages/uniffi-bindgen.nix { };
+          shellCommon = callPackage ./shell-common.nix { };
           mkVersion = import ./mkVersion.nix;
           toNapiTarget = import ./napiTarget.nix;
           gitSha = self.shortRev or self.dirtyShortRev or "unknown";
           gitCommitDate = self.lastModifiedDate or "";
-          cross-version-test = pkgs.callPackage ./../package/cross-version-test { };
+          cross-version-test = callPackage ./../package/cross-version-test { };
+          cross-talk-test = callPackage ./../package/cross-talk-test { };
         };
+      };
+    in
+    {
+      overlayAttrs = packages // {
         wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
         napi-rs-cli = pkgs.callPackage ./packages/napi-rs-cli { };
         ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };

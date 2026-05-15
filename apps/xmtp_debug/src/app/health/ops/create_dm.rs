@@ -33,11 +33,9 @@ impl HealthOp for CreateDm {
                 let dm = ctx
                     .primary
                     .find_or_create_dm(peer_inbox.as_str(), None)
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                    .await?;
                 dm.send_message(b"hi from primary", SendMessageOpts::default())
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                    .await?;
                 Ok(())
             }
             .await;
@@ -56,16 +54,10 @@ impl HealthOp for CreateDm {
             // Direction B: peer → primary.
             let start = Instant::now();
             let dir_b: color_eyre::eyre::Result<()> = async {
-                peer.sync_all_welcomes_and_groups(None)
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
-                let dm = peer
-                    .find_or_create_dm(primary_inbox.as_str(), None)
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                peer.sync_all_welcomes_and_groups(None).await?;
+                let dm = peer.find_or_create_dm(primary_inbox.as_str(), None).await?;
                 dm.send_message(b"hi from peer", SendMessageOpts::default())
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                    .await?;
                 Ok(())
             }
             .await;
@@ -99,5 +91,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["CreateIdentity"],
         op: &CreateDm,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

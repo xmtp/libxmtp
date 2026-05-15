@@ -8,6 +8,10 @@ use owo_colors::OwoColorize;
 pub enum Status {
     Pass,
     Fail,
+    /// Op was registered but its required conditions weren't all
+    /// active for this run. Carries the bits that were missing so the
+    /// output line can explain *why* it was skipped.
+    Skipped(crate::app::health::conditions::Conditions),
 }
 
 pub struct OpResult {
@@ -39,22 +43,27 @@ impl Report {
             .any(|r| matches!(r.status, Status::Fail))
     }
 
-    pub fn counts(&self) -> (usize, usize) {
-        let failed = self
-            .results
-            .iter()
-            .filter(|r| matches!(r.status, Status::Fail))
-            .count();
-        let passed = self.results.len() - failed;
-        (passed, failed)
+    /// Returns `(passed, failed, skipped)`.
+    pub fn counts(&self) -> (usize, usize, usize) {
+        let mut passed = 0;
+        let mut failed = 0;
+        let mut skipped = 0;
+        for r in &self.results {
+            match r.status {
+                Status::Pass => passed += 1,
+                Status::Fail => failed += 1,
+                Status::Skipped(_) => skipped += 1,
+            }
+        }
+        (passed, failed, skipped)
     }
 
     pub fn print_summary(&self) {
-        let (passed, failed) = self.counts();
+        let (passed, failed, skipped) = self.counts();
         println!();
         println!("== Summary ==");
         println!(
-            "Total: {passed} passed, {failed} failed ({} total)",
+            "Total: {passed} passed, {failed} failed, {skipped} skipped ({} total)",
             self.results.len()
         );
         if self.has_failures() {
@@ -74,19 +83,37 @@ impl Default for Report {
 impl OpResult {
     /// Print a one-line `[✓]`/`[✗]` summary to stdout. Use [`Self::emit`]
     /// to additionally fire a structured `tracing` event.
+    /// Construct a `Skipped` result for an op that wasn't run because
+    /// its declared conditions weren't all active. `missing` is the
+    /// difference between `requires` and the active set.
+    pub fn skipped(
+        op_name: &'static str,
+        missing: crate::app::health::conditions::Conditions,
+    ) -> Self {
+        Self {
+            op_name,
+            target: None,
+            status: Status::Skipped(missing),
+            duration: Duration::ZERO,
+            error: None,
+        }
+    }
+
     pub fn print(&self) {
         let mark = match self.status {
             Status::Pass => "[✓]".green().to_string(),
             Status::Fail => "[✗]".red().to_string(),
+            Status::Skipped(_) => "[—]".yellow().to_string(),
         };
         let duration_ms = self.duration.as_millis();
         let target = self.target.as_deref().unwrap_or("");
-        let err = match &self.error {
-            Some(e) => format!(" — error: {e:#}"),
-            None => String::new(),
+        let suffix = match (&self.status, &self.error) {
+            (Status::Skipped(missing), _) => format!(" — skipped: requires {missing:?}"),
+            (_, Some(e)) => format!(" — error: {e:#}"),
+            (_, None) => String::new(),
         };
         println!(
-            "{mark} {name:<32} ({duration_ms:>5}ms) {target}{err}",
+            "{mark} {name:<32} ({duration_ms:>5}ms) {target}{suffix}",
             name = self.op_name
         );
     }
@@ -114,6 +141,14 @@ impl OpResult {
                 error = ?self.error,
                 "op failed"
             ),
+            Status::Skipped(missing) => tracing::info!(
+                target: "healthcheck",
+                op = self.op_name,
+                status = "skipped",
+                target = %self.target.as_deref().unwrap_or(""),
+                missing = ?missing,
+                "op skipped"
+            ),
         }
     }
 }
@@ -121,6 +156,7 @@ impl OpResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::health::conditions::Conditions;
 
     fn mk(name: &'static str, status: Status) -> OpResult {
         OpResult {
@@ -138,7 +174,7 @@ mod tests {
         r.push(mk("A", Status::Pass));
         r.push(mk("B", Status::Fail));
         r.push(mk("C", Status::Pass));
-        assert_eq!(r.counts(), (2, 1));
+        assert_eq!(r.counts(), (2, 1, 0));
         assert!(r.has_failures());
     }
 
@@ -146,6 +182,27 @@ mod tests {
     fn empty_report_has_no_failures() {
         let r = Report::new();
         assert!(!r.has_failures());
-        assert_eq!(r.counts(), (0, 0));
+        assert_eq!(r.counts(), (0, 0, 0));
+    }
+
+    #[test]
+    fn skipped_counts_as_skipped_not_pass_or_fail() {
+        let mut r = Report::new();
+        r.push(mk("A", Status::Pass));
+        r.push(OpResult::skipped("B", Conditions::STRICT_VERSIONING));
+        r.push(OpResult::skipped("C", Conditions::STRICT_VERSIONING));
+        assert_eq!(r.counts(), (1, 0, 2));
+        assert!(!r.has_failures());
+    }
+
+    #[test]
+    fn skipped_constructor_records_missing_conditions() {
+        let r = OpResult::skipped("X", Conditions::STRICT_VERSIONING);
+        assert_eq!(r.op_name, "X");
+        match r.status {
+            Status::Skipped(m) => assert_eq!(m, Conditions::STRICT_VERSIONING),
+            _ => panic!("expected Skipped"),
+        }
+        assert!(r.error.is_none());
     }
 }

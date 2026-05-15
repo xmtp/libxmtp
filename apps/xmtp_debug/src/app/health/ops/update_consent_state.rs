@@ -24,13 +24,8 @@ impl HealthOp for UpdateConsentState {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
-                group
-                    .update_consent_state(ConsentState::Allowed)
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
+                group.update_consent_state(ConsentState::Allowed)?;
                 Ok(())
             })();
             let (status, error) = match outcome {
@@ -68,13 +63,8 @@ impl HealthOp for UpdateConsentStateQuiet {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
-                group
-                    .quietly_update_consent_state(ConsentState::Allowed, &db)
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
+                group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
                 Ok(())
             })();
             let (status, error) = match outcome {
@@ -108,6 +98,7 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateConsentState,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }
 
@@ -115,5 +106,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["UpdateConsentState"],
         op: &UpdateConsentStateQuiet,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

@@ -25,15 +25,14 @@ async fn send_one(
 ) -> OpResult {
     let start = Instant::now();
     let outcome: color_eyre::eyre::Result<Option<[u8; 32]>> = async {
-        let group = client.group(gid).map_err(color_eyre::eyre::Report::from)?;
-        if !group.is_active().map_err(color_eyre::eyre::Report::from)? {
+        let group = client.group(gid)?;
+        if !group.is_active()? {
             return Ok(None);
         }
         let body = format!("healthcheck from {}", client.inbox_id());
         let message_id = group
             .send_message(body.as_bytes(), SendMessageOpts::default())
-            .await
-            .map_err(color_eyre::eyre::Report::from)?;
+            .await?;
         let id: [u8; 32] = message_id
             .as_slice()
             .try_into()
@@ -90,5 +89,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &SendMessage,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

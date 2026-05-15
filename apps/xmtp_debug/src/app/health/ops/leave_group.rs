@@ -42,25 +42,13 @@ impl HealthOp for LeaveGroup {
 
             // Primary adds the transient to the group, then transient
             // syncs the welcome and leaves.
-            let primary_group = ctx
-                .primary
-                .group(&gid)
-                .map_err(color_eyre::eyre::Report::from)?;
+            let primary_group = ctx.primary.group(&gid)?;
             primary_group
                 .add_members(&[transient.inbox_id().to_string()])
-                .await
-                .map_err(color_eyre::eyre::Report::from)?;
-            transient
-                .sync_welcomes()
-                .await
-                .map_err(color_eyre::eyre::Report::from)?;
-            let transient_group = transient
-                .group(&gid)
-                .map_err(color_eyre::eyre::Report::from)?;
-            transient_group
-                .leave_group()
-                .await
-                .map_err(color_eyre::eyre::Report::from)?;
+                .await?;
+            transient.sync_welcomes().await?;
+            let transient_group = transient.group(&gid)?;
+            transient_group.leave_group().await?;
             Ok(())
         }
         .await;
@@ -104,5 +92,6 @@ inventory::submit! {
             "GetMutableMetadata",
         ],
         op: &LeaveGroup,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fmt, str::FromStr};
+use std::{borrow::Borrow, fmt, ops::Deref, str::FromStr};
 
 #[cfg(feature = "diesel")]
 use diesel::{
@@ -67,6 +67,26 @@ impl GroupId {
     }
 }
 
+// a fixed slice [T; N] implements deref for &[u8], so by
+// impl deref on teh [T; N] we also get &[u8] deref for free.
+impl Deref for GroupId {
+    type Target = [u8; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> AsRef<T> for GroupId
+where
+    T: ?Sized,
+    <GroupId as Deref>::Target: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.deref().as_ref()
+    }
+}
+
 // --- Infallible constructors -------------------------------------------------
 
 impl From<[u8; 16]> for GroupId {
@@ -78,6 +98,12 @@ impl From<[u8; 16]> for GroupId {
 impl From<&[u8; 16]> for GroupId {
     fn from(v: &[u8; 16]) -> Self {
         GroupId(*v)
+    }
+}
+
+impl From<GroupId> for [u8; 16] {
+    fn from(v: GroupId) -> Self {
+        v.0
     }
 }
 
@@ -120,14 +146,8 @@ impl From<GroupId> for Vec<u8> {
     }
 }
 
-impl AsRef<[u8]> for GroupId {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl Borrow<[u8]> for GroupId {
-    fn borrow(&self) -> &[u8] {
+impl Borrow<[u8; 16]> for GroupId {
+    fn borrow(&self) -> &[u8; 16] {
         &self.0
     }
 }

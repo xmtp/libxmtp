@@ -15,6 +15,7 @@ mod add_members;
 mod create_dm;
 mod create_group;
 mod create_identity;
+mod ensure_per_version_membership;
 mod get_mutable_metadata;
 mod leave_group;
 mod remove_member;
@@ -44,6 +45,9 @@ impl Named for dyn HealthOp {
     }
 }
 
+use crate::app::health::conditions::Conditions;
+use crate::app::health::registry::RegistryBuild;
+
 /// Self-registration entry for an op. Each op submits one of these from
 /// its own module via `inventory::submit!`. The name lives on the op's own
 /// `HealthOp::name()` impl — no duplication on the entry.
@@ -53,6 +57,10 @@ pub struct OpEntry {
     /// `&'static` reference to the op's impl. Ops are zero-sized unit
     /// structs, so `&MyOp` is `'static`-promotable in a `static` context.
     pub op: &'static (dyn HealthOp + Sync),
+    /// Condition bits this op needs to be runnable. `Conditions::ALWAYS`
+    /// = always runnable. Non-empty entries are skipped when the active
+    /// set (see `Conditions::active`) doesn't cover them.
+    pub requires: Conditions,
 }
 
 inventory::collect!(OpEntry);
@@ -67,9 +75,13 @@ impl RegistryEntry for OpEntry {
     fn value(&self) -> &'static dyn HealthOp {
         self.op
     }
+    fn requires(&self) -> Conditions {
+        self.requires
+    }
 }
 
-/// Topologically-sorted list of every registered op.
-pub fn registry() -> Vec<&'static dyn HealthOp> {
-    registry::topo_sort::<OpEntry>(inventory::iter::<OpEntry>)
+/// Build the op registry against an active condition set. Returns
+/// the topo-sorted runnable ops plus a skip log for filtered entries.
+pub fn registry(active: Conditions) -> RegistryBuild<dyn HealthOp> {
+    registry::topo_sort::<OpEntry>(inventory::iter::<OpEntry>, active)
 }

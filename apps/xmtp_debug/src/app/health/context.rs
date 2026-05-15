@@ -1,11 +1,11 @@
 //! Shared state for the health-check run.
 
 use crate::DbgClient;
-use crate::app::store::{Database, GroupStore, IdentityStore, MessageStore};
+use crate::app::store::{Database, GroupStore, IdentityStore, MessageStore, NetworkKey};
 use crate::app::types::{Group, Identity, InboxId, Message};
 use crate::app::{self, App};
 use crate::args;
-use color_eyre::eyre::{Result, eyre};
+use color_eyre::eyre::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -29,6 +29,11 @@ pub struct HealthContext {
     /// On a fresh run, contains the freshly-bootstrapped identities.
     pub existing_clients: HashMap<InboxId, Arc<DbgClient>>,
 
+    /// Identities we do not have a client for (different
+    /// `version_hash` partition), but which member-add ops should
+    /// still include so cross-version groups stay in sync.
+    pub other_identities: Vec<InboxId>,
+
     /// Group IDs loaded from the redb `GroupStore` for this network.
     /// Stored as the raw 16-byte ids as produced by libxmtp.
     pub existing_groups: Vec<GroupId>,
@@ -37,16 +42,6 @@ pub struct HealthContext {
     /// HealthContext` and mutate this directly — execution is sequential
     /// so no synchronization is needed.
     pub new_groups: Vec<GroupId>,
-
-    /// Random 16-byte id generated at bootstrap. Stamped on every
-    /// recorded `Message` so cross-version tooling can attribute messages
-    /// to specific runs without scanning logs.
-    pub op_run_id: [u8; 16],
-
-    /// `crate::get_version()` output of the running xdbg binary. Stamped
-    /// alongside `op_run_id` so a recovered redb row carries enough
-    /// origin info for debugging.
-    pub xdbg_version: String,
 
     /// The active network. Held so helpers (`record_message`,
     /// `recorded_messages`) can re-open `MessageStore` without threading
@@ -63,11 +58,22 @@ impl HealthContext {
         let group_store: GroupStore<'static> = redb.into();
         let net_key = u64::from(&network);
 
-        // 1. Existing identities.
-        let identity_count = id_store
+        // 1. Existing identities. Walk the full id_store once to count
+        //    and to collect non-current-version inboxes (those we won't
+        //    build clients for, but which member-add ops still include).
+        let current_vh = App::current_version_hash();
+        let (identity_count, other_identities) = id_store
             .load(net_key)?
-            .map(|iter| iter.count())
-            .unwrap_or(0);
+            .map(|iter| {
+                iter.fold((0usize, Vec::<InboxId>::new()), |(n, mut others), guard| {
+                    let id = guard.value();
+                    if id.version_hash != current_vh {
+                        others.push(id.inbox_id);
+                    }
+                    (n + 1, others)
+                })
+            })
+            .unwrap_or((0, Vec::new()));
 
         let mut existing_clients: HashMap<InboxId, Arc<DbgClient>> = HashMap::new();
 
@@ -116,32 +122,30 @@ impl HealthContext {
         // 3. Existing groups from redb.
         let existing_groups = group_store
             .load(net_key)?
-            .map(|iter| {
-                iter.map(|g| GroupId::from(g.value().id))
-                    .collect::<Vec<_>>()
-            })
+            .map(|iter| iter.map(|g| g.value().id()).collect::<Vec<_>>())
             .unwrap_or_default();
 
         tracing::info!(
             target: "healthcheck",
             existing_identities = existing_clients.len(),
+            other_identities = other_identities.len(),
             existing_groups = existing_groups.len(),
             "health context bootstrapped"
         );
 
-        let op_run_id: [u8; 16] = rand::random();
-        let xdbg_version = crate::get_version();
-
-        Ok(Self {
+        let ctx = Self {
             network,
             primary,
             existing_clients,
+            other_identities,
             existing_groups,
             new_groups: Vec::new(),
-            op_run_id,
-            xdbg_version,
             network_key: net_key,
-        })
+        };
+        // Drain welcomes left server-side by prior cross-version runs;
+        // without this the first `client.group(<gid>)` hits "not found".
+        ctx.sync_welcomes_fanout("bootstrap").await;
+        Ok(ctx)
     }
 
     /// Register a fresh single-use identity. Not persisted to redb. Used
@@ -170,16 +174,12 @@ impl HealthContext {
         created_by: InboxId,
         members: Vec<InboxId>,
     ) {
-        let id = group_id_bytes(group_id).expect("libxmtp group_id is 16 bytes");
         let group_store: GroupStore<'static> = redb_or_panic("persist_new_group").into();
-        let group = Group {
-            id,
-            created_by,
-            member_size: members.len() as u32,
-            members,
-        };
         group_store
-            .set(group, u64::from(&self.network))
+            .set(
+                Group::new(*group_id, created_by, members),
+                u64::from(&self.network),
+            )
             .expect("redb GroupStore::set failed");
     }
 
@@ -190,10 +190,9 @@ impl HealthContext {
     ///
     /// Panics on redb failure or non-16-byte `group_id`.
     pub fn update_group_members(&self, group_id: &GroupId, members: Vec<InboxId>) {
-        let id = group_id_bytes(group_id).expect("libxmtp group_id is 16 bytes");
         let group_store: GroupStore<'static> = redb_or_panic("update_group_members").into();
         let net_key = u64::from(&self.network);
-        let key = crate::app::store::NetworkKey::new(net_key, id);
+        let key = NetworkKey::new(net_key, *group_id);
         // Preserve `created_by` if a row already exists; otherwise default
         // to zero — the field is informational, not load-bearing.
         let created_by = group_store
@@ -201,47 +200,22 @@ impl HealthContext {
             .expect("redb GroupStore::get failed")
             .map(|g| g.created_by)
             .unwrap_or([0u8; 32]);
-        let group = Group {
-            id,
-            created_by,
-            member_size: members.len() as u32,
-            members,
-        };
         group_store
-            .set(group, net_key)
+            .set(Group::new(*group_id, created_by, members), net_key)
             .expect("redb GroupStore::set failed");
     }
 
     /// Look up a persisted group's current members, if it's recorded.
     /// Returns an empty vec if the group is not in redb.
     pub fn persisted_members(&self, group_id: &GroupId) -> Vec<InboxId> {
-        let Ok(id) = group_id_bytes(group_id) else {
-            return Vec::new();
-        };
         let group_store: GroupStore<'static> = redb_or_panic("persisted_members").into();
         let net_key = u64::from(&self.network);
-        let key = crate::app::store::NetworkKey::new(net_key, id);
+        let key = NetworkKey::new(net_key, *group_id);
         group_store
             .get(key)
             .expect("redb GroupStore::get failed")
             .map(|g| g.members)
             .unwrap_or_default()
-    }
-
-    /// Read the persisted `created_by` for a group. Returns `None` when
-    /// no row exists, `group_id` isn't 16 bytes, or `created_by` is the
-    /// all-zero placeholder written by `update_group_members` for groups
-    /// created before persistence was added.
-    pub fn persisted_creator(&self, group_id: &GroupId) -> Option<InboxId> {
-        let id = group_id_bytes(group_id).ok()?;
-        let group_store: GroupStore<'static> = redb_or_panic("persisted_creator").into();
-        let net_key = u64::from(&self.network);
-        let key = crate::app::store::NetworkKey::new(net_key, id);
-        group_store
-            .get(key)
-            .expect("redb GroupStore::get failed")
-            .map(|g| g.created_by)
-            .filter(|c| c != &[0u8; 32])
     }
 
     /// Every persisted client involved in this run: primary + every
@@ -260,9 +234,28 @@ impl HealthContext {
         self.existing_groups.iter().chain(self.new_groups.iter())
     }
 
-    /// Concurrently sync welcomes on every client involved in the run.
-    /// Failures are logged but never propagated — `sync_welcomes` is
-    /// best-effort plumbing, not a validation step.
+    /// Pick an active adder for a membership change; prefer super-admin so
+    /// `AddSuper` is also issuable, else any active member (under
+    /// `--strict-versioning` the creator may live in another partition).
+    pub fn pick_super_admin(
+        &self,
+        group_id: &GroupId,
+    ) -> Option<xmtp_mls::groups::MlsGroup<crate::MlsContext>> {
+        let candidates: Vec<_> = self
+            .existing_clients
+            .values()
+            .filter_map(|c| c.group(group_id).ok().map(|g| (c, g)))
+            .filter(|(_, g)| g.is_active().unwrap_or(false))
+            .collect();
+        candidates
+            .iter()
+            .find(|(c, g)| g.is_super_admin(c.inbox_id().to_string()).unwrap_or(false))
+            .or_else(|| candidates.first())
+            .map(|(_, g)| g.clone())
+    }
+
+    /// Best-effort concurrent welcome sync across all run clients;
+    /// failures are logged only (plumbing, not a validation step).
     pub async fn sync_welcomes_fanout(&self, label: &'static str) {
         let syncs = std::iter::once(self.primary.as_ref())
             .chain(self.existing_clients.values().map(|c| c.as_ref()))
@@ -281,24 +274,21 @@ impl HealthContext {
     }
 
     /// Record a successfully-sent message to redb's `MessageStore`. The
-    /// `op_run_id` and `xdbg_version` fields are sourced from `self` so
+    /// xdbg_version` fields is sourced from `self` so
     /// every row carries this run's identity. Panics on redb failure or
     /// on a non-16-byte `group_id` (libxmtp invariant).
     pub fn record_message(&self, group_id: &GroupId, message_id: [u8; 32], sender: &DbgClient) {
-        let id_bytes = group_id_bytes(group_id).expect("libxmtp group_id is 16 bytes");
         let sent_at_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as i64)
             .unwrap_or(0);
         let store: MessageStore<'static> = redb_or_panic("record_message").into();
-        let msg = Message {
-            id: message_id,
-            group_id: id_bytes,
-            sender_inbox_id: inbox_id_to_bytes(sender.inbox_id()),
+        let msg = Message::new(
+            message_id,
+            *group_id,
+            inbox_id_to_bytes(sender.inbox_id()),
             sent_at_ns,
-            op_run_id: self.op_run_id,
-            xdbg_version: self.xdbg_version.clone(),
-        };
+        );
         store
             .set(msg, self.network_key)
             .expect("redb MessageStore::set failed");
@@ -318,9 +308,7 @@ impl HealthContext {
         let mut out: HashMap<GroupId, Vec<Message>> = HashMap::new();
         for guard in iter {
             let msg = guard.value();
-            out.entry(GroupId::from(msg.group_id))
-                .or_default()
-                .push(msg);
+            out.entry(msg.group_id()).or_default().push(msg);
         }
         out
     }
@@ -333,19 +321,6 @@ pub fn inbox_id_to_bytes(hex_inbox: &str) -> InboxId {
     let mut out = [0u8; 32];
     hex::decode_to_slice(hex_inbox, &mut out).expect("inbox_id is 32-byte hex");
     out
-}
-
-/// Convert a libxmtp `GroupId` to the 16-byte form xdbg's redb uses as a
-/// key. libxmtp's MLS group ids are always 16 bytes; an unexpected length
-/// is an invariant violation, surfaced as an op-level error so the run
-/// reports the divergence instead of silently skipping the redb write.
-pub fn group_id_bytes(gid: &GroupId) -> color_eyre::eyre::Result<[u8; 16]> {
-    <[u8; 16]>::try_from(gid.as_slice()).map_err(|_| {
-        eyre!(
-            "expected 16-byte group_id, got {} bytes",
-            gid.as_slice().len()
-        )
-    })
 }
 
 /// Open the xdbg redb database or abort the process. Failure here means

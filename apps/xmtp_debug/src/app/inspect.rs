@@ -3,10 +3,7 @@ use std::sync::Arc;
 use valuable::Valuable;
 
 use crate::{
-    app::{
-        self, App,
-        store::{Database, IdentityStore},
-    },
+    app::{self, App, store::IdentityStore},
     args,
 };
 
@@ -29,8 +26,7 @@ impl Inspect {
         let identity_store: IdentityStore = db.clone().into();
 
         let args::Inspect { kind, inbox_id } = opts;
-        let key = (u64::from(&network), *inbox_id);
-        let identity = identity_store.get(key.into())?;
+        let identity = identity_store.find_by_inbox(u64::from(&network), *inbox_id)?;
         if identity.is_none() {
             bail!("No local identity with inbox_id=[{}]", inbox_id);
         }

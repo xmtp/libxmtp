@@ -42,14 +42,13 @@ impl Send {
             .members
             .choose(&mut rand::rng())
             .ok_or(eyre!("Empty group, no members to send message!"))?;
-        let key = (u64::from(network), *member);
         let identity = identity_store
-            .get(key.into())?
+            .find_by_inbox(u64::from(network), *member)?
             .ok_or(eyre!("No Identity with inbox_id [{}]", hex::encode(member)))?;
 
         let client = crate::app::client_from_identity(&identity, network)?;
         client.sync_welcomes().await?;
-        let xmtp_group = client.group(&group.group_id())?;
+        let xmtp_group = client.group(&group.id())?;
         xmtp_group
             .send_message(
                 data.as_bytes(),
