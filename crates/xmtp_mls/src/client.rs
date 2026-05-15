@@ -1104,6 +1104,22 @@ where
             .await
     }
 
+    /// Sweep every group flagged `paused_for_version` and clear the
+    /// pause flag for any whose floor is now satisfied by this
+    /// client's `pkg_version`. Pure local-state operation — no
+    /// network calls. Returns the count of groups unstuck.
+    ///
+    /// `sync_all_welcomes_and_groups` already runs this sweep as a
+    /// preamble; the standalone entry point is for SDKs that want a
+    /// cheap "post-upgrade recovery" hook independent of the normal
+    /// sync flow.
+    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
+        self.ensure_identity_ready()?;
+        WelcomeService::new(self.context.clone())
+            .unstick_paused_groups()
+            .await
+    }
+
     pub async fn sync_all_welcomes_and_device_sync_groups(
         &self,
     ) -> Result<GroupSyncSummary, ClientError> {

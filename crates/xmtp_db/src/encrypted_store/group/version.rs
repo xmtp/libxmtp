@@ -9,6 +9,13 @@ pub trait QueryGroupVersion {
     fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
     fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError>;
+
+    /// Return every group currently flagged as paused, with the
+    /// `paused_for_version` floor it's pinned to. Used by the
+    /// startup/sweep recovery path to re-evaluate paused groups
+    /// against the now-current `pkg_version` without having to sync
+    /// each group individually.
+    fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError>;
 }
 
 impl<T> QueryGroupVersion for &T
@@ -25,6 +32,10 @@ where
 
     fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError> {
         (**self).get_group_paused_version(group_id)
+    }
+
+    fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError> {
+        (**self).get_paused_groups_with_versions()
     }
 }
 
@@ -64,5 +75,36 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         })?;
 
         Ok(paused_version)
+    }
+
+    fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError> {
+        use crate::schema::groups::dsl;
+
+        let rows: Vec<(Vec<u8>, Option<String>)> = self.raw_query(|conn| {
+            dsl::groups
+                .select((dsl::id, dsl::paused_for_version))
+                .filter(dsl::paused_for_version.is_not_null())
+                .load::<(Vec<u8>, Option<String>)>(conn)
+        })?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, version)| {
+                let v = version?;
+                match GroupId::try_from(id.as_slice()) {
+                    Ok(group_id) => Some((group_id, v)),
+                    Err(err) => {
+                        tracing::warn!(
+                            error = %err,
+                            id_hex = %hex::encode(&id),
+                            id_len = id.len(),
+                            "get_paused_groups_with_versions: skipping row with \
+                             unparseable group id (not 16 bytes)"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect())
     }
 }
