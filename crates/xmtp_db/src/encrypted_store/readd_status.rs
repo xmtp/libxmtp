@@ -659,7 +659,7 @@ mod tests {
 
             // Create a status for a different group (should not be affected)
             let different_group_status = ReaddStatus {
-                group_id: GroupId::from([4u8; 16]),
+                group_id: GroupId::FOUR,
                 installation_id: vec![40, 41, 42],
                 requested_at_sequence_id: Some(25),
                 responded_at_sequence_id: Some(12),
@@ -689,7 +689,7 @@ mod tests {
 
             // Verify the status in the different group was not affected
             let different_group_check = conn
-                .get_readd_status(&GroupId::from([4u8; 16]), &[40, 41, 42])
+                .get_readd_status(&GroupId::FOUR, &[40, 41, 42])
                 .unwrap();
             assert!(different_group_check.is_some());
         })
@@ -752,7 +752,7 @@ mod tests {
 
             // Case 6: Different group (should be excluded)
             let different_group_status = ReaddStatus {
-                group_id: GroupId::from([4u8; 16]),
+                group_id: GroupId::FOUR,
                 installation_id: vec![60, 61, 62],
                 requested_at_sequence_id: Some(25),
                 responded_at_sequence_id: Some(15),

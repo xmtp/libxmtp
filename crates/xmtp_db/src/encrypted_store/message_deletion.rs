@@ -234,7 +234,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_store_and_get_deletion() {
         with_connection(|conn| {
-            let group_id = GroupId::from([1u8; 16]);
+            let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
 
@@ -268,7 +268,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_is_message_deleted() {
         with_connection(|conn| {
-            let group_id = GroupId::from([1u8; 16]);
+            let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
 
@@ -298,7 +298,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_get_deletions_for_messages() {
         with_connection(|conn| {
-            let group_id = GroupId::from([1u8; 16]);
+            let group_id = GroupId::ONE;
             let msg1 = vec![4, 5, 6];
             let msg2 = vec![7, 8, 9];
             let msg3 = vec![10, 11, 12];
@@ -346,8 +346,8 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_get_group_deletions() {
         with_connection(|conn| {
-            let group1 = GroupId::from([1u8; 16]);
-            let group2 = GroupId::from([2u8; 16]);
+            let group1 = GroupId::ONE;
+            let group2 = GroupId::TWO;
             let msg1 = vec![7, 8, 9];
             let msg2 = vec![10, 11, 12];
             let del1 = vec![13, 14, 15];

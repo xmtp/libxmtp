@@ -267,10 +267,10 @@ mod tests {
 
     #[rstest]
     #[case(None)]
-    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_proto::types::GroupId::from([0u8; 16]))))]
+    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_proto::types::GroupId::ZERO)))]
     #[xmtp_common::test]
     pub async fn test_cursor_no_sync(#[case] message: Option<StoredGroupMessage>) {
-        let current_message = generate_message(55, &xmtp_proto::types::GroupId::from([0u8; 16]));
+        let current_message = generate_message(55, &xmtp_proto::types::GroupId::ZERO);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
         let oid = current_message.originator_id();

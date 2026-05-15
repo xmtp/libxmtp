@@ -147,11 +147,7 @@ async fn up_groups() {
 
     finish_migrations(db.conn());
 
-    let group = db
-        .db()
-        .find_group(&GroupId::from([1u8; 16]))
-        .unwrap()
-        .unwrap();
+    let group = db.db().find_group(&GroupId::ONE).unwrap().unwrap();
     assert_eq!(group.sequence_id, Some(100));
     assert_eq!(
         group.originator_id,

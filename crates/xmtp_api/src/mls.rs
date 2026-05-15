@@ -649,9 +649,9 @@ pub mod tests {
             .unwrap();
         let d14n = D14nClient::new(rw, NoCursorStore).unwrap();
         let wrapper = ApiClientWrapper::new(d14n, Retry::default());
-        let _first = wrapper.query_group_messages(GroupId::from([0u8; 16])).await;
+        let _first = wrapper.query_group_messages(GroupId::ZERO).await;
         let now = std::time::Instant::now();
-        let _second = wrapper.query_group_messages(GroupId::from([0u8; 16])).await;
+        let _second = wrapper.query_group_messages(GroupId::ZERO).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
     }
 

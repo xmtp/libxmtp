@@ -291,7 +291,7 @@ mod tests {
     #[rstest]
     #[xmtp_common::test]
     async fn only_queues_for_unique(context: NewMockContext) {
-        let groups = iter::repeat_n(group(&context, Some(GroupId::from([0u8; 16]))), 10);
+        let groups = iter::repeat_n(group(&context, Some(GroupId::ZERO)), 10);
 
         let stored = QueueIntent::update_group_membership()
             .data(vec![0, 1, 2])
