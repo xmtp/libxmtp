@@ -62,9 +62,9 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
-    BROADCAST_PROPOSAL_SUPPORT, CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID,
-    GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
-    Originators, PROPOSAL_SUPPORT_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
+    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
@@ -478,7 +478,12 @@ where
         &self,
         mls_group: &OpenMlsGroup,
     ) -> Result<bool, GroupError> {
-        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+        // The standard MLS Capabilities extension advertises support
+        // for the `AppDataDictionary` extension type. A leaf that lists
+        // it can participate in a migrated group; a leaf that doesn't
+        // can't. This replaces the XMTP-specific PROPOSAL_SUPPORT
+        // extension we used to advertise in parallel.
+        let extension_type = ExtensionType::AppDataDictionary;
 
         // Check leaf nodes in the group first (fast path).
         // If all leaf nodes advertise support, we're done — no network call needed.
@@ -522,12 +527,16 @@ where
 
     /// Check if the group has proposals enabled (proposal-by-reference flow).
     ///
-    /// This checks if the group context contains the `PROPOSAL_SUPPORT_EXTENSION_ID`
-    /// extension with a `ProposalSupport` proto.
+    /// Delegates to `check_proposals_enabled` which detects the
+    /// standard MLS `ExtensionType::AppDataDictionary` group-context
+    /// extension. A migrated group carries the dict via that extension
+    /// type, making it both the wire-format carrier AND the signal
+    /// that the proposal flow is in effect.
     ///
     /// When proposals are enabled on a group:
     /// - Add/remove member operations MUST use proposals
-    /// - All members being added MUST support the proposal extension
+    /// - All members being added MUST advertise `AppDataDictionary`
+    ///   support in their key-package capabilities
     /// - Direct commits for membership changes are not allowed
     pub fn proposals_enabled(&self, mls_group: &OpenMlsGroup) -> bool {
         check_proposals_enabled(mls_group.extensions())
@@ -535,10 +544,15 @@ where
 
     /// Enable proposals on this group (proposal-by-reference flow).
     ///
-    /// This sets the `PROPOSAL_SUPPORT_EXTENSION_ID` extension on the group context.
+    /// Runs the bootstrap commit that migrates the group's state out
+    /// of legacy GMM-style extensions and into the standard MLS
+    /// `AppDataDictionary` extension. After bootstrap completes the
+    /// dictionary is the sole source of truth for the metadata
+    /// attributes that previously lived in the legacy extensions.
     /// Once enabled:
     /// - All add/remove member operations will use proposals
-    /// - All members being added must support proposals
+    /// - All members being added must advertise `AppDataDictionary`
+    ///   support in their key-package capabilities
     /// - This cannot be disabled once set
     ///
     /// # Options
@@ -585,7 +599,7 @@ where
         // never observes step B.
         //
         // Step B: bootstrap commit. Strips legacy extensions, seeds
-        // the dict, adds `PROPOSAL_SUPPORT` to RequiredCapabilities.
+        // the dict, adds `AppDataDictionary` to RequiredCapabilities.
         // Fires only for the still-active (above-floor) members.
         //
         // The safety primitive here is **server-side commit ordering**:
@@ -705,13 +719,15 @@ where
         // Build the bootstrap-target extensions in a single lock
         // acquisition to avoid races. The bootstrap commit produced by
         // `IntentKind::BootstrapMigration` will:
-        // - add `PROPOSAL_SUPPORT` to GCE
         // - REMOVE the four legacy XMTP extensions (mutable metadata,
         //   group permissions, group membership, ImmutableMetadata)
-        // - update RequiredCapabilities to add `PROPOSAL_SUPPORT` and
+        // - update RequiredCapabilities to add `AppDataDictionary` and
         //   drop the four legacy extension types
         // - emit one `AppDataUpdate(component_id, Update(bytes))`
-        //   proposal per well-known component, seeding the dict
+        //   proposal per well-known component, seeding the dict — the
+        //   AppDataDictionary GCE itself is populated by openmls when
+        //   the bundled AppDataUpdate proposals apply during commit
+        //   processing
         // All in a single commit, so the migration is atomic on-the-
         // wire: receivers either see the migrated state (bootstrap
         // commit accepted) or the legacy state (commit rejected).
@@ -735,21 +751,25 @@ where
                 }
                 let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
 
-                // 1. Add proposal-support extension.
-                extensions.add_or_replace(build_proposals_enabled_extension())?;
-
-                // 2. Remove the four legacy XMTP extensions. The
+                // 1. Remove the four legacy XMTP extensions. The
                 //    bootstrap commit's job is to eliminate them so
                 //    the dict becomes the sole source of truth.
+                //    The bundled `AppDataUpdate(COMPONENT_REGISTRY)`
+                //    proposal triggers openmls to add the standard
+                //    `AppDataDictionary` group-context extension when
+                //    the commit applies — that extension's presence
+                //    (plus the registry entry) IS the migrated marker.
+                //    No separate XMTP-flavored marker is needed.
                 extensions.remove(ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID));
                 extensions.remove(ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID));
                 extensions.remove(ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID));
                 extensions.remove(ExtensionType::ImmutableMetadata);
 
-                // 3. Update RequiredCapabilities: add PROPOSAL_SUPPORT
-                //    and drop the four legacy extension types so
-                //    receivers don't reject the commit for missing
-                //    required extensions.
+                // 2. Update RequiredCapabilities: require
+                //    `AppDataDictionary` (the standard extension that
+                //    carries the dict) and drop the four legacy
+                //    extension types so receivers don't reject the
+                //    commit for missing required extensions.
                 update_required_capabilities_for_bootstrap(&mut extensions)?;
 
                 Ok(extensions)
@@ -792,15 +812,16 @@ where
         Ok(())
     }
 
-    /// Validate that key packages support the proposal extension.
-    ///
-    /// This checks if all provided key packages have the `PROPOSAL_SUPPORT_EXTENSION_ID`
-    /// in their capabilities, meaning the installations can receive standalone proposals.
+    /// Validate that key packages support the AppData dictionary
+    /// group-context extension. A leaf that advertises
+    /// `ExtensionType::AppDataDictionary` in its standard MLS
+    /// `Capabilities` can join a migrated group and receive standalone
+    /// `AppDataUpdate` proposals.
     pub fn validate_key_packages_support_proposals(
         &self,
         key_packages: &[openmls::key_packages::KeyPackage],
     ) -> Result<(), GroupError> {
-        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+        let extension_type = ExtensionType::AppDataDictionary;
 
         for kp in key_packages {
             let leaf_node = kp.leaf_node();
@@ -808,7 +829,7 @@ where
 
             if !capabilities.extensions().contains(&extension_type) {
                 return Err(GroupError::ProposalsNotSupported(
-                    "Member does not support proposals: installation cannot receive standalone proposal messages".to_string(),
+                    "Member does not support AppData dictionary: installation cannot receive standalone proposal messages".to_string(),
                 ));
             }
         }
@@ -3013,55 +3034,39 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
 }
 
-/// Check if the given extensions contain a valid proposal support extension.
+/// Check if the given extensions belong to a migrated group.
 ///
-/// Returns `true` if the extensions contain a `PROPOSAL_SUPPORT_EXTENSION_ID` extension
-/// with a `ProposalSupport` proto where `version > 0`.
+/// "Migrated" means the bootstrap commit completed: the
+/// [`ExtensionType::AppDataDictionary`] group-context extension is
+/// present and its dict contains a `COMPONENT_REGISTRY` entry. This is
+/// also the canonical predicate used by
+/// [`crate::groups::app_data::is_migrated_extensions`]; the two
+/// converge so the rest of the codebase can use one name where the
+/// proposal-by-reference flow is the question and another where the
+/// dict-source-of-truth migration is the question.
 pub fn check_proposals_enabled(extensions: &Extensions<GroupContext>) -> bool {
-    use prost::Message;
-    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
-    for extension in extensions.iter() {
-        if let Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(data)) = extension
-        {
-            if let Ok(ps) = ProposalSupport::decode(data.as_slice()) {
-                return ps.version > 0;
-            } else {
-                return false;
-            }
-        }
-    }
-    false
+    crate::groups::app_data::is_migrated_extensions(extensions)
 }
 
-/// Build an extension that enables proposals on the group context.
-///
-/// This extension uses `PROPOSAL_SUPPORT_EXTENSION_ID` with a `ProposalSupport` proto
-/// to indicate that the group uses proposal-by-reference flow exclusively.
-pub fn build_proposals_enabled_extension() -> Extension {
-    use prost::Message;
-    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
-    let data = ProposalSupport { version: 1 }.encode_to_vec();
-    Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(data))
-}
-
-/// Update the `RequiredCapabilities` extension to add or remove the `PROPOSAL_SUPPORT_EXTENSION_ID`.
-/// Per MLS RFC 9420 Section 7.2, unknown extensions in the group context MUST be listed
-/// in the required capabilities, so this must be called whenever the proposal support
-/// extension is added to or removed from the group context.
+/// Update the `RequiredCapabilities` extension to add or remove
+/// `ExtensionType::AppDataDictionary`. Per MLS RFC 9420 §7.2, unknown
+/// extensions in the group context MUST be listed in the required
+/// capabilities, so this must be called whenever the AppData
+/// dictionary extension is added to or removed from the group context.
 pub fn update_required_capabilities_for_proposals(
     extensions: &mut Extensions<GroupContext>,
     add: bool,
 ) -> Result<(), GroupError> {
-    let proposal_ext_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+    let app_data_ext_type = ExtensionType::AppDataDictionary;
 
     if let Some(required_caps) = extensions.required_capabilities() {
         let mut ext_types: Vec<ExtensionType> = required_caps.extension_types().to_vec();
-        let has_it = ext_types.contains(&proposal_ext_type);
+        let has_it = ext_types.contains(&app_data_ext_type);
 
         if add && !has_it {
-            ext_types.push(proposal_ext_type);
+            ext_types.push(app_data_ext_type);
         } else if !add && has_it {
-            ext_types.retain(|t| *t != proposal_ext_type);
+            ext_types.retain(|t| *t != app_data_ext_type);
         } else {
             return Ok(()); // already in desired state
         }
@@ -3078,7 +3083,9 @@ pub fn update_required_capabilities_for_proposals(
 }
 
 /// Update RequiredCapabilities for the bootstrap commit:
-///   - Add `PROPOSAL_SUPPORT` to the required extension types.
+///   - Add `ExtensionType::AppDataDictionary` to the required
+///     extension types so receivers MUST advertise support for the
+///     standard AppData dictionary group-context extension.
 ///   - Remove the four legacy XMTP extension types
 ///     (`MUTABLE_METADATA`, `GROUP_PERMISSIONS`, `GROUP_MEMBERSHIP`,
 ///     `ImmutableMetadata`) since the bootstrap commit also removes
@@ -3090,7 +3097,7 @@ pub fn update_required_capabilities_for_proposals(
 pub fn update_required_capabilities_for_bootstrap(
     extensions: &mut Extensions<GroupContext>,
 ) -> Result<(), GroupError> {
-    let proposal_ext_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+    let app_data_ext_type = ExtensionType::AppDataDictionary;
     let to_remove: &[ExtensionType] = &[
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
         ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
@@ -3105,8 +3112,8 @@ pub fn update_required_capabilities_for_bootstrap(
             .copied()
             .filter(|t| !to_remove.contains(t))
             .collect();
-        if !ext_types.contains(&proposal_ext_type) {
-            ext_types.push(proposal_ext_type);
+        if !ext_types.contains(&app_data_ext_type) {
+            ext_types.push(app_data_ext_type);
         }
         let new_required = Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
             &ext_types,
@@ -3148,9 +3155,9 @@ pub(crate) fn build_group_config(
     ];
 
     // Extensions the creator's leaf node advertises support for (superset of required).
-    // Optional extensions like PROPOSAL_SUPPORT and AppDataDictionary are listed here so
-    // the group can use them, but are NOT in required_extension_types so members without
-    // support can join.
+    // `AppDataDictionary` is listed here so the group can be migrated
+    // later, but is NOT in required_extension_types so members without
+    // support can join the pre-migration legacy group.
     let mut creator_capability_extensions = required_extension_types.to_vec();
     creator_capability_extensions.push(ExtensionType::Unknown(
         WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
@@ -3164,9 +3171,6 @@ pub(crate) fn build_group_config(
     // bootstrap), so advertising here unconditionally is safe and lets
     // a fresh group's creator be the migration trigger.
     creator_capability_extensions.push(ExtensionType::AppDataDictionary);
-    if BROADCAST_PROPOSAL_SUPPORT {
-        creator_capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
-    }
 
     let required_proposal_types = &[ProposalType::GroupContextExtensions];
 

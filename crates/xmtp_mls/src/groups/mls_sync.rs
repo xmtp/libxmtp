@@ -81,9 +81,8 @@ use xmtp_common::{
 };
 use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
-    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, PROPOSAL_SUPPORT_EXTENSION_ID,
-    SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS,
+    SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
@@ -3267,8 +3266,9 @@ where
             IntentKind::BootstrapMigration => {
                 // One-time AppData-migration bootstrap: bundles one
                 // GCE proposal (that strips the four legacy XMTP
-                // extensions and adds PROPOSAL_SUPPORT) with an
-                // `AppDataUpdate` proposal per well-known component.
+                // extensions and adds AppDataDictionary to
+                // RequiredCapabilities) with an `AppDataUpdate`
+                // proposal per well-known component.
                 // Routed on an explicit [`IntentKind::BootstrapMigration`]
                 // rather than shape-sniffing `ProposeGroupContextExtensions`
                 // payloads so a future non-bootstrap GCE intent with
@@ -3509,10 +3509,9 @@ where
 
                         if !new_members_support_proposals {
                             tracing::info!(
-                                "Disabling proposals: new members don't support proposal extension"
+                                "Disabling proposals: new members don't support the AppData dictionary extension"
                             );
-                            new_extensions
-                                .remove(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+                            new_extensions.remove(ExtensionType::AppDataDictionary);
                             update_required_capabilities_for_proposals(&mut new_extensions, false)?;
                         }
                     }

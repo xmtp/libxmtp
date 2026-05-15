@@ -7,9 +7,10 @@
 //! Divergence is rejected.
 //!
 //! Entry points:
-//! - [`is_bootstrap_commit`] — shape-check a staged commit (GCE flips
-//!   `PROPOSAL_SUPPORT` on, drops the four legacy extensions, plus a
-//!   `COMPONENT_REGISTRY` write). Routes commits into this validator.
+//! - [`is_bootstrap_commit`] — shape-check a staged commit (GCE drops
+//!   the four legacy extensions and requires `AppDataDictionary` in
+//!   `RequiredCapabilities`, plus a `COMPONENT_REGISTRY` write).
+//!   Routes commits into this validator.
 //! - [`validate_bootstrap_commit`] — full validation against pre-flip
 //!   state. Pure-logic core lives in [`validate_against_canonical_subset`]
 //!   so it's unit-testable without a real `StagedCommit`.
@@ -26,7 +27,6 @@ use prost::Message as _;
 use tls_codec::Deserialize;
 use xmtp_configuration::{
     GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
-    PROPOSAL_SUPPORT_EXTENSION_ID,
 };
 use xmtp_mls_common::{
     app_data::{
@@ -103,9 +103,8 @@ pub enum BootstrapValidationError {
         actual: u64,
     },
     /// The commit's GCE proposal doesn't have the shape bootstrap
-    /// requires: add exactly `PROPOSAL_SUPPORT`, remove exactly the
-    /// four legacy XMTP extensions, and matching `RequiredCapabilities`
-    /// adjustment.
+    /// requires: remove exactly the four legacy XMTP extensions and
+    /// list `AppDataDictionary` in `RequiredCapabilities`.
     #[error("bootstrap GCE-proposal shape mismatch: {0}")]
     GceMismatch(String),
     /// Failed to decode the on-wire bytes of a bootstrap `AppDataUpdate`
@@ -157,24 +156,27 @@ pub enum BootstrapValidationError {
 /// Shape-check a staged commit against the bootstrap signature.
 ///
 /// A bootstrap commit has, in a single MLS commit:
-/// 1. A `GroupContextExtensions` proposal that adds
-///    `PROPOSAL_SUPPORT_EXTENSION_ID` (the capability flip).
-/// 2. The same GCE proposal drops `MUTABLE_METADATA_EXTENSION_ID`,
-///    `GROUP_PERMISSIONS_EXTENSION_ID`, `GROUP_MEMBERSHIP_EXTENSION_ID`,
-///    and the OpenMLS-built-in `ImmutableMetadata` extension.
+/// 1. A `GroupContextExtensions` proposal that drops
+///    `MUTABLE_METADATA_EXTENSION_ID`, `GROUP_PERMISSIONS_EXTENSION_ID`,
+///    `GROUP_MEMBERSHIP_EXTENSION_ID`, and the OpenMLS-built-in
+///    `ImmutableMetadata` extension.
+/// 2. The same GCE proposal's `RequiredCapabilities` lists
+///    `ExtensionType::AppDataDictionary` (the standard MLS extension
+///    that carries the dict). After commit application this is the
+///    invariant pinning the group into migrated state.
 /// 3. At least one `AppDataUpdate` proposal writing
-///    `COMPONENT_REGISTRY` (the migration marker).
+///    `COMPONENT_REGISTRY`. Its application populates the
+///    `AppDataDictionary` GCE that `RequiredCapabilities` now
+///    requires.
 ///
-/// The three conditions together are what differentiate a bootstrap
-/// from a plain `enable_proposals()` commit (which only satisfies #1),
-/// from a metadata-attribute update via `AppDataUpdate` (which never
-/// satisfies #1 or #2), and from any other combinatorial GCE flow.
+/// The three conditions together differentiate a bootstrap from any
+/// other combinatorial GCE flow.
 pub(crate) fn is_bootstrap_commit(
     staged_commit: &StagedCommit,
     existing_extensions: &Extensions<GroupContext>,
 ) -> bool {
-    // Only fire on the pre-flip side — a group that already has
-    // PROPOSAL_SUPPORT can't "bootstrap" again.
+    // Only fire on the pre-flip side — a group that already has the
+    // AppDataDictionary GCE can't "bootstrap" again.
     if crate::groups::check_proposals_enabled(existing_extensions) {
         return false;
     }
@@ -184,7 +186,16 @@ pub(crate) fn is_bootstrap_commit(
     for queued in staged_commit.queued_proposals() {
         match queued.proposal() {
             Proposal::GroupContextExtensions(gce) => {
-                gce_matches = gce_matches_bootstrap_shape(gce.extensions());
+                let exts = gce.extensions();
+                // Symmetric routing: a GCE that strips the legacy
+                // extensions without flipping RequiredCapabilities is
+                // NOT a bootstrap commit. Routing it to the bootstrap
+                // validator would surface a misleading
+                // "RequiredCapabilities is missing" error when the
+                // real problem is "you can't strip legacy extensions
+                // unless you're migrating".
+                gce_matches = gce_matches_bootstrap_shape(exts)
+                    && gce_required_capabilities_match_bootstrap_shape(exts);
             }
             Proposal::AppDataUpdate(app_data)
                 if ComponentId::from(app_data.component_id())
@@ -199,14 +210,12 @@ pub(crate) fn is_bootstrap_commit(
 }
 
 /// Does `new_extensions` look like the bootstrap GCE output?
-/// Adds `PROPOSAL_SUPPORT` and drops the four legacy XMTP extensions.
+/// Drops the four legacy XMTP extensions. The `RequiredCapabilities`
+/// shape check is enforced separately by
+/// `gce_required_capabilities_match_bootstrap_shape` so the validator
+/// can distinguish "no RC at all" from "RC has wrong shape" — pinned
+/// by `gce_extension_set_missing_required_capabilities_rejected`.
 fn gce_matches_bootstrap_shape(new_extensions: &Extensions<GroupContext>) -> bool {
-    let has_proposal_support = new_extensions.iter().any(|ext| {
-        matches!(
-            ext,
-            Extension::Unknown(id, _) if *id == PROPOSAL_SUPPORT_EXTENSION_ID
-        )
-    });
     let drops_legacy = |id: u16| {
         !new_extensions
             .iter()
@@ -216,11 +225,29 @@ fn gce_matches_bootstrap_shape(new_extensions: &Extensions<GroupContext>) -> boo
         .iter()
         .any(|ext| matches!(ext, Extension::ImmutableMetadata(_)));
 
-    has_proposal_support
-        && drops_legacy(MUTABLE_METADATA_EXTENSION_ID)
+    drops_legacy(MUTABLE_METADATA_EXTENSION_ID)
         && drops_legacy(GROUP_PERMISSIONS_EXTENSION_ID)
         && drops_legacy(GROUP_MEMBERSHIP_EXTENSION_ID)
         && drops_immutable
+}
+
+/// Does `new_extensions.required_capabilities()` carry the
+/// `AppDataDictionary` flip the bootstrap requires? Used by the router
+/// (`is_bootstrap_commit`) so a GCE that drops the legacy extensions
+/// but doesn't flip RequiredCapabilities is NOT routed into the
+/// bootstrap validator at all — the steady-state validator will
+/// reject it for losing the legacy extensions on a non-migrated
+/// group, which is the more accurate error mode.
+fn gce_required_capabilities_match_bootstrap_shape(
+    new_extensions: &Extensions<GroupContext>,
+) -> bool {
+    new_extensions
+        .required_capabilities()
+        .map(|rc| {
+            rc.extension_types()
+                .contains(&ExtensionType::AppDataDictionary)
+        })
+        .unwrap_or(false)
 }
 
 /// Extract the bootstrap commit's single GCE-proposal proposer.
@@ -302,9 +329,9 @@ pub(crate) fn validate_bootstrap_commit(
 /// `Remove`, `Update`, `SelfRemove`) and identity-key-neutral (no
 /// `ReInit`, `ExternalInit`, `PreSharedKey`); the canonical-subset
 /// compare also presumes there are no `AppEphemeral` or `Custom`
-/// payloads. The only legal types are the single GCE that flips
-/// `PROPOSAL_SUPPORT` and the `AppDataUpdate` proposals that seed the
-/// post-flip dictionary.
+/// payloads. The only legal types are the single GCE that drops the
+/// legacy extensions plus requires `AppDataDictionary`, and the
+/// `AppDataUpdate` proposals that seed the post-flip dictionary.
 fn is_allowed_bootstrap_proposal(proposal: &Proposal) -> bool {
     matches!(
         proposal,
@@ -693,9 +720,9 @@ fn validate_group_membership_payload(
 }
 
 /// Verify the commit's single GCE proposal has the bootstrap shape:
-/// adds exactly `PROPOSAL_SUPPORT`, drops exactly the four legacy
-/// extension types (and mirrors that in `RequiredCapabilities`). Any
-/// extra add/drop beyond the bootstrap contract → reject.
+/// drops exactly the four legacy extension types and lists
+/// `AppDataDictionary` in `RequiredCapabilities`. Any extra add/drop
+/// beyond the bootstrap contract → reject.
 fn validate_gce_shape(staged_commit: &StagedCommit) -> Result<(), BootstrapValidationError> {
     let mut found_gce = None;
     for queued in staged_commit.queued_proposals() {
@@ -725,27 +752,26 @@ fn validate_gce_extension_set(
 ) -> Result<(), BootstrapValidationError> {
     if !gce_matches_bootstrap_shape(new_extensions) {
         return Err(BootstrapValidationError::GceMismatch(
-            "GCE extension set does not match bootstrap shape (needs +PROPOSAL_SUPPORT, \
+            "GCE extension set does not match bootstrap shape (needs \
              -MUTABLE_METADATA, -GROUP_PERMISSIONS, -GROUP_MEMBERSHIP, -ImmutableMetadata)"
                 .into(),
         ));
     }
 
     // RequiredCapabilities MUST be present and MUST drop the four
-    // legacy extension types while adding PROPOSAL_SUPPORT. A bootstrap
-    // commit with no RequiredCapabilities at all would let post-flip
-    // adds skip the PROPOSAL_SUPPORT check and rejoin a broken group
-    // shape — reject hard.
+    // legacy extension types while adding `AppDataDictionary`. A
+    // bootstrap commit with no RequiredCapabilities at all would let
+    // post-flip adds skip the AppData support check and rejoin a
+    // broken group shape — reject hard.
     let required = new_extensions.required_capabilities().ok_or_else(|| {
         BootstrapValidationError::GceMismatch(
             "RequiredCapabilities extension is missing — bootstrap requires it to enforce \
-             PROPOSAL_SUPPORT and ban the four legacy extension types"
+             AppDataDictionary support and ban the four legacy extension types"
                 .into(),
         )
     })?;
     let ext_types: Vec<ExtensionType> = required.extension_types().to_vec();
-    let has_proposal_support =
-        ext_types.contains(&ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+    let requires_app_data_dictionary = ext_types.contains(&ExtensionType::AppDataDictionary);
     let bans_legacy = ![
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
         ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
@@ -754,7 +780,7 @@ fn validate_gce_extension_set(
     ]
     .iter()
     .any(|banned| ext_types.contains(banned));
-    if !has_proposal_support || !bans_legacy {
+    if !requires_app_data_dictionary || !bans_legacy {
         return Err(BootstrapValidationError::GceMismatch(
             "RequiredCapabilities doesn't match bootstrap shape".into(),
         ));
@@ -1156,21 +1182,17 @@ mod tests {
         assert_eq!(proposal_type_name(&custom), "Custom");
     }
 
-    /// Build a bootstrap-shaped GCE extension set (adds `PROPOSAL_SUPPORT`,
-    /// drops the four legacy extensions). `with_required_capabilities`
-    /// controls whether the synthesized `RequiredCapabilities` extension
-    /// is included — that's the security-critical bit under test.
+    /// Build a bootstrap-shaped GCE extension set (drops the four
+    /// legacy extensions). `with_required_capabilities` controls
+    /// whether the synthesized `RequiredCapabilities` extension is
+    /// included with `AppDataDictionary` listed — that's the
+    /// security-critical bit under test.
     fn bootstrap_gce_extensions(with_required_capabilities: bool) -> Extensions<GroupContext> {
-        use openmls::extensions::{Extension, RequiredCapabilitiesExtension, UnknownExtension};
+        use openmls::extensions::{Extension, RequiredCapabilitiesExtension};
         use openmls::prelude::ProposalType;
         let mut exts = Extensions::empty();
-        exts.add(Extension::Unknown(
-            PROPOSAL_SUPPORT_EXTENSION_ID,
-            UnknownExtension(vec![]),
-        ))
-        .unwrap();
         if with_required_capabilities {
-            let ext_types = [ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID)];
+            let ext_types = [ExtensionType::AppDataDictionary];
             let proposal_types = [ProposalType::AppDataUpdate];
             let required = RequiredCapabilitiesExtension::new(&ext_types, &proposal_types, &[]);
             exts.add(Extension::RequiredCapabilities(required)).unwrap();
@@ -1182,8 +1204,8 @@ mod tests {
     fn gce_extension_set_missing_required_capabilities_rejected() {
         // Security-critical: a bootstrap commit that strips
         // `RequiredCapabilities` lets post-flip adds skip the
-        // `PROPOSAL_SUPPORT` check and rejoin a broken group shape.
-        // Pure-extension-bag check covers the path that
+        // `AppDataDictionary` requirement and rejoin a broken group
+        // shape. Pure-extension-bag check covers the path that
         // `validate_gce_shape` delegates to.
         let exts = bootstrap_gce_extensions(false);
         let err = validate_gce_extension_set(&exts).unwrap_err();

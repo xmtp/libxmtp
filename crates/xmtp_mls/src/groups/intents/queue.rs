@@ -171,10 +171,11 @@ impl QueueIntent {
     /// Create an intent to fire the one-shot AppData-migration
     /// bootstrap commit. The intent payload is a
     /// [`ProposeGroupContextExtensionsIntentData`] carrying the
-    /// target extensions blob (proposal-support added, four legacy
-    /// XMTP extensions removed, RequiredCapabilities updated). The
-    /// handler synthesizes the per-component dict seeds and bundles
-    /// everything into a single commit.
+    /// target extensions blob (four legacy XMTP extensions removed,
+    /// `RequiredCapabilities` updated to require
+    /// `ExtensionType::AppDataDictionary` and drop the legacy
+    /// extension types). The handler synthesizes the per-component
+    /// dict seeds and bundles everything into a single commit.
     pub fn bootstrap_migration() -> QueueIntentBuilder {
         let mut this = QueueIntent::builder();
         this.kind = Some(IntentKind::BootstrapMigration);

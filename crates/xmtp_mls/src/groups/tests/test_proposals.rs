@@ -7,15 +7,13 @@
 
 use crate::{
     groups::{
-        EnableProposalsOptions, build_proposals_enabled_extension,
+        EnableProposalsOptions,
         intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
         send_message_opts::SendMessageOpts,
     },
     tester,
 };
-use openmls::extensions::{Extension, UnknownExtension};
 use rstest::rstest;
-use xmtp_configuration::PROPOSAL_SUPPORT_EXTENSION_ID;
 use xmtp_db::{group_intent::IntentKind, prelude::*};
 
 // =============================================================================
@@ -147,26 +145,6 @@ async fn test_proposals_enabled_default_false() {
         !proposals_enabled,
         "Proposals should not be enabled by default"
     );
-}
-
-/// Test that the build_proposals_enabled_extension creates the correct extension.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_proposals_enabled_extension_builder() {
-    use prost::Message;
-    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
-
-    let extension = build_proposals_enabled_extension();
-
-    if let Extension::Unknown(id, UnknownExtension(data)) = extension {
-        assert_eq!(
-            id, PROPOSAL_SUPPORT_EXTENSION_ID,
-            "Extension ID should be PROPOSAL_SUPPORT_EXTENSION_ID"
-        );
-        let ps = ProposalSupport::decode(data.as_slice()).expect("should decode ProposalSupport");
-        assert_eq!(ps.version, 1, "ProposalSupport version should be 1");
-    } else {
-        panic!("Expected Unknown extension type");
-    }
 }
 
 // =============================================================================
@@ -1225,12 +1203,12 @@ async fn test_enable_proposals_and_proposals_enabled() {
 /// Test that enable_proposals() fails when a member doesn't support proposals.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enable_proposals_fails_without_support() {
-    use crate::identity::ENABLE_PROPOSAL_SUPPORT;
+    use crate::identity::ENABLE_APP_DATA_DICTIONARY_BROADCAST;
 
     tester!(alix);
 
     // Create bo without proposal support by scoping the task local
-    ENABLE_PROPOSAL_SUPPORT
+    ENABLE_APP_DATA_DICTIONARY_BROADCAST
         .scope(false, async {
             tester!(bo);
 
@@ -1262,9 +1240,11 @@ async fn test_enable_proposals_fails_without_support() {
         .await;
 }
 
-/// Test that adding a member without proposal support to a proposal-enabled group
-/// is rejected by OpenMLS. The PROPOSAL_SUPPORT extension in the group context means
-/// all new members must have that capability in their key packages.
+/// Test that adding a member without AppDataDictionary support to a
+/// migrated group is rejected by OpenMLS. Post-bootstrap the group
+/// context contains the `AppDataDictionary` extension and `RequiredCapabilities`
+/// lists it, so every new leaf MUST advertise it in its key-package
+/// capabilities.
 ///
 /// Note: OpenMLS validates Add proposals against the CURRENT group context extensions
 /// (validation.rs:395-404), so you cannot simultaneously remove an extension and add
@@ -1272,7 +1252,7 @@ async fn test_enable_proposals_fails_without_support() {
 /// must be disabled first via a separate GCE commit.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_adding_unsupported_member_rejected_when_proposals_enabled() {
-    use crate::identity::ENABLE_PROPOSAL_SUPPORT;
+    use crate::identity::ENABLE_APP_DATA_DICTIONARY_BROADCAST;
 
     tester!(alix);
     tester!(bo);
@@ -1295,10 +1275,11 @@ async fn test_adding_unsupported_member_rejected_when_proposals_enabled() {
         .await?;
     assert!(enabled, "Proposals should be enabled");
 
-    // Adding a member without proposal support should fail because the group
-    // context contains PROPOSAL_SUPPORT and OpenMLS requires new members to
-    // support all group context extensions
-    ENABLE_PROPOSAL_SUPPORT
+    // Adding a member without AppDataDictionary support should fail
+    // because the migrated group context contains the AppDataDictionary
+    // extension and OpenMLS requires new members to support all group
+    // context extensions.
+    ENABLE_APP_DATA_DICTIONARY_BROADCAST
         .scope(false, async {
             tester!(caro);
 
@@ -2591,6 +2572,75 @@ async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
 // =============================================================================
 // Capability Advertisement Backwards Compatibility
 // =============================================================================
+
+/// Migration gate: AppDataDictionary capability is advertised on the
+/// creator's KP unconditionally (so `all_members_support_proposals`
+/// can pass), and after the bootstrap commit it's in
+/// `RequiredCapabilities`. Replaces the older custom-extension
+/// (`PROPOSAL_SUPPORT_EXTENSION_ID`) signal with the standard MLS
+/// mechanism.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_app_data_dictionary_capability_and_required() {
+    use openmls::extensions::ExtensionType;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+
+    // Pre-bootstrap: KP advertises AppDataDictionary, but it's NOT in
+    // RequiredCapabilities — unmigrated groups don't carry the dict.
+    alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            let own_caps_exts = mls_group
+                .own_leaf_node()
+                .expect("group creator must have own leaf")
+                .capabilities()
+                .extensions()
+                .to_vec();
+            assert!(
+                own_caps_exts.contains(&ExtensionType::AppDataDictionary),
+                "creator KP capabilities must advertise AppDataDictionary, got: {own_caps_exts:?}",
+            );
+
+            let required = mls_group
+                .extensions()
+                .required_capabilities()
+                .expect("required_capabilities must be set")
+                .extension_types()
+                .to_vec();
+            assert!(
+                !required.contains(&ExtensionType::AppDataDictionary),
+                "Pre-bootstrap RequiredCapabilities must NOT require AppDataDictionary, got: {required:?}",
+            );
+            Ok::<(), crate::groups::GroupError>(())
+        })
+        .await?;
+
+    // Run the bootstrap commit.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    // Post-bootstrap: AppDataDictionary IS in RequiredCapabilities.
+    alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            let required = mls_group
+                .extensions()
+                .required_capabilities()
+                .expect("required_capabilities must be set after bootstrap")
+                .extension_types()
+                .to_vec();
+            assert!(
+                required.contains(&ExtensionType::AppDataDictionary),
+                "Post-bootstrap RequiredCapabilities MUST require AppDataDictionary, got: {required:?}",
+            );
+            Ok::<(), crate::groups::GroupError>(())
+        })
+        .await?;
+}
 
 /// Backwards-compat invariant for the `AppDataUpdate` proposal capability flip.
 ///
