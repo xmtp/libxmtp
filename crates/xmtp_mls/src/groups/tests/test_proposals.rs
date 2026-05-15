@@ -3653,3 +3653,53 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
          only floor signal the validator can read"
     );
 }
+
+/// Bootstrap retry safety: a successful migration is a hard idempotent
+/// fixed-point. A second `enable_proposals` call on an already-migrated
+/// group MUST NOT emit a new commit (advance the epoch). The existing
+/// idempotency check at the `proposals_enabled` early-return is the
+/// protection; this test pins the wire-level behavior so a refactor
+/// that removes the check would surface in CI.
+///
+/// Backstops the "user retries enable_proposals after a flaky network"
+/// scenario where the first call succeeded but the user believes it
+/// didn't.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enable_proposals_no_wire_commit_on_already_migrated() {
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+
+    // First call — migrates the group, advances the epoch.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    let epoch_after_migration = alix_group.epoch().await?;
+
+    // Second call — must early-return (no commit, no epoch advance).
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    assert_eq!(
+        alix_group.epoch().await?,
+        epoch_after_migration,
+        "second enable_proposals must NOT advance the epoch (no commit emitted)"
+    );
+
+    // Third call with a different `force` value — same fixed-point.
+    alix_group
+        .enable_proposals(EnableProposalsOptions {
+            force: true,
+            min_version: None,
+        })
+        .await?;
+    assert_eq!(
+        alix_group.epoch().await?,
+        epoch_after_migration,
+        "third enable_proposals with different options must STILL NOT advance the epoch"
+    );
+}
