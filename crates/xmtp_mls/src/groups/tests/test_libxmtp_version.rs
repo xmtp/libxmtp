@@ -109,3 +109,25 @@ fn test_parse_invalid_format() {
         );
     }
 }
+
+/// `PROPOSALS_MIN_PROTOCOL_VERSION` is the default floor written by
+/// `enable_proposals` when the caller doesn't override `min_version`.
+/// The send-side clamp in `enable_proposals` refuses any
+/// `min_version > own pkg_version`, so this constant being ahead of
+/// the workspace version would brick every production call to
+/// `enable_proposals` that takes the default. Pin the invariant here
+/// so CI fails on a one-sided bump.
+#[test]
+fn proposals_min_protocol_version_does_not_exceed_workspace_version() {
+    let default_floor = LibXMTPVersion::parse(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
+        .expect("PROPOSALS_MIN_PROTOCOL_VERSION must be valid semver");
+    let workspace = LibXMTPVersion::parse(env!("CARGO_PKG_VERSION"))
+        .expect("CARGO_PKG_VERSION must be valid semver");
+    assert!(
+        default_floor <= workspace,
+        "PROPOSALS_MIN_PROTOCOL_VERSION ({}) must be <= CARGO_PKG_VERSION ({}); \
+         a higher default would trip the enable_proposals clamp",
+        xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION,
+        env!("CARGO_PKG_VERSION"),
+    );
+}

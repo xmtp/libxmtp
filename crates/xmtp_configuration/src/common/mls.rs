@@ -51,10 +51,17 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 /// uses this value to gate them out of migrated groups before they
 /// fork.
 ///
+/// **Invariant**: must be `<= CARGO_PKG_VERSION`. The send-side clamp
+/// in `enable_proposals` refuses any `min_version > own pkg_version`
+/// (you can't legally write a floor you yourself don't satisfy), so
+/// a constant ahead of the workspace version would brick every
+/// production call to `enable_proposals` that takes the default. Bump
+/// this in lockstep with the workspace version, never independently.
+///
 /// Callers that need a different floor (testing, dev nightlies,
 /// staged rollouts) pass `EnableProposalsOptions::min_version` instead
 /// of relying on this default.
-pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.11.0";
+pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.11.0-dev";
 
 // Welcome pointers are mostly the hpke public key and less than 100 bytes for the welcome pointer
 // so as long as we have 2 installations that need a single welcome it will result in less data being

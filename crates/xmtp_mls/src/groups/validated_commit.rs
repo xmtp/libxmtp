@@ -103,6 +103,18 @@ pub enum CommitValidationError {
     ProposerNotFound,
     #[error("Proposals are not enabled on this group")]
     ProposalsNotEnabled,
+    /// Sender published an `AppDataUpdate(Update)` against
+    /// `MIN_SUPPORTED_PROTOCOL_VERSION` whose new value is below the
+    /// existing floor. Monotonic-only: a downgrade silently unpauses
+    /// peers between the new and old floors, defeating XIP §3's gate.
+    #[error("min_version {requested} would downgrade existing floor {current}")]
+    MinVersionDowngrade { requested: String, current: String },
+    /// Sender published an `AppDataUpdate(Remove)` against
+    /// `MIN_SUPPORTED_PROTOCOL_VERSION` on a group that already has a
+    /// floor set. Explicit unsetting is just a downgrade in disguise,
+    /// rejected for the same XIP §3 reason.
+    #[error("min_version remove is rejected; existing floor is {current}")]
+    MinVersionRemoveOnExistingFloor { current: String },
     /// A well-known component value in the AppData dictionary failed
     /// to decode while validating an AppDataUpdate proposal — most
     /// commonly a malformed `COMPONENT_REGISTRY`. Treated as a
@@ -1284,6 +1296,59 @@ fn validate_one_app_data_update(
     )
 }
 
+/// Receive-side enforcement of `MIN_SUPPORTED_PROTOCOL_VERSION`
+/// monotonicity. A proposal that lowers the floor (or removes it
+/// while one was set) is rejected before it can reach the dict.
+/// `Update(new)` with `new >= old` (or `old` absent / unparseable)
+/// passes. `Remove` with an existing floor fails — explicit unsetting
+/// of the floor is just a downgrade in disguise.
+///
+/// This is the source-of-truth check; the send-side guard in
+/// `update_group_min_version` is a friendlier UX layer over the same
+/// invariant. An attacker patching out the send-side gate still hits
+/// this one on every receiver.
+fn enforce_min_version_monotonicity(
+    operation: &openmls::messages::proposals::AppDataUpdateOperation,
+    old_value: Option<&[u8]>,
+) -> Result<(), CommitValidationError> {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    // First-set on a group with no prior floor is always allowed —
+    // there's nothing to downgrade against.
+    let Some(old_bytes) = old_value else {
+        return Ok(());
+    };
+    // If the prior bytes don't parse as semver, we can't compare.
+    // Treat as "no prior floor" and accept — refusing every future
+    // update on a malformed prior would brick the group.
+    let Ok(old_str) = std::str::from_utf8(old_bytes) else {
+        return Ok(());
+    };
+    let Ok(old_v) = LibXMTPVersion::parse(old_str) else {
+        return Ok(());
+    };
+    match operation {
+        AppDataUpdateOperation::Update(payload) => {
+            let new_bytes = payload.as_slice();
+            let new_str = std::str::from_utf8(new_bytes).map_err(|_| {
+                CommitValidationError::InvalidVersionFormat(format!("{:?}", new_bytes))
+            })?;
+            let new_v = LibXMTPVersion::parse(new_str)?;
+            if new_v < old_v {
+                return Err(CommitValidationError::MinVersionDowngrade {
+                    requested: new_str.to_string(),
+                    current: old_str.to_string(),
+                });
+            }
+            Ok(())
+        }
+        AppDataUpdateOperation::Remove => {
+            Err(CommitValidationError::MinVersionRemoveOnExistingFloor {
+                current: old_str.to_string(),
+            })
+        }
+    }
+}
+
 /// Pure core of [`validate_one_app_data_update`] with `old_value`
 /// passed explicitly so unit tests can exercise the
 /// expand → per-change policy loop without a real MLS group.
@@ -1299,6 +1364,24 @@ pub(super) fn validate_one_app_data_update_with_old_value(
         registry_table::lookup_component,
         validation::{ComponentChange, validate_component_write},
     };
+
+    // Source-of-truth monotonicity for `MIN_SUPPORTED_PROTOCOL_VERSION`.
+    // Runs ahead of the per-element policy loop so a downgrade fails
+    // fast with a structured error rather than passing the policy
+    // check and silently relaxing the pause gate. See
+    // `enforce_min_version_monotonicity` for the rule shape.
+    if component_id
+        == xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION
+    {
+        enforce_min_version_monotonicity(operation, old_value).inspect_err(|err| {
+            tracing::warn!(
+                proposer_inbox_id,
+                component_id = %component_id,
+                error = %err,
+                "AppDataUpdate proposal rejected: min_version monotonicity"
+            );
+        })?;
+    }
 
     // Two dispatch shapes:
     //
@@ -2279,6 +2362,131 @@ mod permission_on_receive_tests {
         assert!(
             matches!(err, CommitValidationError::InsufficientPermissions),
             "expected InsufficientPermissions, got {err:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod min_version_monotonicity_tests {
+    use super::*;
+    use openmls::messages::proposals::AppDataUpdateOperation;
+
+    fn update_op(s: &str) -> AppDataUpdateOperation {
+        AppDataUpdateOperation::Update(s.as_bytes().to_vec().into())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn first_set_with_no_prior_floor_is_allowed() {
+        enforce_min_version_monotonicity(&update_op("1.11.0-dev"), None)?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn equal_version_is_allowed() {
+        enforce_min_version_monotonicity(&update_op("1.11.0-dev"), Some(b"1.11.0-dev"))?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn higher_version_is_allowed() {
+        enforce_min_version_monotonicity(&update_op("1.11.0"), Some(b"1.11.0-dev"))?;
+        enforce_min_version_monotonicity(&update_op("1.12.0"), Some(b"1.11.0-dev"))?;
+        enforce_min_version_monotonicity(&update_op("2.0.0"), Some(b"1.11.0-dev"))?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn lower_version_is_rejected() {
+        let err = enforce_min_version_monotonicity(&update_op("1.10.0"), Some(b"1.11.0-dev"))
+            .expect_err("downgrade must be rejected");
+        assert!(
+            matches!(
+                err,
+                CommitValidationError::MinVersionDowngrade { ref requested, ref current }
+                if requested == "1.10.0" && current == "1.11.0-dev"
+            ),
+            "expected MinVersionDowngrade, got {err:?}",
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn remove_with_prior_floor_is_rejected() {
+        let err =
+            enforce_min_version_monotonicity(&AppDataUpdateOperation::Remove, Some(b"1.11.0-dev"))
+                .expect_err("remove on a set floor must be rejected");
+        assert!(
+            matches!(
+                err,
+                CommitValidationError::MinVersionRemoveOnExistingFloor { ref current }
+                if current == "1.11.0-dev"
+            ),
+            "expected MinVersionRemoveOnExistingFloor, got {err:?}",
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn remove_with_no_prior_floor_is_allowed() {
+        enforce_min_version_monotonicity(&AppDataUpdateOperation::Remove, None)?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn malformed_prior_skips_check() {
+        // Lenient on unparseable prior bytes — refusing every future
+        // update on a malformed floor would brick the group.
+        enforce_min_version_monotonicity(&update_op("1.11.0-dev"), Some(b"not-a-version"))?;
+        enforce_min_version_monotonicity(&update_op("1.11.0-dev"), Some(&[0xff, 0xfe, 0xfd]))?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn malformed_new_value_surfaces_parse_error() {
+        let err =
+            enforce_min_version_monotonicity(&update_op("not-a-version"), Some(b"1.11.0-dev"))
+                .expect_err("malformed new value must error");
+        assert!(
+            matches!(err, CommitValidationError::InvalidVersionFormat(_)),
+            "expected InvalidVersionFormat, got {err:?}",
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn prerelease_ordering_matches_semver() {
+        // semver §11: pre-release sorts BEFORE the release. Bumping
+        // from a pre-release to the corresponding release is allowed;
+        // going the other way is a downgrade.
+        enforce_min_version_monotonicity(&update_op("1.10.0"), Some(b"1.10.0-rc.1"))?;
+        let err = enforce_min_version_monotonicity(&update_op("1.10.0-rc.1"), Some(b"1.10.0"))
+            .expect_err("rc → release reverse must be rejected");
+        assert!(
+            matches!(err, CommitValidationError::MinVersionDowngrade { .. }),
+            "expected MinVersionDowngrade, got {err:?}",
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn dev_prerelease_is_lower_than_release() {
+        // The default `PROPOSALS_MIN_PROTOCOL_VERSION` is the
+        // `-dev` pre-release of the workspace version, so by
+        // semver §11 the release of the same x.y.z must sort
+        // above it. Lock both directions:
+        //   - LibXMTPVersion comparator agrees,
+        //   - bumping the floor from `-dev` to the release is allowed,
+        //   - the reverse is a downgrade.
+        let dev = LibXMTPVersion::parse("1.11.0-dev")?;
+        let release = LibXMTPVersion::parse("1.11.0")?;
+        assert!(
+            release > dev,
+            "expected 1.11.0 > 1.11.0-dev per semver §11, got release={release:?} dev={dev:?}",
+        );
+        assert!(dev < release, "expected 1.11.0-dev < 1.11.0 per semver §11");
+
+        enforce_min_version_monotonicity(&update_op("1.11.0"), Some(b"1.11.0-dev"))?;
+
+        let err = enforce_min_version_monotonicity(&update_op("1.11.0-dev"), Some(b"1.11.0"))
+            .expect_err("release → -dev reverse must be rejected");
+        assert!(
+            matches!(
+                err,
+                CommitValidationError::MinVersionDowngrade { ref requested, ref current }
+                if requested == "1.11.0-dev" && current == "1.11.0"
+            ),
+            "expected MinVersionDowngrade, got {err:?}",
         );
     }
 }
