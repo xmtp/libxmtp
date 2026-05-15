@@ -304,7 +304,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_get_readd_status_not_found() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             let result = conn.get_readd_status(&group_id, &installation_id).unwrap();
@@ -315,7 +315,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_store_and_get_readd_status() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             let status = ReaddStatus {
@@ -340,7 +340,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_update_requested_at_sequence_id_creates_new() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
             let sequence_id = 100;
 
@@ -360,7 +360,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_update_requested_at_sequence_id_updates_existing() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create initial status
@@ -388,7 +388,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_update_requested_at_sequence_id_only_updates_if_higher() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create initial status with high sequence_id
@@ -416,7 +416,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_update_requested_at_sequence_id_updates_from_null() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create initial status with null requested_at_sequence_id
@@ -444,7 +444,7 @@ mod tests {
     #[xmtp_common::test]
     async fn test_update_responded_at_sequence_id_creates_new() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
             let sequence_id = 100;
 
@@ -464,7 +464,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_update_responded_at_sequence_id_only_updates_if_higher() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create initial status with high responded_at_sequence_id
@@ -503,7 +503,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_is_awaiting_readd_no_status() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Should return false when no readd status exists
@@ -515,7 +515,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_is_awaiting_readd_no_request() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create a readd status without a requested_at_sequence_id
@@ -537,7 +537,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_is_awaiting_readd_request_pending() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create a readd status with requested_at > responded_at
@@ -559,7 +559,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_is_awaiting_readd_request_fulfilled() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create a readd status with requested_at <= responded_at
@@ -581,7 +581,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_is_awaiting_readd_equal_sequence_ids() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create a readd status with requested_at == responded_at
@@ -605,7 +605,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_is_awaiting_readd_no_responded_at() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Create a readd status with requested_at but no responded_at (defaults to 0)
@@ -627,7 +627,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_delete_other_readd_statuses() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let keep_installation_id = vec![10, 11, 12];
             let delete_installation_id_1 = vec![20, 21, 22];
             let delete_installation_id_2 = vec![30, 31, 32];
@@ -698,7 +698,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_get_readds_awaiting_response() {
         with_connection(|conn| {
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let self_installation_id = vec![10, 11, 12];
             let other_installation_id_1 = vec![20, 21, 22];
             let other_installation_id_2 = vec![30, 31, 32];

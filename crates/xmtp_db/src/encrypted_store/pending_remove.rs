@@ -165,7 +165,7 @@ mod tests {
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
-            let group_id: GroupId = [1u8; 16].into();
+            let group_id = GroupId::ONE;
             let users = conn.get_pending_remove_users(&group_id).unwrap();
             assert_eq!(users.len(), 3);
             let deleted_users = conn

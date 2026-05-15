@@ -142,8 +142,8 @@ async fn up_groups() {
     let db = crate::TestDb::create_database(None).await;
     migrate_before(db.conn(), "2025-08-19-141841_originator_id_groups");
 
-    group(db.conn(), &[1u8; 16], Some(100));
-    group(db.conn(), &[3u8; 16], Some(150));
+    group(db.conn(), GroupId::ONE.as_slice(), Some(100));
+    group(db.conn(), GroupId::THREE.as_slice(), Some(150));
 
     finish_migrations(db.conn());
 

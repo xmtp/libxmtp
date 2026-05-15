@@ -1878,9 +1878,9 @@ pub(crate) mod tests {
     fn test_get_conversation_ids_for_responding_readds() {
         with_connection(|conn| {
             // Create test groups
-            let group_id_1: GroupId = [1u8; 16].into();
-            let group_id_2: GroupId = [2u8; 16].into();
-            let group_id_3: GroupId = [3u8; 16].into();
+            let group_id_1 = GroupId::ONE;
+            let group_id_2 = GroupId::TWO;
+            let group_id_3 = GroupId::THREE;
 
             let group1 = StoredGroup::builder()
                 .id(group_id_1)
