@@ -402,6 +402,7 @@ where
         let remote_log_cursors = conn.get_remote_log_cursors(
             conversation_id_to_public_key
                 .keys()
+                .map(Vec::as_slice)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )?;

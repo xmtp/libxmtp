@@ -489,9 +489,7 @@ where
         bench!(self, latest_cursor_for_id(&group.id, &entities, None))?;
 
         // Get remote log cursors
-        let conv_id_vec = group.id.to_vec();
-        let conv_ids = vec![&conv_id_vec];
-        bench!(self, get_remote_log_cursors(&conv_ids))?;
+        bench!(self, get_remote_log_cursors(&[group.id.as_slice()]))?;
 
         Ok(())
     }

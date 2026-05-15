@@ -20,6 +20,17 @@ use crate::ConversionError;
 pub struct GroupId([u8; 16]);
 
 impl GroupId {
+    /// `GroupId([0u8; 16])` — sentinel / placeholder. Same as `GroupId::default()`.
+    pub const ZERO: GroupId = GroupId([0u8; 16]);
+    /// `GroupId([1u8; 16])` — convenience constant for tests.
+    pub const ONE: GroupId = GroupId([1u8; 16]);
+    /// `GroupId([2u8; 16])` — convenience constant for tests.
+    pub const TWO: GroupId = GroupId([2u8; 16]);
+    /// `GroupId([3u8; 16])` — convenience constant for tests.
+    pub const THREE: GroupId = GroupId([3u8; 16]);
+    /// `GroupId([4u8; 16])` — convenience constant for tests.
+    pub const FOUR: GroupId = GroupId([4u8; 16]);
+
     /// Borrowed byte slice view over the underlying 16 bytes.
     pub fn as_slice(&self) -> &[u8] {
         &self.0
@@ -414,6 +425,16 @@ mod test {
     fn test_default_is_zero() {
         let id = GroupId::default();
         assert_eq!(id.as_slice(), &[0u8; 16][..]);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_const_helpers() {
+        assert_eq!(GroupId::ZERO, GroupId::default());
+        assert_eq!(GroupId::ZERO.as_bytes(), &[0u8; 16]);
+        assert_eq!(GroupId::ONE.as_bytes(), &[1u8; 16]);
+        assert_eq!(GroupId::TWO.as_bytes(), &[2u8; 16]);
+        assert_eq!(GroupId::THREE.as_bytes(), &[3u8; 16]);
+        assert_eq!(GroupId::FOUR.as_bytes(), &[4u8; 16]);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -389,7 +389,7 @@ pub mod tests {
 
     pub fn build_group_messages(
         num_messages: usize,
-        group_id: Vec<u8>,
+        group_id: GroupId,
     ) -> Vec<mls_v1::GroupMessage> {
         let mut out: Vec<mls_v1::GroupMessage> = vec![];
         for i in 0..num_messages {
@@ -397,7 +397,7 @@ pub mod tests {
                 version: Some(GroupMessageVersion::V1(GroupMessageV1 {
                     id: i as u64,
                     created_ns: i as u64,
-                    group_id: group_id.clone(),
+                    group_id: group_id.to_vec(),
                     data: MlsMessageOut::from(FakeMlsApplicationMessage::generate())
                         .to_bytes()
                         .unwrap(),
@@ -472,17 +472,16 @@ pub mod tests {
     async fn test_read_group_messages_single_page() {
         let mock_api = MockNetworkClient::default();
         let mut v3_client = V3Client::new(mock_api, NoCursorStore);
-        let group_id = rand_vec::<16>();
-        let group_id_clone = group_id.clone();
+        let group_id = GroupId::generate();
         // Set expectation for first request with no cursor
         v3_client
             .client_mut()
             .expect_request()
             .returning(move |_, _, mut body| {
                 let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
-                assert_eq!(req.group_id, group_id.clone());
+                assert_eq!(req.group_id, group_id);
 
-                let msgs = build_group_messages(10, group_id.clone());
+                let msgs = build_group_messages(10, group_id);
                 let mut bytes = prost::bytes::BytesMut::new();
                 let res = QueryGroupMessagesResponse {
                     messages: msgs,
@@ -498,10 +497,7 @@ pub mod tests {
 
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
-        let result = wrapper
-            .query_group_messages(group_id_clone.try_into().unwrap())
-            .await
-            .unwrap();
+        let result = wrapper.query_group_messages(group_id).await.unwrap();
         assert_eq!(result.len(), 10);
     }
 
@@ -509,17 +505,16 @@ pub mod tests {
     async fn test_read_group_messages_single_page_xactly_100_results() {
         let mock_api = MockNetworkClient::default();
         let mut v3_client = V3Client::new(mock_api, NoCursorStore);
-        let group_id = rand_vec::<16>();
-        let group_id_clone = group_id.clone();
+        let group_id = GroupId::generate();
         // Set expectation for first request with no cursor
         v3_client
             .client_mut()
             .expect_request()
             .returning(move |_, _, mut body| {
                 let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
-                assert_eq!(req.group_id, group_id.clone());
+                assert_eq!(req.group_id, group_id);
 
-                let msgs = build_group_messages(100, group_id.clone());
+                let msgs = build_group_messages(100, group_id);
                 let mut bytes = prost::bytes::BytesMut::new();
                 let res = QueryGroupMessagesResponse {
                     messages: msgs,
@@ -535,10 +530,7 @@ pub mod tests {
 
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
-        let result = wrapper
-            .query_group_messages(group_id_clone.try_into().unwrap())
-            .await
-            .unwrap();
+        let result = wrapper.query_group_messages(group_id).await.unwrap();
         assert_eq!(result.len(), 100);
     }
 
@@ -546,9 +538,7 @@ pub mod tests {
     async fn test_read_topic_multi_page() {
         let mock_api = MockNetworkClient::new();
         let mut v3_client = V3Client::new(mock_api, NoCursorStore);
-        let group_id = vec![1u8; 16];
-        let group_id_clone = group_id.clone();
-        let group_id_clone2 = group_id.clone();
+        let group_id = GroupId::ONE;
         // Set expectation for first request with no cursor
         v3_client
             .client_mut()
@@ -562,7 +552,7 @@ pub mod tests {
             })
             .returning(move |_, _, mut body| {
                 let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
-                assert_eq!(req.group_id, group_id.clone());
+                assert_eq!(req.group_id, group_id);
 
                 Ok(http::Response::new(
                     QueryGroupMessagesResponse {
@@ -571,7 +561,7 @@ pub mod tests {
                             limit: 100,
                             direction: 0,
                         }),
-                        messages: build_group_messages(100, group_id.clone()),
+                        messages: build_group_messages(100, group_id),
                     }
                     .encode_to_vec()
                     .into(),
@@ -590,12 +580,12 @@ pub mod tests {
             })
             .returning(move |_, _, mut body| {
                 let req = QueryGroupMessagesRequest::decode(&mut body).unwrap();
-                assert_eq!(req.group_id, group_id_clone.clone());
+                assert_eq!(req.group_id, group_id);
 
                 Ok(http::Response::new(
                     QueryGroupMessagesResponse {
                         paging_info: None,
-                        messages: build_group_messages(100, group_id_clone.clone()),
+                        messages: build_group_messages(100, group_id),
                     }
                     .encode_to_vec()
                     .into(),
@@ -604,10 +594,7 @@ pub mod tests {
         tracing::info!("wrapper");
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
-        let result = wrapper
-            .query_group_messages(group_id_clone2.try_into().unwrap())
-            .await
-            .unwrap();
+        let result = wrapper.query_group_messages(group_id).await.unwrap();
         assert_eq!(result.len(), 200);
     }
 

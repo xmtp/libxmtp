@@ -612,7 +612,7 @@ mock! {
         #[mockall::concretize]
         fn get_remote_log_cursors(
             &self,
-            conversation_ids: &[&Vec<u8>],
+            conversation_ids: &[&[u8]],
         ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
 
         #[mockall::concretize]
