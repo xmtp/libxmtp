@@ -28,6 +28,25 @@ pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
 pub const MAX_GROUP_SIZE: usize = 250;
 
+/// Per-component cap on the bytes payload of an `AppDataUpdate(Update(...))`
+/// proposal. The dictionary lives in the `AppDataDictionary`
+/// group-context extension and is replicated to every member; a single
+/// runaway component value would balloon every group context until
+/// welcomes become slow and forks become likely. The cap is enforced
+/// on both the send side (refuse to queue an oversized intent) and
+/// the receive side (reject an oversized proposal in the validator)
+/// so a misbehaving SDK consumer can't poison a group by writing
+/// directly to the dictionary via the typed-component path.
+///
+/// Chosen for headroom over typical use:
+/// - Display strings (`GROUP_NAME`, `GROUP_DESCRIPTION`): single-digit
+///   KB ceilings in practice.
+/// - Identity/key-material components: <1 KB.
+/// - KeyValue-component shaped use: each Insert/Update payload is one
+///   entry, so 32 KB lets a single entry hold a reasonably large
+///   structured value without dominating the dict.
+pub const MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES: usize = 32 * 1024;
+
 pub const MAX_INSTALLATIONS_PER_INBOX: usize = 10;
 
 pub const MAX_PAST_EPOCHS: usize = 3;

@@ -283,6 +283,20 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     // information than the on-wire commit, but the producer of each
     // folded-in proposal already accepted that outcome by leaving it
     // pending instead of issuing its own commit.
+    // Send-side mirror of the receive-side payload cap enforced by
+    // `validate_one_app_data_update_with_old_value`. Honest callers
+    // discover oversize payloads here, before a proposal is published —
+    // saves a network round trip and surfaces a structured error to the
+    // SDK consumer instead of a `Sync`-error rejection later.
+    let payload_size = payload.len();
+    if payload_size > xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES {
+        return Err(GroupAppDataError::PayloadTooLarge {
+            component_id,
+            size: payload_size,
+            limit: xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES,
+        });
+    }
+
     let openmls_id = component_id.as_u16();
     let operation = AppDataUpdateOperation::Update(payload.into());
 
@@ -358,6 +372,19 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
 /// the public `GroupError` enum.
 #[derive(Debug, thiserror::Error)]
 pub enum GroupAppDataError<StorageError: std::error::Error> {
+    /// Payload size exceeded the per-component cap before the proposal
+    /// was published. Mirror of receive-side `AppDataPayloadTooLarge`;
+    /// surfaces the same structured fields so SDK consumers fail fast
+    /// instead of waiting for commit-validation rejection.
+    #[error(
+        "AppDataUpdate payload too large: component {component_id} \
+         size {size} bytes exceeds limit {limit}"
+    )]
+    PayloadTooLarge {
+        component_id: ComponentId,
+        size: usize,
+        limit: usize,
+    },
     /// `propose_app_data_update(…)` failed when staging the standalone
     /// proposal that precedes the commit.
     #[error("propose error: {0}")]
@@ -396,10 +423,10 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
             Self::Propose(e) => xmtp_common::retryable!(e),
             Self::StageCommit(e) => xmtp_common::retryable!(e),
             // Deterministic shape / staging-precondition failures —
-            // CreateCommit is upstream-`false`, and ApplyPayload is a
-            // sender-side encode failure that won't get better on
-            // retry.
-            Self::CreateCommit(_) | Self::ApplyPayload(_) => false,
+            // CreateCommit is upstream-`false`, ApplyPayload is a
+            // sender-side encode failure, and PayloadTooLarge is a hard
+            // size-limit violation. None of these recover on retry.
+            Self::CreateCommit(_) | Self::ApplyPayload(_) | Self::PayloadTooLarge { .. } => false,
         }
     }
 }

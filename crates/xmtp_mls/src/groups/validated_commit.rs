@@ -103,6 +103,19 @@ pub enum CommitValidationError {
     ProposerNotFound,
     #[error("Proposals are not enabled on this group")]
     ProposalsNotEnabled,
+    /// Sender published an `AppDataUpdate(Update)` whose payload
+    /// exceeds [`xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES`].
+    /// Caps how much a single proposal can bloat the
+    /// `AppDataDictionary` group-context extension that every member
+    /// carries.
+    #[error(
+        "AppDataUpdate payload for component {component_id} is {size} bytes, exceeds the {limit}-byte cap"
+    )]
+    AppDataPayloadTooLarge {
+        component_id: xmtp_mls_common::app_data::component_id::ComponentId,
+        size: usize,
+        limit: usize,
+    },
     /// A well-known component value in the AppData dictionary failed
     /// to decode while validating an AppDataUpdate proposal — most
     /// commonly a malformed `COMPONENT_REGISTRY`. Treated as a
@@ -1295,10 +1308,35 @@ pub(super) fn validate_one_app_data_update_with_old_value(
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
     old_value: Option<&[u8]>,
 ) -> Result<(), CommitValidationError> {
+    use openmls::messages::proposals::AppDataUpdateOperation;
     use xmtp_mls_common::app_data::{
         registry_table::lookup_component,
         validation::{ComponentChange, validate_component_write},
     };
+
+    // Receive-side cap on the proposal's payload size. Caps how much a
+    // single proposal can bloat the `AppDataDictionary` group-context
+    // extension every member carries. The mirror send-side check in
+    // `stage_app_data_propose_and_commit` (see `app_data/mod.rs`)
+    // fails honest clients fast — this receive-side check is the
+    // source of truth for dishonest clients.
+    if let AppDataUpdateOperation::Update(payload) = operation {
+        let size = payload.as_slice().len();
+        if size > xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES {
+            tracing::warn!(
+                proposer_inbox_id,
+                component_id = %component_id,
+                size,
+                limit = xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES,
+                "AppDataUpdate proposal rejected: payload exceeds per-component size cap"
+            );
+            return Err(CommitValidationError::AppDataPayloadTooLarge {
+                component_id,
+                size,
+                limit: xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES,
+            });
+        }
+    }
 
     // Two dispatch shapes:
     //
@@ -2280,5 +2318,98 @@ mod permission_on_receive_tests {
             matches!(err, CommitValidationError::InsufficientPermissions),
             "expected InsufficientPermissions, got {err:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod app_data_payload_cap_tests {
+    use super::*;
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, component_registry::ComponentRegistry,
+        validation::ActorAuthority,
+    };
+
+    fn super_admin_actor() -> ActorAuthority {
+        ActorAuthority {
+            is_admin: true,
+            is_super_admin: true,
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn payload_at_or_below_cap_is_accepted_by_size_check() {
+        // Exactly at the cap is allowed. The component-id used here is
+        // a hardcoded one with super-admin policy so the rest of the
+        // validator (post the size check) accepts it.
+        let payload = vec![0u8; xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES];
+        let operation = AppDataUpdateOperation::Update(payload.into());
+        let registry = ComponentRegistry::new();
+        let result = validate_one_app_data_update_with_old_value(
+            ComponentId::COMPONENT_REGISTRY,
+            &operation,
+            super_admin_actor(),
+            "test-inbox",
+            &registry,
+            None,
+        );
+        // The size check passes; subsequent layers may reject for
+        // other reasons (e.g. the bytes don't decode as a valid
+        // ComponentRegistry). What matters here is that we do NOT
+        // see `AppDataPayloadTooLarge`.
+        if let Err(err) = result {
+            assert!(
+                !matches!(err, CommitValidationError::AppDataPayloadTooLarge { .. }),
+                "expected size check to PASS at the cap, got {err:?}"
+            );
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn payload_above_cap_is_rejected() {
+        let oversize = xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES + 1;
+        let payload = vec![0u8; oversize];
+        let operation = AppDataUpdateOperation::Update(payload.into());
+        let registry = ComponentRegistry::new();
+        let err = validate_one_app_data_update_with_old_value(
+            ComponentId::GROUP_NAME,
+            &operation,
+            super_admin_actor(),
+            "test-inbox",
+            &registry,
+            None,
+        )
+        .expect_err("oversize payload must be rejected");
+        assert!(
+            matches!(
+                err,
+                CommitValidationError::AppDataPayloadTooLarge { component_id, size, limit }
+                    if component_id == ComponentId::GROUP_NAME
+                        && size == oversize
+                        && limit == xmtp_configuration::MAX_APP_DATA_COMPONENT_PAYLOAD_BYTES
+            ),
+            "expected AppDataPayloadTooLarge with matching fields, got {err:?}",
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn remove_operation_is_not_subject_to_cap() {
+        // Remove has no payload — the size check should not fire.
+        let operation = AppDataUpdateOperation::Remove;
+        let registry = ComponentRegistry::new();
+        let result = validate_one_app_data_update_with_old_value(
+            ComponentId::COMPONENT_REGISTRY,
+            &operation,
+            super_admin_actor(),
+            "test-inbox",
+            &registry,
+            None,
+        );
+        if let Err(err) = result {
+            assert!(
+                !matches!(err, CommitValidationError::AppDataPayloadTooLarge { .. }),
+                "Remove must NOT trip the payload-size cap, got {err:?}"
+            );
+        }
     }
 }
