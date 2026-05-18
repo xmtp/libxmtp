@@ -53,16 +53,20 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(opts: AppOpts) -> Result<Self> {
+    pub fn new(opts: AppOpts) -> Self {
+        Self { opts }
+    }
+
+    pub fn init_db(&self) -> Result<()> {
         fs::create_dir_all(&Self::data_directory()?)?;
-        fs::create_dir_all(&Self::db_directory(&opts.backend)?)?;
+        fs::create_dir_all(&Self::db_directory(&self.opts.backend)?)?;
         Self::detect_legacy_db(&Self::redb()?)?;
         debug!(
             directory = %Self::data_directory()?.display(),
-            sqlite_stores = %Self::db_directory(&opts.backend)?.display(),
+            sqlite_stores = %Self::db_directory(&self.opts.backend)?.display(),
             "created project directories",
         );
-        Ok(Self { opts })
+        Ok(())
     }
 
     fn readonly_db() -> Result<Arc<redb::ReadOnlyDatabase>> {
@@ -181,6 +185,10 @@ impl App {
     }
 
     pub async fn run(self) -> Result<()> {
+        if !self.opts.clear {
+            self.init_db()?;
+        }
+
         let App { opts } = self;
         use args::Commands::*;
         let AppOpts {

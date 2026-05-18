@@ -178,6 +178,7 @@ emsdk
 result
 archive.xmtp
 coverage_diff_html/**
+.direnv
 .direnv/**
 om.json
 

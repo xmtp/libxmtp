@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let app = app::App::new(opts)?;
+    let app = app::App::new(opts);
     app.run().await?;
 
     Ok(())
