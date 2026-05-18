@@ -236,8 +236,7 @@ pub(crate) mod tests {
         let sync_group_id = amal_sync_group.id;
         let created_at_ns = amal_sync_group.created_at_ns;
 
-        let external_client_group =
-            MlsGroup::new(bo_client.clone(), sync_group_id, created_at_ns);
+        let external_client_group = MlsGroup::new(bo_client.clone(), sync_group_id, created_at_ns);
         let result = external_client_group
             .add_members(&[bo_wallet.identifier()])
             .await;
