@@ -162,24 +162,25 @@ pub(crate) async fn apply_update_group_membership_intent(
     }
 
     // Check if proposals need to be disabled due to new members not supporting them
-    let proposal_ext_type =
-        openmls::prelude::ExtensionType::Unknown(xmtp_configuration::PROPOSAL_SUPPORT_EXTENSION_ID);
+    let app_data_ext_type = openmls::prelude::ExtensionType::AppDataDictionary;
     let mut proposals_currently_enabled = openmls_group
         .extensions()
         .iter()
-        .any(|ext| ext.extension_type() == proposal_ext_type);
+        .any(|ext| ext.extension_type() == app_data_ext_type);
     let mut downgrade_to_legacy = false;
     if proposals_currently_enabled && !changes_with_kps.new_key_packages.is_empty() {
         let new_members_support_proposals = changes_with_kps.new_key_packages.iter().all(|kp| {
             kp.leaf_node()
                 .capabilities()
                 .extensions()
-                .contains(&proposal_ext_type)
+                .contains(&app_data_ext_type)
         });
         // TODO: D14N Hammer
         if !new_members_support_proposals {
-            tracing::info!("Disabling proposals: new members don't support proposal extension");
-            new_extensions.remove(proposal_ext_type);
+            tracing::info!(
+                "Disabling proposals: new members don't support the AppData dictionary extension"
+            );
+            new_extensions.remove(app_data_ext_type);
             update_required_capabilities_for_proposals(&mut new_extensions, false)?;
             proposals_currently_enabled = false;
             // If this group was migrated, downgrading to legacy

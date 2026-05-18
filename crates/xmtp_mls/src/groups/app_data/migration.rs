@@ -308,10 +308,13 @@ pub enum BootstrapCommitError<StorageError: std::error::Error> {
     /// a commit that every honest receiver rejects.
     #[error("bootstrap precondition: new_extensions still carries legacy XMTP extension {0:#06x}")]
     LegacyExtensionPresent(u16),
-    /// Caller invariant violated: `new_extensions` is missing the
-    /// PROPOSAL_SUPPORT extension that bootstrap groups MUST carry.
-    #[error("bootstrap precondition: new_extensions is missing PROPOSAL_SUPPORT")]
-    MissingProposalSupport,
+    /// Caller invariant violated: `new_extensions`'s
+    /// `RequiredCapabilities` doesn't list
+    /// `ExtensionType::AppDataDictionary`. Every bootstrap commit
+    /// MUST require AppDataDictionary so post-flip members can't skip
+    /// the support check.
+    #[error("bootstrap precondition: RequiredCapabilities doesn't list AppDataDictionary")]
+    MissingAppDataDictionaryRequirement,
     /// Sender-side `apply_app_data_update_payload` rejected one of
     /// the synthesized component values when deriving dict bytes from
     /// wire bytes. Indicates a bug in synthesis (the wire bytes don't
@@ -333,11 +336,15 @@ pub enum BootstrapCommitError<StorageError: std::error::Error> {
 /// The caller is responsible for computing `component_values` via the
 /// async [`synthesize_initial_component_values`] and for building
 /// `new_extensions` with:
-/// - `PROPOSAL_SUPPORT_EXTENSION_ID` added
 /// - `MUTABLE_METADATA_EXTENSION_ID`, `GROUP_PERMISSIONS_EXTENSION_ID`,
 ///   `GROUP_MEMBERSHIP_EXTENSION_ID`, and the immutable metadata
 ///   extension (`ExtensionType::ImmutableMetadata`) removed from the
 ///   group context extensions AND from `RequiredCapabilities`.
+/// - `ExtensionType::AppDataDictionary` added to `RequiredCapabilities`
+///   so receivers must advertise support for the dict-carrying
+///   standard MLS extension. The `AppDataDictionary` GCE itself is
+///   populated by OpenMLS when the bundled `AppDataUpdate` proposals
+///   apply during commit processing.
 pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
@@ -380,8 +387,21 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
             _ => {}
         }
     }
-    if !crate::groups::check_proposals_enabled(&new_extensions) {
-        return Err(BootstrapCommitError::MissingProposalSupport);
+    // RequiredCapabilities MUST list AppDataDictionary so post-flip
+    // members can't add themselves without supporting the dict. Using
+    // `check_proposals_enabled` (which detects the AppDataDictionary
+    // GCE itself) wouldn't work here — openmls only adds the dict GCE
+    // when the AppDataUpdate proposals apply during commit processing.
+    use openmls::extensions::ExtensionType;
+    let requires_app_data_dictionary = new_extensions
+        .required_capabilities()
+        .map(|rc| {
+            rc.extension_types()
+                .contains(&ExtensionType::AppDataDictionary)
+        })
+        .unwrap_or(false);
+    if !requires_app_data_dictionary {
+        return Err(BootstrapCommitError::MissingAppDataDictionaryRequirement);
     }
 
     // OpenMLS commit-ordering rule (draft-ietf-mls-extensions §4.7-7):

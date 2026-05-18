@@ -32,10 +32,9 @@ use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
-    BROADCAST_PROPOSAL_SUPPORT, CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION,
-    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
-    KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX, MUTABLE_METADATA_EXTENSION_ID,
-    PROPOSAL_SUPPORT_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
+    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
@@ -778,7 +777,14 @@ impl Identity {
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     pub static ENABLE_WELCOME_POINTERS: bool;
-    pub static ENABLE_PROPOSAL_SUPPORT: bool;
+    /// Test-only opt-out from advertising `AppDataDictionary` in the
+    /// key package's leaf-node capabilities. Tests that simulate an
+    /// "old client without AppData support" set this to `false` for
+    /// the scope of one client build, and the resulting KP omits the
+    /// extension type from its `Capabilities`. Production has no
+    /// equivalent gate — `AppDataDictionary` is broadcast
+    /// unconditionally.
+    pub static ENABLE_APP_DATA_DICTIONARY_BROADCAST: bool;
 }
 
 #[derive(Builder, Debug)]
@@ -840,12 +846,12 @@ impl XmtpKeyPackageBuilder {
             // Advertise AppDataDictionary so the bootstrap commit
             // (and later AppDataUpdate proposals) are accepted —
             // OpenMLS rejects commits whose new extension set isn't
-            // covered by every leaf's capabilities. The extension is
-            // optional pre-bootstrap (groups that never call
-            // `enable_proposals` won't carry the dict) but advertising
+            // covered by every leaf's capabilities. Advertising
             // unconditionally is the simplest path: required-vs-
             // supported is enforced by RequiredCapabilities, not by
-            // this leaf-node list.
+            // this leaf-node list. This advertisement also doubles
+            // as the migration-eligibility signal that
+            // `all_members_support_proposals` reads.
             ExtensionType::AppDataDictionary,
             ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
             ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
@@ -853,17 +859,16 @@ impl XmtpKeyPackageBuilder {
             ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
             ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
         ];
-        if BROADCAST_PROPOSAL_SUPPORT {
-            capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
-        }
+        // Test-only opt-out: tests that simulate an "old client
+        // without AppData support" drop the advertisement so the
+        // member-support check fails for that installation.
         #[cfg(any(test, feature = "test-utils"))]
         {
-            const {
-                assert!(BROADCAST_PROPOSAL_SUPPORT);
-            }
-            if !ENABLE_PROPOSAL_SUPPORT.try_with(|v| *v).unwrap_or(true) {
-                capability_extensions
-                    .retain(|e| *e != ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+            if !ENABLE_APP_DATA_DICTIONARY_BROADCAST
+                .try_with(|v| *v)
+                .unwrap_or(true)
+            {
+                capability_extensions.retain(|e| *e != ExtensionType::AppDataDictionary);
             }
         }
         // Advertise both `GroupContextExtensions` (required by all groups)
