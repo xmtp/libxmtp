@@ -74,6 +74,34 @@ impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageO
   }
 }
 
+/// Options for [`Conversation::enableProposals`]. Mirrors
+/// [`xmtp_mls::groups::EnableProposalsOptions`].
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct EnableProposalsOptions {
+  /// Skip the pre-flight key-package capability check. Post-d14n
+  /// every client supports proposals by version floor alone; set
+  /// `true` to bypass the per-member scan in that environment.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub force: Option<bool>,
+  /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+  /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub min_version: Option<String>,
+}
+
+impl From<EnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
+  fn from(opts: EnableProposalsOptions) -> Self {
+    xmtp_mls::groups::EnableProposalsOptions {
+      force: opts.force.unwrap_or(false),
+      min_version: opts.min_version,
+    }
+  }
+}
+
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -654,9 +682,12 @@ impl Conversation {
   /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
   /// way: migrated groups cannot return to the legacy path.
   #[wasm_bindgen(js_name = enableProposals)]
-  pub async fn enable_proposals(&self) -> Result<(), JsError> {
+  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<(), JsError> {
     let group = self.to_mls_group();
-    group.enable_proposals().await.map_err(ErrorWrapper::js)
+    group
+      .enable_proposals(options.into())
+      .await
+      .map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = groupName)]

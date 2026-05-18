@@ -51,7 +51,7 @@ impl Info {
         info!(
             metadata.identities,
             metadata.groups,
-            // metadata.messages,
+            metadata.messages,
             project = crate::app::App::data_directory()?.as_value(),
             sqlite = sqlite_stores.as_value(),
             sqlite_size = %format!("{db_dir_size}MB"),

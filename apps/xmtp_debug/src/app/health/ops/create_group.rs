@@ -2,7 +2,7 @@
 //! The new group's id is appended to `ctx.new_groups` so downstream ops
 //! and validators see it.
 
-use crate::app::health::context::{HealthContext, group_id_bytes, inbox_id_to_bytes};
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -25,15 +25,10 @@ impl HealthOp for CreateGroup {
             Ok(group) => {
                 let new_group_id = group.group_id;
                 let hex_id = format!("{new_group_id}");
-                match group_id_bytes(&new_group_id) {
-                    Ok(id_bytes) => {
-                        let creator = inbox_id_to_bytes(ctx.primary.inbox_id());
-                        ctx.persist_new_group(id_bytes, creator, vec![creator]);
-                        ctx.new_groups.push(new_group_id);
-                        (Status::Pass, Some(hex_id), None)
-                    }
-                    Err(e) => (Status::Fail, Some(hex_id), Some(e)),
-                }
+                let creator = inbox_id_to_bytes(ctx.primary.inbox_id());
+                ctx.persist_new_group(&new_group_id, creator, vec![creator]);
+                ctx.new_groups.push(new_group_id);
+                (Status::Pass, Some(hex_id), None)
             }
             Err(e) => (Status::Fail, None, Some(eyre!("{e}"))),
         };

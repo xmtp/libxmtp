@@ -99,8 +99,6 @@ pub enum CommitValidationError {
     StorageError(#[from] StorageError),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
-    #[error("Version part missing")]
-    VersionMissing,
     #[error("Proposer could not be determined for inbox change in proposal-enabled group")]
     ProposerNotFound,
     #[error("Proposals are not enabled on this group")]
@@ -268,52 +266,36 @@ impl MetadataFieldChange {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LibXMTPVersion {
-    major: u32,
-    minor: u32,
-    patch: u32,
-    suffix: Option<String>,
-}
+/// Wrapper around [`semver::Version`] used for the
+/// `MIN_SUPPORTED_PROTOCOL_VERSION` floor and related min-version checks.
+///
+/// Delegates parsing and ordering to the [`semver`] crate so behavior
+/// matches the semver 2.0 spec — most importantly:
+///
+/// * Pre-release versions sort *before* the release: `1.0.0-alpha <
+///   1.0.0-beta < 1.0.0`. The previous hand-rolled implementation got
+///   this backwards (`1.0.0 < 1.0.0-alpha`), which would silently
+///   pause clients running release builds against any group floor set
+///   by a caller passing a pre-release string.
+/// * Pre-release identifiers compare numerically when all-digits, so
+///   `rc2 < rc10` instead of lexicographic `rc10 < rc2`.
+/// * Multi-segment pre-release tags like `1.0.0-alpha.1` parse cleanly
+///   instead of failing with `InvalidVersionFormat`.
+/// * Build metadata (after `+`) parses cleanly. Note: the [`semver`]
+///   crate's `Ord` impl deliberately *includes* build metadata for
+///   total-ordering / `Hash` consistency, deviating from semver 2.0
+///   §10 ("build metadata MUST be ignored when determining version
+///   precedence"). Irrelevant in practice — `CARGO_PKG_VERSION` and
+///   the application-facing `update_group_min_version` callers never
+///   pass `+`-suffixed input.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LibXMTPVersion(semver::Version);
 
 impl LibXMTPVersion {
     pub fn parse(version_str: &str) -> Result<Self, CommitValidationError> {
-        let parts: Vec<&str> = version_str.split('.').collect();
-        if parts.len() != 3 {
-            return Err(CommitValidationError::InvalidVersionFormat(
-                version_str.to_string(),
-            ));
-        }
-
-        let major = parts
-            .first()
-            .ok_or(CommitValidationError::VersionMissing)?
-            .parse()
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-        let minor = parts
-            .get(1)
-            .ok_or(CommitValidationError::VersionMissing)?
-            .parse()
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-
-        let patch_and_suffix = parts
-            .get(2)
-            .ok_or(CommitValidationError::VersionMissing)?
-            .split('-')
-            .collect::<Vec<_>>();
-
-        let patch = patch_and_suffix
-            .first()
-            .ok_or(CommitValidationError::VersionMissing)?
-            .parse()
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-
-        Ok(LibXMTPVersion {
-            major,
-            minor,
-            patch,
-            suffix: patch_and_suffix.get(1).map(ToString::to_string),
-        })
+        semver::Version::parse(version_str)
+            .map(Self)
+            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))
     }
 }
 
@@ -460,24 +442,77 @@ impl ValidatedCommit {
         let proposals_enabled = super::check_proposals_enabled(existing_group_extensions);
         let new_group_extensions = staged_commit.group_context().extensions();
 
-        let metadata_validation_info = if is_migrated {
-            // On migrated groups, metadata changes flow as
-            // AppDataUpdate proposals — there is no legacy
-            // GroupMutableMetadata extension on either side to diff.
-            // Per-component policy enforcement happens through
-            // `validate_app_data_update_proposals_in_commit` below;
-            // character limits are enforced at the sender (host APIs
-            // like `update_group_name`) and via Component-level
-            // `validate_invariant` hooks. An empty struct is the
-            // correct "no legacy metadata changes" view.
-            MutableMetadataValidationInfo::default()
+        // On migrated groups, load the pre-commit COMPONENT_REGISTRY
+        // exactly once and thread it through both
+        // `read_post_commit_component_bytes` (here) and
+        // `validate_app_data_update_proposals_in_commit` (further
+        // down). This collapses two independent dict reads on every
+        // migrated-commit validation into one.
+        //
+        // Pre-commit semantics are the documented convention across
+        // the migrated commit path — see the doc on
+        // `read_post_commit_component_bytes` for the full statement
+        // and the bootstrap-commit carve-out.
+        //
+        // On migrated groups, metadata changes flow as AppDataUpdate
+        // proposals — there is no legacy GroupMutableMetadata
+        // extension on either side to diff. Per-component policy
+        // enforcement happens through
+        // `validate_app_data_update_proposals_in_commit` below;
+        // character limits are enforced at the sender (host APIs like
+        // `update_group_name`) and via Component-level
+        // `validate_invariant` hooks. An empty struct is the correct
+        // "no legacy metadata changes" view — *except* for
+        // `MIN_SUPPORTED_PROTOCOL_VERSION`, where the validator below
+        // relies on the post-commit floor being surfaced so old
+        // clients reject commits raising the floor above their
+        // pkg_version. Compute it capability-aware: pre-commit dict
+        // overlaid with any `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)`
+        // proposals carried by the staged commit, last-write-wins.
+        // Mirrors the unmigrated branch's reliance on
+        // `extract_metadata_changes` returning the new GMM attribute
+        // even when nothing else changed.
+        let (metadata_validation_info, migrated_registry) = if is_migrated {
+            let registry = super::app_data::load_component_registry(openmls_group)
+                .map_err(GroupMutableMetadataError::from)?;
+            let min_version_bytes =
+                super::app_data::component_source::read_post_commit_component_bytes(
+                    xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                    openmls_group,
+                    staged_commit,
+                    &registry,
+                )
+                .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
+            let minimum_supported_protocol_version = match min_version_bytes {
+                Some(bytes) => Some(String::from_utf8(bytes).map_err(|e| {
+                    CommitValidationError::GroupMutableMetadata(
+                        GroupMutableMetadataError::MalformedComponent {
+                            component_id: Some(
+                                xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+                            ),
+                            reason: format!("invalid utf-8: {e}"),
+                        },
+                    )
+                })?),
+                None => None,
+            };
+            (
+                MutableMetadataValidationInfo {
+                    minimum_supported_protocol_version,
+                    ..Default::default()
+                },
+                Some(registry),
+            )
         } else {
-            extract_metadata_changes(
-                &immutable_metadata,
-                &mutable_metadata,
-                existing_group_extensions,
-                new_group_extensions,
-            )?
+            (
+                extract_metadata_changes(
+                    &immutable_metadata,
+                    &mutable_metadata,
+                    existing_group_extensions,
+                    new_group_extensions,
+                )?,
+                None,
+            )
         };
 
         // Enforce character limits for specific metadata fields
@@ -553,6 +588,7 @@ impl ValidatedCommit {
             openmls_group,
             &immutable_metadata,
             &mutable_metadata,
+            migrated_registry.as_ref(),
         )?;
 
         // Get the installations actually added and removed in the commit
@@ -1390,11 +1426,32 @@ pub(super) fn app_data_update_proposer_leaf(
 /// Delegates the per-proposal permission check to
 /// [`validate_one_app_data_update`] so the core logic stays shared with
 /// the standalone-proposal path in [`validate_proposal`].
+///
+/// # Registry semantics
+///
+/// `preloaded_registry`, when `Some`, is the **pre-commit**
+/// `COMPONENT_REGISTRY` — the same view used by
+/// [`super::app_data::component_source::read_post_commit_component_bytes`]
+/// and any other per-component check on this commit. Pre-commit (not
+/// post-commit) is the documented convention across the migrated commit
+/// path: registry mutations and writes that depend on those mutations
+/// MUST land in separate commits. Bootstrap commits are the only
+/// "register + write in the same commit" legitimate pattern and route
+/// through a dedicated validator instead.
+///
+/// `None` defers the registry load to this function, which only
+/// materializes it lazily after a peek confirms at least one
+/// `AppDataUpdate` proposal exists. The split lets the caller share a
+/// single registry across this helper and
+/// `read_post_commit_component_bytes` on the migrated branch, while
+/// unmigrated callers (or commits with zero `AppDataUpdate` proposals)
+/// pay zero load cost.
 fn validate_app_data_update_proposals_in_commit(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
+    preloaded_registry: Option<&xmtp_mls_common::app_data::component_registry::ComponentRegistry>,
 ) -> Result<(), CommitValidationError> {
     use super::app_data::load_component_registry;
     use std::collections::HashMap;
@@ -1417,7 +1474,18 @@ fn validate_app_data_update_proposals_in_commit(
         return Ok(());
     }
 
-    let registry = load_component_registry(openmls_group)?;
+    // Use the caller's pre-loaded registry when available; otherwise
+    // load lazily. `owned_registry` keeps the loaded value alive for
+    // the `registry` borrow.
+    let owned_registry;
+    let registry = match preloaded_registry {
+        Some(r) => r,
+        None => {
+            owned_registry = load_component_registry(openmls_group)?;
+            &owned_registry
+        }
+    };
+
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
     // re-walk the admin lists and re-parse the credential for every one.
@@ -1444,7 +1512,7 @@ fn validate_app_data_update_proposals_in_commit(
             app_data.operation(),
             ActorAuthority::from(proposer),
             &proposer.inbox_id,
-            &registry,
+            registry,
             openmls_group,
         )?;
     }

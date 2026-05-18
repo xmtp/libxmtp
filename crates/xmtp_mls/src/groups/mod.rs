@@ -214,6 +214,58 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
+/// Options for [`MlsGroup::enable_proposals`].
+///
+/// Default (`EnableProposalsOptions::default()` or
+/// `EnableProposalsOptions { force: false, min_version: None }`) is
+/// the safe production setting: enforce the pre-flight capability
+/// check and write the standard
+/// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] floor.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnableProposalsOptions {
+    /// Skip the pre-flight `all_members_support_proposals` check. The
+    /// key-package capability advertisement is the pre-d14n
+    /// negotiation mechanism; post-d14n every client is guaranteed to
+    /// support proposals by version floor alone, so the per-member
+    /// scan stops adding signal. Setting `force = true` bypasses it on
+    /// both the pre-flight pass and the bootstrap-time re-check.
+    ///
+    /// Callers using this MUST be confident every member is at >=
+    /// `min_version` — there is no second gate.
+    pub force: bool,
+
+    /// Override the floor written into
+    /// `MIN_SUPPORTED_PROTOCOL_VERSION`. When `None`, defaults to
+    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
+    /// release where proposals support first ships.
+    ///
+    /// Use cases:
+    /// - Tests that want a synthetic floor (e.g. `"99.0.0"` to force
+    ///   the pause path) or no floor (e.g. `"0.0.0"`).
+    /// - Dev / nightly builds that need to migrate groups without
+    ///   pausing peers running older `pkg_version`s.
+    /// - Staged production rollouts that need a non-default floor.
+    pub min_version: Option<String>,
+}
+
+impl EnableProposalsOptions {
+    /// Test/dev-only constructor that sets the floor to `"0.0.0"` so
+    /// the migration never pauses any peer. Use in tests that aren't
+    /// specifically exercising the pause path — passing
+    /// [`EnableProposalsOptions::default()`] in a test environment
+    /// would write the production
+    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] floor,
+    /// which a test client running at the workspace `CARGO_PKG_VERSION`
+    /// (below that floor) would self-pause against.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn test_default() -> Self {
+        Self {
+            force: false,
+            min_version: Some("0.0.0".to_string()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum AdminListKind {
     Admin,
@@ -489,17 +541,33 @@ where
     /// - All members being added must support proposals
     /// - This cannot be disabled once set
     ///
+    /// # Options
+    ///
+    /// See [`EnableProposalsOptions`] for the two knobs:
+    /// - `force`: skip the pre-flight key-package capability check. Use
+    ///   after d14n cuts over, when capability advertisement is
+    ///   redundant with the version floor.
+    /// - `min_version`: override the `MIN_SUPPORTED_PROTOCOL_VERSION`
+    ///   floor written into the migrated group. Defaults to
+    ///   [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
+    ///   release where proposals support first ships.
+    ///
     /// # Prerequisites
     ///
-    /// Before calling this method, ensure all existing members support proposals
-    /// by calling `all_members_support_proposals()`.
+    /// Before calling this method with `force = false`, ensure all
+    /// existing members support proposals by calling
+    /// `all_members_support_proposals()`.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Not all existing members support proposals
+    /// - `force = false` and not all existing members support proposals
+    /// - `min_version` is set to an invalid semver string
     /// - The group context extension update fails
-    pub async fn enable_proposals(&self) -> Result<(), GroupError> {
+    pub async fn enable_proposals(
+        &self,
+        options: EnableProposalsOptions,
+    ) -> Result<(), GroupError> {
         // Two-step migration so old clients (any peer running a
         // libxmtp release predating this code's `pkg_version`) get a
         // pause hint they can read BEFORE the legacy
@@ -544,7 +612,10 @@ where
         // (1) `all_members_support_proposals` ensures every peer can
         // process the bootstrap commit so we don't ship step A — the
         // legacy GMM bump — for a migration that's about to fail at
-        // step B and leave below-floor peers permanently paused.
+        // step B and leave below-floor peers permanently paused. Gated
+        // by `options.force`: post-d14n the capability advertisement
+        // becomes redundant with the version floor and callers can
+        // explicitly opt out of the per-member scan.
         // (2) `proposals_enabled` early-exits if the group is already
         // migrated; calling `enable_proposals()` twice is a user error
         // and we don't want to publish a redundant legacy GMM bump on
@@ -556,11 +627,20 @@ where
         // that case re-bumping with a lower string value would
         // downgrade the floor and silently unpause peers between the
         // lower and the higher version. Skip step A when the current
-        // floor already covers our pkg_version.
-        let pkg_version = self.context.version_info().pkg_version().to_string();
+        // floor already covers the target.
+        let min_version = options
+            .min_version
+            .unwrap_or_else(|| xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string());
+        // Validate the floor string up-front so we fail with a clear
+        // error before publishing the legacy GMM bump rather than
+        // discovering it mid-flight when the validator parses it.
+        let target_v = LibXMTPVersion::parse(&min_version).map_err(|e| {
+            GroupError::ProposalsNotSupported(format!("parsing min_version '{min_version}': {e}"))
+        })?;
+        let force = options.force;
         let (already_migrated, needs_min_version_bump) = self
             .load_mls_group_with_lock_async(async |mls_group| {
-                if !self.all_members_support_proposals(&mls_group).await? {
+                if !force && !self.all_members_support_proposals(&mls_group).await? {
                     return Err(GroupError::ProposalsNotSupported(
                         "Cannot enable proposals: not all members support the proposal extension"
                             .to_string(),
@@ -583,11 +663,6 @@ where
                                 "parsing legacy GMM MinimumSupportedProtocolVersion '{current_str}': {e}"
                             ))
                         })?;
-                        let target_v = LibXMTPVersion::parse(&pkg_version).map_err(|e| {
-                            GroupError::ProposalsNotSupported(format!(
-                                "parsing this binary's pkg_version '{pkg_version}': {e}"
-                            ))
-                        })?;
                         current_v < target_v
                     }
                 };
@@ -602,7 +677,7 @@ where
         if needs_min_version_bump {
             let min_version_intent_data: Vec<u8> =
                 intents::UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
-                    pkg_version,
+                    min_version.clone(),
                 )
                 .into();
             let min_version_intent = intents::QueueIntent::metadata_update()
@@ -630,10 +705,14 @@ where
         // pass is a defense-in-depth: pre-flight ran above before step
         // A, but a peer could join between then and now. The intent
         // dispatch reads live group state at publish time, so step B
-        // must observe the same predicate it gated step A with.
+        // must observe the same predicate it gated step A with. Same
+        // `force` gate as the pre-flight — if the caller explicitly
+        // disabled the capability check there, honor that here too so
+        // a freshly-joined member can't re-block the migration mid-
+        // flight.
         let new_extensions = self
             .load_mls_group_with_lock_async(async |mls_group| {
-                if !self.all_members_support_proposals(&mls_group).await? {
+                if !force && !self.all_members_support_proposals(&mls_group).await? {
                     return Err(GroupError::ProposalsNotSupported(
                         "Cannot enable proposals: not all members support the proposal extension"
                             .to_string(),
@@ -1787,10 +1866,12 @@ where
     /// * `version` - The libxmtp version to update the group min version to.
     ///   This is a semver-formatted string matching the Cargo.toml in the
     ///   libxmtp dependency, and does not match mobile or web release versions.
-    ///   Do NOT include pre-release metadata like "1.0.0-alpha",
-    ///   "1.0.0-beta", etc, as the version comparison may not match what
-    ///   is expected. For historical reasons, "1.0.0-alpha" is considered to be
-    ///   > "1.0.0", so it is better to just specify "1.0.0".
+    ///   Comparison is done via the [`semver`] crate's `Ord` impl, so
+    ///   pre-release identifiers (e.g. `"1.0.0-rc.1"`) sort BEFORE the
+    ///   corresponding release (`"1.0.0"`) per semver 2.0 §11. Build
+    ///   metadata (`+...`) parses but is included in ordering by the
+    ///   semver crate — avoid passing it unless you understand the
+    ///   total-ordering implication.
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
