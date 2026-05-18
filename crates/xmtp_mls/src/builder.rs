@@ -15,8 +15,10 @@ use crate::{
 };
 use futures::FutureExt;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_api_d14n::{
@@ -319,6 +321,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client,
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
+            cancellation_token: CancellationToken::new(),
+            closed: Arc::new(AtomicBool::new(false)),
         });
 
         // register workers
@@ -377,7 +381,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // Cleanup old unstitched group updated messages.
         let conn = DbConnection::new(client.db());
-        xmtp_common::spawn(None, cleanup_duplicate_updates::perform(conn));
+        let cancel = client.context.cancellation_token().clone();
+        xmtp_common::spawn(None, async move {
+            tokio::select! {
+                _ = cancel.cancelled() => {}
+                _ = cleanup_duplicate_updates::perform(conn) => {}
+            }
+        });
 
         Ok(client)
     }

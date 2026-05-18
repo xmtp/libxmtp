@@ -14,7 +14,9 @@ use crate::{
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -51,6 +53,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) cancellation_token: CancellationToken,
+    pub(crate) closed: Arc<AtomicBool>,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -117,6 +121,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             fork_recovery_opts: self.fork_recovery_opts,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            cancellation_token: self.cancellation_token,
+            closed: self.closed,
         }
     }
 }
@@ -159,6 +165,20 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             .lock()
             .get(&WorkerKind::DeviceSync)?
             .as_sync_metrics()
+    }
+
+    pub fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    /// Atomically marks the context as closed. Returns `true` if it was
+    /// already closed (caller should treat the operation as a no-op).
+    pub fn mark_closed(&self) -> bool {
+        self.closed.swap(true, Ordering::AcqRel)
     }
 }
 
@@ -212,6 +232,11 @@ where
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
+    fn cancellation_token(&self) -> &CancellationToken;
+    fn is_closed(&self) -> bool;
+    /// Atomically marks this context closed. Returns `true` if it was
+    /// already closed; callers should short-circuit in that case.
+    fn mark_closed(&self) -> bool;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -293,6 +318,18 @@ where
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
     }
+
+    fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    fn mark_closed(&self) -> bool {
+        self.closed.swap(true, Ordering::AcqRel)
+    }
 }
 
 impl<T> XmtpSharedContext for &T
@@ -370,5 +407,17 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn cancellation_token(&self) -> &CancellationToken {
+        <T as XmtpSharedContext>::cancellation_token(self)
+    }
+
+    fn is_closed(&self) -> bool {
+        <T as XmtpSharedContext>::is_closed(self)
+    }
+
+    fn mark_closed(&self) -> bool {
+        <T as XmtpSharedContext>::mark_closed(self)
     }
 }
