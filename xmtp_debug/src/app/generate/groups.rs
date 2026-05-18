@@ -70,35 +70,45 @@ impl GenerateGroups {
                     async move {
                         let _permit = semaphore.acquire().await?;
                         debug!(owner = hex::encode(owner), "group owner");
-                        let invitees = {
+                        // Over-sample by 1 so we can drop the owner if it
+                        // lands in the random pool without ending up short.
+                        // Otherwise libxmtp's add_members_by_inbox_id gets
+                        // called with the owner as a self-add and the
+                        // persisted member list contains the owner twice
+                        // (inflating member_size).
+                        let invitee_identities: Vec<InboxId> = {
                             let mut rng = rand::thread_rng();
-                            // todo: maybe generate more identities at this point?
-                            // or earlier, check if we have sufficient identities for this
-                            // command
-                            store.random_n_capped(network, &mut rng, invitees)
-                        }?;
-                        let mut ids = Vec::with_capacity(invitees.len());
-                        for member in &invitees {
-                            let member = member.value();
-                            let cred =
-                                XmtpInstallationCredential::from_bytes(&member.installation_key)?;
-                            let inbox_id = hex::encode(member.inbox_id);
-                            tracing::debug!(
-                                inbox_ids = hex::encode(member.inbox_id),
-                                installation_key = %InstallationId::from(*cred.public_bytes()),
-                                "Adding Members"
-                            );
-                            ids.push(inbox_id);
-                        }
+                            let sample = store.random_n_capped(network, &mut rng, invitees + 1)?;
+                            sample
+                                .iter()
+                                .map(|i| i.value())
+                                .filter(|id| id.inbox_id != owner)
+                                .take(invitees)
+                                .map(|id| {
+                                    let cred = XmtpInstallationCredential::from_bytes(
+                                        &id.installation_key,
+                                    )?;
+                                    tracing::debug!(
+                                        inbox_ids = hex::encode(id.inbox_id),
+                                        installation_key = %InstallationId::from(*cred.public_bytes()),
+                                        "Adding Members"
+                                    );
+                                    Ok::<InboxId, eyre::Report>(id.inbox_id)
+                                })
+                                .collect::<Result<_>>()?
+                        };
+                        let ids: Vec<String> =
+                            invitee_identities.iter().map(hex::encode).collect();
                         let client = client.lock().await;
                         let group = client.create_group(Default::default(), Default::default())?;
                         group.add_members_by_inbox_id(ids.as_slice()).await?;
                         bar_pointer.inc(1);
-                        let mut members = invitees
-                            .into_iter()
-                            .map(|i| i.value().inbox_id)
-                            .collect::<Vec<InboxId>>();
+                        // Owner first so the canonical creator is always
+                        // index 0; invitees are already owner-filtered, so
+                        // no duplicate is possible.
+                        let mut members = Vec::with_capacity(invitee_identities.len() + 1);
                         members.push(owner);
+                        members.extend(invitee_identities);
                         Ok(Group {
                             id: group
                                 .group_id
