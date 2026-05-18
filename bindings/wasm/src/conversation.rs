@@ -926,7 +926,7 @@ impl Conversation {
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in dms {
-      let id = hex::encode(&conversation.group_id);
+      let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
         .map_err(ErrorWrapper::js)?
