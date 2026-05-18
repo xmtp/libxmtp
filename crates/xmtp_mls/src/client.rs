@@ -181,6 +181,12 @@ pub enum ClientError {
     /// Registration envelopes haven't propagated to the node yet. Retryable.
     #[error("Envelopes not yet visible on node {node_id}")]
     EnvelopesNotYetVisible { node_id: u32 },
+    /// Client is closed.
+    ///
+    /// Operation was attempted on a client that has been shut down via
+    /// `Client::close`. Not retryable — build a new client instead.
+    #[error("client is closed")]
+    AlreadyClosed,
 }
 
 impl ClientError {
@@ -328,8 +334,31 @@ where
 {
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        if self.context.is_closed() {
+            return Err(ClientError::AlreadyClosed);
+        }
         self.context.db().reconnect().map_err(StorageError::from)?;
         self.workers.spawn(self.context.clone());
+        Ok(())
+    }
+
+    /// Cleanly shut down this client: cancel in-flight workers and streams,
+    /// then release the DB connection. Idempotent — a second call is `Ok(())`.
+    ///
+    /// Callers (notably the Node binding consumers) should `await` this before
+    /// deleting the SQLite file or dropping the client wrapper, to avoid late
+    /// log spew from detached workers/streams firing against a dead DB.
+    pub async fn close(&self) -> Result<(), ClientError> {
+        if self.context.mark_closed() {
+            return Ok(());
+        }
+        self.context.cancellation_token().cancel();
+        self.workers.shutdown().await;
+        self.context
+            .db()
+            .disconnect()
+            .map_err(xmtp_db::StorageError::from)?;
+        log_event!(Event::ClientClosed, self.installation_id);
         Ok(())
     }
 
