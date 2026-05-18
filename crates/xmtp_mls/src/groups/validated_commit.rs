@@ -2190,3 +2190,95 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
         }
     }
 }
+
+#[cfg(test)]
+mod permission_on_receive_tests {
+    //! Pins the receive-side permission check on `AppDataUpdate`
+    //! proposals. Every proposal that reaches
+    //! [`validate_one_app_data_update_with_old_value`] runs through
+    //! `validate_component_write` (registry policy + hardcoded
+    //! super-admin gating). Without this guarantee an attacker who
+    //! patched out the send-side permission check could still poison
+    //! the dictionary as long as their proposal landed in a commit.
+    use super::*;
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, component_registry::ComponentRegistry,
+        validation::ActorAuthority,
+    };
+
+    fn non_admin_actor() -> ActorAuthority {
+        ActorAuthority {
+            is_admin: false,
+            is_super_admin: false,
+        }
+    }
+
+    fn admin_actor() -> ActorAuthority {
+        ActorAuthority {
+            is_admin: true,
+            is_super_admin: false,
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn non_admin_writing_super_admin_only_component_is_rejected() {
+        let operation = AppDataUpdateOperation::Update(vec![0u8; 16].into());
+        let registry = ComponentRegistry::new();
+        let err = validate_one_app_data_update_with_old_value(
+            ComponentId::COMPONENT_REGISTRY,
+            &operation,
+            non_admin_actor(),
+            "test-inbox",
+            &registry,
+            None,
+        )
+        .expect_err("non-admin write to super-admin-only component must be rejected");
+        assert!(
+            matches!(err, CommitValidationError::InsufficientPermissions),
+            "expected InsufficientPermissions, got {err:?}"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn plain_admin_writing_super_admin_only_component_is_rejected() {
+        let operation = AppDataUpdateOperation::Update(vec![0u8; 16].into());
+        let registry = ComponentRegistry::new();
+        let err = validate_one_app_data_update_with_old_value(
+            ComponentId::COMPONENT_REGISTRY,
+            &operation,
+            admin_actor(),
+            "test-inbox",
+            &registry,
+            None,
+        )
+        .expect_err("plain-admin write to super-admin-only component must be rejected");
+        assert!(
+            matches!(err, CommitValidationError::InsufficientPermissions),
+            "expected InsufficientPermissions, got {err:?}"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn non_admin_writing_component_with_no_registry_entry_is_rejected() {
+        // Unknown component in well-known range with no registry
+        // entry → deny by default at the registry-policy layer
+        // (validate_component_write Layer 3), regardless of actor role.
+        let unknown_id = ComponentId::new(0x80FF);
+        let operation = AppDataUpdateOperation::Update(vec![0u8; 16].into());
+        let registry = ComponentRegistry::new();
+        let err = validate_one_app_data_update_with_old_value(
+            unknown_id,
+            &operation,
+            non_admin_actor(),
+            "test-inbox",
+            &registry,
+            None,
+        )
+        .expect_err("write to unregistered component must be rejected");
+        assert!(
+            matches!(err, CommitValidationError::InsufficientPermissions),
+            "expected InsufficientPermissions, got {err:?}"
+        );
+    }
+}
