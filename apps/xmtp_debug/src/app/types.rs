@@ -181,7 +181,9 @@ impl redb::Value for Identity {
 pub struct Group {
     /// user that created group
     pub created_by: InboxId,
-    /// Id of the group
+    /// Id of the group. Stored as `[u8; 16]` so it can be serialized via
+    /// `speedy`; use [`Group::group_id`] when interacting with xmtp_mls
+    /// APIs that expect a `GroupId`.
     pub id: [u8; 16],
     /// Size of the groups
     pub member_size: u32,
@@ -189,9 +191,16 @@ pub struct Group {
     pub members: Vec<InboxId>,
 }
 
+impl Group {
+    /// View `self.id` as the canonical [`xmtp_proto::types::GroupId`].
+    pub fn group_id(&self) -> xmtp_proto::types::GroupId {
+        xmtp_proto::types::GroupId::from(self.id)
+    }
+}
+
 impl std::fmt::Display for Group {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", hex::encode(self.id))
+        write!(f, "{}", self.group_id())
     }
 }
 

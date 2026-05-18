@@ -379,7 +379,7 @@ pub mod test_util {
                 .map(|m| {
                     vec![
                         hex::encode(&m.id)[..16].to_string(),
-                        hex::encode(&m.group_id)[..16].to_string(),
+                        hex::encode(m.group_id)[..16].to_string(),
                         m.sent_at_ns.to_string(),
                         format!("{:?}", m.kind),
                         m.sender_inbox_id.clone(),
@@ -438,7 +438,7 @@ pub mod test_util {
                     vec![
                         i.originator_id.to_string(),
                         i.sequence_id.to_string(),
-                        hex::encode(&i.group_id)[..16].to_string(),
+                        hex::encode(i.group_id)[..16].to_string(),
                         hex::encode(&i.envelope_payload)[..20.min(i.envelope_payload.len() * 2)]
                             .to_string(),
                     ]

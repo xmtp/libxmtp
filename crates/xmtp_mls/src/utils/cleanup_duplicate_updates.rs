@@ -190,9 +190,9 @@ mod tests {
         let mut duplicates = vec![];
 
         for i in 0..3 {
-            let msg1 = gen_update_msg(dm.group_id.clone(), payload1.clone());
+            let msg1 = gen_update_msg(dm.group_id, payload1.clone());
             msg1.store(&alix.db())?;
-            let msg2 = gen_update_msg(dm.group_id.clone(), payload2.clone());
+            let msg2 = gen_update_msg(dm.group_id, payload2.clone());
             msg2.store(&alix.db())?;
 
             if i > 0 {
@@ -220,7 +220,7 @@ mod tests {
 
         // Let's insert another duplicate and make sure it stays this time.
         // We don't want the perform to run more than once.
-        let msg = gen_update_msg(dm.group_id.clone(), payload1.clone());
+        let msg = gen_update_msg(dm.group_id, payload1.clone());
         msg.store(&alix.db())?;
         perform(alix.db()).await;
 

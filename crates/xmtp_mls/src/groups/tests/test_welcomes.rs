@@ -36,7 +36,7 @@ async fn test_welcome_cursor() {
 
     alix2.sync_welcomes().await?;
     let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
-        &group.group_id,
+        group.group_id,
         &[EntityKind::CommitMessage],
         None,
     )?;
@@ -46,14 +46,13 @@ async fn test_welcome_cursor() {
 }
 
 #[track_caller]
-fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
-    let group_id_typed = GroupId::from(group_id);
+fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     let msg = db
-        .get_group_messages(&group_id_typed, &Default::default())
+        .get_group_messages(group_id, &Default::default())
         .unwrap();
     let msg = msg.last().unwrap();
     let cursor = db
-        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
         .unwrap()
         .values()
         .next()
@@ -67,7 +66,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
     );
 
     let other_msg = db2
-        .get_group_messages(&group_id_typed, &Default::default())
+        .get_group_messages(group_id, &Default::default())
         .unwrap();
     let other_msg = other_msg.last().unwrap();
     assert_eq!(
@@ -76,7 +75,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
         "GroupMessage must equal group message of db2"
     );
     let other_cursor = db2
-        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
         .unwrap()
         .values()
         .next()

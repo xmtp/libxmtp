@@ -42,9 +42,12 @@ impl Validator for NoMissingMessages {
                 continue;
             }
             for client in &clients {
-                let Ok(mls_group) = client.group(group_id.as_slice()) else {
+                let Ok(mls_group) = client.group(group_id) else {
                     continue;
                 };
+                // Skip clients that left or were removed: their local view
+                // is intentionally frozen at the moment of removal and will
+                // not see post-removal commits.
                 if !mls_group.is_active().unwrap_or(false) {
                     continue;
                 }

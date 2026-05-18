@@ -117,9 +117,10 @@ pub(crate) async fn apply_update_group_membership_intent(
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
+    let group_id = GroupId::try_from(openmls_group.group_id())?;
     let changes_with_kps = calculate_membership_changes_with_keypackages(
         context,
-        openmls_group.group_id().as_slice(),
+        &group_id,
         &new_group_membership,
         &old_group_membership,
     )

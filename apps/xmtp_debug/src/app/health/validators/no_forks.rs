@@ -35,7 +35,7 @@ impl Validator for NoForkedGroups {
                 // client's frozen local commit-log diverges from the
                 // live one by design; that's not a fork worth flagging.
                 let is_active = client
-                    .group(gid.as_slice())
+                    .group(gid)
                     .ok()
                     .and_then(|g| g.is_active().ok())
                     .unwrap_or(false);

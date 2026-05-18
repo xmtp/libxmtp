@@ -132,17 +132,13 @@ mod tests {
             // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "123".to_string(),
-                group_id: GroupId::from(vec![1, 2, 3]),
+                group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
-            let users = conn
-                .get_pending_remove_users(&GroupId::from(&[1u8, 2, 3][..]))
-                .unwrap();
+            let users = conn.get_pending_remove_users(&GroupId::ONE).unwrap();
             assert_eq!(users.len(), 1);
-            let users = conn
-                .get_pending_remove_users(&GroupId::from(&[1u8][..]))
-                .unwrap();
+            let users = conn.get_pending_remove_users(&GroupId::TWO).unwrap();
             assert_eq!(users.len(), 0);
         })
     }
@@ -153,23 +149,23 @@ mod tests {
             // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "1".to_string(),
-                group_id: GroupId::from(vec![1, 2, 3]),
+                group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
             PendingRemove {
                 inbox_id: "2".to_string(),
-                group_id: GroupId::from(vec![1, 2, 3]),
+                group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
             PendingRemove {
                 inbox_id: "3".to_string(),
-                group_id: GroupId::from(vec![1, 2, 3]),
+                group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
-            let group_id: GroupId = vec![1u8, 2, 3].into();
+            let group_id = GroupId::ONE;
             let users = conn.get_pending_remove_users(&group_id).unwrap();
             assert_eq!(users.len(), 3);
             let deleted_users = conn
@@ -179,7 +175,7 @@ mod tests {
             let users = conn.get_pending_remove_users(&group_id).unwrap();
             assert_eq!(users.len(), 1);
             let deleted_users = conn
-                .delete_pending_remove_users(&GroupId::from(&[1u8][..]), vec!["3".to_string()])
+                .delete_pending_remove_users(&GroupId::TWO, vec!["3".to_string()])
                 .unwrap();
             assert_eq!(deleted_users, 0usize);
         })

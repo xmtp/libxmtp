@@ -224,10 +224,10 @@ impl GenerateMessages {
             .get(&group.created_by)
             .ok_or(eyre!("group has no owner"))?;
         let owner = owner.lock().await;
-        let owner_group = owner.group(group.id.as_ref()).wrap_err(format!(
+        let owner_group = owner.group(&group.group_id()).wrap_err(format!(
             "owner {} of group {} failed to look up in sqlite db",
             hex::encode(group.created_by),
-            hex::encode(group.id)
+            group.group_id()
         ))?;
         owner_group
             .add_members(&[hex::encode(not_in_group)])
@@ -265,7 +265,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let mls_group = client.group(&group.id)?;
+            let mls_group = client.group(&group.group_id())?;
             mls_group.sync_with_conn().await?;
             mls_group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..10);
@@ -361,7 +361,7 @@ impl GenerateMessages {
         let stored_group = group_store
             .random(&network, rng)?
             .ok_or(eyre!("no group in local store"))?;
-        info!(time = ?Instant::now(), group = hex::encode(stored_group.id), "sending message");
+        info!(time = ?Instant::now(), group = %stored_group.group_id(), "sending message");
         let Some(sender_inbox_id) = stored_group.members.choose(rng).copied() else {
             return Err(MessageSendError::NoGroup);
         };
@@ -370,7 +370,7 @@ impl GenerateMessages {
             .ok_or(eyre!("client does not exist"))?;
         let client = client.lock().await;
         client.sync_welcomes().await?;
-        let mls_group = client.group(&stored_group.id)?;
+        let mls_group = client.group(&stored_group.group_id())?;
         mls_group.sync_with_conn().await?;
         mls_group.maybe_update_installations(None).await?;
         let words = rng.random_range(0..*max_message_size);

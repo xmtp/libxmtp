@@ -45,7 +45,7 @@ impl HealthOp for RemoveMember {
             // `remove_members`. Both commits go through primary.
             let primary_group = ctx
                 .primary
-                .group(gid.as_slice())
+                .group(&gid)
                 .map_err(color_eyre::eyre::Report::from)?;
             primary_group
                 .add_members(std::slice::from_ref(&victim_inbox))

@@ -63,7 +63,7 @@ where
         let mut messages = self
             .context
             .api()
-            .query_at(TopicKind::GroupMessagesV1.create(&self.group_id), None)
+            .query_at(TopicKind::GroupMessagesV1.create(self.group_id), None)
             .await
             .map_err(xmtp_api::dyn_err)?
             .group_messages()?;

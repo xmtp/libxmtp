@@ -137,7 +137,7 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
-        let topic = TopicKind::GroupMessagesV1.create(&group_id);
+        let topic = TopicKind::GroupMessagesV1.create(group_id);
         let cursor = self.cursor_store.latest(&topic, None)?;
         tracing::debug!(%topic, %cursor, "querying messages");
         let mut topic_cursor = TopicCursor::default();

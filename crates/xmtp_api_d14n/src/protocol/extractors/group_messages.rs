@@ -2,7 +2,7 @@ use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::{
     ConversionError,
     mls_v1::group_message,
-    types::{Cursor, GlobalCursor, GroupMessage, GroupMessageBuilder},
+    types::{Cursor, GlobalCursor, GroupId, GroupMessage, GroupMessageBuilder},
 };
 
 use crate::protocol::traits::EnvelopeVisitor;
@@ -139,7 +139,7 @@ fn extract_common_mls(
     let is_commit = protocol_message.content_type() == ContentType::Commit;
 
     builder
-        .group_id(protocol_message.group_id().to_vec())
+        .group_id(GroupId::try_from(protocol_message.group_id().as_slice())?)
         .message(protocol_message);
     Ok(is_commit)
 }
@@ -156,11 +156,11 @@ mod tests {
             .with_originator_node_id(123)
             .with_originator_sequence_id(456)
             .with_originator_ns(789)
-            .with_application_message(vec![1, 2, 3])
+            .with_application_message(vec![0x01; 16])
             .build();
         let mut extractor = GroupMessageExtractor::default();
         envelope.accept(&mut extractor).unwrap();
         let msg = extractor.get().unwrap();
-        assert_eq!(vec![1, 2, 3], *msg.group_id);
+        assert_eq!(msg.group_id, [0x01u8; 16]);
     }
 }

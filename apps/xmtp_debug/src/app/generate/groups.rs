@@ -217,7 +217,7 @@ async fn create_group_on_network(
     );
     push_metrics("xdbg_debug").await;
 
-    let group_id = group.group_id.clone().to_vec();
+    let group_id = group.group_id.to_vec();
     drop(client_guard);
 
     Ok((group_id, create_secs))
@@ -230,6 +230,7 @@ async fn check_member_visibility(
     network: &args::BackendOpts,
 ) -> Result<()> {
     let reader_client = app::client_from_identity(invitee, network)?;
+    let group_id_typed = xmtp_proto::types::GroupId::try_from(group_id)?;
 
     let t_visibility = Instant::now();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
@@ -238,7 +239,7 @@ async fn check_member_visibility(
 
     loop {
         reader_client.sync_welcomes().await?;
-        if reader_client.group(group_id).is_ok() {
+        if reader_client.group(&group_id_typed).is_ok() {
             visible = true;
             break;
         }

@@ -406,19 +406,19 @@ pub(crate) mod tests {
             let test_group_1_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(test_group_1.id.clone()),
+                hex::encode(test_group_1.id),
             );
             test_group_1_consent.store(conn).unwrap();
             let test_group_2_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(test_group_2.id.clone()),
+                hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
             let test_group_3_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(test_group_3.id.clone()),
+                hex::encode(test_group_3.id),
             );
             test_group_3_consent.store(conn).unwrap();
 
@@ -500,14 +500,14 @@ pub(crate) mod tests {
             let allowed_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(allowed_group.id.clone()),
+                hex::encode(allowed_group.id),
             );
             allowed_consent.store(conn).unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(denied_group.id.clone()),
+                hex::encode(denied_group.id),
             );
             denied_consent.store(conn).unwrap();
 

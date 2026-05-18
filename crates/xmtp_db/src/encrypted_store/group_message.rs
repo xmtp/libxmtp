@@ -117,7 +117,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
     fn from(msg: &StoredGroupMessage) -> Self {
         Self {
             id: msg.id.clone(),
-            group_id: msg.group_id.clone(),
+            group_id: msg.group_id,
             decrypted_message_bytes: msg.decrypted_message_bytes.clone(),
             sent_at_ns: msg.sent_at_ns,
             kind: msg.kind,
@@ -633,7 +633,7 @@ pub trait QueryGroupMessage {
     /// The number of messages deleted.
     fn clear_messages(
         &self,
-        group_ids: Option<&[Vec<u8>]>,
+        group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError>;
 }
@@ -788,7 +788,7 @@ where
 
     fn clear_messages(
         &self,
-        group_ids: Option<&[Vec<u8>]>,
+        group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).clear_messages(group_ids, retention_days)
@@ -1401,7 +1401,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
     fn clear_messages(
         &self,
-        group_ids: Option<&[Vec<u8>]>,
+        group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError> {
         let mut query = diesel::delete(dsl::group_messages).into_boxed();

@@ -35,6 +35,8 @@ pub enum TaskWorkerError {
     ReceiverLocked,
     #[error("Cannot send sync archives without metrics handle")]
     MissingMetrics,
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
@@ -49,6 +51,7 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::InvalidHash { .. } => false,
             TaskWorkerError::ReceiverLocked => false,
             TaskWorkerError::MissingMetrics => false,
+            TaskWorkerError::Conversion(_) => false,
         }
     }
 }
@@ -249,9 +252,9 @@ where
                 client
                     .send_archive(
                         &options,
-                        &xmtp_proto::types::GroupId::from(
+                        &xmtp_proto::types::GroupId::try_from(
                             send_sync_archive.sync_group_id.as_slice(),
-                        ),
+                        )?,
                         &pin,
                         &send_sync_archive.server_url,
                     )

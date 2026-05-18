@@ -126,9 +126,9 @@ mod tests {
     pub async fn test_process_returns_correct_cursor(
         #[values(5, 8, 10, 11, 13, 18)] current_message: u64,
     ) {
-        use xmtp_common::rand_vec;
+        use xmtp_common::Generate as _;
 
-        let current_message = generate_message(current_message, &rand_vec::<16>());
+        let current_message = generate_message(current_message, &GroupId::generate());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
         let oid = current_message.originator_id();
@@ -220,9 +220,9 @@ mod tests {
         use crate::test::mock::{generate_errored_summary_with_group, generate_stored_msg};
 
         let gid = GroupId::generate();
-        let stream_msg = generate_message(10, gid.as_ref());
+        let stream_msg = generate_message(10, &gid);
         let oid = stream_msg.originator_id();
-        let stored_11 = generate_stored_msg(Cursor::new(11, oid), gid.to_vec());
+        let stored_11 = generate_stored_msg(Cursor::new(11, oid), gid);
 
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
@@ -249,10 +249,10 @@ mod tests {
                 GroupMessageProcessingError::InvalidPayload,
             )))
         });
-        let group_bytes = gid.to_vec();
-        mock_syncer.expect_recover().times(1).returning(move |_| {
-            generate_errored_summary_with_group(&group_bytes, &[10, 12], &[11])
-        });
+        mock_syncer
+            .expect_recover()
+            .times(1)
+            .returning(move |_| generate_errored_summary_with_group(&gid, &[10, 12], &[11]));
 
         let processed = MessageProcessor::new(mock_syncer, mock_db)
             .process(stream_msg.clone())
@@ -267,10 +267,10 @@ mod tests {
 
     #[rstest]
     #[case(None)]
-    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_common::rand_vec::<32>())))]
+    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_proto::types::GroupId::ZERO)))]
     #[xmtp_common::test]
     pub async fn test_cursor_no_sync(#[case] message: Option<StoredGroupMessage>) {
-        let current_message = generate_message(55, &[0]);
+        let current_message = generate_message(55, &xmtp_proto::types::GroupId::ZERO);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
         let oid = current_message.originator_id();

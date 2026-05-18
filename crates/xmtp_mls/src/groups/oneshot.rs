@@ -68,7 +68,7 @@ impl Oneshot {
                     &readd_request.group_id,
                     &sender_installation_id,
                 )? {
-                    let group_id = GroupId::from(readd_request.group_id.as_slice());
+                    let group_id = GroupId::try_from(readd_request.group_id.as_slice())?;
                     provider.key_store().db().update_requested_at_sequence_id(
                         &group_id,
                         &sender_installation_id,
@@ -136,7 +136,7 @@ impl Oneshot {
         // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
         let Ok(Some(openmls_group)) = openmls::group::MlsGroup::load(
             storage,
-            &GroupId::from(group_id.as_slice()).to_openmls(),
+            &openmls::group::GroupId::from_slice(group_id.as_slice()),
         ) else {
             tracing::warn!(
                 group_id = group_id.snippet(),
@@ -178,8 +178,8 @@ mod tests {
             .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
             .await
             .unwrap();
-        let group_id = a_group.group_id.to_vec();
-        let group_id_typed: GroupId = group_id.clone().into();
+        let group_id = a_group.group_id;
+        let group_id_typed: GroupId = group_id;
         bo.sync_all_welcomes_and_groups(None).await.unwrap();
         caro.sync_all_welcomes_and_groups(None).await.unwrap();
         let b_group = bo.group(&group_id).unwrap();
@@ -211,7 +211,7 @@ mod tests {
 
         // Create a test oneshot message (using ReaddRequest as example)
         let readd_request = ReaddRequest {
-            group_id: group_id.clone(),
+            group_id: group_id.to_vec(),
             latest_commit_sequence_id,
         };
         let oneshot_message = OneshotMessage {

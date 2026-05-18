@@ -45,7 +45,7 @@ impl Modify {
             hex::encode(local_group.created_by)
         ))?;
         let admin = app::client_from_identity(&identity, &network)?;
-        let group = admin.group(local_group.id.as_ref())?;
+        let group = admin.group(&local_group.group_id())?;
         match action {
             Remove => {
                 if inbox_id.is_none() {
@@ -78,7 +78,7 @@ impl Modify {
                 group.add_members(&[hex::encode(identity.inbox_id)]).await?;
                 info!(
                     inbox_id = hex::encode(identity.inbox_id),
-                    group_id = hex::encode(local_group.id),
+                    group_id = %local_group.group_id(),
                     "Member added"
                 );
                 group_store.set(local_group, &network)?;
@@ -95,7 +95,7 @@ impl Modify {
                     .await?;
                 info!(
                     inbox_id = hex::encode(*inbox_id),
-                    group_id = hex::encode(local_group.id),
+                    group_id = %local_group.group_id(),
                     added_by = hex::encode(identity.inbox_id),
                     "Member added as Super Admin"
                 );

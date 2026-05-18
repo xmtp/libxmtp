@@ -176,7 +176,7 @@ pub trait QueryRefreshState {
 
     fn get_remote_log_cursors(
         &self,
-        conversation_ids: &[&Vec<u8>],
+        conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
 }
 
@@ -209,7 +209,7 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
 
     fn get_remote_log_cursors(
         &self,
-        conversation_ids: &[&Vec<u8>],
+        conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
         (**self).get_remote_log_cursors(conversation_ids)
     }
@@ -386,7 +386,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     #[tracing::instrument(level = "debug", skip_all)]
     fn get_remote_log_cursors(
         &self,
-        conversation_ids: &[&Vec<u8>],
+        conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
         let mut cursor_map: HashMap<Vec<u8>, Cursor> = HashMap::new();
         for conversation_id in conversation_ids {

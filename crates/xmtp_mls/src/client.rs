@@ -640,7 +640,7 @@ where
         // notify streams of our new group
         let _ = self
             .local_events
-            .send(LocalEvents::NewGroup(group.group_id.clone()));
+            .send(LocalEvents::NewGroup(group.group_id));
 
         Ok(group)
     }
@@ -700,7 +700,7 @@ where
         // notify any streams of the new group
         let _ = self
             .local_events
-            .send(LocalEvents::NewGroup(group.group_id.clone()));
+            .send(LocalEvents::NewGroup(group.group_id));
 
         Ok(group)
     }
@@ -757,7 +757,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
+    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
         MlsStore::new(self.context.clone())
             .group(group_id)
             .map_err(Into::into)
@@ -767,9 +767,9 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
+    pub fn stitched_group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
-        let stored_group = conn.fetch_stitched(&GroupId::from(group_id))?;
+        let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
             .map(|g| {
                 MlsGroup::new(
@@ -780,14 +780,14 @@ where
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(GroupId::from(group_id)))
+            .ok_or(NotFound::GroupById(*group_id))
             .map_err(Into::into)
     }
 
     /// Find all the duplicate dms for this group
     pub fn find_duplicate_dms_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         group.find_duplicate_dms()
@@ -799,7 +799,7 @@ where
     /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
     pub fn group_disappearing_settings(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         Ok(group.disappearing_settings()?)
@@ -847,7 +847,7 @@ where
             .get_group_message(&message_id)?
             .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
 
-        let group_id = message.group_id.clone();
+        let group_id = message.group_id;
 
         let enriched = enrich_messages(conn, &group_id, vec![message])?;
 
@@ -916,7 +916,7 @@ where
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
-                        group_id: conversation_item.id.clone(),
+                        group_id: conversation_item.id,
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
                         sent_at_ns: conversation_item.sent_at_ns?,
                         sender_installation_id: conversation_item.sender_installation_id?,
@@ -1525,10 +1525,10 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        let bo_group1 = bo.group(&alix_bo_group1.clone().group_id).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
-        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
         alix_bo_group1
@@ -1545,7 +1545,7 @@ pub(crate) mod tests {
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 2);
-        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 2);
     }
@@ -1569,7 +1569,7 @@ pub(crate) mod tests {
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         // Verify Bo initially has no messages
-        let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         assert_eq!(
             bo_group1
                 .find_messages(&MsgQueryArgs::default())
@@ -1577,7 +1577,7 @@ pub(crate) mod tests {
                 .len(),
             1
         );
-        let bo_group2 = bo.group(&alix_bo_group2.group_id.clone()).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         assert_eq!(
             bo_group2
                 .find_messages(&MsgQueryArgs::default())
@@ -1949,7 +1949,7 @@ pub(crate) mod tests {
 
         // second is allowing consent for the group
         alix.set_consent_states(&[StoredConsentRecord {
-            entity: hex::encode(&group.group_id),
+            entity: hex::encode(group.group_id),
             state: ConsentState::Allowed,
             entity_type: ConsentType::ConversationId,
             consented_at_ns: now_ns(),
@@ -1973,13 +1973,13 @@ pub(crate) mod tests {
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Allowed);
 
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Denied);
 
         let item = stream.next().await??;
@@ -2072,7 +2072,7 @@ pub(crate) mod tests {
                 )
                 .await
                 .unwrap();
-            all_group_ids.push(group.group_id.clone());
+            all_group_ids.push(group.group_id);
             group
                 .send_message(
                     TextCodec::encode("hello".to_string())
@@ -2103,7 +2103,7 @@ pub(crate) mod tests {
             }
             assert_eq!(results.len(), 5);
 
-            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id.clone()));
+            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id));
 
             before_ns = Some(
                 results

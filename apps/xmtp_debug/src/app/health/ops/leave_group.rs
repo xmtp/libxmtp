@@ -44,7 +44,7 @@ impl HealthOp for LeaveGroup {
             // syncs the welcome and leaves.
             let primary_group = ctx
                 .primary
-                .group(gid.as_slice())
+                .group(&gid)
                 .map_err(color_eyre::eyre::Report::from)?;
             primary_group
                 .add_members(&[transient.inbox_id().to_string()])
@@ -55,7 +55,7 @@ impl HealthOp for LeaveGroup {
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
             let transient_group = transient
-                .group(gid.as_slice())
+                .group(&gid)
                 .map_err(color_eyre::eyre::Report::from)?;
             transient_group
                 .leave_group()

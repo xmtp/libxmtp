@@ -39,7 +39,7 @@ async fn print_commit_log_with_types(group: &MlsGroup<impl XmtpSharedContext>) {
     let logs = group.local_commit_log().await.unwrap();
     println!(
         "Commit log for group {}: {:?}",
-        hex::encode(&group.group_id[0..4]),
+        hex::encode(&group.group_id.as_slice()[0..4]),
         get_commit_types_as_strings(&logs)
     );
 }
@@ -113,7 +113,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     // Currently, device sync creates a placeholder OpenMLS group with its own commit log secret
     MlsGroup::insert(
         &bo.context,
-        Some(&a.group_id),
+        Some(a.group_id.as_slice()),
         GroupMembershipState::Restored,
         ConversationType::Group,
         PolicySet::default(),
@@ -295,7 +295,7 @@ async fn test_publish_commit_log_to_remote() {
     let commit_log_entries = alix
         .context
         .db()
-        .get_group_logs(&GroupId::from(alix_group.group_id.as_slice()))
+        .get_group_logs(&alix_group.group_id)
         .unwrap();
     assert_eq!(commit_log_entries.len(), 2);
 
@@ -304,7 +304,7 @@ async fn test_publish_commit_log_to_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            &alix_group.group_id,
+            alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
@@ -322,7 +322,7 @@ async fn test_publish_commit_log_to_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            &alix_group.group_id,
+            alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
@@ -406,7 +406,7 @@ async fn test_download_commit_log_from_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            &alix_group.group_id,
+            alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
@@ -466,7 +466,7 @@ async fn test_download_commit_log_from_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            &alix_group.group_id,
+            alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
@@ -705,7 +705,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -733,7 +733,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -760,7 +760,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -788,7 +788,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -816,7 +816,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -844,7 +844,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -872,7 +872,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -899,7 +899,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
+        group_id: GroupId::from([0x11u8; 16]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -1521,7 +1521,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Store this key in alix's key store (overwriting any existing key)
     key_store
-        .write_commit_log_key(&group.group_id, &new_signing_key)
+        .write_commit_log_key(group.group_id, &new_signing_key)
         .unwrap();
 
     println!("✓ Generated and stored new signing key for alix in key store");
@@ -1593,11 +1593,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ All participants now have the new signing key in mutable metadata");
 
     // Additional verification: the consensus key should be set in the database
-    let stored_group = alix
-        .context
-        .db()
-        .find_group(&GroupId::from(group.group_id.as_slice()))?
-        .unwrap();
+    let stored_group = alix.context.db().find_group(&group.group_id)?.unwrap();
     assert_eq!(
         stored_group.commit_log_public_key,
         Some(new_public_key.clone())

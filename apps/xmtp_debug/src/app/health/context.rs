@@ -117,7 +117,7 @@ impl HealthContext {
         let existing_groups = group_store
             .load(net_key)?
             .map(|iter| {
-                iter.map(|g| GroupId::from(g.value().id.as_slice()))
+                iter.map(|g| GroupId::from(g.value().id))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -318,7 +318,7 @@ impl HealthContext {
         let mut out: HashMap<GroupId, Vec<Message>> = HashMap::new();
         for guard in iter {
             let msg = guard.value();
-            out.entry(GroupId::from(msg.group_id.as_slice()))
+            out.entry(GroupId::from(msg.group_id))
                 .or_default()
                 .push(msg);
         }

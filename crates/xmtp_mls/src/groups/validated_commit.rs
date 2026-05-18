@@ -38,6 +38,7 @@ use xmtp_mls_common::{
         find_mutable_metadata_extension,
     },
 };
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::{
@@ -117,6 +118,8 @@ pub enum CommitValidationError {
     /// surface from being dominated by migration-specific noise.
     #[error(transparent)]
     Bootstrap(#[from] super::app_data::bootstrap_validator::BootstrapValidationError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl RetryableError for CommitValidationError {
@@ -1003,9 +1006,10 @@ impl ExpectedDiff {
 
         reject_psk_proposals(staged_commit)?;
 
+        let group_id = GroupId::try_from(openmls_group.group_id())?;
         let expected_diff = Self::extract_expected_diff_with_proposers(
             context,
-            openmls_group.group_id().as_slice(),
+            &group_id,
             staged_commit,
             extensions,
             &immutable_metadata,
@@ -1025,7 +1029,7 @@ impl ExpectedDiff {
     #[allow(clippy::too_many_arguments)]
     async fn extract_expected_diff_with_proposers(
         context: &impl XmtpSharedContext,
-        group_id: &[u8], // used for logging
+        group_id: &GroupId, // used for logging
         staged_commit: &StagedCommit,
         existing_group_extensions: &Extensions<GroupContext>,
         immutable_metadata: &GroupMetadata,

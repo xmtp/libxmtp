@@ -490,7 +490,7 @@ mock! {
 
         fn clear_messages<'a>(
             &self,
-            group_ids: Option<&'a [Vec<u8>]>,
+            group_ids: Option<&'a [GroupId]>,
             retention_days: Option<u32>,
         ) -> Result<usize, crate::ConnectionError>;
     }
@@ -612,7 +612,7 @@ mock! {
         #[mockall::concretize]
         fn get_remote_log_cursors(
             &self,
-            conversation_ids: &[&Vec<u8>],
+            conversation_ids: &[&[u8]],
         ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
 
         #[mockall::concretize]

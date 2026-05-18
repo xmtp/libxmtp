@@ -391,9 +391,9 @@ where
                 id: welcome_id,
             }) => {
                 tracing::debug!(
-                    group_id = hex::encode(&group.group_id),
+                    group_id = %group.group_id,
                     "finished processing with group {}",
-                    hex::encode(&group.group_id)
+                    hex::encode(group.group_id)
                 );
                 this.known_welcome_ids.insert(welcome_id);
                 Some(Ok(group))
@@ -414,9 +414,9 @@ where
                 maybe_originator,
             }) => {
                 tracing::debug!(
-                    group_id = hex::encode(&group.group_id),
+                    group_id = %group.group_id,
                     "finished processing with group {}",
-                    hex::encode(&group.group_id)
+                    hex::encode(group.group_id)
                 );
                 if let Some(id) = maybe_sequence_id
                     && let Some(originator) = maybe_originator
@@ -463,7 +463,7 @@ mod test {
             .unwrap();
         for _ in 0..group_size {
             let alix_bo_group = alix.create_group(None, None).unwrap();
-            groups.push(alix_bo_group.group_id.clone());
+            groups.push(alix_bo_group.group_id);
             alix_bo_group.add_members(&[bo.inbox_id()]).await.unwrap();
         }
         while !groups.is_empty() {

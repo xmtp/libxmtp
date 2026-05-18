@@ -107,7 +107,7 @@ impl std::fmt::Debug for LocalCommitLog {
             f,
             "LocalCommitLog {{ rowid: {:?}, group_id {:?}, commit_sequence_id: {:?}, last_epoch_authenticator: {:?}, commit_result: {:?}, error_message: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?}, sender_inbox_id: {:?}, sender_installation_id: {:?}, commit_type: {:?} }}",
             self.rowid,
-            &self.group_id.snippet(),
+            &self.group_id.as_slice().snippet(),
             self.commit_sequence_id,
             &self.last_epoch_authenticator.snippet(),
             self.commit_result,

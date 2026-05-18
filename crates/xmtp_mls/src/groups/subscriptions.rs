@@ -103,7 +103,7 @@ where
     where
         Context::ApiClient: XmtpMlsStreams + 'a,
     {
-        StreamGroupMessages::new(&self.context, vec![self.group_id.clone()]).await
+        StreamGroupMessages::new(&self.context, vec![self.group_id]).await
     }
 
     /// create a stream that is not attached to any lifetime
@@ -115,7 +115,7 @@ where
         Context::ApiClient: XmtpMlsStreams + 'static,
         Context::Db: 'static,
     {
-        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone()]).await
+        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id]).await
     }
 
     pub fn stream_with_callback(
@@ -315,7 +315,8 @@ pub(crate) mod tests {
                     use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: GroupId::from(group_id.as_ref()),
+                        group_id: GroupId::try_from(group_id.as_ref())
+                            .expect("group_id must be 16 bytes"),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -402,7 +403,8 @@ pub(crate) mod tests {
                     use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: GroupId::from(group_id.as_ref()),
+                        group_id: GroupId::try_from(group_id.as_ref())
+                            .expect("group_id must be 16 bytes"),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,

@@ -108,7 +108,7 @@ async fn test_proposal_intent_serialization(
     let intent = db
         .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             intent_bytes,
             false,
         ))
@@ -212,7 +212,7 @@ async fn test_e2e_propose_add_member_flow() {
     let propose_intent =
         alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             intent_data,
             false,
         ))?;
@@ -239,7 +239,7 @@ async fn test_e2e_propose_add_member_flow() {
     let bo_db = bo_group.context.db();
     let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -316,7 +316,7 @@ async fn test_e2e_propose_remove_member_flow() {
     let propose_intent =
         alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             intent_data,
             false,
         ))?;
@@ -332,7 +332,7 @@ async fn test_e2e_propose_remove_member_flow() {
     let bo_db = bo_group.context.db();
     let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -386,7 +386,7 @@ async fn test_commit_with_no_pending_proposals() {
     let db = alix_group.context.db();
     let commit_intent = db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -455,7 +455,7 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
     let propose_intent = db
         .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             kind,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             intent_bytes,
             false,
         ))
@@ -516,7 +516,7 @@ async fn test_message_auto_commits_pending_proposals() {
     let db = alix_group.context.db();
     let propose_intent = db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -613,7 +613,7 @@ async fn test_multiple_add_proposals_before_commit() {
     let alix_db = alix_group.context.db();
     let propose_caro = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -624,7 +624,7 @@ async fn test_multiple_add_proposals_before_commit() {
     // Alix proposes to add dave
     let propose_dave = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -648,7 +648,7 @@ async fn test_multiple_add_proposals_before_commit() {
     let bo_db = bo_group.context.db();
     let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -718,7 +718,7 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     let alix_db = alix_group.context.db();
     let propose_add = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -730,7 +730,7 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     let propose_remove =
         alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()])
                 .try_into()?,
             false,
@@ -754,7 +754,7 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     let bo_db = bo_group.context.db();
     let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -802,7 +802,7 @@ async fn test_propose_group_context_extensions_intent() {
     let db = alix_group.context.db();
     let intent = db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -852,7 +852,7 @@ async fn test_proposer_can_commit_own_proposal() {
     let propose_intent =
         alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
                 .try_into()?,
             false,
@@ -887,7 +887,7 @@ async fn test_proposer_can_commit_own_proposal() {
     // Alix commits their own proposal (this should now work!)
     let commit_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -964,7 +964,7 @@ async fn test_concurrent_proposals_from_different_members() {
     let alix_db = alix_group.context.db();
     let alix_propose = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -979,7 +979,7 @@ async fn test_concurrent_proposals_from_different_members() {
     let bo_db = bo_group.context.db();
     let bo_propose = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -1001,7 +1001,7 @@ async fn test_concurrent_proposals_from_different_members() {
     let caro_db = caro_group.context.db();
     let commit_intent = caro_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        caro_group.group_id.clone(),
+        caro_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -1077,7 +1077,7 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
     let bo_db = bo_group.context.db();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -1149,7 +1149,7 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
     let propose_intent =
         alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            alix_group.group_id.clone(),
+            alix_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
                 .try_into()?,
             false,
@@ -1448,7 +1448,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     let alix_db = alix_group.context.db();
     let propose_dave = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -1459,7 +1459,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     // Alix (admin) proposes adding Eve
     let propose_eve = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -1487,7 +1487,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     let bo_db = bo_group.context.db();
     let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -1578,7 +1578,7 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
     let bo_db = bo_group.context.db();
     let bo_propose = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -1588,7 +1588,7 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
     let caro_db = caro_group.context.db();
     let caro_propose = caro_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        caro_group.group_id.clone(),
+        caro_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -1617,7 +1617,7 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
     let alix_db = alix_group.context.db();
     let commit_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;
@@ -1709,7 +1709,7 @@ async fn test_remove_proposal_validation_in_admin_group() {
     let remove_caro_intent =
         bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            bo_group.group_id.clone(),
+            bo_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()])
                 .try_into()?,
             false,
@@ -1735,7 +1735,7 @@ async fn test_remove_proposal_validation_in_admin_group() {
     let remove_alix_intent =
         bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
-            bo_group.group_id.clone(),
+            bo_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![], vec![alix.inbox_id().to_string()])
                 .try_into()?,
             false,
@@ -1800,7 +1800,7 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
     let alix_db = alix_group.context.db();
     let remove_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()]).try_into()?,
         false,
     ))?;
@@ -1825,7 +1825,7 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
     let bo_db = bo_group.context.db();
     let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         CommitPendingProposalsIntentData::new().into(),
         false,
     ))?;
@@ -1907,7 +1907,7 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
     let bo_db = bo_group.context.db();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -1943,7 +1943,7 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
     let intent_bytes: Vec<u8> = intent_data.into();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -2024,7 +2024,7 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
     let bo_db = bo_group.context.db();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -2063,7 +2063,7 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
     let intent_bytes: Vec<u8> = intent_data.into();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -2111,7 +2111,7 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
     let intent_bytes: Vec<u8> = intent_data.into();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -2185,7 +2185,7 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
     let bo_db = bo_group.context.db();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         intent_bytes,
         false,
     ))?;
@@ -2357,7 +2357,7 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
     let bo_db = bo_group.context.db();
     let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::ProposeMemberUpdate,
-        bo_group.group_id.clone(),
+        bo_group.group_id,
         ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
         false,
     ))?;
@@ -2380,7 +2380,7 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
     let alix_db = alix_group.context.db();
     let commit_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
         IntentKind::CommitPendingProposals,
-        alix_group.group_id.clone(),
+        alix_group.group_id,
         CommitPendingProposalsIntentData::default().into(),
         false,
     ))?;

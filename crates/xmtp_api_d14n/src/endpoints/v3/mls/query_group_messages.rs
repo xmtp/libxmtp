@@ -67,7 +67,7 @@ mod test {
         let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = QueryGroupMessages::builder()
-            .group_id(GroupId::from(vec![1, 2, 3]))
+            .group_id(GroupId::ONE)
             .paging_info(PagingInfo::default())
             .build()
             .unwrap();

@@ -25,9 +25,7 @@ async fn send_one(
 ) -> OpResult {
     let start = Instant::now();
     let outcome: color_eyre::eyre::Result<Option<[u8; 32]>> = async {
-        let group = client
-            .group(gid.as_slice())
-            .map_err(color_eyre::eyre::Report::from)?;
+        let group = client.group(gid).map_err(color_eyre::eyre::Report::from)?;
         if !group.is_active().map_err(color_eyre::eyre::Report::from)? {
             return Ok(None);
         }

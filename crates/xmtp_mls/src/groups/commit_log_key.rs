@@ -66,23 +66,37 @@ impl CommitLogKeyCrypto for RustCrypto {
 
 pub(crate) trait CommitLogKeyStore {
     type Error: std::error::Error;
-    fn read_commit_log_key(&self, group_id: &[u8]) -> Result<Option<Secret>, Self::Error>;
-    fn write_commit_log_key(&self, group_id: &[u8], value: &Secret) -> Result<(), Self::Error>;
+    fn read_commit_log_key(
+        &self,
+        group_id: impl AsRef<[u8]>,
+    ) -> Result<Option<Secret>, Self::Error>;
+    fn write_commit_log_key(
+        &self,
+        group_id: impl AsRef<[u8]>,
+        value: &Secret,
+    ) -> Result<(), Self::Error>;
 }
 
 impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
     type Error = SqlKeyStoreError;
 
-    fn read_commit_log_key(&self, group_id: &[u8]) -> Result<Option<Secret>, Self::Error> {
-        let key = bincode::serialize(group_id)?;
+    fn read_commit_log_key(
+        &self,
+        group_id: impl AsRef<[u8]>,
+    ) -> Result<Option<Secret>, Self::Error> {
+        let key = bincode::serialize(group_id.as_ref())?;
         let value = self
             .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
             .map(Secret::new);
         Ok(value)
     }
 
-    fn write_commit_log_key(&self, group_id: &[u8], value: &Secret) -> Result<(), Self::Error> {
-        let key = bincode::serialize(group_id)?;
+    fn write_commit_log_key(
+        &self,
+        group_id: impl AsRef<[u8]>,
+        value: &Secret,
+    ) -> Result<(), Self::Error> {
+        let key = bincode::serialize(group_id.as_ref())?;
         let value = Secret::new(bincode::serialize(value.as_slice())?);
         self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, value.as_slice())
     }
@@ -90,7 +104,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
 
 pub(crate) async fn maybe_share_private_key(
     context: &impl XmtpSharedContext,
-    group_id: &[u8],
+    group_id: &GroupId,
     consensus_public_key: &[u8],
 ) -> Result<(), CommitLogError> {
     let provider = context.mls_provider();
@@ -117,6 +131,7 @@ pub(crate) async fn derive_consensus_public_key(
     commit_log_response: &QueryCommitLogResponse,
 ) -> Result<Option<Vec<u8>>, CommitLogError> {
     let provider = context.mls_provider();
+    let group_id = GroupId::try_from(commit_log_response.group_id.as_slice())?;
     // Find the first entry with a valid signature and extract its public key
     for entry in &commit_log_response.commit_log_entries {
         if let Some(signature) = &entry.signature
@@ -125,16 +140,10 @@ pub(crate) async fn derive_consensus_public_key(
                 .verify_commit_log_signature(entry, &signature.public_key)
                 .is_ok()
         {
-            maybe_share_private_key(
-                context,
-                &commit_log_response.group_id,
-                &signature.public_key,
-            )
-            .await?;
-            context.db().set_group_commit_log_public_key(
-                &GroupId::from(commit_log_response.group_id.as_slice()),
-                &signature.public_key,
-            )?;
+            maybe_share_private_key(context, &group_id, &signature.public_key).await?;
+            context
+                .db()
+                .set_group_commit_log_public_key(&group_id, &signature.public_key)?;
             return Ok(Some(signature.public_key.clone()));
         }
     }
@@ -157,7 +166,7 @@ pub(crate) fn get_or_create_signing_key(
     // If there is none, we use any existing private key from the same locations, creating a new key if not found.
     let consensus_public_key = conversation.commit_log_public_key.as_ref();
 
-    if let Some(private_key) = key_store.read_commit_log_key(&conversation.id)?
+    if let Some(private_key) = key_store.read_commit_log_key(conversation.id)?
         && consensus_public_key.is_none_or(|consensus_public_key| {
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
         })
@@ -171,7 +180,7 @@ pub(crate) fn get_or_create_signing_key(
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
         })
     {
-        key_store.write_commit_log_key(&conversation.id, &private_key)?;
+        key_store.write_commit_log_key(conversation.id, &private_key)?;
         return Ok(Some(private_key));
     }
 
@@ -180,14 +189,14 @@ pub(crate) fn get_or_create_signing_key(
         // We store the key locally, but do not share it via mutable metadata until we verify that we
         // published it as the first commit log entry.
         let private_key = provider.crypto().generate_commit_log_key()?;
-        key_store.write_commit_log_key(&conversation.id, &private_key)?;
+        key_store.write_commit_log_key(conversation.id, &private_key)?;
         return Ok(Some(private_key));
     }
 
     tracing::warn!(
         "Commit log consensus key {:?} is not available yet for conversation {:?}",
         consensus_public_key.map(hex::encode),
-        hex::encode(&conversation.id)
+        hex::encode(conversation.id)
     );
     Ok(None)
 }
@@ -206,14 +215,14 @@ mod tests {
         let provider = alix.context.mls_provider();
         let key_store = provider.key_store();
 
-        key_store.write_commit_log_key(&[1u8; 32], &Secret::new(vec![10u8; 32]))?;
+        key_store.write_commit_log_key([1u8; 32], &Secret::new(vec![10u8; 32]))?;
 
         // Query on a value that hasn't been written
-        let result = key_store.read_commit_log_key(&[2u8; 32]);
+        let result = key_store.read_commit_log_key([2u8; 32]);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert!(result.unwrap().is_none());
 
-        let result = key_store.read_commit_log_key(&[1u8; 32]);
+        let result = key_store.read_commit_log_key([1u8; 32]);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert_eq!(result.unwrap().unwrap().as_slice(), &[10u8; 32]);
     }
@@ -491,7 +500,7 @@ mod tests {
         let mutable_metadata_key = metadata.commit_log_signer().unwrap();
 
         let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
+            id: group.group_id,
             commit_log_public_key: None, // No consensus key
         };
 
@@ -513,7 +522,7 @@ mod tests {
         // Store a key that doesn't match the consensus
         let stored_key = crypto.generate_commit_log_key().unwrap();
         key_store
-            .write_commit_log_key(&group.group_id, &stored_key)
+            .write_commit_log_key(group.group_id, &stored_key)
             .unwrap();
 
         // Set a different consensus key
@@ -523,7 +532,7 @@ mod tests {
             .to_vec();
 
         let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
+            id: group.group_id,
             commit_log_public_key: Some(consensus_public_key),
         };
 
@@ -547,12 +556,12 @@ mod tests {
             .unwrap()
             .to_vec();
         key_store
-            .write_commit_log_key(&group.group_id, &stored_key)
+            .write_commit_log_key(group.group_id, &stored_key)
             .unwrap();
 
         // Set consensus key that matches the stored key
         let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
+            id: group.group_id,
             commit_log_public_key: Some(stored_public_key),
         };
 
@@ -575,7 +584,7 @@ mod tests {
 
         // Set consensus key that matches the mutable metadata key
         let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
+            id: group.group_id,
             commit_log_public_key: Some(metadata_public_key),
         };
 
@@ -593,7 +602,7 @@ mod tests {
         let key_store = provider.key_store();
 
         let group = alix.create_group(None, None).unwrap();
-        let group_id = group.group_id.clone();
+        let group_id = group.group_id;
 
         // Clear the key store to ensure no stored key exists
         key_store

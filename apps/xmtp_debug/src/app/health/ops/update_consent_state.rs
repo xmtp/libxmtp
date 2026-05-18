@@ -26,7 +26,7 @@ impl HealthOp for UpdateConsentState {
             let outcome: color_eyre::eyre::Result<()> = (|| {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .update_consent_state(ConsentState::Allowed)
@@ -70,7 +70,7 @@ impl HealthOp for UpdateConsentStateQuiet {
             let outcome: color_eyre::eyre::Result<()> = (|| {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .quietly_update_consent_state(ConsentState::Allowed, &db)

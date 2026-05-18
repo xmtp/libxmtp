@@ -67,7 +67,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       sender_installation_id: hex::encode(&msg.metadata.sender_installation_id),
       sender_inbox_id: msg.metadata.sender_inbox_id.clone(),
       content_type: msg.metadata.content_type.clone().into(),
-      conversation_id: hex::encode(&msg.metadata.group_id),
+      conversation_id: hex::encode(msg.metadata.group_id),
       fallback: msg.fallback_text.clone(),
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,

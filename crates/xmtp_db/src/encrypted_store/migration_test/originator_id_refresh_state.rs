@@ -142,16 +142,12 @@ async fn up_groups() {
     let db = crate::TestDb::create_database(None).await;
     migrate_before(db.conn(), "2025-08-19-141841_originator_id_groups");
 
-    group(db.conn(), &[1, 2, 3], Some(100));
-    group(db.conn(), &[3, 4, 5], Some(150));
+    group(db.conn(), GroupId::ONE.as_slice(), Some(100));
+    group(db.conn(), GroupId::THREE.as_slice(), Some(150));
 
     finish_migrations(db.conn());
 
-    let group = db
-        .db()
-        .find_group(&GroupId::from(&[1u8, 2, 3][..]))
-        .unwrap()
-        .unwrap();
+    let group = db.db().find_group(&GroupId::ONE).unwrap().unwrap();
     assert_eq!(group.sequence_id, Some(100));
     assert_eq!(
         group.originator_id,
