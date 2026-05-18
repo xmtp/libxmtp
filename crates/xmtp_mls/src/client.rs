@@ -2218,4 +2218,106 @@ pub(crate) mod tests {
             "Deleting non-existent message should return 0"
         );
     }
+
+    // ============================================================
+    // Client::close coordinated-shutdown tests
+    // ============================================================
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn close_stops_workers() {
+        tester!(client);
+        assert!(
+            client.workers.is_running(),
+            "worker supervisor must be running before close"
+        );
+
+        client.close().await?;
+
+        assert!(
+            !client.workers.is_running(),
+            "supervisor handle should be taken after close"
+        );
+        assert!(
+            client.context.is_closed(),
+            "context closed flag must be set after close"
+        );
+        assert!(
+            client.context.cancellation_token().is_cancelled(),
+            "cancellation token must be cancelled after close"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn close_is_idempotent() {
+        tester!(client);
+        client.close().await?;
+        // second call must return Ok(()) without panic
+        client.close().await?;
+    }
+
+    // persistent_db: ephemeral in-memory stores no-op on disconnect, so the
+    // pool-released assertion only meaningfully tests against a real SQLite
+    // file. Skipped on WASM where file-backed test stores aren't wired in.
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn close_disconnects_db() {
+        use diesel::RunQueryDsl;
+        use diesel::sql_query;
+
+        tester!(client, persistent_db);
+        client.close().await?;
+
+        let conn = client.context.store().conn();
+        let result = conn.raw_query(|c| sql_query("SELECT 1").execute(c));
+        assert!(
+            result.is_err(),
+            "raw_query after close should surface a ConnectionError; got Ok"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn close_cancels_callback_stream() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        tester!(client);
+
+        let closed_flag = Arc::new(AtomicBool::new(false));
+        let flag_for_cb = closed_flag.clone();
+
+        let _handle = super::Client::stream_conversations_with_callback(
+            Arc::new((*client).clone()),
+            None,
+            move |_| {},
+            move || {
+                flag_for_cb.store(true, Ordering::SeqCst);
+            },
+            false,
+        );
+
+        client.close().await?;
+
+        xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
+            while !closed_flag.load(Ordering::SeqCst) {
+                xmtp_common::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("on_close must fire within 1s of Client::close");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reconnect_after_close_errors() {
+        tester!(client);
+        client.close().await?;
+
+        let err = client
+            .reconnect_db()
+            .expect_err("reconnect_db after close must fail");
+        assert!(
+            matches!(err, super::ClientError::AlreadyClosed),
+            "expected ClientError::AlreadyClosed, got {err:?}"
+        );
+    }
 }

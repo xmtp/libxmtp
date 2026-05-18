@@ -178,12 +178,10 @@ impl XmtpSharedContext for NewMockContext {
     }
 
     fn is_closed(&self) -> bool {
-        self.closed
-            .load(std::sync::atomic::Ordering::Acquire)
+        self.closed.load(std::sync::atomic::Ordering::Acquire)
     }
 
     fn mark_closed(&self) -> bool {
-        self.closed
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        self.closed.swap(true, std::sync::atomic::Ordering::AcqRel)
     }
 }

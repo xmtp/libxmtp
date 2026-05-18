@@ -74,6 +74,13 @@ impl WorkerRunner {
     pub fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
     }
+
+    /// True while the supervisor handle is held; false after a successful
+    /// `shutdown` or before the first `spawn`. Used in tests and as a
+    /// cheap liveness check.
+    pub fn is_running(&self) -> bool {
+        self.handle.lock().is_some()
+    }
 }
 
 impl WorkerRunner {
