@@ -7,6 +7,7 @@ pub mod tasks;
 
 use crate::context::XmtpSharedContext;
 use device_sync::worker::SyncMetric;
+use futures::future::{AbortHandle, Abortable};
 use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
@@ -42,6 +43,11 @@ pub struct WorkerRunner {
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     task_channels: TaskWorkerChannels,
     handle: Mutex<Option<Box<dyn StreamHandle<StreamOutput = ()>>>>,
+    // Per-worker abort handles. `shutdown` calls `abort()` on each so the
+    // worker future is dropped at its next poll regardless of whether the
+    // outer loop observed the cancellation token. Belt to the token's
+    // suspenders for workers that don't yield to cancellation promptly.
+    abort_handles: Mutex<Vec<AbortHandle>>,
 }
 
 impl Default for WorkerRunner {
@@ -57,6 +63,7 @@ impl WorkerRunner {
             metrics: Arc::default(),
             task_channels: TaskWorkerChannels::default(),
             handle: Mutex::default(),
+            abort_handles: Mutex::default(),
         }
     }
 
@@ -100,6 +107,10 @@ impl WorkerRunner {
         if let Some(handle) = handle_lock.take() {
             handle.abort_handle().end();
         }
+        // Force-abort any prior worker futures still alive from a previous spawn.
+        for h in self.abort_handles.lock().drain(..) {
+            h.abort();
+        }
 
         let this = self.clone();
         let cancel = ctx.cancellation_token().clone();
@@ -111,6 +122,7 @@ impl WorkerRunner {
                 }
 
                 let mut futs = FuturesUnordered::new();
+                let mut new_handles = Vec::with_capacity(this.factories.len());
 
                 for factory in &this.factories {
                     let metric = this.metrics.lock().get(&factory.kind()).cloned();
@@ -124,11 +136,17 @@ impl WorkerRunner {
                         let mut m = this.metrics.lock();
                         m.insert(worker.kind(), metrics);
                     }
-                    futs.push(worker.spawn(cancel.clone()));
+                    let (abort_handle, reg) = AbortHandle::new_pair();
+                    new_handles.push(abort_handle);
+                    futs.push(Abortable::new(worker.spawn(cancel.clone()), reg));
                 }
+                *this.abort_handles.lock() = new_handles;
 
-                while let Some(kind) = futs.next().await {
-                    tracing::warn!("Worker {kind:?} completed unexpectedly")
+                while let Some(outcome) = futs.next().await {
+                    match outcome {
+                        Ok(kind) => tracing::warn!("Worker {kind:?} completed unexpectedly"),
+                        Err(_aborted) => tracing::debug!("worker aborted during shutdown"),
+                    }
                 }
             }
             .instrument(tracing::debug_span!("xmtp_worker_supervisor")),
@@ -139,8 +157,15 @@ impl WorkerRunner {
 
     /// Drain the running worker supervisor. Bounded by [`WORKER_SHUTDOWN_TIMEOUT`].
     /// Cancellation must be signalled separately (via the shared
-    /// `CancellationToken` on the context) — this only joins the supervisor.
+    /// `CancellationToken` on the context); this method additionally aborts
+    /// each worker's future to guarantee no further DB writes happen,
+    /// independent of whether the worker's loop respects the token.
     pub async fn shutdown(&self) {
+        // Hard-kill each worker future at its next poll. Critical for workers
+        // that sit on long sleeps and only check the token between intervals.
+        for h in self.abort_handles.lock().drain(..) {
+            h.abort();
+        }
         let mut handle = self.handle.lock().take();
         let Some(handle) = handle.as_mut() else {
             return;
