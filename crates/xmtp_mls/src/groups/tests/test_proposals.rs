@@ -3836,6 +3836,94 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     );
 }
 
+/// Pause recovery: a client that's been pinned to `paused_for_version`
+/// gets the flag cleared once their `pkg_version` catches up. Without
+/// this sweep a paused group could stay paused indefinitely on quiet
+/// installations (the per-group `handle_group_paused` re-evaluator only
+/// fires when the group is actively synced, and the sync sweep filters
+/// out groups with no new server messages).
+///
+/// Uses direct `set_group_paused` to install the pause flag rather
+/// than driving a real cross-version migration: the pause-side flows
+/// are pinned by `test_steady_state_pause_on_min_version_bump_via_app_data_update`
+/// and friends, so this test focuses on the sweep logic.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_unstick_paused_groups_recovers_after_upgrade() {
+    use xmtp_db::prelude::*;
+
+    tester!(alix);
+    let alix_pkg = alix.version_info().pkg_version().to_string();
+    let alix_group = alix.create_group(None, None)?;
+    let group_id_typed = &alix_group.group_id;
+
+    // No paused groups initially → sweep is a no-op.
+    assert_eq!(
+        alix.unstick_paused_groups().await?,
+        0,
+        "no paused groups → sweep must return 0"
+    );
+
+    // Pin the floor above the client's own version → sweep stays
+    // hands-off (an installation can't unstick itself by reading a
+    // floor it can't yet satisfy).
+    alix.context
+        .db()
+        .set_group_paused(group_id_typed, "999.0.0")?;
+    assert_eq!(
+        alix.unstick_paused_groups().await?,
+        0,
+        "current pkg_version below floor → sweep must NOT unstick"
+    );
+    assert_eq!(
+        alix_group.paused_for_version()?.as_deref(),
+        Some("999.0.0"),
+        "pause flag must still be set"
+    );
+
+    // Pin the floor at or below the client's own version → sweep
+    // clears the flag.
+    alix.context
+        .db()
+        .set_group_paused(group_id_typed, &alix_pkg)?;
+    assert_eq!(
+        alix.unstick_paused_groups().await?,
+        1,
+        "current pkg_version == floor → sweep must unstick exactly one group"
+    );
+    assert!(
+        alix_group.paused_for_version()?.is_none(),
+        "pause flag must be cleared after the sweep"
+    );
+
+    // Idempotent: a second sweep on a clean state is a no-op.
+    assert_eq!(
+        alix.unstick_paused_groups().await?,
+        0,
+        "second sweep on clean state must be a no-op"
+    );
+
+    // Lenient on malformed stored bytes — skip that row, don't
+    // poison the sweep for everything else.
+    alix.context
+        .db()
+        .set_group_paused(group_id_typed, "not-a-version")?;
+    let result = alix.unstick_paused_groups().await;
+    assert!(
+        result.is_ok(),
+        "sweep must succeed even when a row carries unparseable bytes, got {result:?}",
+    );
+    assert_eq!(
+        result.unwrap(),
+        0,
+        "unparseable rows are skipped, not unstuck"
+    );
+    assert_eq!(
+        alix_group.paused_for_version()?.as_deref(),
+        Some("not-a-version"),
+        "unparseable pause row must be preserved verbatim"
+    );
+}
+
 /// Bootstrap retry safety: a successful migration is a hard idempotent
 /// fixed-point. A second `enable_proposals` call on an already-migrated
 /// group MUST NOT emit a new commit (advance the epoch). The existing

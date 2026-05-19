@@ -246,6 +246,71 @@ where
         Ok(self.sync_all_groups(groups).await?)
     }
 
+    /// Sweep every paused group and clear the pause flag for any
+    /// whose `paused_for_version` is now satisfied by the client's
+    /// `pkg_version`. Pure local-state operation — no network calls.
+    ///
+    /// Returns the count of groups unstuck. Safe to call on any
+    /// installation regardless of whether any groups are paused
+    /// (a no-op on installations with none).
+    ///
+    /// This is the recovery path for the "user upgrades but didn't
+    /// touch a paused group" scenario: without this sweep a paused
+    /// group could stay paused indefinitely after the upgrade, since
+    /// `handle_group_paused` (which is the per-group re-evaluator)
+    /// only fires when the group is actively synced — and
+    /// `sync_all_welcomes_and_groups` filters out groups with no
+    /// new messages on the server.
+    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
+        use crate::groups::validated_commit::LibXMTPVersion;
+
+        let paused = self.context.db().get_paused_groups_with_versions()?;
+        if paused.is_empty() {
+            return Ok(0);
+        }
+        // Parse current version once; reuse across every paused group.
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v = LibXMTPVersion::parse(&own_version_str)?;
+
+        let mut unstuck = 0usize;
+        for (group_id, required_str) in paused {
+            // Lenient on malformed stored bytes — log and skip rather
+            // than fail the whole sweep (one corrupted row shouldn't
+            // brick recovery for all the others).
+            let Ok(required_v) = LibXMTPVersion::parse(&required_str) else {
+                tracing::warn!(
+                    group_id = hex::encode(group_id.as_ref()),
+                    required = %required_str,
+                    "skipping unparseable paused_for_version while sweeping"
+                );
+                continue;
+            };
+            if required_v <= own_v {
+                // Same leniency as the parse-error branch above: a
+                // transient DB failure on one row shouldn't abort the
+                // sweep for the others. The next sync sweep will pick
+                // this row up again.
+                if let Err(err) = self.context.db().unpause_group(&group_id) {
+                    tracing::warn!(
+                        group_id = hex::encode(group_id.as_ref()),
+                        required = %required_str,
+                        error = %err,
+                        "failed to unpause group during sweep; will retry on next sync"
+                    );
+                    continue;
+                }
+                tracing::info!(
+                    group_id = hex::encode(group_id.as_ref()),
+                    required = %required_str,
+                    own = %own_version_str,
+                    "unstuck previously paused group: client version now satisfies floor"
+                );
+                unstuck += 1;
+            }
+        }
+        Ok(unstuck)
+    }
+
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
     /// Returns number of active groups successfully synced.
     pub async fn sync_all_welcomes_and_groups(
@@ -253,6 +318,15 @@ where
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<GroupSyncSummary, GroupError> {
         let db = self.context.db();
+
+        // Recover any paused groups whose floor the current pkg_version
+        // now satisfies. Runs ahead of the activity filter (groups with
+        // no new server messages get filtered out below, so the per-
+        // group re-evaluation in `handle_group_paused` wouldn't fire
+        // for a quiet paused group).
+        if let Err(err) = self.unstick_paused_groups().await {
+            tracing::warn!(?err, "unstick_paused_groups failed, continuing with sync");
+        }
 
         if let Err(err) = self.sync_welcomes().await {
             tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");

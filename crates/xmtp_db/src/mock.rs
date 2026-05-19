@@ -261,6 +261,8 @@ mock! {
         fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
         fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError>;
+
+        fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError>;
     }
 
     impl QueryGroupIntent for DbQuery {
