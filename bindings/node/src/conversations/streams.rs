@@ -232,6 +232,7 @@ impl Conversations {
           );
         }
       },
+      || {},
     );
 
     Ok(StreamCloser::new(stream_closer))

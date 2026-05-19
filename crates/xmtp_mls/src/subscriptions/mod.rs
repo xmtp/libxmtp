@@ -574,6 +574,7 @@ where
     pub fn stream_message_deletions_with_callback(
         client: Arc<Client<Context>>,
         mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -594,6 +595,7 @@ where
                 }
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }
