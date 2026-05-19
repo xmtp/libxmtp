@@ -106,6 +106,13 @@ pub struct StoredGroup {
     /// NULL if the pending-remove didn't receive an update yet
     #[builder(default = None)]
     pub has_pending_leave_request: Option<bool>,
+    /// XIP-82: envelope timestamp (ns) of the message by which this
+    /// client entered the current MLS epoch — the epoch's commit, or
+    /// the welcome for members added at that epoch. NULL falls back to
+    /// `created_at_ns` (the initial epoch). Consumed by the
+    /// external-commit validator's `expire_in_ns` staleness bound.
+    #[builder(default = None)]
+    pub epoch_entered_at_ns: Option<i64>,
     //todo: store member role?
 }
 
@@ -369,6 +376,16 @@ pub trait QueryGroup {
 
     fn get_groups_have_pending_leave_request(&self)
     -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+    /// Records the envelope timestamp (ns) of the message by which this
+    /// client entered the current MLS epoch (XIP-82): written on every
+    /// successful commit merge and at welcome-join. Readers fall back
+    /// to `created_at_ns` when NULL (the initial epoch).
+    fn set_group_epoch_entered_at_ns(
+        &self,
+        group_id: &GroupId,
+        epoch_entered_at_ns: i64,
+    ) -> Result<(), StorageError>;
 }
 
 impl<T> QueryGroup for &T
@@ -555,6 +572,14 @@ where
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         (**self).get_groups_have_pending_leave_request()
+    }
+
+    fn set_group_epoch_entered_at_ns(
+        &self,
+        group_id: &GroupId,
+        epoch_entered_at_ns: i64,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_epoch_entered_at_ns(group_id, epoch_entered_at_ns)
     }
 }
 
@@ -1203,6 +1228,32 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
+    fn set_group_epoch_entered_at_ns(
+        &self,
+        group_id: &GroupId,
+        epoch_entered_at_ns: i64,
+    ) -> Result<(), StorageError> {
+        use crate::schema::groups::dsl;
+        // Monotonic: envelope time only moves forward over a group's
+        // life (commits merge in cursor order; a welcome re-entry
+        // postdates the removal it recovers from), so a smaller value
+        // here can only come from pathological reordering or
+        // corruption. Never move the epoch-entry point backward — a
+        // backdated value would widen the XIP-82 staleness window.
+        self.raw_query(|conn| {
+            diesel::update(
+                dsl::groups.find(group_id).filter(
+                    dsl::epoch_entered_at_ns
+                        .is_null()
+                        .or(dsl::epoch_entered_at_ns.lt(epoch_entered_at_ns)),
+                ),
+            )
+            .set(dsl::epoch_entered_at_ns.eq(Some(epoch_entered_at_ns)))
+            .execute(conn)
+        })?;
+        Ok(())
+    }
+
     #[xmtp_common::db_span]
     fn get_groups_have_pending_leave_request(
         &self,
@@ -1586,6 +1637,37 @@ pub(crate) mod tests {
             assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
         })
         .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_epoch_entered_at_ns_round_trip() {
+        with_connection(|conn| {
+            let test_group = generate_group(None);
+            test_group.store(&conn).unwrap();
+
+            // Fresh groups have no epoch-entry timestamp — readers fall
+            // back to created_at_ns (the initial epoch).
+            let fetched: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            assert_eq!(fetched.epoch_entered_at_ns, None);
+
+            conn.set_group_epoch_entered_at_ns(&test_group.id, 42_000)
+                .unwrap();
+            let fetched: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            assert_eq!(fetched.epoch_entered_at_ns, Some(42_000));
+
+            // Later epoch advances overwrite.
+            conn.set_group_epoch_entered_at_ns(&test_group.id, 43_000)
+                .unwrap();
+            let fetched: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            assert_eq!(fetched.epoch_entered_at_ns, Some(43_000));
+
+            // Monotonic: an out-of-order older timestamp never moves
+            // the epoch-entry point backward.
+            conn.set_group_epoch_entered_at_ns(&test_group.id, 42_500)
+                .unwrap();
+            let fetched: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            assert_eq!(fetched.epoch_entered_at_ns, Some(43_000));
+        })
     }
 
     #[xmtp_common::test]

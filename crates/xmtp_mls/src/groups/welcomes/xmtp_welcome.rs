@@ -513,6 +513,14 @@ where
         // For existing groups, this only updates the sequence_id (not membership_state).
         let stored_group = db.insert_or_replace_group(to_store)?;
 
+        // XIP-82: a welcome is the message by which this client enters
+        // the group's current epoch — the external-commit validator
+        // measures the `expire_in_ns` staleness bound from here. Set
+        // explicitly (not via the builder) so re-welcomes to an existing
+        // row update it too: `insert_or_replace_group` preserves most
+        // columns for existing groups.
+        db.set_group_epoch_entered_at_ns(&stored_group.id, welcome.timestamp())?;
+
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
 
         // Create a GroupUpdated payload

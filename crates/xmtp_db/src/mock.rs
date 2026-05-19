@@ -253,6 +253,12 @@ mock! {
             fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+        fn set_group_epoch_entered_at_ns(
+            &self,
+            group_id: &GroupId,
+            epoch_entered_at_ns: i64,
+        ) -> Result<(), StorageError>;
     }
 
     impl QueryGroupVersion for DbQuery {

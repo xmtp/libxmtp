@@ -624,6 +624,8 @@ mod tests {
                 db.expect_update_responded_at_sequence_id()
                     .returning(|_, _, _| Ok(()));
                 db.expect_insert_or_replace_group().returning(Ok);
+                db.expect_set_group_epoch_entered_at_ns()
+                    .returning(|_, _| Ok(()));
             })
             .mem(mem)
             .build();
@@ -763,6 +765,8 @@ mod tests {
                     .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
                 db.expect_update_cursor().returning(|_, _, _| Ok(true));
                 db.expect_insert_or_replace_group().returning(Ok);
+                db.expect_set_group_epoch_entered_at_ns()
+                    .returning(|_, _| Ok(()));
             })
             .transaction_calls(|db: &mut MockDbQuery| {
                 db.expect_update_cursor()
