@@ -833,7 +833,7 @@ async fn test_send_sync_request_flow() {
         .await
         .unwrap();
 
-    let dm2 = alix2.conversation(dm.group_id);
+    let dm2: Result<crate::FfiConversation, crate::FfiError> = alix2.conversation(dm.group_id.into());
     assert!(dm2.is_ok());
     let dm2 = dm2.unwrap();
 
