@@ -15,7 +15,7 @@ use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions, UnknownExtension},
     group::{GroupContext, MlsGroup as OpenMlsGroup, QueuedProposal, StagedCommit},
-    messages::proposals::{Proposal, ProposalType},
+    messages::proposals::{AppDataUpdateOperation, Proposal, ProposalOrRefType, ProposalType},
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
 };
@@ -60,7 +60,9 @@ pub enum CommitValidationError {
     InvalidVersionFormat(String),
     #[error("Minimum supported protocol version {0} exceeds current version")]
     ProtocolVersionTooLow(String),
-    // TODO: We will need to relax this once we support external joins
+    // External joins do not flow through this variant — they are routed
+    // separately into [`ValidatedCommit::from_external_commit`], which
+    // builds its own actor/participant view from the joiner's path leaf.
     #[error("Actor not a member of the group")]
     ActorNotMember,
     #[error("Subject not a member of the group")]
@@ -132,6 +134,92 @@ pub enum CommitValidationError {
     Bootstrap(#[from] super::app_data::bootstrap_validator::BootstrapValidationError),
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+
+    // ──────────────────────────────────────────────────────────────────
+    // External-commit validation failures (L-7).
+    //
+    // These are surfaced exclusively by
+    // [`ValidatedCommit::from_external_commit`] and its helpers. New
+    // variants are appended here so unrelated PRs that add other
+    // CommitValidationError variants don't conflict on the same line
+    // range.
+    // ──────────────────────────────────────────────────────────────────
+    /// The group's permission policy has `allow_external_commit = false`
+    /// — external joins are not accepted on this group.
+    #[error("external commits are not allowed on this group")]
+    ExternalCommitNotAllowed,
+    /// The commit was routed to the external-commit validator but its
+    /// framing sender is not `Sender::NewMemberCommit`. Either the
+    /// caller dispatched incorrectly or the commit is malformed.
+    #[error("external-commit validator invoked on non-NewMemberCommit sender")]
+    ExternalCommitNotNewMemberCommit,
+    /// An external commit must carry exactly one `ExternalInit`
+    /// proposal (RFC 9420 §12.4.3.2). The staged commit had none.
+    #[error("external commit is missing the required ExternalInit proposal")]
+    ExternalCommitMissingExternalInit,
+    /// An external commit must carry exactly one `ExternalInit`
+    /// proposal — this commit carried more than one.
+    #[error("external commit carried multiple ExternalInit proposals")]
+    ExternalCommitMultipleExternalInit,
+    /// RFC 9420 §12.4.3.2: external commits MUST NOT include any
+    /// proposals by reference.
+    #[error("external commit included a proposal by reference")]
+    ExternalCommitByReferenceProposalsForbidden,
+    /// External commits carry the joiner's leaf in the update path
+    /// — this commit had no update path, so we cannot identify the
+    /// joiner and refuse to accept the commit.
+    #[error("external commit is missing the joiner's update path leaf")]
+    ExternalCommitMissingPathLeaf,
+    /// An `Add` proposal in the external commit referenced a key
+    /// package whose credential inbox id differs from the joiner's
+    /// path-leaf inbox id. libxmtp v1 only allows external commits to
+    /// add installations belonging to the same inbox as the joiner —
+    /// this prevents a joiner from smuggling unrelated members in
+    /// under cover of an external commit.
+    #[error("Add proposal in external commit references a different inbox id")]
+    CrossInboxAddInExternalCommit,
+    /// External commits must register the joiner in the AppData
+    /// `GROUP_MEMBERSHIP` component via exactly one `AppDataUpdate`
+    /// proposal — this commit carried none.
+    #[error("external commit is missing the GROUP_MEMBERSHIP AppDataUpdate")]
+    ExternalCommitAppDataUpdateMissing,
+    /// External commits must register the joiner in the AppData
+    /// `GROUP_MEMBERSHIP` component via exactly one `AppDataUpdate`
+    /// proposal — this commit carried more than one.
+    #[error("external commit carried multiple AppDataUpdate proposals")]
+    ExternalCommitAppDataUpdateMultiple,
+    /// The single AppDataUpdate proposal in this external commit
+    /// targets a component other than `GROUP_MEMBERSHIP`. Only the
+    /// membership registration is permitted — broader AppData writes
+    /// are not allowed at join time.
+    #[error("external commit's AppDataUpdate must target GROUP_MEMBERSHIP")]
+    ExternalCommitAppDataUpdateWrongComponent,
+    /// The joiner's AppDataUpdate proposal mutates a `GROUP_MEMBERSHIP`
+    /// entry that is not their own inbox. Joiners may only insert their
+    /// own membership entry through an external commit.
+    #[error("external commit's AppDataUpdate is out of scope for the joiner")]
+    ExternalCommitAppDataUpdateOutOfScope,
+    /// The wire-form payload of the joiner's AppDataUpdate
+    /// (`TlsMapDelta<InboxId, VLBytes>`) failed to decode. Treat as a
+    /// terminal wire-format violation so the commit is rejected rather
+    /// than silently accepted.
+    #[error("external commit's AppDataUpdate payload is malformed: {0}")]
+    ExternalCommitAppDataUpdatePayloadMalformed(String),
+    /// The "resync" flavor of external commit (where the joiner removes
+    /// a stale prior leaf with a SelfRemove proposal) is not supported
+    /// in v1.
+    #[error("resync external commits are not supported in v1")]
+    ResyncExternalCommitNotSupported,
+    /// External commits must not carry a `GroupContextExtensions`
+    /// proposal — post-AppData migration, GCE updates are not a
+    /// legitimate join-time operation.
+    #[error("external commit must not carry GroupContextExtensions proposals")]
+    ExternalCommitGceForbidden,
+    /// The external commit carried a proposal type that is never legal
+    /// in an external commit (e.g. Update, Remove, ReInit, Custom,
+    /// AppEphemeral, _AppAck).
+    #[error("external commit carried unsupported proposal type: {0:?}")]
+    ExternalCommitUnsupportedProposalType(ProposalType),
 }
 
 impl RetryableError for CommitValidationError {
@@ -827,6 +915,131 @@ impl ValidatedCommit {
             installations_changed: false,
             permissions_changed: false,
             dm_members: immutable_metadata.dm_members,
+        })
+    }
+
+    /// Validate a `Sender::NewMemberCommit`-flavored MLS commit (external
+    /// commit) carrying an atomic "join the group" payload.
+    ///
+    /// External commits add a non-member to the group atomically with
+    /// all the state required to keep libxmtp's invariants intact:
+    ///
+    /// 1. Acceptance requires `policies.allow_external_commit == true`.
+    /// 2. The commit's framing sender is `Sender::NewMemberCommit`.
+    /// 3. Exactly one `ExternalInit` proposal is present.
+    /// 4. RFC 9420 §12.4.3.2: no proposals by reference.
+    /// 5. The joiner's leaf node is in the update path; its credential
+    ///    carries the joiner's inbox id.
+    /// 6. Every `Add` proposal's KeyPackage credential carries the same
+    ///    inbox id as the path leaf (libxmtp's anti-smuggling rule —
+    ///    a joiner cannot drag unrelated inboxes in under cover of an
+    ///    external commit).
+    /// 7. Exactly one `AppDataUpdate` proposal is present, targeting the
+    ///    `GROUP_MEMBERSHIP` component, and every mutation in its
+    ///    payload addresses only the joiner's own inbox id (cross-layer
+    ///    invariant: tree-membership ↔ AppData-membership).
+    /// 8. No `SelfRemove` proposal — the "resync" external-commit flavor
+    ///    is not supported in v1.
+    /// 9. No `GroupContextExtensions` proposal.
+    /// 10. Only legal proposal kinds in an external commit:
+    ///     `ExternalInit`, `Add`, `AppDataUpdate`, `PreSharedKey`.
+    ///     Anything else is rejected.
+    /// 11. PSK proposals are passed through unvalidated (allowed
+    ///     by-value).
+    ///
+    /// Returns a `ValidatedCommit` whose `actor` is the joiner (built
+    /// from the path leaf), `added_inboxes`/`added_installations`
+    /// reflect the joiner's additions, and `removed_inboxes` is empty.
+    ///
+    /// The caller (L-8 — `mls_sync::validate_and_process_external_message`)
+    /// is responsible for sourcing `policies` from the group's
+    /// authoritative permission store (legacy `GroupMutablePermissions`
+    /// extension on unmigrated groups, or the equivalent post-migration
+    /// path). Threading the policy in as a parameter keeps this
+    /// validator pure and easy to unit-test.
+    pub fn from_external_commit(
+        staged_commit: &StagedCommit,
+        sender: &Sender,
+        immutable_metadata: &GroupMetadata,
+        mutable_metadata: &GroupMutableMetadata,
+        external_commit_allowed: bool,
+    ) -> Result<Self, CommitValidationError> {
+        // Rule 1: policy gate — short-circuit before any structural work.
+        // `external_commit_allowed` is sourced by the caller from the
+        // AppData-resident EXTERNAL_COMMIT_POLICY component via
+        // `crate::groups::external_commit_policy::is_external_commit_allowed`.
+        enforce_external_commit_policy(external_commit_allowed)?;
+
+        // Rule 2: framing sender must be NewMemberCommit. Defensive
+        // double-check; the wider mls_sync dispatch should already have
+        // routed by sender, but layering the check here means the
+        // validator is safe to call directly from tests and tomorrow's
+        // refactors can't accidentally hand us a Sender::Member commit.
+        enforce_external_commit_sender(sender)?;
+
+        // Rule 5 (early): identify the joiner via the path leaf so the
+        // remaining rules can assert their inbox-id binding against a
+        // single source of truth.
+        let joiner_leaf = staged_commit
+            .update_path_leaf_node()
+            .ok_or(CommitValidationError::ExternalCommitMissingPathLeaf)?;
+        let joiner_inbox_id = inbox_id_from_credential(joiner_leaf.credential())?;
+        let joiner_participant =
+            CommitParticipant::from_leaf_node(joiner_leaf, immutable_metadata, mutable_metadata)?;
+
+        // Walk the proposal set once, categorizing as we go. Returns a
+        // summary the per-rule helpers consume; iterating once also
+        // means we never have to re-walk for a different lens.
+        let summary = collect_external_commit_proposals(staged_commit)?;
+
+        // Rules 3, 8, 9, 10: structural shape — counts and forbidden
+        // proposal types.
+        enforce_external_commit_structure(&summary)?;
+
+        // Rule 6: Add proposals must bind to the joiner's inbox id.
+        let added_installations = enforce_adds_bind_to_joiner(&summary, &joiner_inbox_id)?;
+
+        // Rule 7: the AppDataUpdate must target GROUP_MEMBERSHIP and
+        // touch only the joiner's inbox entry.
+        enforce_app_data_update_scope(
+            summary
+                .app_data_update
+                .expect("structure check guarantees Some when no failure"),
+            &joiner_inbox_id,
+        )?;
+
+        // PSK proposals (rule 11) need no further work — by-value PSKs
+        // are allowed and the rest of the libxmtp stack ignores them.
+
+        // `added_inboxes` carries the joiner exactly once. We populate
+        // `proposer: None` because the proposer attribution machinery
+        // is built around `Sender::Member` leaf indices — the joiner
+        // is not a member yet, so the right shape is to elide the
+        // proposer rather than to attribute it to themselves with a
+        // pre-commit leaf index that doesn't yet exist in the tree.
+        let added_inboxes = vec![build_inbox(
+            &joiner_inbox_id,
+            immutable_metadata,
+            mutable_metadata,
+        )];
+
+        let installations_changed = !added_installations.is_empty();
+
+        Ok(Self {
+            actor: joiner_participant,
+            // External commits have no by-reference proposers from
+            // existing members — the joiner is the sole authoring
+            // party. We surface the same participant in `proposers`
+            // for downstream consumers that look there for "who
+            // wrote this commit".
+            proposers: Vec::new(),
+            added_inboxes,
+            removed_inboxes: Vec::new(),
+            readded_installations: HashSet::new(),
+            metadata_validation_info: MutableMetadataValidationInfo::default(),
+            installations_changed,
+            permissions_changed: false,
+            dm_members: immutable_metadata.dm_members.clone(),
         })
     }
 }
@@ -1620,7 +1833,17 @@ pub(super) fn extract_commit_participant(
             mutable_metadata,
         ))
     } else {
-        // TODO: Handle external joins/commits
+        // External joins/commits don't flow through this helper. The
+        // joiner's leaf is not in the tree at the pre-commit snapshot
+        // captured by `member_at`, so callers on the external-commit
+        // path build their participant directly from the staged
+        // commit's `update_path_leaf_node` via
+        // [`CommitParticipant::from_leaf_node`]. Reaching this branch
+        // means someone routed a `Sender::NewMemberCommit` proposal
+        // through the member-only validator, which is a programmer
+        // error rather than a peer-attributable failure — surface it
+        // as `ActorNotMember` so the caller treats the commit as
+        // rejected.
         Err(CommitValidationError::ActorNotMember)
     }
 }
@@ -2271,6 +2494,636 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
                 .map(InboxProto::from)
                 .collect(),
         }
+    }
+}
+
+// =============================================================================
+// External-commit validator helpers (L-7).
+//
+// Pure functions extracted from `ValidatedCommit::from_external_commit` so the
+// per-rule logic can be unit-tested without the considerable scaffolding
+// required to construct a real `StagedCommit`. The orchestrator stays
+// readable and the rules stay individually pinned.
+// =============================================================================
+
+/// Categorized view of the proposals carried by an external commit.
+///
+/// Populated by [`collect_external_commit_proposals`]: a single pass over
+/// `staged_commit.queued_proposals()` that fans out into typed buckets so
+/// downstream rule-checks operate on Rust references rather than re-walking
+/// the queue.
+struct ExternalCommitProposalSummary<'a> {
+    /// Number of `ExternalInit` proposals seen. Must be exactly 1.
+    external_init_count: usize,
+    /// All Add proposals, by-value.
+    adds: Vec<&'a openmls::messages::proposals::AddProposal>,
+    /// All PSK proposals (counted but otherwise unused — PSKs are allowed).
+    psk_count: usize,
+    /// The single AppDataUpdate proposal, if exactly one was present.
+    app_data_update: Option<&'a openmls::messages::proposals::AppDataUpdateProposal>,
+    /// Number of AppDataUpdate proposals seen — pulled out separately
+    /// so the structure check can distinguish "missing" vs "too many".
+    app_data_update_count: usize,
+    /// True if a `SelfRemove` proposal was seen — drives the
+    /// resync-not-supported rejection.
+    saw_self_remove: bool,
+    /// True if a `GroupContextExtensions` proposal was seen.
+    saw_gce: bool,
+    /// The proposal type of the first encountered "other" proposal
+    /// (Update/Remove/ReInit/Custom/AppEphemeral/_AppAck), if any.
+    /// Captured for inclusion in the `ExternalCommitUnsupportedProposalType`
+    /// error payload.
+    first_unsupported: Option<ProposalType>,
+    /// True if any proposal carried `ProposalOrRefType::Reference`.
+    saw_by_reference: bool,
+}
+
+impl<'a> ExternalCommitProposalSummary<'a> {
+    fn new() -> Self {
+        Self {
+            external_init_count: 0,
+            adds: Vec::new(),
+            psk_count: 0,
+            app_data_update: None,
+            app_data_update_count: 0,
+            saw_self_remove: false,
+            saw_gce: false,
+            first_unsupported: None,
+            saw_by_reference: false,
+        }
+    }
+}
+
+/// Reject if the group has not opted into accepting MLS External
+/// Commits. This is the first gate — short-circuiting here means a
+/// denied-policy group never pays for proposal-shape walks.
+///
+/// `allowed` is the AppData-resident `EXTERNAL_COMMIT_POLICY.v1.
+/// allow_external_commit` bit, sourced by the caller via
+/// `crate::groups::external_commit_policy::is_external_commit_allowed`.
+/// Threading it as a bool keeps this helper pure and unit-testable
+/// without having to materialize an `OpenMlsGroup`.
+fn enforce_external_commit_policy(allowed: bool) -> Result<(), CommitValidationError> {
+    if allowed {
+        Ok(())
+    } else {
+        Err(CommitValidationError::ExternalCommitNotAllowed)
+    }
+}
+
+/// Reject if the commit's framing sender is not `Sender::NewMemberCommit`.
+/// Defensive: the wider message dispatch should route by sender before
+/// reaching this validator. We also assert against `Sender::Member` here
+/// so an attacker who somehow gets a member-authored commit dispatched
+/// to the external path can't bypass the `Sender::Member` validator's
+/// stricter membership/permission checks.
+fn enforce_external_commit_sender(sender: &Sender) -> Result<(), CommitValidationError> {
+    match sender {
+        Sender::NewMemberCommit => Ok(()),
+        _ => Err(CommitValidationError::ExternalCommitNotNewMemberCommit),
+    }
+}
+
+/// Single-pass categorization of every proposal in `staged_commit`.
+///
+/// Returns an `ExternalCommitProposalSummary` whose buckets the
+/// downstream rule-checks consume. Surfaces only one error of its own:
+/// it never accepts a by-reference proposal (RFC 9420 §12.4.3.2) and
+/// flags the first sighting so the caller can reject the commit
+/// wholesale.
+fn collect_external_commit_proposals(
+    staged_commit: &StagedCommit,
+) -> Result<ExternalCommitProposalSummary<'_>, CommitValidationError> {
+    let mut summary = ExternalCommitProposalSummary::new();
+
+    for queued in staged_commit.queued_proposals() {
+        // Rule 4: no by-reference proposals. Captured here rather than
+        // in the structure check because the proposal_or_ref_type only
+        // exists on `QueuedProposal`, not on the post-categorization
+        // typed bucket — so it has to happen during the walk.
+        if matches!(queued.proposal_or_ref_type(), ProposalOrRefType::Reference) {
+            summary.saw_by_reference = true;
+        }
+
+        match queued.proposal() {
+            Proposal::ExternalInit(_) => {
+                summary.external_init_count += 1;
+            }
+            Proposal::Add(add) => {
+                summary.adds.push(add.as_ref());
+            }
+            Proposal::PreSharedKey(_) => {
+                summary.psk_count += 1;
+            }
+            Proposal::AppDataUpdate(app_data) => {
+                summary.app_data_update_count += 1;
+                if summary.app_data_update.is_none() {
+                    summary.app_data_update = Some(app_data.as_ref());
+                }
+            }
+            Proposal::SelfRemove => {
+                summary.saw_self_remove = true;
+            }
+            Proposal::GroupContextExtensions(_) => {
+                summary.saw_gce = true;
+            }
+            other => {
+                if summary.first_unsupported.is_none() {
+                    summary.first_unsupported = Some(other.proposal_type());
+                }
+            }
+        }
+    }
+
+    Ok(summary)
+}
+
+/// Apply rules 3, 8, 9, 10 against the categorized proposal summary.
+///
+/// Order matters: we surface the most-specific failure first so error
+/// messages and tests pin a single canonical reason per violation
+/// shape. "Missing ExternalInit" is the strongest "this commit is not
+/// an external commit at all" signal, so it comes ahead of "wrong
+/// proposal type" failures.
+fn enforce_external_commit_structure(
+    summary: &ExternalCommitProposalSummary<'_>,
+) -> Result<(), CommitValidationError> {
+    // RFC 9420 §12.4.3.2: no by-reference proposals.
+    if summary.saw_by_reference {
+        return Err(CommitValidationError::ExternalCommitByReferenceProposalsForbidden);
+    }
+
+    // ExternalInit count: exactly one.
+    match summary.external_init_count {
+        0 => return Err(CommitValidationError::ExternalCommitMissingExternalInit),
+        1 => {}
+        _ => return Err(CommitValidationError::ExternalCommitMultipleExternalInit),
+    }
+
+    // Forbidden proposal kinds, in order of specificity.
+    if summary.saw_self_remove {
+        return Err(CommitValidationError::ResyncExternalCommitNotSupported);
+    }
+    if summary.saw_gce {
+        return Err(CommitValidationError::ExternalCommitGceForbidden);
+    }
+    if let Some(unsupported) = summary.first_unsupported {
+        return Err(CommitValidationError::ExternalCommitUnsupportedProposalType(unsupported));
+    }
+
+    // AppDataUpdate count: exactly one.
+    match summary.app_data_update_count {
+        0 => return Err(CommitValidationError::ExternalCommitAppDataUpdateMissing),
+        1 => {}
+        _ => return Err(CommitValidationError::ExternalCommitAppDataUpdateMultiple),
+    }
+
+    Ok(())
+}
+
+/// Apply rule 6: every Add proposal's KeyPackage credential MUST carry
+/// the same inbox id as the joiner's path leaf.
+///
+/// Returns the set of installation ids added (signature keys from the
+/// Add proposals' leaf nodes) for population into the resulting
+/// `ValidatedCommit`. The path-leaf itself is the joiner's "primary"
+/// installation; whether that signature key is also represented as an
+/// Add proposal is up to the sender — we do not deduplicate here.
+fn enforce_adds_bind_to_joiner(
+    summary: &ExternalCommitProposalSummary<'_>,
+    joiner_inbox_id: &str,
+) -> Result<HashSet<Vec<u8>>, CommitValidationError> {
+    let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
+    for add in &summary.adds {
+        let leaf = add.key_package().leaf_node();
+        let inbox_id = inbox_id_from_credential(leaf.credential())?;
+        if inbox_id != joiner_inbox_id {
+            return Err(CommitValidationError::CrossInboxAddInExternalCommit);
+        }
+        added_installations.insert(leaf.signature_key().as_slice().to_vec());
+    }
+    Ok(added_installations)
+}
+
+/// Apply rule 7: the single AppDataUpdate proposal MUST target the
+/// `GROUP_MEMBERSHIP` component AND every mutation in its
+/// `TlsMapDelta<InboxId, VLBytes>` payload MUST address only the
+/// joiner's inbox id.
+///
+/// A `Remove` operation is rejected — joiners cannot remove existing
+/// membership entries (only insert their own). An `Update` op carries
+/// a delta whose mutations are iterated; the inbox-id of every
+/// `Insert`/`Update`/`Delete` mutation must equal `joiner_inbox_id`.
+///
+/// The joiner's `ActorAuthority` (non-admin, non-super-admin) is *not*
+/// checked here against `validate_one_app_data_update`: by-default
+/// deny-all policy on `GROUP_MEMBERSHIP.insert_policy` would reject a
+/// non-admin write under the steady-state code path. The
+/// `allow_external_commit` policy bit (enforced as rule 1) is the
+/// authoritative gate for the joiner case; once that bit is true,
+/// the joiner is authorized to insert their own entry — but ONLY
+/// their own. That scope is what this function enforces.
+fn enforce_app_data_update_scope(
+    proposal: &openmls::messages::proposals::AppDataUpdateProposal,
+    joiner_inbox_id: &str,
+) -> Result<(), CommitValidationError> {
+    use tls_codec::Deserialize as TlsDeserialize;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_common::inbox_id::InboxId;
+    use xmtp_mls_common::tls_map::{TlsMapDelta, TlsMapMutation};
+
+    if ComponentId::from(proposal.component_id()) != ComponentId::GROUP_MEMBERSHIP {
+        return Err(CommitValidationError::ExternalCommitAppDataUpdateWrongComponent);
+    }
+
+    let payload = match proposal.operation() {
+        AppDataUpdateOperation::Update(bytes) => bytes,
+        // A `Remove` op on GROUP_MEMBERSHIP wipes the entire component
+        // — not a legitimate join-time operation. The joiner can only
+        // *add* their entry.
+        AppDataUpdateOperation::Remove => {
+            return Err(CommitValidationError::ExternalCommitAppDataUpdateOutOfScope);
+        }
+    };
+
+    // Parse the delta. Treat any decoding failure as a wire-format
+    // violation rather than letting it surface as a silent "no
+    // mutations to check".
+    let delta =
+        TlsMapDelta::<InboxId, tls_codec::VLBytes>::tls_deserialize_exact(payload.as_slice())
+            .map_err(|e| {
+                CommitValidationError::ExternalCommitAppDataUpdatePayloadMalformed(e.to_string())
+            })?;
+
+    // Parse the joiner's inbox-id string once and compare by raw
+    // bytes. We avoid re-encoding each mutation's key back to a hex
+    // string in the hot path.
+    let joiner_id = InboxId::from_hex(joiner_inbox_id).map_err(|e| {
+        CommitValidationError::ExternalCommitAppDataUpdatePayloadMalformed(format!(
+            "joiner inbox id is not valid hex: {e}"
+        ))
+    })?;
+
+    // An empty delta is degenerate (no mutations) — the joiner did not
+    // actually register themselves. Reject so a future
+    // implementation-bug that produces an empty delta surfaces here
+    // rather than as a downstream invariant violation.
+    if delta.mutations.is_empty() {
+        return Err(CommitValidationError::ExternalCommitAppDataUpdateOutOfScope);
+    }
+
+    for mutation in &delta.mutations {
+        let key = match mutation {
+            TlsMapMutation::Insert { key, .. }
+            | TlsMapMutation::Update { key, .. }
+            | TlsMapMutation::Delete { key } => key,
+        };
+        if key != &joiner_id {
+            return Err(CommitValidationError::ExternalCommitAppDataUpdateOutOfScope);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod external_commit_validator_tests {
+    //! Pins the rule-by-rule behavior of
+    //! [`ValidatedCommit::from_external_commit`]. Each helper is exercised
+    //! directly so the tests don't have to construct a real
+    //! `StagedCommit` (which requires a full MLS group, identity, and
+    //! crypto provider). The orchestrator function itself is exercised
+    //! indirectly via integration tests in L-8/L-10/L-11.
+    use super::*;
+    use openmls::messages::proposals::AppDataUpdateProposal;
+    use tls_codec::{Serialize as TlsSerialize, VLBytes};
+    use xmtp_mls_common::app_data::component_id::ComponentId as XmtpComponentId;
+    use xmtp_mls_common::inbox_id::{INBOX_ID_BYTE_LEN, InboxId};
+    use xmtp_mls_common::tls_map::TlsMapDelta;
+
+    // Note: the policy gate now lives in the AppData
+    // EXTERNAL_COMMIT_POLICY component; tests pass the bool directly to
+    // `enforce_external_commit_policy` rather than building a PolicySet.
+
+    /// Build a hex inbox-id string with a stable seed byte so different
+    /// test inboxes are easy to compare visually.
+    fn make_inbox_id_hex(seed: u8) -> String {
+        hex::encode([seed; INBOX_ID_BYTE_LEN])
+    }
+
+    fn make_inbox_id(seed: u8) -> InboxId {
+        InboxId::from_bytes([seed; INBOX_ID_BYTE_LEN])
+    }
+
+    /// Encode a `TlsMapDelta` of `(InboxId, VLBytes)` mutations to the
+    /// wire payload an `AppDataUpdate::Update` proposal carries.
+    fn encode_membership_delta(delta: &TlsMapDelta<InboxId, VLBytes>) -> Vec<u8> {
+        delta.tls_serialize_detached().expect("delta serialize")
+    }
+
+    /// Build an `AppDataUpdate(GROUP_MEMBERSHIP, Update(<insert joiner>))`
+    /// proposal — the canonical shape produced by the L-10/L-11 sender.
+    fn well_formed_membership_update_for(joiner: InboxId) -> AppDataUpdateProposal {
+        let entry: VLBytes = vec![0u8; 0].into();
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().insert(joiner, entry);
+        let bytes = encode_membership_delta(&delta);
+        AppDataUpdateProposal::update(XmtpComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)
+    }
+
+    // ── enforce_external_commit_policy ───────────────────────────────
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_when_allow_external_commit_is_false() {
+        let err = enforce_external_commit_policy(false)
+            .expect_err("disabled policy must reject external commits");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitNotAllowed
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn accepts_when_allow_external_commit_is_true() {
+        assert!(enforce_external_commit_policy(true).is_ok());
+    }
+
+    // ── enforce_external_commit_sender ───────────────────────────────
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn accepts_new_member_commit_sender() {
+        assert!(enforce_external_commit_sender(&Sender::NewMemberCommit).is_ok());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_member_sender() {
+        let err = enforce_external_commit_sender(&Sender::Member(LeafNodeIndex::new(0)))
+            .expect_err("Sender::Member must be rejected on the external path");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitNotNewMemberCommit
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_new_member_proposal_sender() {
+        let err = enforce_external_commit_sender(&Sender::NewMemberProposal)
+            .expect_err("Sender::NewMemberProposal must be rejected on the external path");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitNotNewMemberCommit
+        ));
+    }
+
+    // ── enforce_external_commit_structure ────────────────────────────
+
+    fn summary_for_structure_test() -> ExternalCommitProposalSummary<'static> {
+        // We don't need real proposal references for the structure
+        // check — the counts and flags are what gate the verdict. The
+        // `adds` and `app_data_update` fields stay empty; the
+        // structure check only looks at counts.
+        ExternalCommitProposalSummary::new()
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_without_external_init_proposal() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 0;
+        summary.app_data_update_count = 1;
+        let err = enforce_external_commit_structure(&summary).expect_err("0 ExternalInit");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitMissingExternalInit
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_with_two_external_init_proposals() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 2;
+        summary.app_data_update_count = 1;
+        let err = enforce_external_commit_structure(&summary).expect_err("2 ExternalInit");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitMultipleExternalInit
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_with_by_reference_proposals() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        summary.saw_by_reference = true;
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("by-reference proposals must be rejected (RFC 9420 §12.4.3.2)");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitByReferenceProposalsForbidden
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_self_remove_proposal_resync_flavor() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        summary.saw_self_remove = true;
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("resync flavor must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ResyncExternalCommitNotSupported
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_group_context_extensions_proposal() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        summary.saw_gce = true;
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("GCE proposals not allowed in external commits");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitGceForbidden
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_update_proposal() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        summary.first_unsupported = Some(ProposalType::Update);
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("Update proposals not allowed in external commits");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitUnsupportedProposalType(ProposalType::Update)
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_remove_proposal() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        summary.first_unsupported = Some(ProposalType::Remove);
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("Remove proposals not allowed in external commits");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitUnsupportedProposalType(ProposalType::Remove)
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_when_no_app_data_update() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 0;
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("missing AppDataUpdate must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateMissing
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_with_two_app_data_update_proposals() {
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 2;
+        let err = enforce_external_commit_structure(&summary)
+            .expect_err("multiple AppDataUpdates must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateMultiple
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn accepts_canonical_external_commit_shape() {
+        // 1 ExternalInit + 1 AppDataUpdate + 0 unsupported + 0 ref → ok
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        assert!(enforce_external_commit_structure(&summary).is_ok());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn accepts_psk_proposal_alongside_atomic_shape() {
+        // PSK proposals are allowed; they don't trip first_unsupported
+        // because they are tracked separately. Structure check passes.
+        let mut summary = summary_for_structure_test();
+        summary.external_init_count = 1;
+        summary.app_data_update_count = 1;
+        summary.psk_count = 2;
+        assert!(enforce_external_commit_structure(&summary).is_ok());
+    }
+
+    // ── enforce_app_data_update_scope ────────────────────────────────
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn accepts_app_data_update_scoped_to_joiner() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        let proposal = well_formed_membership_update_for(make_inbox_id(0x11));
+        assert!(enforce_app_data_update_scope(&proposal, &joiner_hex).is_ok());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_app_data_update_for_other_inbox() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        // Insert someone else's entry — scope mismatch.
+        let proposal = well_formed_membership_update_for(make_inbox_id(0x22));
+        let err = enforce_app_data_update_scope(&proposal, &joiner_hex)
+            .expect_err("delta keyed by a different inbox must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateOutOfScope
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_app_data_update_wrong_component() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        // Same delta payload but on COMPONENT_REGISTRY — wrong component.
+        let entry: VLBytes = vec![0u8; 0].into();
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().insert(make_inbox_id(0x11), entry);
+        let bytes = encode_membership_delta(&delta);
+        let proposal =
+            AppDataUpdateProposal::update(XmtpComponentId::COMPONENT_REGISTRY.as_u16(), bytes);
+        let err = enforce_app_data_update_scope(&proposal, &joiner_hex)
+            .expect_err("non-GROUP_MEMBERSHIP target must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateWrongComponent
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_app_data_update_remove_op() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        let proposal = AppDataUpdateProposal::remove(XmtpComponentId::GROUP_MEMBERSHIP.as_u16());
+        let err = enforce_app_data_update_scope(&proposal, &joiner_hex)
+            .expect_err("Remove op on GROUP_MEMBERSHIP must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateOutOfScope
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_app_data_update_empty_delta() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new();
+        let bytes = encode_membership_delta(&delta);
+        let proposal =
+            AppDataUpdateProposal::update(XmtpComponentId::GROUP_MEMBERSHIP.as_u16(), bytes);
+        let err = enforce_app_data_update_scope(&proposal, &joiner_hex)
+            .expect_err("empty delta must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateOutOfScope
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_app_data_update_malformed_payload() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        // Two truncation bytes — not a valid TlsMapDelta.
+        let proposal = AppDataUpdateProposal::update(
+            XmtpComponentId::GROUP_MEMBERSHIP.as_u16(),
+            vec![0xffu8, 0x00],
+        );
+        let err = enforce_app_data_update_scope(&proposal, &joiner_hex)
+            .expect_err("malformed payload must be rejected");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdatePayloadMalformed(_)
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_app_data_update_mixed_inbox_mutations() {
+        let joiner_hex = make_inbox_id_hex(0x11);
+        let entry: VLBytes = vec![0u8; 0].into();
+        // Mutation 1: joiner's own entry (legal in isolation).
+        // Mutation 2: someone else's entry (must trip the scope check).
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new()
+            .insert(make_inbox_id(0x11), entry.clone())
+            .insert(make_inbox_id(0x99), entry);
+        let bytes = encode_membership_delta(&delta);
+        let proposal =
+            AppDataUpdateProposal::update(XmtpComponentId::GROUP_MEMBERSHIP.as_u16(), bytes);
+        let err = enforce_app_data_update_scope(&proposal, &joiner_hex)
+            .expect_err("any non-joiner mutation must trip the scope check");
+        assert!(matches!(
+            err,
+            CommitValidationError::ExternalCommitAppDataUpdateOutOfScope
+        ));
     }
 }
 
