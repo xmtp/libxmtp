@@ -2,6 +2,7 @@ pub mod app_data;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
+pub mod external_commit_policy;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
@@ -2119,6 +2120,77 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
+    }
+
+    /// Set the full `EXTERNAL_COMMIT_POLICY` well-known component for
+    /// this group — master switch + time-window controls for MLS
+    /// External Commits per RFC 9420 §12.4.3.2 (the QR-invite flow).
+    ///
+    /// Writes via the generic `AppDataUpdate(EXTERNAL_COMMIT_POLICY)`
+    /// intent with `AppDataUpdateOp::Replace` semantics. Requires the
+    /// group to be migrated to AppData. The component's
+    /// `permissions.update_policy` (super-admin-only by default) gates
+    /// who can flip the bits.
+    pub async fn set_external_commit_policy(
+        &self,
+        policy: xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1,
+    ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        // Encode the policy proto into the wire-form bytes that go on
+        // both the local intent and the eventual AppDataUpdate proposal.
+        let policy_bytes = {
+            use prost::Message;
+            use xmtp_proto::xmtp::mls::message_contents::{
+                ExternalCommitPolicyEntry,
+                external_commit_policy_entry::Version as ExternalCommitPolicyVersion,
+            };
+            ExternalCommitPolicyEntry {
+                version: Some(ExternalCommitPolicyVersion::V1(policy)),
+            }
+            .encode_to_vec()
+        };
+
+        let intent_data: Vec<u8> = crate::groups::intents::AppDataUpdateIntentData::new(
+            xmtp_mls_common::app_data::component_id::ComponentId::EXTERNAL_COMMIT_POLICY.as_u16(),
+            policy_bytes,
+        )
+        .into();
+        let intent = QueueIntent::app_data_update()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
+    /// Sugar wrapper over [`MlsGroup::set_external_commit_policy`] that
+    /// only flips the master switch and leaves the time-window controls
+    /// at their defaults (no automatic expiry / no staleness bound).
+    pub async fn set_allow_external_commit(&self, allowed: bool) -> Result<(), GroupError> {
+        let policy = if allowed {
+            // Enable: must populate symmetric_key and external_group_id atomically.
+            use xmtp_mls_common::invite::payload::{
+                generate_external_group_id, generate_symmetric_key,
+            };
+            xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1 {
+                allow_external_commit: true,
+                expires_at_ns: 0,
+                expire_in_ns: 0,
+                symmetric_key: generate_symmetric_key().to_vec(),
+                external_group_id: generate_external_group_id().to_vec(),
+            }
+        } else {
+            // Revoke: clear symmetric_key and external_group_id atomically.
+            xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1 {
+                allow_external_commit: false,
+                expires_at_ns: 0,
+                expire_in_ns: 0,
+                symmetric_key: Vec::new(),
+                external_group_id: Vec::new(),
+            }
+        };
+        self.set_external_commit_policy(policy).await
     }
 
     fn min_protocol_version_from_extensions(
