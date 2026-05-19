@@ -12,6 +12,7 @@ use xmtp_mls::groups::MlsGroup;
 pub mod backend;
 mod consent_state;
 pub mod create_client;
+mod external_invite;
 pub(crate) mod gateway_auth;
 mod identity;
 mod inbox_state;
