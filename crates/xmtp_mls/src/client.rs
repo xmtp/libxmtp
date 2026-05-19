@@ -349,10 +349,11 @@ where
     /// deleting the SQLite file or dropping the client wrapper, to avoid late
     /// log spew from detached workers/streams firing against a dead DB.
     pub async fn close(&self) -> Result<(), ClientError> {
-        if self.context.mark_closed() {
+        let token = self.context.cancellation_token();
+        if token.is_cancelled() {
             return Ok(());
         }
-        self.context.cancellation_token().cancel();
+        token.cancel();
         self.workers.shutdown().await;
         self.context
             .db()

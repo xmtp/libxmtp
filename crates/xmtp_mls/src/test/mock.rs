@@ -93,7 +93,6 @@ impl Clone for NewMockContext {
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
-            closed: self.closed.clone(),
         }
     }
 }
@@ -175,13 +174,5 @@ impl XmtpSharedContext for NewMockContext {
 
     fn cancellation_token(&self) -> &CancellationToken {
         &self.cancellation_token
-    }
-
-    fn is_closed(&self) -> bool {
-        self.closed.load(std::sync::atomic::Ordering::Acquire)
-    }
-
-    fn mark_closed(&self) -> bool {
-        self.closed.swap(true, std::sync::atomic::Ordering::AcqRel)
     }
 }

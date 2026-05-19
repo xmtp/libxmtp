@@ -15,7 +15,6 @@ use crate::{
 };
 use futures::FutureExt;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -322,7 +321,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
             cancellation_token: CancellationToken::new(),
-            closed: Arc::new(AtomicBool::new(false)),
         });
 
         // register workers
