@@ -3350,6 +3350,7 @@ where
                     let payload = build_group_membership_app_data_payload(
                         &old_group_membership,
                         &new_membership,
+                        openmls_group.extensions(),
                     )?;
                     let (proposal_msg, _) = openmls_group
                         .propose_app_data_update(

@@ -302,7 +302,10 @@ pub(crate) fn load_external_commit_policy(
 /// Returns `false` on absent entry, decode failure, or any policy
 /// shape that doesn't set the bit. Fails closed.
 //
-// Consumed by the L-7 validator. Dead-allowed until L-7 lands.
+// The validator (`ValidatedCommit::from_external_commit`) reads the
+// full policy via `load_external_commit_policy` instead; this stays as
+// the cheap pre-check for the L-8 ingestion dispatch. Dead-allowed
+// until L-8 lands.
 #[allow(dead_code)]
 pub(crate) fn is_external_commit_allowed(mls_group: &OpenMlsGroup) -> bool {
     load_external_commit_policy(mls_group)
@@ -326,8 +329,7 @@ pub(crate) fn is_external_commit_allowed(mls_group: &OpenMlsGroup) -> bool {
 ///   all-Deny: external committers may not touch this component.
 /// - `Err(_)` — registry decode failed.
 //
-// Consumed by the L-7 validator. Dead-allowed until L-7 lands.
-#[allow(dead_code)]
+// Consumed by the L-7 validator (check 10).
 pub(crate) fn external_committer_permissions_for(
     mls_group: &OpenMlsGroup,
     component_id: ComponentId,
