@@ -11,6 +11,18 @@ pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
 
 pub const WELCOME_HPKE_LABEL: &str = "MLS_WELCOME";
 
+/// HPKE domain-separation label for external-invite GroupInfo payloads
+/// wrapped via [`payload_encryption::wrap_payload_hpke`]. Distinct from
+/// [`WELCOME_HPKE_LABEL`] to prevent cross-protocol oracle attacks.
+///
+/// The v1 external-invite flow uses symmetric AEAD encryption only (see
+/// `xmtp_mls_common::invite::encrypted_group_info`), but the label is
+/// reserved here so a future HPKE-based external-invite path can adopt it
+/// without churning the public API.
+///
+/// [`payload_encryption::wrap_payload_hpke`]: https://docs.rs/xmtp_mls_common/latest/xmtp_mls_common/mls_ext/payload_encryption/fn.wrap_payload_hpke.html
+pub const XMTP_EXTERNAL_INVITE_LABEL: &str = "XMTP_EXTERNAL_INVITE";
+
 pub const MAX_GROUP_SYNC_RETRIES: usize = 3;
 
 pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
