@@ -17,6 +17,7 @@ use futures::FutureExt;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
+use std::sync::atomic::AtomicBool;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
@@ -321,6 +322,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
             cancellation_token: CancellationToken::new(),
+            shutdown_complete: Arc::new(AtomicBool::new(false)),
         });
 
         // register workers

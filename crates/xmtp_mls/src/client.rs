@@ -349,16 +349,20 @@ where
     /// deleting the SQLite file or dropping the client wrapper, to avoid late
     /// log spew from detached workers/streams firing against a dead DB.
     pub async fn close(&self) -> Result<(), ClientError> {
-        let token = self.context.cancellation_token();
-        if token.is_cancelled() {
+        // `shutdown_complete` is distinct from `is_closed()` (which reflects
+        // cancellation): only set after the DB actually disconnects. If
+        // `disconnect()` errors below, callers can retry `close()` and we'll
+        // attempt disconnect again rather than silently short-circuiting.
+        if self.context.shutdown_complete() {
             return Ok(());
         }
-        token.cancel();
+        self.context.cancellation_token().cancel();
         self.workers.shutdown().await;
         self.context
             .db()
             .disconnect()
             .map_err(xmtp_db::StorageError::from)?;
+        self.context.mark_shutdown_complete();
         log_event!(Event::ClientClosed, self.installation_id);
         Ok(())
     }

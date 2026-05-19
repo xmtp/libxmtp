@@ -93,6 +93,7 @@ impl Clone for NewMockContext {
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
+            shutdown_complete: self.shutdown_complete.clone(),
         }
     }
 }
@@ -174,5 +175,15 @@ impl XmtpSharedContext for NewMockContext {
 
     fn cancellation_token(&self) -> &CancellationToken {
         &self.cancellation_token
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        self.shutdown_complete
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn mark_shutdown_complete(&self) {
+        self.shutdown_complete
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }
