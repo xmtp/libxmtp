@@ -15,9 +15,9 @@ use crate::{
 };
 use futures::FutureExt;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 use tokio::sync::broadcast;
-use std::sync::atomic::AtomicBool;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
