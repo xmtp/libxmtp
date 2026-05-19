@@ -1,7 +1,5 @@
 use crate::context::XmtpSharedContext;
-use crate::groups::mls_ext::{
-    WelcomePointersExtension, unwrap_welcome_symmetric, wrap_welcome, wrap_welcome_symmetric,
-};
+use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::ENABLE_WELCOME_POINTERS;
 use crate::tester;
@@ -9,9 +7,13 @@ use crate::utils::test::TestMlsGroup;
 use futures::StreamExt;
 use prost::Message;
 use std::time::Duration;
+use xmtp_configuration::WELCOME_HPKE_LABEL;
 use xmtp_db::group::QueryGroup;
 use xmtp_db::tasks::QueryTasks;
 use xmtp_id::key_package::WrapperAlgorithm;
+use xmtp_mls_common::mls_ext::payload_encryption::{
+    unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
+};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
@@ -276,8 +278,8 @@ fn test_welcome_pointer_encryption_round_trip() {
 
     // Test encryption
     let encrypted_welcome_data =
-        wrap_welcome_symmetric(&welcome_data, *aead_type, &symmetric_key, &data_nonce).unwrap();
-    let encrypted_welcome_metadata = wrap_welcome_symmetric(
+        wrap_payload_symmetric(&welcome_data, *aead_type, &symmetric_key, &data_nonce).unwrap();
+    let encrypted_welcome_metadata = wrap_payload_symmetric(
         &welcome_metadata_bytes,
         *aead_type,
         &symmetric_key,
@@ -289,14 +291,14 @@ fn test_welcome_pointer_encryption_round_trip() {
     assert_ne!(encrypted_welcome_metadata, welcome_metadata_bytes);
 
     // Test decryption
-    let decrypted_welcome_data = unwrap_welcome_symmetric(
+    let decrypted_welcome_data = unwrap_payload_symmetric(
         &encrypted_welcome_data,
         *aead_type,
         &symmetric_key,
         &data_nonce,
     )
     .unwrap();
-    let decrypted_welcome_metadata = unwrap_welcome_symmetric(
+    let decrypted_welcome_metadata = unwrap_payload_symmetric(
         &encrypted_welcome_metadata,
         *aead_type,
         &symmetric_key,
@@ -464,11 +466,12 @@ async fn test_welcome_pointer_task_retry_resolution() {
         ),
     };
 
-    let welcome_pointer_encrypted_bytes = wrap_welcome(
+    let welcome_pointer_encrypted_bytes = wrap_payload_hpke(
         &welcome_pointer.encode_to_vec(),
         &[],
         bo_hpke_public_key,
         WrapperAlgorithm::XWingMLKEM768Draft6,
+        WELCOME_HPKE_LABEL,
     )
     .unwrap()
     .0;
@@ -592,14 +595,14 @@ async fn test_welcome_pointer_task_retry_resolution() {
             Ok::<_, crate::groups::GroupError>(action)
         })
         .await?;
-    let data = wrap_welcome_symmetric(
+    let data = wrap_payload_symmetric(
         &send_welcome_action.welcome_message,
         WelcomePointersExtension::preferred_type(),
         &welcome_pointer_v1.encryption_key,
         &welcome_pointer_v1.data_nonce,
     )
     .unwrap();
-    let welcome_metadata = wrap_welcome_symmetric(
+    let welcome_metadata = wrap_payload_symmetric(
         WelcomeMetadata { message_cursor: 0 }
             .encode_to_vec()
             .as_slice(),

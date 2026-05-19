@@ -14672,7 +14672,11 @@ version = "1.11.0-dev"
 dependencies = [
  "bon",
  "const-hex",
+ "hpke-rs",
  "openmls",
+ "openmls_libcrux_crypto",
+ "openmls_rust_crypto",
+ "openmls_traits",
  "parking_lot",
  "proptest",
  "prost",

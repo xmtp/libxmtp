@@ -9,20 +9,14 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::XmtpOpenMlsProviderRef;
 
-use crate::{
-    client::ClientError,
-    groups::{
-        GroupError,
-        mls_ext::{unwrap_welcome, unwrap_welcome_symmetric},
-    },
-    identity::parse_credential,
-};
-use xmtp_configuration::MAX_PAST_EPOCHS;
+use crate::{client::ClientError, groups::GroupError, identity::parse_credential};
+use xmtp_configuration::{MAX_PAST_EPOCHS, WELCOME_HPKE_LABEL};
 use xmtp_db::{
     NotFound,
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 use xmtp_id::key_package::WrapperAlgorithm;
+use xmtp_mls_common::mls_ext::payload_encryption::{unwrap_payload_hpke, unwrap_payload_symmetric};
 use xmtp_proto::{
     mls_v1::WelcomeMetadata,
     types::{
@@ -60,8 +54,13 @@ impl DecryptedWelcome {
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
 
-        let (welcome_bytes, welcome_metadata_bytes) =
-            unwrap_welcome(data, welcome_metadata, &private_key, wrapper_ciphersuite)?;
+        let (welcome_bytes, welcome_metadata_bytes) = unwrap_payload_hpke(
+            data,
+            welcome_metadata,
+            &private_key,
+            wrapper_ciphersuite,
+            WELCOME_HPKE_LABEL,
+        )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let welcome_metadata = if welcome_metadata_bytes.is_empty() {
@@ -104,13 +103,13 @@ impl DecryptedWelcome {
             }
         };
 
-        let decrypted_welcome_data = unwrap_welcome_symmetric(
+        let decrypted_welcome_data = unwrap_payload_symmetric(
             v1.data.as_slice(),
             aead_type,
             &decrypted_welcome_pointer.encryption_key,
             &decrypted_welcome_pointer.data_nonce,
         )?;
-        let decrypted_welcome_metadata = unwrap_welcome_symmetric(
+        let decrypted_welcome_metadata = unwrap_payload_symmetric(
             v1.welcome_metadata.as_slice(),
             aead_type,
             &decrypted_welcome_pointer.encryption_key,
@@ -287,11 +286,12 @@ pub(crate) fn decrypt_welcome_pointer(
     let wrapper_algorithm = WrapperAlgorithm::try_from(welcome_pointer.wrapper_algorithm)?;
     let private_key = find_private_key(provider, &hash_ref, &wrapper_algorithm)?;
 
-    let welcome_bytes = unwrap_welcome(
+    let welcome_bytes = unwrap_payload_hpke(
         &welcome_pointer.welcome_pointer,
         &[],
         &private_key,
         wrapper_algorithm,
+        WELCOME_HPKE_LABEL,
     )?;
 
     Ok(DecryptedWelcomePointer::decode(welcome_bytes.0.as_slice())?)
