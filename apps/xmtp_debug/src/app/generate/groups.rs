@@ -1,7 +1,7 @@
 //! Group Generation
 use crate::app::load_n_identities;
 use crate::app::{
-    store::{Database, GroupStore, IdentityStore, RandomDatabase},
+    store::{Database, GroupStore, IdentityStore},
     types::*,
 };
 use crate::args;
@@ -58,6 +58,7 @@ impl GenerateGroups {
         let clients = load_n_identities(&self.identity_store, network, n, self.strict_versioning)?;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+        let strict_versioning = self.strict_versioning;
         let groups = stream::iter(clients.iter())
             .map(|(owner, client)| {
                 let bar_pointer = bar.clone();
@@ -70,18 +71,17 @@ impl GenerateGroups {
                     async move {
                         let _permit = semaphore.acquire().await?;
                         debug!(owner = hex::encode(owner), "group owner");
-                        // Over-sample by 1 so we can drop the owner if it
-                        // lands in the random pool without ending up short.
-                        // Otherwise libxmtp's add_members gets called with
-                        // the owner as a self-add and the persisted member
-                        // list contains the owner twice (inflating
-                        // member_size).
+                        // Over-sample by 1 so dropping the owner (if it
+                        // lands in the sample) doesn't leave us short.
+                        // `sample_n` honors --strict-versioning, so
+                        // cross-version inboxes are filtered at the store
+                        // level — no need to re-filter here.
                         let invitee_identities: Vec<InboxId> = {
                             let mut rng = rand::rng();
-                            let sample = store.random_n_capped(network, &mut rng, invitees + 1)?;
+                            let sample = store
+                                .sample_n(network, &mut rng, invitees + 1, strict_versioning)?;
                             sample
-                                .iter()
-                                .map(|i| i.value())
+                                .into_iter()
                                 .filter(|id| id.inbox_id != owner)
                                 .take(invitees)
                                 .map(|id| {
@@ -89,7 +89,7 @@ impl GenerateGroups {
                                         &id.installation_key,
                                     )?;
                                     tracing::debug!(
-                                        inbox_ids = hex::encode(id.inbox_id),
+                                        inbox_id = hex::encode(id.inbox_id),
                                         installation_key = %InstallationId::from(*cred.public_bytes()),
                                         "Adding Members"
                                     );
