@@ -21,6 +21,7 @@ use color_eyre::eyre::eyre;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use xmtp_mls::groups::UpdateAdminListType::*;
 
 pub struct EnsurePerVersionMembership;
 
@@ -98,34 +99,40 @@ impl HealthOp for EnsurePerVersionMembership {
                 .map(|(_, inbox)| *inbox)
                 .collect();
 
-            if to_add.is_empty() {
-                return Ok(());
-            }
-
-            let hex_to_add: Vec<String> = to_add.iter().map(hex::encode).collect();
-
-            tracing::info!(
-                target: "healthcheck",
-                group = %new_group_id,
-                adding = ?hex_to_add,
-                "adding representative members for missing versions",
-            );
-
             let group = ctx
                 .primary
                 .group(&new_group_id.to_vec())
                 .map_err(|e| eyre!("primary cannot load group: {e}"))?;
-            group
-                .add_members_by_inbox_id(&hex_to_add)
-                .await
-                .map_err(|e| eyre!("{e}"))?;
 
-            updated_members.extend(to_add);
-            ctx.update_group_members(id_bytes, updated_members);
+            if !to_add.is_empty() {
+                let hex_to_add: Vec<String> = to_add.iter().map(hex::encode).collect();
+                tracing::info!(
+                    target: "healthcheck",
+                    group = %new_group_id,
+                    adding = ?hex_to_add,
+                    "adding representative members for missing versions",
+                );
+                group
+                    .add_members_by_inbox_id(&hex_to_add)
+                    .await
+                    .map_err(|e| eyre!("{e}"))?;
+                updated_members.extend(to_add);
+                ctx.update_group_members(id_bytes, updated_members);
+                // Welcomes aren't auto-pulled mid-run — sync so the new
+                // members can `client.group(...)` immediately.
+                ctx.sync_welcomes_fanout(self.name()).await;
+            }
 
-            // Welcomes aren't auto-pulled mid-run — sync so the new
-            // members can `client.group(...)` immediately.
-            ctx.sync_welcomes_fanout(self.name()).await;
+            // Each version needs a locally-available super-admin so future
+            // cross-version runs can promote primary on these prior-version
+            // groups (AddPrimaryToExistingGroups → AddSuper).
+            for inbox in version_representative.values() {
+                let hex_inbox = hex::encode(inbox);
+                if group.is_super_admin(hex_inbox.clone()).unwrap_or(false) {
+                    continue;
+                }
+                group.update_admin_list(AddSuper, hex_inbox).await.map_err(|e| eyre!("{e}"))?;
+            }
 
             Ok(())
         }

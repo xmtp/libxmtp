@@ -145,7 +145,7 @@ impl HealthContext {
             "health context bootstrapped"
         );
 
-        Ok(Self {
+        let ctx = Self {
             network,
             primary,
             bootstrap_clients,
@@ -156,7 +156,18 @@ impl HealthContext {
             op_run_id: rand::random(),
             xdbg_version: crate::get_version(),
             network_key: net_key,
-        })
+        };
+        // Drain pending welcomes on every loaded client before ops
+        // dispatch. A prior cross-version run (e.g. v1.10 healthcheck's
+        // AddMembersToNewGroup) may have welcomed one of our existing
+        // inboxes into a new group via that binary's libxmtp; the
+        // welcome is on the server but our local sqlite has no record
+        // until we sync. Without this, the first op that does
+        // `client.group(<gid>)` for such a group hits "group not
+        // found" and AddPrimaryToExistingGroups masks it as "no
+        // active member found."
+        ctx.sync_welcomes_fanout("bootstrap").await;
+        Ok(ctx)
     }
 
     /// Persist a newly-created group to redb's `GroupStore` so subsequent
