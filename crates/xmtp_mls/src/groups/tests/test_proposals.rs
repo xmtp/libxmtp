@@ -1002,6 +1002,76 @@ async fn test_concurrent_proposals_from_different_members() {
     );
 }
 
+/// Concurrent `enable_proposals` from two members is a graceful race:
+///
+/// 1. Both calls return `Ok`. The winner publishes the bootstrap
+///    commit; the loser's intent fails locally because the group's
+///    epoch advanced under it, but the public API observes the
+///    group is migrated and returns `Ok(no-op)` — see the
+///    race-loss recovery wrapper in `enable_proposals`.
+/// 2. Post-race, both sides converge to a single migrated state at
+///    a single epoch — no fork.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enable_proposals_concurrent_callers_converge() {
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups
+        .iter()
+        .find(|g| g.group_id == alix_group.group_id)
+        .expect("bo should receive a welcome for alix_group")
+        .clone();
+    bo_group.sync().await?;
+
+    // Race two `enable_proposals` calls. Both MUST return `Ok` — the
+    // recovery wrapper inside `enable_proposals` observes the
+    // migration completed even when the loser's own intent failed
+    // locally.
+    let alix_group_clone = alix_group.clone();
+    let bo_group_clone = bo_group.clone();
+    let (alix_result, bo_result) = tokio::join!(
+        alix_group_clone.enable_proposals(EnableProposalsOptions::test_default()),
+        bo_group_clone.enable_proposals(EnableProposalsOptions::test_default()),
+    );
+    assert!(
+        alix_result.is_ok(),
+        "alix's enable_proposals must return Ok (winner OR loser-recovered-to-Ok), got {alix_result:?}",
+    );
+    assert!(
+        bo_result.is_ok(),
+        "bo's enable_proposals must return Ok (winner OR loser-recovered-to-Ok), got {bo_result:?}",
+    );
+
+    // Sync both to converge.
+    alix_group.sync().await?;
+    bo_group.sync().await?;
+
+    for (label, group) in [("alix", &alix_group), ("bo", &bo_group)] {
+        let migrated = group
+            .load_mls_group_with_lock_async(async |g| {
+                Ok::<bool, crate::groups::GroupError>(group.proposals_enabled(&g))
+            })
+            .await?;
+        assert!(
+            migrated,
+            "{label} must end up migrated after a concurrent race"
+        );
+    }
+
+    // Convergence: both sides at the same epoch — no fork.
+    let alix_epoch = alix_group.epoch().await?;
+    let bo_epoch = bo_group.epoch().await?;
+    assert_eq!(
+        alix_epoch, bo_epoch,
+        "concurrent migration must converge — alix at {alix_epoch}, bo at {bo_epoch}"
+    );
+}
+
 // =============================================================================
 // Proposal Permission Validation Tests
 // =============================================================================
