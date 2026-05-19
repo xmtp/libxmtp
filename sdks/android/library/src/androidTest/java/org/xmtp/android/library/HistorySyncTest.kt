@@ -10,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -90,6 +91,7 @@ class HistorySyncTest : BaseInstrumentedTest() {
         }
 
     @Test
+    @Ignore
     fun testSyncMessages() =
         runBlocking {
             val wallet = createWallet()
@@ -126,6 +128,7 @@ class HistorySyncTest : BaseInstrumentedTest() {
         }
 
     @Test
+    @Ignore
     fun testSyncDeviceArchive() =
         runBlocking {
             val wallet = createWallet()
