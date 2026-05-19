@@ -82,6 +82,14 @@ impl ComponentId {
     pub const APP_DATA: Self = Self(0x8009);
     pub const MIN_SUPPORTED_PROTOCOL_VERSION: Self = Self(0x800A);
     pub const COMMIT_LOG_SIGNER: Self = Self(0x800B);
+    /// Group-wide external-commit policy component. Carries
+    /// `allow_external_commit` (defense-in-depth master switch for MLS
+    /// External Commits, RFC 9420 §12.4.3.2) plus `expires_at_ns`
+    /// (wall-clock auto-disable) and `expire_in_ns` (max staleness of
+    /// the referenced GroupInfo). Runtime-toggleable via
+    /// AppDataUpdate(EXTERNAL_COMMIT_POLICY); super-admin-only update
+    /// by default.
+    pub const EXTERNAL_COMMIT_POLICY: Self = Self(0x800C);
 
     // === Well-Known Immutable XMTP Component IDs (counting down from 0xBFFF) ===
 
