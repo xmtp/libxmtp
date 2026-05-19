@@ -8524,7 +8524,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -14779,7 +14779,7 @@ dependencies = [
 
 [[package]]
 name = "xnet-cli"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "clap",
  "color-eyre",
@@ -14791,7 +14791,7 @@ dependencies = [
 
 [[package]]
 name = "xnet-lib"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "ascii_table",

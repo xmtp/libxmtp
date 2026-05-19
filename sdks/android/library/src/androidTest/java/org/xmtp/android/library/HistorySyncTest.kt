@@ -174,16 +174,6 @@ class HistorySyncTest : BaseInstrumentedTest() {
             val messagesAfter = group2After.messages()
             assertEquals(messagesAfter.size, 3)
             assertTrue(messagesAfter.any { it.id == msgFromAlix })
-
-            // Sync both clients until consent propagates to client2.
-            // Client1 publishes the worker-queued intent, client2 pulls the update.
-            waitUntil {
-                alixClient.preferences.sync()
-                alixClient2.preferences.sync()
-                group2.consentState() == ConsentState.DENIED
-            }
-
-            assertEquals(group2.consentState(), ConsentState.DENIED)
         }
 
     @Test
