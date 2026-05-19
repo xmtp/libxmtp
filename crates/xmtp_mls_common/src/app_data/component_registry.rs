@@ -41,6 +41,7 @@ pub fn new_component_metadata(
     ComponentMetadata {
         permissions: Some(permissions),
         component_type: component_type as i32,
+        external_committer_permissions: None,
     }
 }
 
@@ -633,6 +634,7 @@ mod tests {
         // the negative case we're testing here.
         let meta = ComponentMetadata {
             permissions: None,
+            external_committer_permissions: None,
             component_type: ComponentType::Bytes as i32,
         };
         // Applies to ALL components, not just constrained ones.
@@ -828,6 +830,7 @@ mod tests {
         // The set() path catches this; from_bytes() must catch it too.
         let meta = ComponentMetadata {
             permissions: None,
+            external_committer_permissions: None,
             component_type: ComponentType::Bytes as i32,
         };
         let bytes = raw_bytes_with_entry(ComponentId::GROUP_NAME, meta.encode_to_vec());
