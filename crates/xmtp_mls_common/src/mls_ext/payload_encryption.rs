@@ -148,28 +148,71 @@ pub fn unwrap_payload_hpke(
 
 /// Wrap a payload with symmetric AEAD encryption (caller-supplied key + nonce).
 ///
+/// All four byte-slice arguments (`data`, `symmetric_key`, `nonce`, `aad`)
+/// have the same Rust type, so the builder-form call is the only signature:
+/// it forces every input to be named at the call site and makes a parameter
+/// swap surface as a wrong-name error.
+///
+/// `aad` (additional authenticated data) is optional and defaults to the empty
+/// slice. When provided, the identical bytes MUST be supplied to
+/// [`unwrap_payload_symmetric`] or decryption fails — use this to authenticate
+/// envelope fields (nonce, version, etc.) that travel alongside the ciphertext
+/// in the clear so they can't be tampered with undetected.
+///
 /// Domain separation is handled by construction: callers MUST scope the
 /// symmetric key to a single use-case.
+///
+/// # Example
+///
+/// ```ignore
+/// let ciphertext = wrap_payload_symmetric()
+///     .data(payload)
+///     .aead_type(AeadType::ChaCha20Poly1305)
+///     .symmetric_key(&key)
+///     .nonce(&nonce)
+///     .aad(&envelope_header) // optional; omit to bind no AAD
+///     .call()?;
+/// ```
+#[bon::builder]
 pub fn wrap_payload_symmetric(
     data: &[u8],
     aead_type: openmls::prelude::AeadType,
     symmetric_key: &[u8],
     nonce: &[u8],
+    #[builder(default = &[])] aad: &[u8],
 ) -> Result<Vec<u8>, WrapPayloadError> {
     (*LIBCRUX_CRYPTO_PROVIDER)
-        .aead_encrypt(aead_type, symmetric_key, data, nonce, &[])
+        .aead_encrypt(aead_type, symmetric_key, data, nonce, aad)
         .map_err(Into::into)
 }
 
 /// Unwrap a payload that was wrapped with [`wrap_payload_symmetric`].
+///
+/// `aad` MUST byte-for-byte match what was passed at wrap time (or be omitted
+/// on both sides). Mismatch surfaces as a decryption failure, not a wrong-AAD
+/// error — the AEAD construction doesn't distinguish.
+///
+/// # Example
+///
+/// ```ignore
+/// let plaintext = unwrap_payload_symmetric()
+///     .data(&ciphertext)
+///     .aead_type(AeadType::ChaCha20Poly1305)
+///     .symmetric_key(&key)
+///     .nonce(&nonce)
+///     .aad(&envelope_header)
+///     .call()?;
+/// ```
+#[bon::builder]
 pub fn unwrap_payload_symmetric(
     data: &[u8],
     aead_type: openmls::prelude::AeadType,
     symmetric_key: &[u8],
     nonce: &[u8],
+    #[builder(default = &[])] aad: &[u8],
 ) -> Result<Vec<u8>, UnwrapPayloadError> {
     (*LIBCRUX_CRYPTO_PROVIDER)
-        .aead_decrypt(aead_type, symmetric_key, data, nonce, &[])
+        .aead_decrypt(aead_type, symmetric_key, data, nonce, aad)
         .map_err(Into::into)
 }
 
@@ -364,20 +407,20 @@ mod tests {
         let nonce = xmtp_common::rand_array::<12>();
         let data = xmtp_common::rand_array::<1000>();
 
-        let wrapped = wrap_payload_symmetric(
-            &data,
-            openmls::prelude::AeadType::ChaCha20Poly1305,
-            &symmetric_key,
-            &nonce,
-        )
-        .unwrap();
-        let unwrapped = unwrap_payload_symmetric(
-            &wrapped,
-            openmls::prelude::AeadType::ChaCha20Poly1305,
-            &symmetric_key,
-            &nonce,
-        )
-        .unwrap();
+        let wrapped = wrap_payload_symmetric()
+            .data(&data)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .call()
+            .unwrap();
+        let unwrapped = unwrap_payload_symmetric()
+            .data(&wrapped)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .call()
+            .unwrap();
         assert_eq!(data.as_slice(), unwrapped.as_slice());
     }
 
@@ -388,19 +431,94 @@ mod tests {
         let nonce = xmtp_common::rand_array::<12>();
         let data = xmtp_common::rand_array::<1000>();
 
-        let wrapped = wrap_payload_symmetric(
-            &data,
-            openmls::prelude::AeadType::ChaCha20Poly1305,
-            &symmetric_key,
-            &nonce,
-        )
-        .unwrap();
-        unwrap_payload_symmetric(
-            &wrapped,
-            openmls::prelude::AeadType::ChaCha20Poly1305,
-            &wrong_key,
-            &nonce,
-        )
-        .unwrap_err();
+        let wrapped = wrap_payload_symmetric()
+            .data(&data)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .call()
+            .unwrap();
+        unwrap_payload_symmetric()
+            .data(&wrapped)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&wrong_key)
+            .nonce(&nonce)
+            .call()
+            .unwrap_err();
+    }
+
+    #[xmtp_common::test]
+    fn round_trip_symmetric_with_aad() {
+        let symmetric_key = xmtp_common::rand_array::<32>();
+        let nonce = xmtp_common::rand_array::<12>();
+        let data = xmtp_common::rand_array::<1000>();
+        let aad = b"envelope-header-v1".as_slice();
+
+        let wrapped = wrap_payload_symmetric()
+            .data(&data)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .aad(aad)
+            .call()
+            .unwrap();
+        let unwrapped = unwrap_payload_symmetric()
+            .data(&wrapped)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .aad(aad)
+            .call()
+            .unwrap();
+        assert_eq!(data.as_slice(), unwrapped.as_slice());
+    }
+
+    #[xmtp_common::test]
+    fn symmetric_wrong_aad_fails() {
+        let symmetric_key = xmtp_common::rand_array::<32>();
+        let nonce = xmtp_common::rand_array::<12>();
+        let data = xmtp_common::rand_array::<1000>();
+
+        let wrapped = wrap_payload_symmetric()
+            .data(&data)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .aad(b"envelope-header-v1".as_slice())
+            .call()
+            .unwrap();
+        unwrap_payload_symmetric()
+            .data(&wrapped)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .aad(b"envelope-header-v2".as_slice())
+            .call()
+            .unwrap_err();
+    }
+
+    #[xmtp_common::test]
+    fn symmetric_missing_aad_at_unwrap_fails() {
+        // Wrapping with an AAD and unwrapping without one (or vice versa) MUST
+        // fail — the AEAD construction treats absent AAD as a distinct binding.
+        let symmetric_key = xmtp_common::rand_array::<32>();
+        let nonce = xmtp_common::rand_array::<12>();
+        let data = xmtp_common::rand_array::<1000>();
+
+        let wrapped = wrap_payload_symmetric()
+            .data(&data)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .aad(b"present".as_slice())
+            .call()
+            .unwrap();
+        unwrap_payload_symmetric()
+            .data(&wrapped)
+            .aead_type(openmls::prelude::AeadType::ChaCha20Poly1305)
+            .symmetric_key(&symmetric_key)
+            .nonce(&nonce)
+            .call()
+            .unwrap_err();
     }
 }
