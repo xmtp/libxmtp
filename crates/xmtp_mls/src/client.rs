@@ -1,3 +1,5 @@
+pub mod external_invite;
+
 use crate::{
     builder::DeviceSyncMode,
     context::XmtpSharedContext,
