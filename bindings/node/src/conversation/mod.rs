@@ -9,6 +9,7 @@ pub mod content_types;
 pub mod debug;
 pub mod disappearing_messages;
 pub mod dm;
+pub mod external_invite;
 pub mod hmac_key;
 pub mod membership;
 pub mod messages;
