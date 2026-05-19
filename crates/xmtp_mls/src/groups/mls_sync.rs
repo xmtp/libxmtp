@@ -1096,25 +1096,129 @@ where
 
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                // OpenMLS already verified the framing signature against the
-                // sender's leaf during `process_message`, and `extract_message_sender`
-                // above asserted `Sender::Member` — so this match is exhaustive
-                // for the cases that reach here.
-                let committer_leaf_index = match processed_message.sender() {
-                    openmls::prelude::Sender::Member(idx) => *idx,
-                    _ => {
+                // Route by framing sender. `Sender::Member` is the standard
+                // member-authored-commit path (`from_staged_commit`).
+                // `Sender::NewMemberCommit` is the atomic external-commit
+                // / QR-invite join path (L-7 `from_external_commit`); the
+                // joiner is not yet a tree member, so the regular path's
+                // committer-leaf-index lookup does not apply. Both arms
+                // converge below at `merge_staged_commit_logged`.
+                let result = match processed_message.sender() {
+                    openmls::prelude::Sender::Member(idx) => {
+                        let committer_leaf_index = *idx;
+                        ValidatedCommit::from_staged_commit(
+                            &self.context,
+                            staged_commit,
+                            committer_leaf_index,
+                            mls_group,
+                        )
+                        .await
+                    }
+                    openmls::prelude::Sender::NewMemberCommit => {
+                        // Source the policy set + metadata capability-aware,
+                        // mirroring the proposal branch above. Migrated
+                        // groups carry `GROUP_MEMBERSHIP` policy in the
+                        // AppData COMPONENT_REGISTRY; unmigrated groups
+                        // still have the legacy `GROUP_PERMISSIONS`
+                        // extension.
+                        let is_migrated = super::app_data::is_migrated_group(mls_group);
+                        let extensions = mls_group.extensions();
+                        let _group_permissions = if is_migrated {
+                            match super::app_data::policy::membership_policy_set_from_registry(
+                                mls_group,
+                            ) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                    return Err(CommitValidationError::from(e).into());
+                                }
+                            }
+                        } else {
+                            match extract_group_permissions(mls_group) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                    return Err(CommitValidationError::from(e).into());
+                                }
+                            }
+                        };
+                        let immutable_metadata = if is_migrated {
+                            match super::app_data::component_source::read_group_metadata_from_dict(
+                                mls_group,
+                            ) {
+                                Ok(Some(seed)) => {
+                                    use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
+                                    let proto = GroupMetadataProto {
+                                        conversation_type: seed.conversation_type,
+                                        creator_inbox_id: seed.creator_inbox_id,
+                                        creator_account_address: String::new(),
+                                        dm_members: seed.dm_members,
+                                        oneshot_message: seed.oneshot,
+                                    };
+                                    match xmtp_mls_common::group_metadata::GroupMetadata::try_from(
+                                        proto,
+                                    ) {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                            return Err(CommitValidationError::from(e).into());
+                                        }
+                                    }
+                                }
+                                Ok(None) | Err(_) => {
+                                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                    return Err(CommitValidationError::from(
+                                        xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
+                                    )
+                                    .into());
+                                }
+                            }
+                        } else {
+                            match extract_group_metadata(extensions) {
+                                Ok(m) => m,
+                                Err(e) => {
+                                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                    return Err(CommitValidationError::from(e).into());
+                                }
+                            }
+                        };
+                        let mutable_metadata = match super::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+                            mls_group,
+                        ) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                return Err(CommitValidationError::from(
+                                    xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
+                                )
+                                .into());
+                            }
+                        };
+
+                        let external_commit_allowed =
+                            crate::groups::external_commit_policy::is_external_commit_allowed(
+                                mls_group,
+                            );
+                        ValidatedCommit::from_external_commit(
+                            staged_commit,
+                            processed_message.sender(),
+                            &immutable_metadata,
+                            &mutable_metadata,
+                            external_commit_allowed,
+                        )
+                    }
+                    other => {
+                        tracing::warn!(
+                            inbox_id = self.context.inbox_id(),
+                            group_id = %self.group_id,
+                            ?other,
+                            "rejecting commit from unsupported sender type"
+                        );
                         return Err(GroupMessageProcessingError::CommitValidation(
                             CommitValidationError::ActorNotMember,
                         ));
                     }
                 };
-                let result = ValidatedCommit::from_staged_commit(
-                    &self.context,
-                    staged_commit,
-                    committer_leaf_index,
-                    mls_group,
-                )
-                .await;
 
                 let validated_commit = match result {
                     Err(e) if !e.is_retryable() => {
@@ -1987,9 +2091,17 @@ where
         }
 
         self.load_mls_group_with_lock_async(async |mut mls_group| {
-            // ensure we are processing a private message
+            // Accept PrivateMessage (regular handshake/application messages) and
+            // PublicMessage (external commits from non-members — RFC 9420 §12.4.3.2).
+            // L-8's dispatch inside process_message_inner enforces the per-sender
+            // policy; anything else is rejected here at the framing level.
+            //
+            // The wildcard arm is structurally unreachable today
+            // (`ProtocolMessage` only has these two variants), but is kept as a
+            // defense-in-depth guard if openmls grows another variant.
+            #[allow(unreachable_patterns)]
             match &envelope.message {
-                ProtocolMessage::PrivateMessage(_) => (),
+                ProtocolMessage::PrivateMessage(_) | ProtocolMessage::PublicMessage(_) => (),
                 other => {
                     return Err(GroupMessageProcessingError::UnsupportedMessageType(
                         discriminant(other),
@@ -4137,6 +4249,13 @@ where
 
 // Extracts the message sender, but does not do any validation to ensure that the
 // installation_id is actually part of the inbox.
+//
+// For `Sender::Member`, the sender's leaf is already in the tree and we read
+// the inbox-id / installation-id from there. For `Sender::NewMemberCommit`
+// (external commit / atomic join — see L-7 `from_external_commit`), the
+// joiner is not yet in the tree; their leaf only appears on the staged
+// commit's update-path. We fall back to that path-leaf as the source of
+// truth for the joiner's identity and signature key.
 fn extract_message_sender(
     openmls_group: &mut OpenMlsGroup,
     decrypted_message: &ProcessedMessage,
@@ -4149,6 +4268,21 @@ fn extract_message_sender(
         let basic_credential = BasicCredential::try_from(member.credential)?;
         let sender_inbox_id = parse_credential(basic_credential.identity())?;
         return Ok((sender_inbox_id, member.signature_key));
+    }
+
+    // Atomic external-commit path: the joiner's leaf lives on the staged
+    // commit's update-path, not in the pre-commit tree. OpenMLS has already
+    // verified the framing signature against that leaf during
+    // `process_message`, so trusting it here is sound.
+    if matches!(decrypted_message.sender(), Sender::NewMemberCommit)
+        && let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
+            decrypted_message.content()
+        && let Some(joiner_leaf) = staged_commit.update_path_leaf_node()
+    {
+        let basic_credential = BasicCredential::try_from(joiner_leaf.credential().clone())?;
+        let sender_inbox_id = parse_credential(basic_credential.identity())?;
+        let sender_installation_id = joiner_leaf.signature_key().as_slice().to_vec();
+        return Ok((sender_inbox_id, sender_installation_id));
     }
 
     let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
