@@ -458,7 +458,6 @@ fn filter_groups_with_new_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::mls_ext::wrap_welcome;
     use crate::groups::test::NoopValidator;
     use crate::test::mock::*;
     use derive_builder::Builder;
@@ -468,11 +467,13 @@ mod tests {
     use tls_codec::Serialize;
     use xmtp_common::Generate;
     use xmtp_configuration::Originators;
+    use xmtp_configuration::WELCOME_HPKE_LABEL;
     use xmtp_db::StorageError;
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_id::key_package::WrapperAlgorithm;
+    use xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke;
     use xmtp_proto::mls_v1::WelcomeMetadata;
     use xmtp_proto::types::{
         Cursor, GroupId, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
@@ -484,7 +485,7 @@ mod tests {
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
     ) -> WelcomeMessage {
-        let (data, welcome_metadata) = wrap_welcome(
+        let (data, welcome_metadata) = wrap_payload_hpke(
             &welcome.tls_serialize_detached().unwrap(),
             &WelcomeMetadata {
                 message_cursor: message_cursor.unwrap_or(0),
@@ -492,6 +493,7 @@ mod tests {
             .encode_to_vec(),
             &public_key,
             WrapperAlgorithm::Curve25519,
+            WELCOME_HPKE_LABEL,
         )
         .unwrap();
 
