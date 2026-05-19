@@ -70,6 +70,40 @@ public struct ForkRecoveryOptions {
 	}
 }
 
+public struct VisibilityConfirmationOptions {
+	public var quorumPercentage: Float?
+	public var quorumAbsolute: UInt64?
+	public var timeoutMs: UInt64?
+
+	public init(
+		quorumPercentage: Float? = nil,
+		quorumAbsolute: UInt64? = nil,
+		timeoutMs: UInt64? = nil
+	) {
+		self.quorumPercentage = quorumPercentage
+		self.quorumAbsolute = quorumAbsolute
+		self.timeoutMs = timeoutMs
+	}
+
+	func toFfi() -> FfiVisibilityConfirmationOptions {
+		FfiVisibilityConfirmationOptions(
+			quorumPercentage: quorumPercentage,
+			quorumAbsolute: quorumAbsolute,
+			timeoutMs: timeoutMs
+		)
+	}
+}
+
+public struct DbPoolOptions {
+	public var maxPoolSize: UInt32?
+	public var minPoolSize: UInt32?
+
+	public init(maxPoolSize: UInt32? = nil, minPoolSize: UInt32? = nil) {
+		self.maxPoolSize = maxPoolSize
+		self.minPoolSize = minPoolSize
+	}
+}
+
 /// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
 	/// Specify network options
@@ -109,6 +143,8 @@ public struct ClientOptions {
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
+	public var waitForRegistrationVisible: VisibilityConfirmationOptions?
+	public var dbPoolOptions: DbPoolOptions?
 
 	public init(
 		api: Api = Api(),
@@ -118,7 +154,9 @@ public struct ClientOptions {
 		dbDirectory: String? = nil,
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
-		forkRecoveryOptions: ForkRecoveryOptions? = nil
+		forkRecoveryOptions: ForkRecoveryOptions? = nil,
+		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil,
+		dbPoolOptions: DbPoolOptions? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -128,6 +166,8 @@ public struct ClientOptions {
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions
+		self.waitForRegistrationVisible = waitForRegistrationVisible
+		self.dbPoolOptions = dbPoolOptions
 	}
 }
 
@@ -139,7 +179,7 @@ struct ApiCacheKey {
 	}
 }
 
-// To be removed in a future release
+/// To be removed in a future release
 actor ApiClientCache {
 	private var apiClientCache: [String: XmtpApiClient] = [:]
 	private var syncApiClientCache: [String: XmtpApiClient] = [:]
@@ -164,6 +204,10 @@ actor ApiClientCache {
 public typealias InboxId = String
 
 public final class Client {
+	/// Sentinel value assigned to ``dbPath`` when the client was created via
+	/// ``createInMemory(account:options:)``. No file exists at this path.
+	public static let inMemoryDbPath = ":memory:"
+
 	public let inboxID: InboxId
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
@@ -173,17 +217,26 @@ public final class Client {
 	private let ffiClient: FfiXmtpClient
 	private static let apiCache = ApiClientCache()
 
+	/// `true` when this client is backed by an in-memory database. In that case
+	/// ``deleteLocalDatabase()``, ``dropLocalDatabaseConnection()`` and
+	/// ``reconnectLocalDatabase()`` are no-ops and the underlying state is
+	/// discarded when the client is deallocated.
+	public var isInMemory: Bool {
+		dbPath == Client.inMemoryDbPath
+	}
+
 	public lazy var conversations: Conversations = .init(
-		client: self, ffiConversations: ffiClient.conversations(),
+		clientInboxId: inboxID,
+		ffiConversations: ffiClient.conversations(),
 		ffiClient: ffiClient
 	)
 
 	public lazy var preferences: PrivatePreferences = .init(
-		client: self, ffiClient: ffiClient
+		ffiClient: ffiClient
 	)
 
 	public lazy var debugInformation: XMTPDebugInformation = .init(
-		client: self, ffiClient: ffiClient
+		ffiClient: ffiClient
 	)
 
 	static var codecRegistry = CodecRegistry()
@@ -198,13 +251,15 @@ public final class Client {
 		signingKey: SigningKey?,
 		inboxId: InboxId,
 		apiClient _: XmtpApiClient? = nil,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
+		inMemory: Bool = false
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
 			accountIdentifier: publicIdentity,
 			options: options,
 			inboxId: inboxId,
-			buildOffline: buildOffline
+			buildOffline: buildOffline,
+			inMemory: inMemory
 		)
 
 		let client = try Client(
@@ -224,7 +279,9 @@ public final class Client {
 						for: signatureRequest, signingKey: signingKey
 					)
 					try await client.ffiClient.registerIdentity(
-						signatureRequest: signatureRequest
+						signatureRequest: signatureRequest,
+						visibilityConfirmationOptions: options
+							.waitForRegistrationVisible?.toFfi()
 					)
 				} catch {
 					throw ClientError.creationError(
@@ -274,6 +331,40 @@ public final class Client {
 			options: options,
 			signingKey: account,
 			inboxId: inboxId
+		)
+	}
+
+	/// Creates a Client backed by an in-memory SQLCipher database.
+	///
+	/// This bypasses all on-disk database management — no `.db3` file is created
+	/// and no directory is touched. The returned client has ``dbPath`` equal to
+	/// ``Client/inMemoryDbPath`` (`":memory:"`) and ``isInMemory`` returns `true`.
+	///
+	/// On in-memory clients, ``deleteLocalDatabase()``,
+	/// ``dropLocalDatabaseConnection()`` and ``reconnectLocalDatabase()`` are
+	/// no-ops — state lives only in the FFI pool and is discarded when the
+	/// client is deallocated.
+	///
+	/// Intended for tests and other ephemeral flows where a real client is
+	/// needed but persistence is not. `options.dbDirectory` and
+	/// `options.dbEncryptionKey` are ignored — libxmtp manages the in-memory
+	/// store itself.
+	public static func createInMemory(
+		account: SigningKey, options: ClientOptions
+	)
+		async throws -> Client
+	{
+		let identity = account.identity
+		let inboxId = try await getOrCreateInboxId(
+			api: options.api, publicIdentity: identity
+		)
+
+		return try await initializeClient(
+			publicIdentity: identity,
+			options: options,
+			signingKey: account,
+			inboxId: inboxId,
+			inMemory: true
 		)
 	}
 
@@ -336,8 +427,34 @@ public final class Client {
 		accountIdentifier: PublicIdentity,
 		options: ClientOptions,
 		inboxId: InboxId,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
+		inMemory: Bool = false
 	) async throws -> (FfiXmtpClient, String) {
+		if inMemory {
+			let deviceSyncMode: FfiDeviceSyncMode =
+				!options.deviceSyncEnabled ? .disabled : .enabled
+
+			let ffiClient = try await createClient(
+				api: connectToApiBackend(api: options.api),
+				syncApi: connectToSyncApiBackend(api: options.api),
+				db: DbOptions(
+					db: nil,
+					encryptionKey: nil,
+					maxDbPoolSize: options.dbPoolOptions?.maxPoolSize,
+					minDbPoolSize: options.dbPoolOptions?.minPoolSize
+				),
+				inboxId: inboxId,
+				accountIdentifier: accountIdentifier.ffiPrivate,
+				nonce: 0,
+				legacySignedPrivateKeyProto: nil,
+				deviceSyncMode: deviceSyncMode,
+				allowOffline: buildOffline,
+				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+			)
+
+			return (ffiClient, Client.inMemoryDbPath)
+		}
+
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
 		if let mlsDbDirectory {
@@ -386,7 +503,12 @@ public final class Client {
 		let ffiClient = try await createClient(
 			api: connectToApiBackend(api: options.api),
 			syncApi: connectToSyncApiBackend(api: options.api),
-			db: DbOptions(db: dbURL, encryptionKey: options.dbEncryptionKey, maxDbPoolSize: nil, minDbPoolSize: nil),
+			db: DbOptions(
+				db: dbURL,
+				encryptionKey: options.dbEncryptionKey,
+				maxDbPoolSize: options.dbPoolOptions?.maxPoolSize,
+				minDbPoolSize: options.dbPoolOptions?.minPoolSize
+			),
 			inboxId: inboxId,
 			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
@@ -819,6 +941,8 @@ public final class Client {
 	}
 
 	public func deleteLocalDatabase() throws {
+		// In-memory clients have no on-disk file; nothing to drop or remove.
+		guard !isInMemory else { return }
 		try dropLocalDatabaseConnection()
 		let fm = FileManager.default
 		try fm.removeItem(atPath: dbPath)
@@ -830,10 +954,14 @@ public final class Client {
 		"This function is delicate and should be used with caution. App will error if database not properly reconnected. See: reconnectLocalDatabase()"
 	)
 	public func dropLocalDatabaseConnection() throws {
+		// In-memory clients hold their state in the FFI pool; releasing the
+		// connection would discard data that cannot be restored on reconnect.
+		guard !isInMemory else { return }
 		try ffiClient.releaseDbConnection()
 	}
 
 	public func reconnectLocalDatabase() async throws {
+		guard !isInMemory else { return }
 		try await ffiClient.dbReconnect()
 	}
 
@@ -1082,11 +1210,14 @@ public final class Client {
 		otherwise use `create()` instead.
 		"""
 	)
-	public func ffiRegisterIdentity(signatureRequest: SignatureRequest)
-		async throws
-	{
+	public func ffiRegisterIdentity(
+		signatureRequest: SignatureRequest,
+		visibilityConfirmationOptions: VisibilityConfirmationOptions? = nil
+	) async throws {
 		try await ffiClient.registerIdentity(
-			signatureRequest: signatureRequest.ffiSignatureRequest
+			signatureRequest: signatureRequest.ffiSignatureRequest,
+			visibilityConfirmationOptions: visibilityConfirmationOptions?
+				.toFfi()
 		)
 	}
 }
@@ -1102,6 +1233,9 @@ public extension Client {
 		case info
 		/// Debug level and above
 		case debug
+		/// Trace level — includes span/activity events (visible as
+		/// signposts in Console.app and Instruments).
+		case trace
 
 		fileprivate var ffiLogLevel: FfiLogLevel {
 			switch self {
@@ -1109,6 +1243,7 @@ public extension Client {
 			case .warn: .warn
 			case .info: .info
 			case .debug: .debug
+			case .trace: .trace
 			}
 		}
 	}
@@ -1213,6 +1348,20 @@ public extension Client {
 		} catch {
 			os_log(
 				"Failed to deactivate persistent log writer: %{public}@",
+				log: OSLog.default, type: .error, error.localizedDescription
+			)
+		}
+	}
+
+	/// Sets the log level for the native log layer (oslog on iOS).
+	/// Use `.trace` to surface tracing spans as os_signpost activities visible
+	/// in Console.app and Instruments. Independent of the persistent file log writer.
+	static func setLibXMTPNativeLogLevel(_ logLevel: LogLevel) {
+		do {
+			try setNativeLogLevel(logLevel: logLevel.ffiLogLevel)
+		} catch {
+			os_log(
+				"Failed to set native log level: %{public}@",
 				log: OSLog.default, type: .error, error.localizedDescription
 			)
 		}

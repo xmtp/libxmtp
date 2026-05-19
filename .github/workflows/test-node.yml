@@ -7,12 +7,14 @@ jobs:
   test:
     name: Test (Node)
     runs-on: warp-ubuntu-latest-x64-16x
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
+          with-warpbuild-cache: "false"
       - uses: taiki-e/install-action@just
       - name: Install dependencies
         run: just node install-ci

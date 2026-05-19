@@ -11,7 +11,6 @@ use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
 use xmtp_proto::types::GlobalCursor;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessage;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
@@ -23,7 +22,6 @@ use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdenti
 use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
 use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsResponse;
 use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
-use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateResponse;
 use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesRequest;
 use xmtp_proto::xmtp::identity::api::v1::VerifySmartContractWalletSignaturesResponse;
 use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
@@ -36,6 +34,7 @@ use xmtp_proto::{
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
 };
 
+use xmtp_proto::types::GroupId;
 #[derive(Clone)]
 pub struct ApiDebugWrapper<A> {
     inner: A,
@@ -269,7 +268,7 @@ where
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<Option<xmtp_proto::types::Cursor>, Self::Error> {
         wrap_err(
             || self.inner.publish_identity_update(request),
             || self.inner.aggregate_stats(),

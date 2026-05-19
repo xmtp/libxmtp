@@ -5,7 +5,7 @@ use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre::{self, Result};
 use ecdsa::SigningKey;
 use openmls::{credentials::BasicCredential, prelude::Credential};
-use prost::Message;
+use prost::Message as _;
 use speedy::{Readable, Writable};
 
 use xmtp_cryptography::XmtpInstallationCredential;
@@ -181,7 +181,9 @@ impl redb::Value for Identity {
 pub struct Group {
     /// user that created group
     pub created_by: InboxId,
-    /// Id of the group
+    /// Id of the group. Stored as `[u8; 16]` so it can be serialized via
+    /// `speedy`; use [`Group::group_id`] when interacting with xmtp_mls
+    /// APIs that expect a `GroupId`.
     pub id: [u8; 16],
     /// Size of the groups
     pub member_size: u32,
@@ -189,9 +191,16 @@ pub struct Group {
     pub members: Vec<InboxId>,
 }
 
+impl Group {
+    /// View `self.id` as the canonical [`xmtp_proto::types::GroupId`].
+    pub fn group_id(&self) -> xmtp_proto::types::GroupId {
+        xmtp_proto::types::GroupId::from(self.id)
+    }
+}
+
 impl std::fmt::Display for Group {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", hex::encode(self.id))
+        write!(f, "{}", self.group_id())
     }
 }
 
@@ -227,5 +236,111 @@ impl redb::Value for Group {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("group")
+    }
+}
+
+/// Message recorded for a single healthcheck `SendMessage` op.
+/// Persisted to redb so the `NoMissingMessages` validator has an
+/// authoritative source of truth across runs and versions.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Readable, Writable)]
+pub struct Message {
+    /// MLS message id (sha-256-derived hash from libxmtp's
+    /// `calculate_message_id`). Always 32 bytes — runtime-asserted at
+    /// the call site of `record_message`.
+    pub id: [u8; 32],
+    /// Group this message belongs to.
+    pub group_id: [u8; 16],
+    /// Sender's inbox_id (32-byte form, same convention as `Identity`).
+    pub sender_inbox_id: InboxId,
+    /// Wall-clock at the sending op's call site. libxmtp doesn't surface
+    /// its internal envelope timestamp at `send_message` return, so this
+    /// is best-effort for diagnostics. Not used by the validator.
+    pub sent_at_ns: i64,
+    /// UUID of the healthcheck run that sent this message.
+    pub op_run_id: [u8; 16],
+    /// `crate::get_version()` output of the sending xdbg binary.
+    pub xdbg_version: String,
+}
+
+impl std::fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.id))
+    }
+}
+
+impl redb::Value for Message {
+    type SelfType<'a>
+        = Message
+    where
+        Self: 'a;
+
+    type AsBytes<'a>
+        = Vec<u8>
+    where
+        Self: 'a;
+
+    fn fixed_width() -> Option<usize> {
+        None
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Message::read_from_buffer(data).unwrap()
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        value.write_to_vec().unwrap()
+    }
+
+    fn type_name() -> redb::TypeName {
+        redb::TypeName::new("message")
+    }
+}
+
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+
+    #[test]
+    fn message_speedy_roundtrip() {
+        let msg = Message {
+            id: [7u8; 32],
+            group_id: [3u8; 16],
+            sender_inbox_id: [9u8; 32],
+            sent_at_ns: 1_700_000_000_000_000_000,
+            op_run_id: [42u8; 16],
+            xdbg_version: "1.10.0-abcdefg".to_string(),
+        };
+        let bytes = msg.write_to_vec().unwrap();
+        let decoded = Message::read_from_buffer(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    use crate::app::store::DeriveKey;
+    use crate::app::store::MessageKey;
+
+    #[test]
+    fn message_derive_key_composes_group_and_message_id() {
+        let msg = Message {
+            id: [0xAAu8; 32],
+            group_id: [0xBBu8; 16],
+            sender_inbox_id: [0u8; 32],
+            sent_at_ns: 0,
+            op_run_id: [0u8; 16],
+            xdbg_version: String::new(),
+        };
+        let key: MessageKey = msg.key(7);
+        // u64 network (8 bytes, LE) + 48-byte combined key.
+        let bytes = speedy::Writable::write_to_vec(&key).unwrap();
+        assert_eq!(bytes.len(), 8 + 48);
+        assert_eq!(&bytes[0..8], &7u64.to_le_bytes());
+        assert_eq!(&bytes[8..24], &[0xBBu8; 16]);
+        assert_eq!(&bytes[24..56], &[0xAAu8; 32]);
     }
 }

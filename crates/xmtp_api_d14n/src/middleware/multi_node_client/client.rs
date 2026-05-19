@@ -90,6 +90,9 @@ impl<T: IsConnectedCheck> IsConnectedCheck for MultiNodeClient<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xmtp_common::Generate;
+    use xmtp_proto::types::GroupId;
+
     use crate::middleware::multi_node_client::client::MultiNodeClientBuilder;
     use crate::{
         ReadWriteClient,
@@ -101,7 +104,6 @@ mod tests {
     use xmtp_proto::api::Query;
     use xmtp_proto::api_client::{ApiBuilder, NetConnectConfig};
     use xmtp_proto::prelude::XmtpMlsClient;
-    use xmtp_proto::types::GroupId;
 
     fn create_in_memory_cursor_store() -> Arc<InMemoryCursorStore> {
         Arc::new(InMemoryCursorStore::default())
@@ -203,14 +205,14 @@ mod tests {
     #[xmtp_common::test]
     async fn d14n_request_latest_group_message() {
         let client = create_d14n_client();
-        let id: GroupId = GroupId::from(vec![]);
+        let id = GroupId::generate();
         let response = client.query_latest_group_message(id).await;
         match response {
             Err(e) => {
                 let err_str = e.to_string();
                 // The query shouldn't return a valid message.
                 // But it shouldn't return any other type of error.
-                assert!(err_str.contains("missing field group_message"));
+                assert!(err_str.contains("missing field group_message"), "{err_str}");
             }
             Ok(_) => panic!("expected error for empty group id"),
         }

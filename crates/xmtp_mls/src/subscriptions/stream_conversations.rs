@@ -44,14 +44,14 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 }
 
 pub enum WelcomeOrGroup {
-    Group(Vec<u8>),
+    Group(xmtp_proto::types::GroupId),
     Welcome(xmtp_proto::types::WelcomeMessage),
 }
 
 impl std::fmt::Debug for WelcomeOrGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(arg0)).finish(),
+            Self::Group(arg0) => f.debug_tuple("Group").field(arg0).finish(),
             Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
         }
     }
@@ -284,7 +284,7 @@ where
             .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?);
 
         let stream = multiplexed(subscription, events);
 
@@ -331,7 +331,7 @@ where
 {
     type Item = Result<MlsGroup<C>>;
 
-    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "trace")]
+    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "debug")]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -391,9 +391,9 @@ where
                 id: welcome_id,
             }) => {
                 tracing::debug!(
-                    group_id = hex::encode(&group.group_id),
+                    group_id = %group.group_id,
                     "finished processing with group {}",
-                    hex::encode(&group.group_id)
+                    hex::encode(group.group_id)
                 );
                 this.known_welcome_ids.insert(welcome_id);
                 Some(Ok(group))
@@ -414,9 +414,9 @@ where
                 maybe_originator,
             }) => {
                 tracing::debug!(
-                    group_id = hex::encode(&group.group_id),
+                    group_id = %group.group_id,
                     "finished processing with group {}",
-                    hex::encode(&group.group_id)
+                    hex::encode(group.group_id)
                 );
                 if let Some(id) = maybe_sequence_id
                     && let Some(originator) = maybe_originator
@@ -463,7 +463,7 @@ mod test {
             .unwrap();
         for _ in 0..group_size {
             let alix_bo_group = alix.create_group(None, None).unwrap();
-            groups.push(alix_bo_group.group_id.clone());
+            groups.push(alix_bo_group.group_id);
             alix_bo_group.add_members(&[bo.inbox_id()]).await.unwrap();
         }
         while !groups.is_empty() {

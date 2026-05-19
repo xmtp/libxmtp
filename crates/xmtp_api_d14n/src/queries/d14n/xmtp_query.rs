@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{ApiClientError, Client, Query},
@@ -19,6 +21,10 @@ where
 {
     type Error = ApiClientError;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+
     async fn query_at(
         &self,
         topic: Topic,
@@ -35,5 +41,11 @@ where
         // sort the envelopes by their originator timestamp
         sort::timestamp(&mut envelopes).sort()?;
         Ok(XmtpEnvelope::new(envelopes))
+    }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
+        crate::queries::build_node_clients(&self.client, self.app_version.as_ref()).await
     }
 }

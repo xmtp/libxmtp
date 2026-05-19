@@ -69,6 +69,7 @@ rust.napiBuild (
     NODE_EXTRA_CA_CERTS = "${cacert}/etc/ssl/certs/ca-bundle.crt";
     napiExtraArgs = "-p bindings_node ${maybeTestFeature} --package-json-path ${src}/bindings/node/package.json";
     pname = "bindings-node-js";
+    doInstallCargoArtifacts = false;
     napiGenerateJs = withJs;
     zigBuild = isGnu;
   }
@@ -79,15 +80,48 @@ rust.napiBuild (
     '';
   }
   // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+    # sigtool provides `codesign` on PATH for the postFixup re-sign.
+    # See https://github.com/xmtp/libxmtp/issues/3513.
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       darwin.autoSignDarwinBinariesHook
+      darwin.sigtool
     ];
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
 
-      # Fix the dylib's own install name (LC_ID_DYLIB) — it embeds the ephemeral Nix build path
+      # Rewrite the dylib's own install name (LC_ID_DYLIB) so consumers
+      # resolve it relative to the .node file, not the Nix build path.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
-      install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
+
+      # Rewrite every /nix/store/.../libiconv.<ver>.dylib load reference
+      # to the macOS system copy. Using otool -L output as the source of
+      # truth is drift-proof — we rewrite whatever the linker actually
+      # recorded, not whatever Nix evaluation resolves darwin.libiconv to.
+      # Cross-compile splicing in mkCrossPkgs was causing the two to
+      # diverge, silently defeating a hardcoded `install_name_tool -change`.
+      # See https://github.com/xmtp/libxmtp/issues/3516.
+      # NR > 1 skips otool -L's header line (the file's own id).
+      otool -L "$NODE_LIB" \
+        | awk 'NR > 1 && $1 ~ /^\/nix\/store\/.*\/libiconv(\.[0-9]+)*\.dylib$/ { print $1 }' \
+        | while read -r old; do
+          install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$NODE_LIB"
+        done
+
+      # install_name_tool invalidates the ad-hoc signature applied by
+      # darwin.autoSignDarwinBinariesHook; re-sign so the .node loads under
+      # Gatekeeper on end-user macOS hosts.
+      codesign --force --sign - "$NODE_LIB"
+
+      # Assert no /nix/store references remain — guards against silent
+      # no-ops in the rewrites above and catches the 1.10.0 regression.
+      # See https://github.com/xmtp/libxmtp/issues/3479.
+      # NR > 1 skips otool -L's header line (the file's own /nix/store path).
+      remaining=$(otool -L "$NODE_LIB" | awk 'NR > 1 && $1 ~ /^\/nix\/store\// { print $1 }')
+      if [ -n "$remaining" ]; then
+        echo "error: $NODE_LIB still references /nix/store after postFixup:" >&2
+        echo "$remaining" >&2
+        exit 1
+      fi
     '';
   }
 )

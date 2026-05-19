@@ -22,6 +22,8 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
+      devcontainer: ${{ steps.filter.outputs.devcontainer }}
+      xdbg: ${{ steps.filter.outputs.xdbg }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -38,6 +40,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'dev/docker/**'
               - 'dev/up'
+              - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             node:
@@ -46,6 +49,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'nix/**'
+              - 'flake.lock'
               - 'dev/docker/**'
               - 'dev/up'
               - '.github/workflows/test-node*'
@@ -55,6 +59,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'nix/**'
+              - 'flake.lock'
               - 'dev/docker/**'
               - '.github/workflows/test-wasm*'
             ios:
@@ -62,6 +67,7 @@ jobs:
               - 'bindings/mobile/**'
               - 'crates/**'
               - 'nix/**'
+              - 'flake.lock'
               - 'Package.swift'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -71,6 +77,7 @@ jobs:
               - 'bindings/mobile/**'
               - 'crates/**'
               - 'nix/**'
+              - 'flake.lock'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/test-android*'
@@ -82,12 +89,33 @@ jobs:
               - 'dev/up'
               - 'rust-toolchain.toml'
               - '.cargo/**'
+              - 'flake.lock'
               - '.github/workflows/test-bindings*'
+            devcontainer:
+              - '.devcontainer/**'
+              - '.github/workflows/test-devcontainer*'
+            xdbg:
+              - 'apps/xmtp_debug/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-xdbg.yml'
 
   test-workspace:
     needs: detect-changes
     if: needs.detect-changes.outputs.workspace == 'true'
     uses: ./.github/workflows/test-workspace.yml
+    secrets: inherit
+
+  test-xdbg:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.xdbg == 'true'
+    uses: ./.github/workflows/test-xdbg.yml
     secrets: inherit
 
   test-node:
@@ -104,7 +132,12 @@ jobs:
 
   test-ios:
     needs: detect-changes
-    if: needs.detect-changes.outputs.ios == 'true'
+    if: |
+      needs.detect-changes.outputs.ios == 'true' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
     uses: ./.github/workflows/test-ios.yml
     secrets: inherit
 
@@ -120,17 +153,34 @@ jobs:
     uses: ./.github/workflows/test-bindings-check.yml
     secrets: inherit
 
+  test-devcontainer:
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.devcontainer == 'true' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+    uses: ./.github/workflows/test-devcontainer.yml
+    secrets: inherit
+
   test:
     name: Test
     runs-on: ubuntu-latest
     if: always()
     needs:
       - test-workspace
+      - test-xdbg
       - test-node
       - test-wasm
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check
+      - test-devcontainer
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \

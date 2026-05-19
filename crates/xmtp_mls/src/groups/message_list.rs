@@ -76,6 +76,7 @@ mod tests {
     use xmtp_db::group_message::{
         ContentType as DbContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
     };
+    use xmtp_proto::types::GroupId;
     use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction;
     use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
@@ -87,7 +88,7 @@ mod tests {
     }
 
     fn create_test_message(
-        group_id: &[u8],
+        group_id: &GroupId,
         message_id: Vec<u8>,
         encoded_content: EncodedContent,
         sent_at_ns: i64,
@@ -99,7 +100,7 @@ mod tests {
 
         StoredGroupMessage {
             id: message_id,
-            group_id: group_id.to_vec(),
+            group_id: *group_id,
             decrypted_message_bytes: content_bytes,
             sent_at_ns,
             kind: GroupMessageKind::Application,
@@ -121,7 +122,7 @@ mod tests {
 
     // For tests that need malformed content
     fn create_test_message_raw(
-        group_id: &[u8],
+        group_id: &GroupId,
         message_id: Vec<u8>,
         content: Vec<u8>,
         sent_at_ns: i64,
@@ -143,7 +144,7 @@ mod tests {
 
         StoredGroupMessage {
             id: message_id,
-            group_id: group_id.to_vec(),
+            group_id: *group_id,
             decrypted_message_bytes: content,
             sent_at_ns,
             kind: GroupMessageKind::Application,
@@ -241,7 +242,7 @@ mod tests {
 
     fn create_and_store_message<S>(
         conn: &S,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_id: Vec<u8>,
         content: EncodedContent,
         timestamp_offset: i64,

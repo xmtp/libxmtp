@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eou pipefail
 
-if ! docker network ls | grep -q libxmtp-backend; then
+if ! docker network inspect libxmtp-backend >/dev/null 2>&1; then
   docker network create libxmtp-backend --label proxynet
 fi
 

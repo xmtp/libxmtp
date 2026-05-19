@@ -19,6 +19,7 @@ use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
+use xmtp_proto::types::GroupId;
 #[derive(Default)]
 struct ImportContext {
     group_timestamps: HashMap<Vec<u8>, Option<i64>>,
@@ -32,7 +33,7 @@ impl ImportContext {
         // We want to update the group timestamps to either be what they were before the import,
         // or what they are in the archive group field.
         for (group_id, timestamp) in &self.group_timestamps {
-            if let Err(err) = context.db().raw_query_write(|conn| {
+            if let Err(err) = context.db().raw_query(|conn| {
                 xmtp_db::diesel::update(dsl::groups.find(group_id))
                     .set(dsl::last_message_ns.eq(*timestamp))
                     .execute(conn)
@@ -78,7 +79,10 @@ fn insert(
             context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(existing_group)) = context.db().find_group(&save.id) {
+            if let Ok(Some(existing_group)) = context
+                .db()
+                .find_group(&GroupId::try_from(save.id.as_slice())?)
+            {
                 let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
                     (Some(e), Some(s)) => Some(e.max(s)),
                     (None, Some(s)) => Some(s),
@@ -88,7 +92,7 @@ fn insert(
 
                 import_context
                     .group_timestamps
-                    .insert(existing_group.id, timestamp);
+                    .insert(existing_group.id.to_vec(), timestamp);
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -365,7 +369,7 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 0);
 
@@ -380,7 +384,7 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -420,21 +424,21 @@ mod tests {
         let mut consent_records: Vec<StoredConsentRecord> = alix
             .context
             .db()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop()?;
 
         let mut groups: Vec<StoredGroup> = alix
             .context
             .db()
-            .raw_query_read(|conn| groups::table.load(conn))?;
+            .raw_query(|conn| groups::table.load(conn))?;
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
         let old_messages: Vec<StoredGroupMessage> = alix
             .context
             .db()
-            .raw_query_read(|conn| group_messages::table.load(conn))?;
+            .raw_query(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 4);
 
         let opts = ArchiveOptions {
@@ -460,7 +464,7 @@ mod tests {
         let consent_records: Vec<StoredConsentRecord> = alix2
             .context
             .db()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
@@ -472,12 +476,12 @@ mod tests {
         let consent_records: Vec<StoredConsentRecord> = alix2
             .context
             .db()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
+        let groups: Vec<StoredGroup> = alix2.context.db().raw_query(|conn| {
             groups::table
                 .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
                 .load(conn)
@@ -486,7 +490,7 @@ mod tests {
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query_read(|conn| {
+        let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query(|conn| {
             group_messages::table
                 .filter(group_messages::group_id.eq(&groups[0].id))
                 .load(conn)

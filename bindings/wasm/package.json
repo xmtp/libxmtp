@@ -66,14 +66,13 @@
     "@vitest/browser-playwright": "^4.0.8",
     "@xmtp/content-type-remote-attachment": "^2.0.3",
     "binaryen": "^125.0.0",
-    "playwright": "=1.57",
+    "playwright": "=1.58",
     "prettier": "^3.7.4",
     "prettier-plugin-packagejson": "^3.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "viem": "^2.31.3",
-    "vitest": "^4.0.8",
-    "wasm-pack": "^0.14.0"
+    "vitest": "^4.0.8"
   },
   "packageManager": "yarn@4.11.0",
   "engines": {

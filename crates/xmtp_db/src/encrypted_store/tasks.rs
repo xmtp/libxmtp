@@ -134,7 +134,7 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
 
 impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
     fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::insert_into(tasks::table)
                 .values(task)
                 .get_result::<Task>(conn)
@@ -143,12 +143,12 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
     }
 
     fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
-        self.raw_query_read(|conn| tasks::table.load::<Task>(conn))
+        self.raw_query(|conn| tasks::table.load::<Task>(conn))
             .map_err(Into::into)
     }
 
     fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             tasks::table
                 .order(tasks::next_attempt_at_ns)
                 .first::<Task>(conn)
@@ -164,7 +164,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         last_attempted_at_ns: i64,
         next_attempt_at_ns: i64,
     ) -> Result<Task, StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(tasks::table.filter(tasks::id.eq(id)))
                 .set((
                     tasks::attempts.eq(attempts),
@@ -177,7 +177,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
     }
 
     fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
-        let num_deleted = self.raw_query_write(|conn| {
+        let num_deleted = self.raw_query(|conn| {
             diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)
         })?;
         Ok(num_deleted == 1)

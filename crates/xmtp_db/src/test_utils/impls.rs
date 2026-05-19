@@ -5,7 +5,7 @@ use rand::{
     distr::{Distribution, StandardUniform},
     prelude::IteratorRandom,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GroupId};
 
 use crate::{
     DuplicateItem, NotFound, StorageError, refresh_state::EntityKind,
@@ -59,8 +59,8 @@ impl Distribution<NotFound> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NotFound {
         match rng.random_range(0..=13) {
             0 => NotFound::GroupByWelcome(Cursor::default()),
-            1 => NotFound::GroupById(Vec::new()),
-            2 => NotFound::InstallationTimeForGroup(Vec::new()),
+            1 => NotFound::GroupById(GroupId::default()),
+            2 => NotFound::InstallationTimeForGroup(GroupId::default()),
             3 => NotFound::InboxIdForAddress("random test inbox".into()),
             4 => NotFound::MessageById(Vec::new()),
             5 => NotFound::DmByInbox("random dm by inbox".into()),
@@ -75,7 +75,7 @@ impl Distribution<NotFound> for StandardUniform {
             ),
             11 => NotFound::CipherSalt("random salt for testing".into()),
             12 => NotFound::SyncGroup(xmtp_common::rand_array::<32>().into()),
-            13 => NotFound::MlsGroup,
+            13 => NotFound::MlsGroup(GroupId::from(xmtp_common::rand_array::<16>())),
             _ => unreachable!(),
         }
     }

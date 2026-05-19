@@ -151,7 +151,7 @@ impl Test {
         info!("creating group and adding receiver");
         let group = client1.create_group(Default::default(), Default::default())?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
-        let group_id = hex::encode(&group.group_id);
+        let group_id = hex::encode(group.group_id);
         info!(group_id, "group created");
 
         // Sync user2 to receive the group welcome
@@ -195,6 +195,9 @@ impl Test {
                         }
                     }
                     Err(e) => {
+                        if crate::fail_fast() {
+                            return Err(eyre!("Error receiving message: {:?}", e));
+                        }
                         warn!("Error receiving message: {:?}", e);
                     }
                 }
@@ -299,7 +302,7 @@ impl Test {
         info!("creating group and adding receiver");
         let group = client1.create_group(Default::default(), Default::default())?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
-        let group_id = hex::encode(&group.group_id);
+        let group_id = hex::encode(group.group_id);
         info!(group_id, "group created");
 
         // Step 3: Sync user2 to receive the group welcome (but don't sync messages yet)
@@ -567,11 +570,11 @@ impl Test {
         info!("creating group and adding receiver");
         let group = client1.create_group(Default::default(), Default::default())?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
-        let group_id = group.group_id.clone();
-        let group_id_hex = hex::encode(&group_id);
+        let group_id = group.group_id;
+        let group_id_hex = hex::encode(group_id);
         info!(group_id = group_id_hex, "group created, receiver added");
 
-        let group_topic = Topic::new_group_message(&group_id);
+        let group_topic = Topic::new_group_message(group_id);
         let group_baseline = query_v4_envelopes(v4_client, &group_topic).await.len();
         info!(group_baseline, "group topic baseline");
 
@@ -883,12 +886,12 @@ impl Test {
 
         // Step 2: Create a group (just ourselves — sufficient for migration)
         let group = client.create_group(Default::default(), Default::default())?;
-        let group_id = group.group_id.clone();
-        let group_id_hex = hex::encode(&group_id);
+        let group_id = group.group_id;
+        let group_id_hex = hex::encode(group_id);
         info!(group_id = group_id_hex, "group created on V3");
 
         // Step 3: Snapshot V4 baseline for this topic
-        let topic = Topic::new_group_message(&group_id);
+        let topic = Topic::new_group_message(group_id);
         let baseline_count = {
             let mut endpoint = QueryEnvelopes::builder()
                 .envelopes(EnvelopesQuery {
@@ -1095,12 +1098,12 @@ impl Test {
         info!("creating group and adding receiver");
         let group = client1.create_group(Default::default(), Default::default())?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
-        let group_id = group.group_id.clone();
-        let group_id_hex = hex::encode(&group_id);
+        let group_id = group.group_id;
+        let group_id_hex = hex::encode(group_id);
         info!(group_id = group_id_hex, "group created, receiver added");
 
         // Capture group topic baseline BEFORE sending messages
-        let group_topic = Topic::new_group_message(&group_id);
+        let group_topic = Topic::new_group_message(group_id);
         let group_baseline = query_v4_envelopes(v4_client, &group_topic).await.len();
         info!(group_baseline, "group topic baseline captured");
 

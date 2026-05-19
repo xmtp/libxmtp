@@ -14,7 +14,8 @@ workspace = true
 vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
-alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
+alloy.workspace = true
+async-trait.workspace = true
 chrono.workspace = true
 clap.workspace = true
 clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
@@ -29,6 +30,7 @@ futures.workspace = true
 hex.workspace = true
 humantime = "2.3"
 indicatif.workspace = true
+inventory = "0.3"
 itertools.workspace = true
 k256 = "0.13"
 lipsum = "0.9"
@@ -39,7 +41,7 @@ owo-colors.workspace = true
 prometheus = "0.14"
 prost.workspace = true
 rand.workspace = true
-redb = { version = "3.1", features = ["logging"] }
+redb = { version = "4.1", features = ["logging"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -50,6 +52,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"
+tracing-log = "0.2"
 tracing-logfmt.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "time",
@@ -58,15 +61,23 @@ tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "valuable",
   "ansi",
+  "tracing-log",
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
+xmtp_common = { workspace = true, features = ["logging"] }
 xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
+xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[features]
+default = ["deserialize-paths"]
+# Forward bincode field-path debug to xmtp_db. Runtime-gated on `openmls_kv` target enabled.
+deserialize-paths = ["xmtp_db/deserialize-paths"]

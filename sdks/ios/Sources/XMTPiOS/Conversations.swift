@@ -119,15 +119,20 @@ actor FfiStreamActor {
 
 /// Handles listing and creating Conversations.
 public class Conversations {
-	var client: Client
+	/// The inboxId of the Client that owns this Conversations instance.
+	/// Captured at construction time so Conversations does not need a
+	/// back-reference to Client (which would create a retain cycle with
+	/// Client's `lazy var conversations`).
+	let clientInboxId: InboxId
 	var ffiConversations: FfiConversations
 	var ffiClient: FfiXmtpClient
 
 	init(
-		client: Client, ffiConversations: FfiConversations,
+		clientInboxId: InboxId,
+		ffiConversations: FfiConversations,
 		ffiClient: FfiXmtpClient
 	) {
-		self.client = client
+		self.clientInboxId = clientInboxId
 		self.ffiConversations = ffiConversations
 		self.ffiClient = ffiClient
 	}
@@ -150,7 +155,7 @@ public class Conversations {
 				ffiGroup: ffiClient.conversation(
 					conversationId: groupId.hexToData
 				),
-				client: client
+				clientInboxId: clientInboxId
 			)
 		} catch {
 			return nil
@@ -164,7 +169,9 @@ public class Conversations {
 			let conversation = try ffiClient.conversation(
 				conversationId: conversationId.hexToData
 			)
-			return try await conversation.toConversation(client: client)
+			return try await conversation.toConversation(
+				clientInboxId: clientInboxId
+			)
 		} catch {
 			return nil
 		}
@@ -186,7 +193,9 @@ public class Conversations {
 					let conversation = try ffiClient.conversation(
 						conversationId: conversationId.hexToData
 					)
-					return try await conversation.toConversation(client: client)
+					return try await conversation.toConversation(
+						clientInboxId: clientInboxId
+					)
 				}
 			}
 		} catch {
@@ -201,7 +210,8 @@ public class Conversations {
 				targetInboxId: inboxId
 			)
 			return Dm(
-				ffiConversation: conversation, client: client
+				ffiConversation: conversation,
+				clientInboxId: clientInboxId
 			)
 		} catch {
 			return nil
@@ -212,8 +222,8 @@ public class Conversations {
 		-> Dm?
 	{
 		guard
-			let inboxId = try await client.inboxIdFromIdentity(
-				identity: publicIdentity
+			let inboxId = try await ffiClient.findInboxId(
+				identifier: publicIdentity.ffiPrivate
 			)
 		else {
 			throw ClientError.creationError("No inboxId present")
@@ -289,7 +299,7 @@ public class Conversations {
 		)
 
 		return conversations.map {
-			$0.groupFromFFI(client: client)
+			$0.groupFromFFI(clientInboxId: clientInboxId)
 		}
 	}
 
@@ -322,7 +332,7 @@ public class Conversations {
 		)
 
 		return conversations.map {
-			$0.dmFromFFI(client: client)
+			$0.dmFromFFI(clientInboxId: clientInboxId)
 		}
 	}
 
@@ -356,7 +366,7 @@ public class Conversations {
 		var conversations: [Conversation] = []
 		for conversation in ffiConversations {
 			let conversation = try await conversation.toConversation(
-				client: client
+				clientInboxId: clientInboxId
 			)
 			conversations.append(conversation)
 		}
@@ -368,7 +378,8 @@ public class Conversations {
 	) -> AsyncThrowingStream<
 		Conversation, Error
 	> {
-		AsyncThrowingStream { continuation in
+		let clientInboxId = clientInboxId
+		return AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 			let conversationCallback = ConversationStreamCallback {
 				conversation in
@@ -383,14 +394,16 @@ public class Conversations {
 						if conversationType == .dm {
 							continuation.yield(
 								Conversation.dm(
-									conversation.dmFromFFI(client: self.client)
+									conversation.dmFromFFI(
+										clientInboxId: clientInboxId
+									)
 								)
 							)
 						} else if conversationType == .group {
 							continuation.yield(
 								Conversation.group(
 									conversation.groupFromFFI(
-										client: self.client
+										clientInboxId: clientInboxId
 									)
 								)
 							)
@@ -451,8 +464,12 @@ public class Conversations {
 		with peerIdentity: PublicIdentity,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
 	) async throws -> Dm {
-		if try await client.inboxState(refreshFromNetwork: false).identities
-			.map(\.identifier).contains(peerIdentity.identifier)
+		let ffiInboxState = try await ffiClient.inboxState(
+			refreshFromNetwork: false
+		)
+		let inboxState = InboxState(ffiInboxState: ffiInboxState)
+		if inboxState.identities.map(\.identifier)
+			.contains(peerIdentity.identifier)
 		{
 			throw ConversationError.memberCannotBeSelf
 		}
@@ -468,7 +485,7 @@ public class Conversations {
 					)
 				)
 
-		return dm.dmFromFFI(client: client)
+		return dm.dmFromFFI(clientInboxId: clientInboxId)
 	}
 
 	public func newConversation(
@@ -488,7 +505,7 @@ public class Conversations {
 	)
 		async throws -> Dm
 	{
-		if peerInboxId == client.inboxID {
+		if peerInboxId == clientInboxId {
 			throw ConversationError.memberCannotBeSelf
 		}
 		try validateInboxId(peerInboxId)
@@ -502,7 +519,7 @@ public class Conversations {
 						)
 					)
 				)
-		return dm.dmFromFFI(client: client)
+		return dm.dmFromFFI(clientInboxId: clientInboxId)
 	}
 
 	public func newGroupWithIdentities(
@@ -575,7 +592,7 @@ public class Conversations {
 				),
 				appData: appData
 			)
-		).groupFromFFI(client: client)
+		).groupFromFFI(clientInboxId: clientInboxId)
 	}
 
 	public func newGroup(
@@ -649,7 +666,7 @@ public class Conversations {
 				),
 				appData: appData
 			)
-		).groupFromFFI(client: client)
+		).groupFromFFI(clientInboxId: clientInboxId)
 	}
 
 	public func newGroupOptimistic(
@@ -676,7 +693,7 @@ public class Conversations {
 		)
 
 		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)
-		return Group(ffiGroup: ffiGroup, client: client)
+		return Group(ffiGroup: ffiGroup, clientInboxId: clientInboxId)
 	}
 
 	public func streamAllMessages(
@@ -786,7 +803,9 @@ public class Conversations {
 		guard let firstConversation = conversations.first else {
 			return nil
 		}
-		return try await firstConversation.toConversation(client: client)
+		return try await firstConversation.toConversation(
+			clientInboxId: clientInboxId
+		)
 	}
 
 	public func getHmacKeys() throws

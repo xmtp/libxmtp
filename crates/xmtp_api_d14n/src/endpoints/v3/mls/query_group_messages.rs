@@ -4,13 +4,14 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint, Pageable};
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::api::v1::{PagingInfo, QueryGroupMessagesRequest};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct QueryGroupMessages {
     #[builder(setter(into))]
-    group_id: Vec<u8>,
+    group_id: GroupId,
     paging_info: Option<PagingInfo>,
 }
 
@@ -23,12 +24,12 @@ impl QueryGroupMessages {
 impl Endpoint for QueryGroupMessages {
     type Output = QueryGroupMessagesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<QueryGroupMessagesRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/QueryGroupMessages")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
         Ok(QueryGroupMessagesRequest {
-            group_id: self.group_id.clone(),
+            group_id: self.group_id.to_vec(),
             paging_info: self.paging_info,
         }
         .encode_to_vec()
@@ -49,13 +50,8 @@ mod test {
     use crate::v3::QueryGroupMessages;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::prelude::*;
+    use xmtp_proto::types::GroupId;
     use xmtp_proto::xmtp::mls::api::v1::*;
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<QueryGroupMessagesRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {
@@ -71,7 +67,7 @@ mod test {
         let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = QueryGroupMessages::builder()
-            .group_id(vec![1, 2, 3])
+            .group_id(GroupId::ONE)
             .paging_info(PagingInfo::default())
             .build()
             .unwrap();

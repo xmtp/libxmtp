@@ -7,19 +7,15 @@ fn test_parse_and_compare_basic_versions() {
     let v1_1_0 = LibXMTPVersion::parse("1.1.0").unwrap();
     let v2_0_0 = LibXMTPVersion::parse("2.0.0").unwrap();
 
-    // Test patch version comparison
     assert!(v1_0_0 < v1_0_1);
     assert!(v1_0_1 > v1_0_0);
 
-    // Test minor version comparison
     assert!(v1_0_1 < v1_1_0);
     assert!(v1_1_0 > v1_0_1);
 
-    // Test major version comparison
     assert!(v1_1_0 < v2_0_0);
     assert!(v2_0_0 > v1_1_0);
 
-    // Test equality
     let v1_0_0_dup = LibXMTPVersion::parse("1.0.0").unwrap();
     assert_eq!(v1_0_0, v1_0_0_dup);
 }
@@ -32,17 +28,18 @@ fn test_parse_and_compare_with_suffixes() {
     let v1_0_0_rc1 = LibXMTPVersion::parse("1.0.0-rc1").unwrap();
     let v1_0_1_alpha = LibXMTPVersion::parse("1.0.1-alpha").unwrap();
 
-    // Versions with suffixes compare lexicographically by suffix after version parts
+    // Pre-release identifiers compare alphabetically when non-numeric.
     assert!(v1_0_0_alpha < v1_0_0_beta);
     assert!(v1_0_0_beta < v1_0_0_rc1);
 
-    // Version without suffix (None) is less than version with suffix (Some)
-    // because None < Some in Rust's default Ord implementation
-    // NOTE: this does not match semver comparison
-    assert!(v1_0_0 < v1_0_0_alpha);
-    assert!(v1_0_0 < v1_0_0_beta);
+    // Per semver 2.0 §11: a pre-release version sorts BEFORE the
+    // corresponding release. This is the correctness fix the
+    // semver-crate swap delivers — the old hand-rolled comparison had
+    // the relationship inverted.
+    assert!(v1_0_0_alpha < v1_0_0);
+    assert!(v1_0_0_beta < v1_0_0);
 
-    // Numeric parts take precedence over suffix
+    // Numeric parts take precedence over the pre-release tag.
     assert!(v1_0_0 < v1_0_1_alpha);
     assert!(v1_0_0_rc1 < v1_0_1_alpha);
 }
@@ -60,57 +57,55 @@ fn test_parse_and_compare_zero_versions() {
 }
 
 #[test]
-fn test_parse_and_compare_complex_suffixes() {
-    let v1_2_3_alpha1 = LibXMTPVersion::parse("1.2.3-alpha1").unwrap();
-    let v1_2_3_alpha2 = LibXMTPVersion::parse("1.2.3-alpha2").unwrap();
-    let v1_2_3_beta = LibXMTPVersion::parse("1.2.3-beta").unwrap();
-    let v1_2_3_dev = LibXMTPVersion::parse("1.2.3-dev").unwrap();
-    let v1_2_3_snapshot = LibXMTPVersion::parse("1.2.3-snapshot").unwrap();
+fn test_numeric_pre_release_identifiers_compare_numerically() {
+    // Per semver 2.0 §11.4.1: identifiers consisting only of digits
+    // are compared numerically. The hand-rolled implementation
+    // compared lexicographically, which got `rc10 < rc2` because of
+    // ASCII ordering; this test pins the fix.
+    let v1_0_0_rc_2 = LibXMTPVersion::parse("1.0.0-rc.2").unwrap();
+    let v1_0_0_rc_10 = LibXMTPVersion::parse("1.0.0-rc.10").unwrap();
+    assert!(v1_0_0_rc_2 < v1_0_0_rc_10);
 
-    // Lexicographic ordering of suffixes
-    assert!(v1_2_3_alpha1 < v1_2_3_alpha2);
-    assert!(v1_2_3_alpha2 < v1_2_3_beta);
-    assert!(v1_2_3_beta < v1_2_3_dev);
-    assert!(v1_2_3_dev < v1_2_3_snapshot);
+    let v1_0_0_alpha_2 = LibXMTPVersion::parse("1.0.0-alpha.2").unwrap();
+    let v1_0_0_alpha_11 = LibXMTPVersion::parse("1.0.0-alpha.11").unwrap();
+    assert!(v1_0_0_alpha_2 < v1_0_0_alpha_11);
+}
+
+#[test]
+fn test_multi_segment_pre_release_parses() {
+    // Multi-segment pre-release identifiers like `1.0.0-alpha.1` are
+    // valid semver 2.0; the hand-rolled parser rejected them because
+    // it split on `.` first and required exactly three parts.
+    assert!(LibXMTPVersion::parse("1.0.0-alpha.1").is_ok());
+    assert!(LibXMTPVersion::parse("1.0.0-rc.1.build.42").is_ok());
+}
+
+#[test]
+fn test_build_metadata_parses() {
+    // Build metadata strings (`+...`) are accepted by the parser. Note
+    // that the [`semver`] crate's `Ord` impl deliberately includes
+    // build metadata for total-ordering / `Hash` consistency, which
+    // deviates from semver 2.0 §10 ("build metadata MUST be ignored
+    // when determining version precedence"). This is irrelevant for
+    // libxmtp's floor comparison because no caller passes a `+`-
+    // suffixed string today — `CARGO_PKG_VERSION` is a plain
+    // `X.Y.Z`, and the application-facing `update_group_min_version`
+    // host API never injects build metadata. Pinning parse-success
+    // here so a future caller that *does* pass `+`-suffixed input
+    // gets predictable behavior instead of `InvalidVersionFormat`.
+    assert!(LibXMTPVersion::parse("1.0.0+build.5").is_ok());
+    assert!(LibXMTPVersion::parse("1.0.0-rc.1+build.5").is_ok());
 }
 
 #[test]
 fn test_parse_invalid_format() {
-    let result = LibXMTPVersion::parse("1.0");
-    assert!(matches!(
-        result,
-        Err(CommitValidationError::InvalidVersionFormat(_))
-    ));
-    let result = LibXMTPVersion::parse("1.0.0.0");
-    assert!(matches!(
-        result,
-        Err(CommitValidationError::InvalidVersionFormat(_))
-    ));
-    let result = LibXMTPVersion::parse("1.x.0");
-    assert!(matches!(
-        result,
-        Err(CommitValidationError::InvalidVersionFormat(_))
-    ));
-
-    let result = LibXMTPVersion::parse("a.b.c");
-    assert!(matches!(
-        result,
-        Err(CommitValidationError::InvalidVersionFormat(_))
-    ));
-    let result = LibXMTPVersion::parse("1..0");
-    assert!(matches!(
-        result,
-        Err(CommitValidationError::InvalidVersionFormat(_))
-    ));
-    let result = LibXMTPVersion::parse("");
-    assert!(matches!(
-        result,
-        Err(CommitValidationError::InvalidVersionFormat(_))
-    ));
-}
-
-#[test]
-fn test_parse_suffix_only() {
-    let result = LibXMTPVersion::parse("1.0.0-");
-    assert!(result.is_ok());
+    for bad in ["1.0", "1.0.0.0", "1.x.0", "a.b.c", "1..0", ""] {
+        assert!(
+            matches!(
+                LibXMTPVersion::parse(bad),
+                Err(CommitValidationError::InvalidVersionFormat(_)),
+            ),
+            "expected {bad:?} to fail parsing"
+        );
+    }
 }

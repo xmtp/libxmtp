@@ -15,6 +15,10 @@ concurrency:
 
 jobs:
   claude-review:
+    # The Claude action requires the PR author to have write access to the upstream repo.
+    # Fork PRs run under the fork author's identity, which makes automated review fail
+    # during the action's permission preflight.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     # Optional: Filter by PR author
     # if: |
     #   github.event.pull_request.user.login == 'external-contributor' ||
@@ -38,6 +42,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: |
             dependabot[bot]
+            macroscopeapp[bot]
           model: "claude-sonnet-4-5-20250929"
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |

@@ -91,7 +91,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        environment: [testnet-staging, testnet]
+        environment: [testnet]
     steps:
       - name: Checkout
         uses: actions/checkout@v6

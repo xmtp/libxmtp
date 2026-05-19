@@ -53,6 +53,7 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
 };
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -69,6 +70,34 @@ impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageO
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
       should_push: opts.should_push,
+    }
+  }
+}
+
+/// Options for [`Conversation::enableProposals`]. Mirrors
+/// [`xmtp_mls::groups::EnableProposalsOptions`].
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct EnableProposalsOptions {
+  /// Skip the pre-flight key-package capability check. Post-d14n
+  /// every client supports proposals by version floor alone; set
+  /// `true` to bypass the per-member scan in that environment.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub force: Option<bool>,
+  /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+  /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub min_version: Option<String>,
+}
+
+impl From<EnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
+  fn from(opts: EnableProposalsOptions) -> Self {
+    xmtp_mls::groups::EnableProposalsOptions {
+      force: opts.force.unwrap_or(false),
+      min_version: opts.min_version,
     }
   }
 }
@@ -112,7 +141,7 @@ pub struct GroupMember {
 #[derive(Clone)]
 pub struct Conversation {
   inner_group: RustMlsGroup,
-  group_id: Vec<u8>,
+  group_id: GroupId,
   dm_id: Option<String>,
   created_at_ns: i64,
 }
@@ -120,7 +149,7 @@ pub struct Conversation {
 impl Conversation {
   pub fn new(
     inner_group: RustMlsGroup,
-    group_id: Vec<u8>,
+    group_id: GroupId,
     dm_id: Option<String>,
     created_at_ns: i64,
   ) -> Self {
@@ -135,7 +164,7 @@ impl Conversation {
   pub fn to_mls_group(&self) -> RustMlsGroup {
     MlsGroup::new(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id,
       self.dm_id.clone(),
       self.inner_group.conversation_type,
       self.created_at_ns,
@@ -146,7 +175,7 @@ impl Conversation {
 impl From<RustMlsGroup> for Conversation {
   fn from(mls_group: RustMlsGroup) -> Self {
     Conversation {
-      group_id: mls_group.group_id.clone(),
+      group_id: mls_group.group_id,
       dm_id: mls_group.dm_id.clone(),
       created_at_ns: mls_group.created_at_ns,
       inner_group: mls_group,
@@ -158,7 +187,7 @@ impl From<RustMlsGroup> for Conversation {
 impl Conversation {
   #[wasm_bindgen]
   pub fn id(&self) -> String {
-    hex::encode(self.group_id.clone())
+    hex::encode(self.group_id)
   }
 
   #[wasm_bindgen]
@@ -645,6 +674,22 @@ impl Conversation {
     Ok(())
   }
 
+  /// Enable AppData-proposal-based metadata updates on this group.
+  ///
+  /// Stages the bootstrap commit that migrates the group's metadata
+  /// from the legacy GroupContextExtensions shape into the OpenMLS
+  /// AppData dictionary. Hard-fails if any member's latest key
+  /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
+  /// way: migrated groups cannot return to the legacy path.
+  #[wasm_bindgen(js_name = enableProposals)]
+  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    group
+      .enable_proposals(options.into())
+      .await
+      .map_err(ErrorWrapper::js)
+  }
+
   #[wasm_bindgen(js_name = groupName)]
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
@@ -731,7 +776,7 @@ impl Conversation {
     let on_close_cb = callback.clone();
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id,
       move |message| match message {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
@@ -881,7 +926,7 @@ impl Conversation {
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in dms {
-      let id = hex::encode(&conversation.group_id);
+      let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
         .map_err(ErrorWrapper::js)?
@@ -975,7 +1020,7 @@ mod tests {
   fn test_group_message_to_object() {
     let stored_message = StoredGroupMessage {
       id: xmtp_common::rand_vec::<32>(),
-      group_id: xmtp_common::rand_vec::<32>(),
+      group_id: xmtp_common::rand_array::<16>().into(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
       sent_at_ns: 1738354508964432000,
       inserted_at_ns: 1738354508964432000,

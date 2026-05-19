@@ -1,4 +1,5 @@
 use super::*;
+use crate::groups::group_membership::GroupMembership;
 use crate::groups::{
     GroupError, build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
@@ -8,10 +9,99 @@ use crate::groups::{
 use openmls::{
     extensions::Extensions,
     group::GroupContext,
-    messages::proposals::Proposal,
+    messages::proposals::{AppDataUpdateOperation, Proposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
 use openmls_traits::signatures::Signer;
+use prost::Message;
+use tls_codec::VLBytes;
+use xmtp_mls_common::{
+    app_data::{
+        component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
+        typed::Component,
+    },
+    inbox_id::InboxId,
+    tls_map::TlsMapDelta,
+};
+use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
+
+/// Build the wire-level `TlsMapDelta<InboxId, VLBytes>` payload for an
+/// `AppDataUpdate(GROUP_MEMBERSHIP)` proposal from the diff between
+/// the old and new `GroupMembership` view. Shared between the commit-
+/// bundling `apply_update_group_membership_intent` flow and the
+/// propose-by-reference `IntentKind::ProposeMemberUpdate` flow so
+/// both emit byte-identical payloads for the same diff.
+///
+/// One mutation per affected inbox:
+/// - `Insert(inbox_id, encode(V1 { sequence_id, failed_installations: [] }))`
+///   for inboxes added.
+/// - `Update(inbox_id, encode(V1 { ... }))` for inboxes whose
+///   `sequence_id` changed.
+/// - `Delete(inbox_id)` for inboxes removed.
+///
+/// `failed_installations` is left empty here — per the proto comment
+/// it's a sender-authoritative retry-suppression hint and the
+/// per-inbox partitioning happens at bootstrap. Steady-state membership
+/// updates intentionally don't propagate failed_installations changes
+/// over the AppData path; the worst case is a slightly noisier retry
+/// loop. Future enhancement once a clearer attribution path exists.
+pub(crate) fn build_group_membership_app_data_payload(
+    old: &GroupMembership,
+    new: &GroupMembership,
+) -> Result<Vec<u8>, GroupError> {
+    let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
+
+    // Inserts and updates: walk new.members, classify against old.
+    for (inbox_id_str, &sequence_id) in new.members.iter() {
+        let entry = encode_membership_entry(sequence_id)?;
+        match old.members.get(inbox_id_str) {
+            None => {
+                // New inbox: Insert.
+                let inbox_id = InboxId::from_hex(inbox_id_str)
+                    .map_err(|e| GroupError::ComponentSource(e.into()))?;
+                delta = delta.insert(inbox_id, VLBytes::new(entry));
+            }
+            Some(&old_seq) if old_seq != sequence_id => {
+                // Existing inbox with bumped sequence_id: Update.
+                let inbox_id = InboxId::from_hex(inbox_id_str)
+                    .map_err(|e| GroupError::ComponentSource(e.into()))?;
+                delta = delta.update(inbox_id, VLBytes::new(entry));
+            }
+            _ => {
+                // Same sequence_id, no change for this inbox.
+            }
+        }
+    }
+
+    // Deletes: in old but not new.
+    for inbox_id_str in old.members.keys() {
+        if !new.members.contains_key(inbox_id_str) {
+            let inbox_id = InboxId::from_hex(inbox_id_str)
+                .map_err(|e| GroupError::ComponentSource(e.into()))?;
+            delta = delta.delete(inbox_id);
+        }
+    }
+
+    <GroupMembershipComponent as Component>::encode_mutation(&delta).map_err(|e| {
+        GroupError::ComponentSource(
+            crate::groups::app_data::component_source::ComponentSourceError::from(e),
+        )
+    })
+}
+
+/// Encode a per-inbox `GroupMembershipEntry::V1` value with the given
+/// `sequence_id` and an empty `failed_installations` list.
+fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
+    let entry = GroupMembershipEntry {
+        version: Some(group_membership_entry::Version::V1(
+            group_membership_entry::V1 {
+                sequence_id,
+                failed_installations: vec![],
+            },
+        )),
+    };
+    Ok(entry.encode_to_vec())
+}
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
@@ -27,9 +117,10 @@ pub(crate) async fn apply_update_group_membership_intent(
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
+    let group_id = GroupId::try_from(openmls_group.group_id())?;
     let changes_with_kps = calculate_membership_changes_with_keypackages(
         context,
-        openmls_group.group_id().as_slice(),
+        &group_id,
         &new_group_membership,
         &old_group_membership,
     )
@@ -49,36 +140,73 @@ pub(crate) async fn apply_update_group_membership_intent(
         return Ok(None);
     }
 
-    // Update the extensions to have the new GroupMembership
-    let mut new_extensions = extensions.clone();
+    // Detect whether this is a migrated group. On migrated groups the
+    // legacy `GROUP_MEMBERSHIP_EXTENSION_ID` is gone and the
+    // membership lives in the AppData dictionary; the membership
+    // delta travels as an `AppDataUpdate(GROUP_MEMBERSHIP)` proposal
+    // rather than a GCE proposal updating the legacy extension.
+    //
+    // Uses the canonical `is_migrated_extensions` predicate (presence
+    // of the `COMPONENT_REGISTRY` entry written by the bootstrap
+    // commit) so we agree with every other send/receive/validate gate
+    // in the migration.
+    let is_migrated = super::super::app_data::is_migrated_extensions(openmls_group.extensions());
 
-    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
+    // Update the extensions to have the new GroupMembership.
+    // On migrated groups we deliberately skip writing the legacy
+    // `GROUP_MEMBERSHIP_EXTENSION_ID` — bootstrap removed it and the
+    // AppDataUpdate proposal carries the delta instead.
+    let mut new_extensions = extensions.clone();
+    if !is_migrated {
+        new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
+    }
 
     // Check if proposals need to be disabled due to new members not supporting them
-    let proposal_ext_type =
-        openmls::prelude::ExtensionType::Unknown(xmtp_configuration::PROPOSAL_SUPPORT_EXTENSION_ID);
+    let app_data_ext_type = openmls::prelude::ExtensionType::AppDataDictionary;
     let mut proposals_currently_enabled = openmls_group
         .extensions()
         .iter()
-        .any(|ext| ext.extension_type() == proposal_ext_type);
+        .any(|ext| ext.extension_type() == app_data_ext_type);
+    let mut downgrade_to_legacy = false;
     if proposals_currently_enabled && !changes_with_kps.new_key_packages.is_empty() {
         let new_members_support_proposals = changes_with_kps.new_key_packages.iter().all(|kp| {
             kp.leaf_node()
                 .capabilities()
                 .extensions()
-                .contains(&proposal_ext_type)
+                .contains(&app_data_ext_type)
         });
         // TODO: D14N Hammer
         if !new_members_support_proposals {
-            tracing::info!("Disabling proposals: new members don't support proposal extension");
-            new_extensions.remove(proposal_ext_type);
+            tracing::info!(
+                "Disabling proposals: new members don't support the AppData dictionary extension"
+            );
+            new_extensions.remove(app_data_ext_type);
             update_required_capabilities_for_proposals(&mut new_extensions, false)?;
             proposals_currently_enabled = false;
+            // If this group was migrated, downgrading to legacy
+            // means we need to re-add the legacy GROUP_MEMBERSHIP
+            // extension since the AppDataUpdate path is no longer
+            // available. (This is a rare rollback scenario; covered
+            // here defensively so the subsequent direct-commit path
+            // doesn't lose membership state.)
+            if is_migrated {
+                new_extensions
+                    .add_or_replace(build_group_membership_extension(&new_group_membership))?;
+                downgrade_to_legacy = true;
+            }
         }
     }
 
     if proposals_currently_enabled {
-        // Batched proposal path: proposals + GCE + commit in one publish
+        // Batched proposal path: proposals + (AppDataUpdate or GCE) + commit in one publish
+        let app_data_payload = if is_migrated {
+            Some(build_group_membership_app_data_payload(
+                &old_group_membership,
+                &new_group_membership,
+            )?)
+        } else {
+            None
+        };
         let publish_intent_data = compute_publish_data_for_proposal_based_update(
             context,
             openmls_group,
@@ -86,9 +214,11 @@ pub(crate) async fn apply_update_group_membership_intent(
             changes_with_kps.new_key_packages,
             leaf_nodes_to_remove,
             new_extensions,
+            app_data_payload,
             signer,
         )
         .await?;
+        let _ = downgrade_to_legacy; // marker so future logic can branch on it; currently unused
         Ok(Some(publish_intent_data))
     } else {
         // Direct commit path (no proposals)
@@ -148,9 +278,19 @@ async fn compute_publish_data_for_group_membership_update(
 }
 
 /// Like `compute_publish_data_for_group_membership_update`, but instead of creating a direct
-/// commit via `update_group_membership`, creates MLS proposals (Add/Remove + GCE) and a commit
-/// that references them. All payloads are returned together so they can be published in a single
-/// `send_group_messages` call, eliminating multiple network roundtrips.
+/// commit via `update_group_membership`, creates MLS proposals (Add/Remove + GCE *or*
+/// AppDataUpdate) and a commit that references them. All payloads are returned together so
+/// they can be published in a single `send_group_messages` call, eliminating multiple network
+/// roundtrips.
+///
+/// `app_data_membership_payload`:
+/// - `Some(bytes)` on migrated groups — emit an
+///   `AppDataUpdate(GROUP_MEMBERSHIP, Update(bytes))` proposal-by-reference.
+///   `bytes` is the wire-encoded `TlsMapDelta<InboxId, VLBytes>` from
+///   `build_group_membership_app_data_payload`.
+/// - `None` on unmigrated groups — fall back to a GCE proposal that
+///   updates the legacy `GROUP_MEMBERSHIP_EXTENSION_ID` extension.
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(level = "trace", skip_all)]
 async fn compute_publish_data_for_proposal_based_update(
     context: &impl XmtpSharedContext,
@@ -159,14 +299,20 @@ async fn compute_publish_data_for_proposal_based_update(
     key_packages_to_add: Vec<KeyPackage>,
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     new_extensions: Extensions<GroupContext>,
+    app_data_membership_payload: Option<Vec<u8>>,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
-    // Compare current extensions to new_extensions to determine if a GCE is needed.
-    // This catches adds/removes, updated_inboxes (sequence ID bumps), and
-    // failed_installations changes.
-    let current_membership = extract_group_membership(openmls_group.extensions())?;
-    let new_membership_check = extract_group_membership(&new_extensions)?;
-    let extensions_changed = current_membership != new_membership_check;
+    let is_migrated_path = app_data_membership_payload.is_some();
+    // Only used on the legacy path. On the migrated path the
+    // membership delta travels via the AppDataUpdate proposal so the
+    // GCE-changed check is irrelevant.
+    let extensions_changed = if is_migrated_path {
+        false
+    } else {
+        let current_membership = extract_group_membership(openmls_group.extensions())?;
+        let new_membership_check = extract_group_membership(&new_extensions)?;
+        current_membership != new_membership_check
+    };
     let new_extensions_for_filter = new_extensions.clone();
 
     let ((proposal_payloads, bundle), staged_commit, group_epoch) =
@@ -189,32 +335,62 @@ async fn compute_publish_data_for_proposal_based_update(
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
-            // 3. Create GCE proposal when the membership extension has changed
-            if extensions_changed {
+            // 3a. Migrated: emit AppDataUpdate(GROUP_MEMBERSHIP) proposal carrying the delta.
+            //     Receivers walk the proposal alongside the Add/Remove proposals
+            //     and apply the dict update via `accumulate_app_data_updates`.
+            if let Some(payload) = &app_data_membership_payload {
+                let (msg, _) = group
+                    .propose_app_data_update(
+                        provider,
+                        &signer,
+                        ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                        AppDataUpdateOperation::Update(payload.clone().into()),
+                    )
+                    .map_err(GroupError::Proposal)?;
+                proposal_payloads.push(msg.tls_serialize_detached()?);
+            // 3b. Legacy: GCE proposal updating GROUP_MEMBERSHIP_EXTENSION_ID
+            //     (only when the membership actually changed).
+            } else if extensions_changed {
                 let (msg, _) = group
                     .propose_group_context_extensions(provider, new_extensions.clone(), &signer)
                     .map_err(GroupError::Proposal)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
-            // 4. Create commit consuming all proposals (including the ones just created)
-            let new_membership =
-                extract_group_membership(&new_extensions_for_filter).map_err(GroupError::from)?;
-            let bundle = group
+            // 4. Create commit consuming all proposals (including the ones just created).
+            //    On migrated groups, also pre-compute the dict updates
+            //    so the commit's confirmation tag agrees with what the
+            //    receiver will compute via its own AppDataUpdate apply path.
+            let new_membership = extract_group_membership(&new_extensions_for_filter).ok();
+            let app_data_updates = if is_migrated_path {
+                Some(crate::groups::app_data::pending_app_data_updates(group)?)
+            } else {
+                None
+            };
+            let mut stage = group
                 .commit_builder()
                 .consume_proposal_store(true)
                 .load_psks(provider.storage())
-                .map_err(CommitToPendingProposalsError::from)?
+                .map_err(CommitToPendingProposalsError::from)?;
+            if let Some(Some(updates)) = app_data_updates {
+                stage.with_app_data_dictionary_updates(Some(updates));
+            }
+            let bundle = stage
                 .build(provider.rand(), provider.crypto(), &signer, |qp| {
                     match qp.proposal() {
                         // Always filter GCEs against expected membership.
                         // Accept only if it matches our new_membership; reject stale ones.
                         // Compare the full GroupMembership (members + failed_installations).
-                        Proposal::GroupContextExtensions(gce) => {
-                            extract_group_membership(gce.extensions())
-                                .map(|m| m == new_membership)
-                                .unwrap_or(false)
-                        }
+                        // On migrated groups `extract_group_membership(new_extensions)`
+                        // can't extract (no legacy ext present); we conservatively
+                        // accept all GCEs in that case since the membership is
+                        // delivered via the AppDataUpdate proposal instead.
+                        Proposal::GroupContextExtensions(gce) => match &new_membership {
+                            Some(expected) => extract_group_membership(gce.extensions())
+                                .map(|m| &m == expected)
+                                .unwrap_or(false),
+                            None => true,
+                        },
                         _ => true,
                     }
                 })

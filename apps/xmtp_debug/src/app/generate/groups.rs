@@ -89,8 +89,14 @@ impl GenerateGroups {
                         )
                         .await;
 
-                        if let Some(ref invitee) = first_invitee {
-                            check_member_visibility(&group_id, invitee, &network_clone).await;
+                        if let Some(ref invitee) = first_invitee
+                            && let Err(e) =
+                                check_member_visibility(&group_id, invitee, &network_clone).await
+                        {
+                            if crate::fail_fast() {
+                                return Err(e);
+                            }
+                            tracing::warn!(error = %e, "member visibility check failed");
                         }
 
                         // -- total group create + add latency --
@@ -211,7 +217,7 @@ async fn create_group_on_network(
     );
     push_metrics("xdbg_debug").await;
 
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
     drop(client_guard);
 
     Ok((group_id, create_secs))
@@ -219,14 +225,12 @@ async fn create_group_on_network(
 
 /// Check whether an invitee can see the group via sync_welcomes (read-your-own-writes).
 async fn check_member_visibility(
-    group_id: &Vec<u8>,
+    group_id: &[u8],
     invitee: &Identity,
     network: &args::BackendOpts,
-) {
-    let reader_client = match app::client_from_identity(invitee, network) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
+) -> Result<()> {
+    let reader_client = app::client_from_identity(invitee, network)?;
+    let group_id_typed = xmtp_proto::types::GroupId::try_from(group_id)?;
 
     let t_visibility = Instant::now();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
@@ -234,10 +238,8 @@ async fn check_member_visibility(
     let mut visible = false;
 
     loop {
-        if let Err(e) = reader_client.sync_welcomes().await {
-            tracing::warn!(error = %e, "sync_welcomes failed during visibility poll");
-        }
-        if reader_client.group(group_id).is_ok() {
+        reader_client.sync_welcomes().await?;
+        if reader_client.group(&group_id_typed).is_ok() {
             visible = true;
             break;
         }
@@ -264,4 +266,5 @@ async fn check_member_visibility(
         &[("phase", "member_visibility"), ("success", vis_ok)],
     );
     push_metrics("xdbg_debug").await;
+    Ok(())
 }

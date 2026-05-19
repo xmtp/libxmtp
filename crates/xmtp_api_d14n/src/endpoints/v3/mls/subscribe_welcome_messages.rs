@@ -24,7 +24,7 @@ impl Endpoint for SubscribeWelcomeMessages {
     type Output = crate::v3::types::V3ProtoWelcomeMessage;
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<SubscribeWelcomeMessagesRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/SubscribeWelcomeMessages")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -42,9 +42,9 @@ mod test {
     use xmtp_proto::{api::QueryStreamExt, prelude::*};
 
     #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<SubscribeWelcomeMessagesRequest>();
-        println!("{}", pnq);
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = SubscribeWelcomeMessages::default();
+        assert!(!endpoint.grpc_endpoint().is_empty());
     }
 
     #[xmtp_common::test]

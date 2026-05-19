@@ -14,6 +14,8 @@ use std::fmt::Debug;
 use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
 use tasks::TaskWorkerChannels;
+use tracing::Instrument;
+use tracing::instrument::Instrumented;
 use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm, time::Duration};
 use xmtp_configuration::WORKER_RESTART_DELAY;
 
@@ -87,32 +89,36 @@ impl WorkerRunner {
         }
 
         let this = self.clone();
-        let handle = xmtp_common::spawn(None, async move {
-            while !ctx.identity().is_ready() {
-                xmtp_common::time::sleep(Duration::from_millis(50)).await;
-            }
-
-            let mut futs = FuturesUnordered::new();
-
-            for factory in &this.factories {
-                let metric = this.metrics.lock().get(&factory.kind()).cloned();
-                let (worker, metrics) = factory.create(metric);
-
-                if let Some(metrics) = metrics {
-                    this.metrics.lock().insert(factory.kind(), metrics);
+        let handle = xmtp_common::spawn(
+            None,
+            async move {
+                while !ctx.identity().is_ready() {
+                    xmtp_common::time::sleep(Duration::from_millis(50)).await;
                 }
 
-                if let Some(metrics) = worker.metrics() {
-                    let mut m = this.metrics.lock();
-                    m.insert(worker.kind(), metrics);
-                }
-                futs.push(worker.spawn());
-            }
+                let mut futs = FuturesUnordered::new();
 
-            while let Some(kind) = futs.next().await {
-                tracing::warn!("Worker {kind:?} completed unexpectedly")
+                for factory in &this.factories {
+                    let metric = this.metrics.lock().get(&factory.kind()).cloned();
+                    let (worker, metrics) = factory.create(metric);
+
+                    if let Some(metrics) = metrics {
+                        this.metrics.lock().insert(factory.kind(), metrics);
+                    }
+
+                    if let Some(metrics) = worker.metrics() {
+                        let mut m = this.metrics.lock();
+                        m.insert(worker.kind(), metrics);
+                    }
+                    futs.push(worker.spawn());
+                }
+
+                while let Some(kind) = futs.next().await {
+                    tracing::warn!("Worker {kind:?} completed unexpectedly")
+                }
             }
-        });
+            .instrument(tracing::debug_span!("xmtp_worker_supervisor")),
+        );
 
         *handle_lock = Some(Box::new(handle));
     }
@@ -161,8 +167,9 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
         Box::new(self) as Box<_>
     }
 
-    fn spawn(mut self: Box<Self>) -> Pin<Box<SpawnWorkerFut>> {
-        let fut = async move {
+    fn spawn(mut self: Box<Self>) -> Instrumented<Pin<Box<SpawnWorkerFut>>> {
+        let kind_str = format!("{:?}", self.kind());
+        let fut = Box::pin(async move {
             loop {
                 if let Err(err) = self.run_tasks().await {
                     if err.needs_db_reconnect() {
@@ -170,7 +177,7 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                         tracing::debug!("pool disconnected. task will restart on reconnect");
                         break;
                     } else {
-                        tracing::error!("{:?} worker error: {:?}", self.kind(), err);
+                        tracing::error!("{:?} worker error: {}", self.kind(), err);
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting {:?} worker...", self.kind());
                     }
@@ -178,9 +185,8 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
             }
 
             self.kind()
-        };
-
-        Box::pin(fut)
+        }) as Pin<Box<SpawnWorkerFut>>;
+        fut.instrument(tracing::debug_span!("libxmtp_worker", kind = kind_str))
     }
 }
 

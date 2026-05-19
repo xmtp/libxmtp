@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Combined view of a group and its messages, now named `conversation_list`.
 pub struct ConversationListItem {
     /// group_id
-    pub id: Vec<u8>,
+    pub id: xmtp_proto::types::GroupId,
     /// Based on timestamp of the welcome message
     pub created_at_ns: i64,
     /// Enum, [`GroupMembershipState`] representing access to the group
@@ -198,7 +198,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 
         let mut conversations = if includes_all {
             // No filtering at all
-            self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
+            self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
         } else if includes_unknown {
             // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
@@ -216,7 +216,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
                 )
                 .select(conversation_list::all_columns());
 
-            self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
+            self.raw_query(|conn| left_joined_query.load::<ConversationListItem>(conn))?
         } else {
             // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
@@ -229,7 +229,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
                 .select(conversation_list::all_columns());
 
-            self.raw_query_read(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
+            self.raw_query(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
@@ -237,7 +237,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = conversation_list_dsl::conversation_list
                 .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
+            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
             conversations.append(&mut sync_groups);
         }
 
@@ -406,19 +406,19 @@ pub(crate) mod tests {
             let test_group_1_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(test_group_1.id.clone()),
+                hex::encode(test_group_1.id),
             );
             test_group_1_consent.store(conn).unwrap();
             let test_group_2_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(test_group_2.id.clone()),
+                hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
             let test_group_3_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(test_group_3.id.clone()),
+                hex::encode(test_group_3.id),
             );
             test_group_3_consent.store(conn).unwrap();
 
@@ -500,14 +500,14 @@ pub(crate) mod tests {
             let allowed_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(allowed_group.id.clone()),
+                hex::encode(allowed_group.id),
             );
             allowed_consent.store(conn).unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(denied_group.id.clone()),
+                hex::encode(denied_group.id),
             );
             denied_consent.store(conn).unwrap();
 

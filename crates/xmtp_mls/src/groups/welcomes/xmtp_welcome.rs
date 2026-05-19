@@ -32,12 +32,13 @@ use xmtp_db::{
     prelude::*,
     refresh_state::EntityKind,
 };
-use xmtp_mls_common::{
-    group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
-};
+use xmtp_mls_common::group_metadata::extract_group_metadata;
+
+use crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
+use xmtp_proto::types::GroupId;
 /// Create a group from a decrypted and decoded welcome message.
 /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
 ///
@@ -205,12 +206,12 @@ where
         self.validator
             .check_initial_membership(staged_welcome)
             .await?;
-        let group_id = staged_welcome.public_group().group_id();
+        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
         // try to load the group this welcome represents
         // defensive to avoid race conditions & duplicates
-        if db.find_group(group_id.as_slice())?.is_some() {
+        if db.find_group(&group_id)?.is_some() {
             // Fetch the original MLS group, rather than the one from the welcome
-            let result = MlsGroup::new_cached(self.context.clone(), group_id.as_slice());
+            let result = MlsGroup::new_cached(self.context.clone(), &group_id);
             if let Ok((group, _)) = result {
                 // Check the group epoch as well, because we may not have synced the latest is_active state
                 // TODO(rich): Design a better way to detect if incoming welcomes are valid
@@ -334,8 +335,8 @@ where
         }
 
         // Extract group_id before consuming staged_welcome
-        let group_id = staged_welcome.public_group().group_id().to_vec();
-        let existing_group = db.find_group(group_id.as_slice())?;
+        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
+        let existing_group = db.find_group(&group_id)?;
 
         // Check if this is a re-add scenario:
         // - Self-removal (PendingRemove): user left voluntarily, then gets re-added
@@ -358,7 +359,49 @@ where
         )?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
-        let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
+        // Capability-aware: on migrated groups the legacy GMM
+        // extension is gone, so read from the AppData dictionary
+        // overlay. Otherwise this read silently defaults
+        // disappearing-message settings AND paused_for_version,
+        // breaking the XIP §3 pause-on-min-version-bump rollout path.
+        //
+        // `MissingExtension` on an unmigrated group is the soft-skip
+        // path the legacy code relied on (welcomes from very old
+        // clients can lack a GMM extension); anything else indicates
+        // wire corruption from the welcomer and is worth surfacing in
+        // logs so it can be triaged without breaking the welcome.
+        let mutable_metadata = match extract_group_mutable_metadata_capability_aware(&mls_group) {
+            Ok(metadata) => Some(metadata),
+            Err(crate::groups::app_data::component_source::ComponentSourceError::GroupMutableMetadata(
+                xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension,
+            )) => {
+                // Expected on welcomes from very old clients (no GMM
+                // extension on the group context). Logged at debug
+                // rather than dropped silently so an operator can
+                // distinguish "legitimately old group" from "fresh
+                // welcome that should have had GMM" when triaging.
+                tracing::debug!(
+                    group_id = %group_id,
+                    "welcome carries no legacy GroupMutableMetadata extension; \
+                     disappearing-settings and paused_for_version fall back to defaults"
+                );
+                None
+            }
+            Err(e) => {
+                // Wire corruption from the welcomer (malformed legacy
+                // GMM bytes, dict decode failure on a migrated group).
+                // Warn-level so operators see this in production logs
+                // — the welcome still completes with default settings
+                // rather than failing the join.
+                tracing::warn!(
+                    group_id = %group_id,
+                    error = ?e,
+                    "welcome-time GroupMutableMetadata read failed; \
+                     disappearing-settings and paused_for_version will fall back to defaults"
+                );
+                None
+            }
+        };
         let disappearing_settings = mutable_metadata.as_ref().and_then(|metadata| {
             MlsGroup::<C>::conversation_message_disappearing_settings_from_extensions(metadata).ok()
         });
@@ -376,7 +419,7 @@ where
                         Group ID: {}, \
                         Required version: {}, \
                         Current version: {}",
-                        hex::encode(group_id.clone()),
+                        hex::encode(group_id),
                         min_version,
                         current_version_str
                     );
@@ -394,13 +437,13 @@ where
         // Otherwise, new members start in PENDING state
         let membership_state = if is_readd_after_leaving {
             tracing::info!(
-                group_id = hex::encode(&group_id),
+                group_id = %group_id,
                 "User is being re-added after leaving/removal, setting membership state to ALLOWED"
             );
             GroupMembershipState::Allowed
         } else {
             tracing::debug!(
-                group_id = hex::encode(&group_id),
+                group_id = %group_id,
                 "User is being added to new group, setting membership state to PENDING"
             );
             GroupMembershipState::Pending
@@ -455,10 +498,10 @@ where
         // before calling insert_or_replace_group
         if is_readd_after_leaving && let Some(ref existing) = existing_group {
             tracing::info!(
-                group_id = hex::encode(&existing.id),
+                group_id = %existing.id,
                 "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
             );
-            db.update_group_membership(&existing.id, GroupMembershipState::Allowed)?;
+            db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
         }
 
         // Insert or replace the group in the database.
@@ -488,7 +531,7 @@ where
         encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
         let added_message_id = crate::utils::id::calculate_message_id(
-            &stored_group.id,
+            stored_group.id,
             encoded_added_payload_bytes.as_slice(),
             &format!("{}_welcome_added", welcome.created_ns),
         );
@@ -510,7 +553,7 @@ where
         // this is the commit that brought us into the group
         let added_msg = StoredGroupMessage {
             id: added_message_id,
-            group_id: stored_group.id.clone(),
+            group_id: stored_group.id,
             decrypted_message_bytes: encoded_added_payload_bytes,
             sent_at_ns: welcome.timestamp(),
             kind: GroupMessageKind::MembershipChange,
@@ -551,14 +594,14 @@ where
             // If user is being re-added after leaving, reset consent to Unknown
             // This requires the user to explicitly accept being added back
             tracing::info!(
-                group_id = hex::encode(&group.group_id),
+                group_id = %group.group_id,
                 "Resetting consent state to Unknown for re-added user"
             );
             group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
         }
 
         db.update_cursor(
-            &group.group_id,
+            group.group_id,
             EntityKind::CommitMessage,
             //TODO:d14n this must change before D14n-only
             //Originator must be included in welcome
@@ -574,7 +617,7 @@ where
         tracing::info!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
-            group_id = %hex::encode(&group.group_id),
+            group_id = %group.group_id,
             welcome_id = welcome.cursor.sequence_id,
             originator_id = welcome.cursor.originator_id,
             cursor = cursor,

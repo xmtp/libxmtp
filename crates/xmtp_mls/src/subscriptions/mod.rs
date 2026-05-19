@@ -5,7 +5,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
 use xmtp_api_d14n::stream;
-use xmtp_proto::types::WelcomeMessage;
+use xmtp_proto::types::{GroupId, WelcomeMessage};
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -22,6 +22,7 @@ mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
 
+use crate::messages::enrichment::EnrichMessageError;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
@@ -61,10 +62,10 @@ impl RetryableError for LocalEventError {
 #[derive(Debug, Clone)]
 pub enum LocalEvents {
     // a new group was created
-    NewGroup(Vec<u8>),
+    NewGroup(GroupId),
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
-    MessageDeleted(Box<DecodedMessage>),
+    MsgsDeleted(Vec<StoredGroupMessage>),
 }
 
 #[derive(Clone)]
@@ -93,7 +94,7 @@ impl std::fmt::Debug for SyncWorkerEvent {
 }
 
 impl LocalEvents {
-    fn group_filter(self) -> Option<Vec<u8>> {
+    fn group_filter(self) -> Option<GroupId> {
         use LocalEvents::*;
         // this is just to protect against any future variants
         match self {
@@ -126,9 +127,9 @@ impl LocalEvents {
         }
     }
 
-    fn message_deletion_filter(self) -> Option<Box<DecodedMessage>> {
+    fn message_deletion_filter(self) -> Option<Vec<StoredGroupMessage>> {
         match self {
-            Self::MessageDeleted(message) => Some(message),
+            Self::MsgsDeleted(msgs) => Some(msgs),
             _ => None,
         }
     }
@@ -137,7 +138,7 @@ impl LocalEvents {
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -160,12 +161,17 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::message_deletion_filter)
-                .map(Result::Ok)
-        })
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>> {
+        BroadcastStream::new(self)
+            .filter_map(|event| async {
+                xmtp_common::optify!(event, "Missed message due to event queue lag")
+                    .and_then(LocalEvents::message_deletion_filter)
+                    .map(futures::stream::iter)
+            })
+            .flatten()
+            // let caller handle any potential decode failures
+            // this should be rare since the message already in db
+            .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
     }
 }
 
@@ -237,6 +243,9 @@ pub enum SubscribeError {
     /// Decentralized API envelope error. May be retryable.
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+    /// Enriched Message Error.
+    #[error("error occured during subscription {0}")]
+    Enriched(#[from] EnrichMessageError),
 }
 
 impl SubscribeError {
@@ -274,6 +283,7 @@ impl RetryableError for SubscribeError {
             Db(c) => retryable!(c),
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
+            Enriched(c) => retryable!(c),
         }
     }
 }
@@ -290,11 +300,11 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?);
         let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let welcomes: Vec<_> = match welcome {
-            V3OrD14n::D14n(s) => {
-                let messages = s.envelopes;
+            V3OrD14n::D14n(envelope) => {
+                let messages = vec![envelope];
                 stream::try_extractor::<_, WelcomeMessageExtractor>(future_stream::once(
                     future::ready(Ok::<_, EnvelopeError>(messages)),
                 ))
@@ -348,7 +358,7 @@ where
         Ok(out)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
@@ -367,7 +377,7 @@ where
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
@@ -424,7 +434,7 @@ where
         })
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
@@ -440,7 +450,7 @@ where
         StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages_owned(
         &self,
         conversation_type: Option<ConversationType>,
@@ -546,7 +556,7 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
-                callback(message.map(|boxed| *boxed))
+                callback(message)
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
             Ok::<_, SubscribeError>(())
@@ -700,6 +710,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
     async fn test_process_streamed_welcome_message_d14n() {
         use prost::Message;
+        use xmtp_api_d14n::protocol::extractors::test_utils::TestEnvelopeBuilder;
         use xmtp_proto::types::TopicKind;
 
         tester!(alix);
@@ -719,57 +730,22 @@ pub(crate) mod tests {
             )
             .await?;
 
-        // Get the client envelopes and cursors
-        let client_envelopes = envelope.client_envelopes()?;
-        let cursors = envelope.cursors()?;
-
-        // Wrap in D14n envelope structure
-        let mut envelope_bytes = Vec::new();
-        xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse {
-            envelopes: client_envelopes
-                .into_iter()
-                .zip(cursors.iter())
-                .map(|(client_env, cursor)| {
-                    use xmtp_proto::xmtp::xmtpv4::envelopes::*;
-
-                    let mut client_bytes = Vec::new();
-                    client_env.encode(&mut client_bytes).unwrap();
-
-                    let payer_envelope = PayerEnvelope {
-                        unsigned_client_envelope: client_bytes,
-                        payer_signature: None,
-                        target_originator: cursor.originator_id,
-                        message_retention_days: 30,
-                    };
-
-                    let mut payer_bytes = Vec::new();
-                    payer_envelope.encode(&mut payer_bytes).unwrap();
-
-                    let unsigned_originator_envelope = UnsignedOriginatorEnvelope {
-                        originator_node_id: cursor.originator_id,
-                        originator_sequence_id: cursor.sequence_id,
-                        originator_ns: 1000000,
-                        payer_envelope_bytes: payer_bytes,
-                        base_fee_picodollars: 0,
-                        congestion_fee_picodollars: 0,
-                        expiry_unixtime: 0,
-                    };
-
-                    let mut unsigned_bytes = Vec::new();
-                    unsigned_originator_envelope
-                        .encode(&mut unsigned_bytes)
-                        .unwrap();
-
-                    OriginatorEnvelope {
-                        unsigned_originator_envelope: unsigned_bytes,
-                        proof: Some(originator_envelope::Proof::OriginatorSignature(
-                            Default::default(),
-                        )),
-                    }
-                })
-                .collect(),
-        }
-        .encode(&mut envelope_bytes)?;
+        let client_env = envelope
+            .client_envelopes()?
+            .into_iter()
+            .next()
+            .expect("expected at least one welcome envelope");
+        let cursor = envelope
+            .cursors()?
+            .into_iter()
+            .next()
+            .expect("expected at least one welcome cursor");
+        let envelope_bytes = TestEnvelopeBuilder::new()
+            .with_cursor(cursor)
+            .with_originator_ns(1_000_000)
+            .with_client_envelope(client_env)
+            .build()
+            .encode_to_vec();
 
         // Process the streamed welcome message
         let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;

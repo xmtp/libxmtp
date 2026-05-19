@@ -1,11 +1,13 @@
 //! Logger for the CLI
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use owo_colors::OwoColorize;
-use tracing::{Dispatch, Level};
+use tracing::Dispatch;
 use tracing::{Event, Subscriber};
+use tracing_log::LogTracer;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use tracing_subscriber::{
@@ -13,28 +15,35 @@ use tracing_subscriber::{
     fmt::{FmtContext, FormatEvent, FormatFields, format, format::Writer},
     registry::LookupSpan,
 };
+use xmtp_mls::common::filter_directive;
 
-use crate::args::LogOptions;
+use crate::args::{LogFormat, LogOptions};
+
+/// Comma-separated EnvFilter directives appended to file-log filter. Bypasses RUST_LOG override.
+const FILE_LOG_EXTRA_ENV: &str = "XDBG_FILE_LOG_EXTRA";
 
 #[derive(Default)]
 pub struct Logger {
+    log_format: LogFormat,
     json: bool,
     show_fields: bool,
     human: bool,
     logfmt: bool,
     verbosity: Verbosity<InfoLevel>,
+    trace_openmls_kv: bool,
     guards: Vec<tracing_appender::non_blocking::WorkerGuard>,
 }
 
 impl<'a> From<&'a LogOptions> for Logger {
     fn from(options: &'a LogOptions) -> Self {
-        // let pretty = !(options.json || options.logfmt);
         Self {
+            log_format: options.log_format.clone(),
             json: options.json,
             logfmt: options.logfmt,
             show_fields: options.show_fields,
             verbosity: options.verbose,
             human: options.human,
+            trace_openmls_kv: options.trace_openmls_kv,
             guards: Vec::new(),
         }
     }
@@ -43,35 +52,84 @@ impl<'a> From<&'a LogOptions> for Logger {
 impl Logger {
     pub fn init(&mut self) -> eyre::Result<()> {
         let Logger {
+            ref log_format,
             show_fields,
             json,
             human,
             logfmt,
             ref verbosity,
+            trace_openmls_kv,
             ref mut guards,
         } = *self;
 
-        let verbosity = verbosity.tracing_level().unwrap_or(Level::INFO);
+        let verbosity = verbosity.tracing_level_filter();
 
         // prefer `RUST_LOG` variable if set
         // otherwise passed-in level filter
-        let app_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::builder()
-                .parse(format!("xdbg={verbosity}"))
-                .expect("filter is static")
-        });
-        let file_filter = || {
-            EnvFilter::builder().parse(
-                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,xdbg=ERROR",
-            ).expect("filter is static")
+        let app_filter = || {
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::builder()
+                    .parse(format!("xdbg={verbosity}"))
+                    .expect("filter is static")
+            })
         };
+        let file_filter = || {
+            let mut filter = filter_directive(&verbosity.to_string());
+            filter = filter.add_directive(
+                format!("openmls={verbosity}")
+                    .parse()
+                    .expect("static directive must be correct"),
+            );
+            filter =
+                filter.add_directive("xdbg=error".to_string().parse().expect("static directive"));
+            filter = filter.add_directive(
+                format!("healthcheck={verbosity}")
+                    .parse()
+                    .expect("static directive"),
+            );
+            if trace_openmls_kv {
+                filter = filter.add_directive(
+                    format!("{}=trace", xmtp_configuration::OPENMLS_KV_TARGET)
+                        .parse()
+                        .expect("static directive must be correct"),
+                );
+            }
+            if let Ok(extra) = std::env::var(FILE_LOG_EXTRA_ENV) {
+                for piece in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    match piece.parse() {
+                        Ok(directive) => filter = filter.add_directive(directive),
+                        Err(e) => eprintln!(
+                            "warning: ignoring invalid {FILE_LOG_EXTRA_ENV} directive {piece:?}: {e}"
+                        ),
+                    }
+                }
+            }
+            filter
+        };
+        // capture logs as tracing events from crates which use `log` (openmls)
+        LogTracer::init()?;
+
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
 
+        // Stdout layer: JSON for containers, human-readable with TTY-gated ANSI for terminals
+        let use_json_stdout = matches!(log_format, LogFormat::Json);
+
         let subscriber = subscriber
-            // default, always-on layer
-            .with(human_layer(app_filter, true, std::io::stdout))
+            .with(use_json_stdout.then(|| {
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_filter(app_filter())
+            }))
+            .with((!use_json_stdout).then(|| {
+                human_layer(
+                    app_filter(),
+                    true,
+                    std::io::stdout,
+                    std::io::stdout().is_terminal(),
+                )
+            }))
             .with(json.then(|| {
                 let mut json = log_file_name.clone();
                 json.set_extension("json");
@@ -90,7 +148,7 @@ impl Logger {
                 let file = std::fs::File::create_new(human).unwrap();
                 let (appender, guard) = tracing_appender::non_blocking(file);
                 guards.push(guard);
-                human_layer(file_filter(), show_fields, appender)
+                human_layer(file_filter(), show_fields, appender, false)
             }))
             .with(logfmt.then(|| {
                 let mut logfmt = log_file_name.clone();
@@ -109,13 +167,14 @@ impl Logger {
     }
 }
 
-fn human_layer<S, W>(filter: EnvFilter, show_fields: bool, writer: W) -> impl Layer<S>
+fn human_layer<S, W>(filter: EnvFilter, show_fields: bool, writer: W, ansi: bool) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
     let layer = tracing_subscriber::fmt::layer()
         .without_time()
+        .with_ansi(ansi)
         .map_event_format(|_| PrettyTarget)
         .fmt_fields({
             let fun = format::debug_fn(move |writer, field, value| {

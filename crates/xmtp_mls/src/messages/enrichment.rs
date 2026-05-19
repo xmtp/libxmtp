@@ -10,6 +10,7 @@ use xmtp_db::group_message::{
 use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
 
+use xmtp_proto::types::GroupId;
 /// Content type ID for deleted message placeholders shown in enriched message lists
 pub fn deleted_message_content_type() -> ContentTypeId {
     ContentTypeId {
@@ -58,13 +59,13 @@ type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
 pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,
-    group_id: &[u8],
+    group_id: &GroupId,
 ) -> bool {
     if deletion.deleted_message_id != message.id {
         return false;
     }
 
-    if deletion.group_id != group_id || message.group_id != group_id {
+    if deletion.group_id != *group_id || message.group_id != *group_id {
         return false;
     }
 
@@ -78,7 +79,7 @@ pub(crate) fn is_deletion_valid(
 
 pub fn enrich_messages(
     conn: impl DbQuery,
-    group_id: &[u8],
+    group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,
 ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
     let initial_message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_ref()).collect();
@@ -170,7 +171,7 @@ pub fn enrich_messages(
 
 fn get_relations(
     conn: impl DbQuery,
-    group_id: &[u8],
+    group_id: &GroupId,
     message_ids: &[&[u8]],
     reference_ids: &[&[u8]],
 ) -> Result<GetRelationsResults, EnrichMessageError> {

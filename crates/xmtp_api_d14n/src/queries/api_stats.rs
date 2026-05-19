@@ -130,7 +130,7 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<Option<xmtp_proto::types::Cursor>, Self::Error> {
         self.identity_stats.publish_identity_update.count_request();
         self.inner.publish_identity_update(request).await
     }
@@ -253,12 +253,22 @@ where
 impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
     type Error = <C as XmtpQuery>::Error;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <C as XmtpQuery>::is_d14n(&self.inner)
+    }
+
     async fn query_at(
         &self,
         topic: xmtp_proto::types::Topic,
         at: Option<xmtp_proto::types::GlobalCursor>,
     ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
         <C as XmtpQuery>::query_at(&self.inner, topic, at).await
+    }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<std::collections::HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
+        <C as XmtpQuery>::get_node_clients(&self.inner).await
     }
 }
 

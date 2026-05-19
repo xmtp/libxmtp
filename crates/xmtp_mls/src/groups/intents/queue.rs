@@ -168,6 +168,20 @@ impl QueueIntent {
         this
     }
 
+    /// Create an intent to fire the one-shot AppData-migration
+    /// bootstrap commit. The intent payload is a
+    /// [`ProposeGroupContextExtensionsIntentData`] carrying the
+    /// target extensions blob (four legacy XMTP extensions removed,
+    /// `RequiredCapabilities` updated to require
+    /// `ExtensionType::AppDataDictionary` and drop the legacy
+    /// extension types). The handler synthesizes the per-component
+    /// dict seeds and bundles everything into a single commit.
+    pub fn bootstrap_migration() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::BootstrapMigration);
+        this
+    }
+
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
     }
@@ -192,13 +206,13 @@ impl QueueIntent {
 
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             intent_kind,
-            group.group_id.clone(),
+            group.group_id,
             intent_data,
             should_push,
         ))?;
 
         if intent_kind != IntentKind::SendMessage {
-            conn.update_rotated_at_ns(group.group_id.clone())?;
+            conn.update_rotated_at_ns(&group.group_id)?;
         }
         tracing::debug!(inbox_id = group.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
@@ -214,7 +228,7 @@ impl QueueIntent {
     where
         Ctx: XmtpSharedContext,
     {
-        let last_rotated_at_ns = conn.get_rotated_at_ns(group.group_id.clone())?;
+        let last_rotated_at_ns = conn.get_rotated_at_ns(&group.group_id)?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
@@ -230,17 +244,19 @@ impl QueueIntent {
 mod tests {
     use std::{iter, sync::Arc};
     use tokio::sync::Mutex;
+    use xmtp_common::Generate;
     use xmtp_db::group::{GroupMembershipState, StoredGroup};
+    use xmtp_proto::types::GroupId;
 
     use crate::test::mock::{NewMockContext, context};
 
     use super::*;
     use rstest::*;
 
-    fn group<C: XmtpSharedContext>(context: &C, id: Option<Vec<u8>>) -> MlsGroup<&C> {
-        let id = id.unwrap_or(xmtp_common::rand_vec::<2>());
+    fn group<C: XmtpSharedContext>(context: &C, id: Option<GroupId>) -> MlsGroup<&C> {
+        let id = id.unwrap_or_else(GroupId::generate);
         StoredGroup::builder()
-            .id(id.clone())
+            .id(id)
             .created_at_ns(1)
             .membership_state(GroupMembershipState::Allowed)
             .added_by_inbox_id("bob")
@@ -276,7 +292,7 @@ mod tests {
     #[rstest]
     #[xmtp_common::test]
     async fn only_queues_for_unique(context: NewMockContext) {
-        let groups = iter::repeat_n(group(&context, Some(vec![0])), 10);
+        let groups = iter::repeat_n(group(&context, Some(GroupId::ZERO)), 10);
 
         let stored = QueueIntent::update_group_membership()
             .data(vec![0, 1, 2])

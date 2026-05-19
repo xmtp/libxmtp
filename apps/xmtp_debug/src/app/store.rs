@@ -1,5 +1,6 @@
 mod groups;
 mod identity;
+mod messages;
 mod metadata;
 
 use std::{borrow::Borrow, sync::Arc};
@@ -11,6 +12,7 @@ use speedy::{Readable, Writable};
 
 pub use groups::*;
 pub use identity::*;
+pub use messages::*;
 pub use metadata::*;
 
 #[derive(Debug, Copy, Clone)]
@@ -505,6 +507,15 @@ impl<'a: 'b, 'b> From<IdentityStore<'a>> for MetadataStore<'b> {
 
 impl<'a: 'b, 'b> From<GroupStore<'a>> for MetadataStore<'b> {
     fn from(store: GroupStore<'a>) -> MetadataStore<'b> {
+        MetadataStore {
+            db: store.db,
+            store: MetadataStorage,
+        }
+    }
+}
+
+impl<'a: 'b, 'b> From<MessageStore<'a>> for MetadataStore<'b> {
+    fn from(store: MessageStore<'a>) -> MetadataStore<'b> {
         MetadataStore {
             db: store.db,
             store: MetadataStorage,

@@ -1,17 +1,18 @@
 use super::*;
 use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 use xmtp_common::{assert_ok, rand_vec};
+use xmtp_proto::types::GroupId;
 
 // Helper function to create a message with specific sequence_id and originator_id
 fn generate_message_with_cursor(
-    group_id: &[u8],
+    group_id: &GroupId,
     originator_id: i64,
     sequence_id: i64,
     sent_at_ns: i64,
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.to_vec(),
+        group_id: *group_id,
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns,
         sender_installation_id: rand_vec::<24>(),
@@ -55,7 +56,7 @@ fn test_messages_newer_than_basic() {
         cursor.insert(2, 15);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         // Should return messages newer than cursor
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
@@ -96,7 +97,7 @@ fn test_messages_newer_than_new_originator() {
         cursor.insert(1, 10);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         // Should return all messages from originator 2 (new originator)
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
@@ -143,8 +144,8 @@ fn test_messages_newer_than_multiple_groups() {
         cursor2.insert(1, 5);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group1.id.clone(), cursor1);
-        cursors_by_group.insert(group2.id.clone(), cursor2);
+        cursors_by_group.insert(group1.id.to_vec(), cursor1);
+        cursors_by_group.insert(group2.id.to_vec(), cursor2);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -180,7 +181,7 @@ fn test_messages_newer_than_batching() {
         let mut cursors_by_group = HashMap::new();
         for group in &groups {
             let cursor = GlobalCursor::default();
-            cursors_by_group.insert(group.id.clone(), cursor);
+            cursors_by_group.insert(group.id.to_vec(), cursor);
         }
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
@@ -209,7 +210,7 @@ fn test_messages_newer_than_empty_cursor() {
         // Empty cursor - all messages should be newer
         let cursor = GlobalCursor::default();
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -238,7 +239,7 @@ fn test_messages_newer_than_no_new_messages() {
         cursor.insert(2, 15);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -273,7 +274,7 @@ fn test_messages_newer_than_mixed_originators() {
         cursor.insert(2, 3);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -316,7 +317,7 @@ fn test_messages_newer_than_empty_groups() {
         // No messages in group
         let cursor = GlobalCursor::default();
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -355,8 +356,8 @@ fn test_messages_newer_than_per_group_cursors() {
         cursor2.insert(1, 300);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group1.id.clone(), cursor1);
-        cursors_by_group.insert(group2.id.clone(), cursor2);
+        cursors_by_group.insert(group1.id.to_vec(), cursor1);
+        cursors_by_group.insert(group2.id.to_vec(), cursor2);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 

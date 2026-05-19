@@ -1143,7 +1143,7 @@ pub(crate) mod tests {
         let messages = group
             .context
             .api()
-            .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+            .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);

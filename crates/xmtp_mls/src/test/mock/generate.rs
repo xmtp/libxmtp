@@ -1,13 +1,16 @@
 use std::collections::HashSet;
 
-use xmtp_common::{Generate, rand_vec};
+use xmtp_common::Generate;
 use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::SqlKeyStore};
 use xmtp_proto::types::Cursor;
 
 use crate::{
     builder::DeviceSyncMode,
     client::DeviceSync,
-    groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
+    groups::{
+        mls_sync::GroupMessageProcessingError,
+        summary::{MessageIdentifier, ProcessSummary, SyncSummary},
+    },
     worker::tasks::TaskWorkerChannels,
 };
 
@@ -50,15 +53,18 @@ pub fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
 
 pub fn generate_messages_with_ids(ids: &[u64]) -> Vec<xmtp_proto::types::GroupMessage> {
     ids.iter()
-        .map(|id| generate_message(*id, &rand_vec::<16>()))
+        .map(|id| generate_message(*id, &xmtp_proto::types::GroupId::generate()))
         .collect()
 }
 
-pub fn generate_message(cursor: u64, group_id: &[u8]) -> xmtp_proto::types::GroupMessage {
+pub fn generate_message(
+    cursor: u64,
+    group_id: &xmtp_proto::types::GroupId,
+) -> xmtp_proto::types::GroupMessage {
     let mut msg = xmtp_proto::types::GroupMessage::generate();
     msg.cursor.sequence_id = cursor;
     msg.cursor.originator_id = xmtp_configuration::Originators::APPLICATION_MESSAGES;
-    msg.group_id = group_id.into();
+    msg.group_id = *group_id;
     msg
 }
 
@@ -105,7 +111,49 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
     }
 }
 
-pub fn generate_stored_msg(cursor: Cursor, group_id: Vec<u8>) -> StoredGroupMessage {
+/// Like `generate_errored_summary`, but every success `MessageIdentifier` shares `group_id`
+/// (matches production sync summaries). Random per-message group ids break stream recovery tests.
+pub fn generate_errored_summary_with_group(
+    group_id: &xmtp_proto::types::GroupId,
+    error_cursors: &[u64],
+    successful_cursors: &[u64],
+) -> SyncSummary {
+    SyncSummary {
+        publish_errors: vec![],
+        process: ProcessSummary {
+            total_messages: HashSet::from_iter(
+                error_cursors
+                    .iter()
+                    .copied()
+                    .chain(successful_cursors.iter().copied())
+                    .map(Cursor::v3_messages),
+            ),
+            new_messages: successful_cursors
+                .iter()
+                .map(|c| {
+                    let m = generate_message(*c, group_id);
+                    MessageIdentifier::from(&m)
+                })
+                .collect(),
+            errored: error_cursors
+                .iter()
+                .map(|c| {
+                    (
+                        Cursor::v3_messages(*c),
+                        GroupMessageProcessingError::InvalidPayload,
+                    )
+                })
+                .collect(),
+        },
+        post_commit_errors: vec![],
+        other: None,
+    }
+}
+
+pub fn generate_stored_msg(
+    cursor: Cursor,
+    group_id: xmtp_proto::types::GroupId,
+) -> StoredGroupMessage {
     StoredGroupMessage {
         id: xmtp_common::rand_vec::<32>(),
         group_id,

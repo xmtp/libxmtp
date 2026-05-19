@@ -256,6 +256,39 @@ pub enum GroupError {
     /// Encountered a proposal when our client does not support proposals. Not retryable.
     #[error("Proposals not supported: {0}")]
     ProposalsNotSupported(String),
+    /// Component source error.
+    ///
+    /// Failed to encode, decode, or look up a well-known component during the
+    /// AppDataUpdate path. Not retryable.
+    #[error("component source error: {0}")]
+    ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+    /// AppData commit error.
+    ///
+    /// Failed to build or stage a commit that bundles an inline AppDataUpdate
+    /// proposal. Wraps the structured `GroupAppDataError` from
+    /// [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage
+    /// failure is preserved instead of being string-flattened.
+    #[error("app data commit error: {0}")]
+    AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
+    /// Bootstrap synthesis failure — sender-side couldn't build the
+    /// complete set of initial component values for the migration
+    /// commit. Includes identity-update lookup failures.
+    ///
+    /// Conditionally retryable: delegates to the wrapped
+    /// [`BootstrapSynthesisError`], which retries only when an inner
+    /// identity-update API error is itself retryable. Decode/registry-shape
+    /// failures are deterministic and not retryable.
+    #[error("bootstrap synthesis error: {0}")]
+    BootstrapSynthesis(#[from] super::app_data::migration::BootstrapSynthesisError),
+    /// Bootstrap commit-build failure.
+    ///
+    /// Not retryable: every variant of [`BootstrapCommitError`] is a
+    /// deterministic OpenMLS commit failure, a TLS codec error, or a
+    /// caller-side precondition violation.
+    #[error("bootstrap commit error: {0}")]
+    BootstrapCommit(
+        #[from] super::app_data::migration::BootstrapCommitError<sql_key_store::SqlKeyStoreError>,
+    ),
     /// Credential error.
     ///
     /// MLS credential validation failed. Not retryable.
@@ -445,6 +478,13 @@ pub enum MetadataPermissionsError {
     DmValidation(#[from] DmValidationError),
     #[error("Invalid extension: {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    /// Failed to decode a well-known component value from the
+    /// AppData dictionary on a migrated group. Surfaces
+    /// [`ComponentSourceError`] via `#[from]` so callers (e.g.
+    /// `mutable_metadata()`, `metadata()`) preserve the structured
+    /// source.
+    #[error(transparent)]
+    ComponentSource(#[from] crate::groups::app_data::component_source::ComponentSourceError),
 }
 
 impl RetryableError for MetadataPermissionsError {
@@ -524,6 +564,14 @@ impl RetryableError for GroupError {
             Self::Proposal(e) => e.is_retryable(),
             Self::CommitToPendingProposals(e) => e.is_retryable(),
             Self::ProposalsNotSupported(_) => false,
+            Self::ComponentSource(_) => false,
+            Self::AppDataCommit(e) => e.is_retryable(),
+            // Bootstrap synthesis can fail on a transient identity-update
+            // API blip — delegate to the inner error so we retry on
+            // network errors and stay non-retryable on deterministic
+            // wire-format / registry-shape failures.
+            Self::BootstrapSynthesis(e) => e.is_retryable(),
+            Self::BootstrapCommit(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),

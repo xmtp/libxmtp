@@ -5,7 +5,6 @@ use crate::identity::Identity;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
-use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::{
@@ -15,6 +14,7 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
 };
 
+use xmtp_proto::types::GroupId;
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {
@@ -77,7 +77,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -104,7 +104,7 @@ impl CommitLogStorer for MlsGroup {
             provider,
             &identity.installation_keys,
             group_config,
-            group_id,
+            group_id.to_openmls(),
             CredentialWithKey {
                 credential: identity.credential(),
                 signature_key: identity.installation_keys.public_slice().into(),
@@ -115,7 +115,7 @@ impl CommitLogStorer for MlsGroup {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -143,7 +143,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().try_into()?,
                 // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
@@ -173,7 +173,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: self.group_id().to_vec(),
+                group_id: self.group_id().try_into()?,
                 commit_sequence_id: sequence_id,
                 last_epoch_authenticator,
                 commit_result: CommitResult::Success,
@@ -200,7 +200,7 @@ impl CommitLogStorer for MlsGroup {
         if !xmtp_configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
-        let group_id = self.group_id().to_vec();
+        let group_id: GroupId = self.group_id().try_into()?;
         let last_epoch_number = self.epoch();
         let last_epoch_authenticator = self.epoch_authenticator();
         let conn = provider.key_store().db();
@@ -218,7 +218,7 @@ impl CommitLogStorer for MlsGroup {
         }
 
         NewLocalCommitLog {
-            group_id: group_id.to_vec(),
+            group_id,
             commit_sequence_id: commit_sequence_id as i64,
             last_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),
             commit_result: error.commit_result(),

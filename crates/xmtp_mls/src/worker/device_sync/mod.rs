@@ -289,7 +289,7 @@ where
         let msg = format!(
             "[{}] Sending sync message to group {:?}",
             self.context.installation_id(),
-            xmtp_common::fmt::debug_hex(&sync_group.group_id)
+            xmtp_common::fmt::debug_hex(sync_group.group_id)
         );
         tracing::info!("{}", msg.yellow());
 
@@ -350,7 +350,7 @@ where
                 tracing::info!(
                     "[{}] Creating sync group: {}",
                     hex::encode(self.context.installation_id()),
-                    hex::encode(&sync_group.group_id)
+                    hex::encode(sync_group.group_id)
                 );
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;

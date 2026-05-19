@@ -65,6 +65,7 @@ use xmtp_proto::{
 };
 use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
+use xmtp_proto::types::GroupId;
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -170,6 +171,16 @@ pub enum ClientError {
     /// Data type failed to convert. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// Registration not visible.
+    ///
+    /// Registration was not visible on the required number of nodes within the timeout. Not retryable.
+    #[error("Registration not visible on required nodes: {failed_nodes:?}")]
+    RegistrationNotVisible { failed_nodes: Vec<u32> },
+    /// Envelopes not yet visible.
+    ///
+    /// Registration envelopes haven't propagated to the node yet. Retryable.
+    #[error("Envelopes not yet visible on node {node_id}")]
+    EnvelopesNotYetVisible { node_id: u32 },
 }
 
 impl ClientError {
@@ -200,7 +211,12 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Db(db) => retryable!(db),
+            // SCW verification errors carry retryability through SignatureError;
+            // transient RPC provider failures must not advance the welcome cursor.
+            // See xmtp/libxmtp#3394.
+            ClientError::SignatureValidation(e) => retryable!(e),
             ClientError::Generic(err) => err.contains("database is locked"),
+            ClientError::EnvelopesNotYetVisible { .. } => true,
             _ => false,
         }
     }
@@ -624,7 +640,7 @@ where
         // notify streams of our new group
         let _ = self
             .local_events
-            .send(LocalEvents::NewGroup(group.group_id.clone()));
+            .send(LocalEvents::NewGroup(group.group_id));
 
         Ok(group)
     }
@@ -643,6 +659,7 @@ where
         Ok(group)
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id(), size = inbox_ids.len()))]
     pub async fn create_group_with_members(
         &self,
         inbox_ids: &[impl AsIdRef],
@@ -658,6 +675,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
+    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id(), with = target_inbox_id))]
     async fn create_dm_by_inbox_id(
         &self,
         target_inbox_id: InboxId,
@@ -682,7 +700,7 @@ where
         // notify any streams of the new group
         let _ = self
             .local_events
-            .send(LocalEvents::NewGroup(group.group_id.clone()));
+            .send(LocalEvents::NewGroup(group.group_id));
 
         Ok(group)
     }
@@ -739,7 +757,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Context>, ClientError> {
+    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
         MlsStore::new(self.context.clone())
             .group(group_id)
             .map_err(Into::into)
@@ -749,7 +767,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
+    pub fn stitched_group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
         let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
@@ -762,14 +780,14 @@ where
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .ok_or(NotFound::GroupById(*group_id))
             .map_err(Into::into)
     }
 
     /// Find all the duplicate dms for this group
     pub fn find_duplicate_dms_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         group.find_duplicate_dms()
@@ -781,7 +799,7 @@ where
     /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
     pub fn group_disappearing_settings(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         Ok(group.disappearing_settings()?)
@@ -829,7 +847,7 @@ where
             .get_group_message(&message_id)?
             .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
 
-        let group_id = message.group_id.clone();
+        let group_id = message.group_id;
 
         let enriched = enrich_messages(conn, &group_id, vec![message])?;
 
@@ -848,16 +866,19 @@ where
         let conn = self.context.db();
 
         // Fetch the message before deleting so we can emit the decoded message in the event
-        let decoded_message = self.message_v2(message_id.clone()).ok();
+        let msg = conn.get_group_message(&message_id)?;
 
         let num_deleted = conn.delete_message_by_id(&message_id)?;
         // Fire a local event if the message was successfully deleted
         if num_deleted > 0
-            && let Some(message) = decoded_message
+            && let Some(message) = msg
         {
-            let _ = self.context.local_events().send(
-                crate::subscriptions::LocalEvents::MessageDeleted(Box::new(message)),
-            );
+            let _ =
+                self.context
+                    .local_events()
+                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
+                        message,
+                    ]));
         }
 
         Ok(num_deleted)
@@ -895,7 +916,7 @@ where
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
-                        group_id: conversation_item.id.clone(),
+                        group_id: conversation_item.id,
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
                         sent_at_ns: conversation_item.sent_at_ns?,
                         sender_installation_id: conversation_item.sender_installation_id?,
@@ -971,7 +992,8 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        self.context
+        let registration_cursor = self
+            .context
             .api()
             .publish_identity_update(identity_update)
             .await?;
@@ -1000,7 +1022,12 @@ where
             .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
 
         // Mark identity as ready
-        StoredIdentity::try_from(self.identity())?.store(&self.context.db())?;
+        let mut stored_identity = StoredIdentity::try_from(self.identity())?;
+        if let Some(cursor) = registration_cursor {
+            stored_identity.registration_cursor_originator_id = Some(cursor.originator_id as i64);
+            stored_identity.registration_cursor_sequence_id = Some(cursor.sequence_id as i64);
+        }
+        stored_identity.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
     }
@@ -1029,7 +1056,7 @@ where
     }
 
     /// Fetches the current key package from the network for each of the `installation_id`s specified
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -1045,7 +1072,7 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
@@ -1074,6 +1101,22 @@ where
         self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
+            .await
+    }
+
+    /// Sweep every group flagged `paused_for_version` and clear the
+    /// pause flag for any whose floor is now satisfied by this
+    /// client's `pkg_version`. Pure local-state operation — no
+    /// network calls. Returns the count of groups unstuck.
+    ///
+    /// `sync_all_welcomes_and_groups` already runs this sweep as a
+    /// preamble; the standalone entry point is for SDKs that want a
+    /// cheap "post-upgrade recovery" hook independent of the normal
+    /// sync flow.
+    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
+        self.ensure_identity_ready()?;
+        WelcomeService::new(self.context.clone())
+            .unstick_paused_groups()
             .await
     }
 
@@ -1147,8 +1190,8 @@ where
             .api()
             .get_inbox_ids(requests)
             .await?
-            .into_iter()
-            .filter_map(|(ident, _)| Some((ident.try_into().ok()?, true)))
+            .into_keys()
+            .filter_map(|ident| Some((ident.try_into().ok()?, true)))
             .collect();
 
         // Fill in the rest with false
@@ -1206,12 +1249,34 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = amal.context.store().conn();
-        conn.raw_query_write(|conn| diesel::delete(identity_updates::table).execute(conn))
+        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 
         let members = group.members().await.unwrap();
         // The three installations should count as two members
         assert_eq!(members.len(), 2);
+    }
+
+    #[xmtp_common::test]
+    fn test_client_error_signature_validation_retryability_propagates() {
+        use xmtp_common::RetryableError;
+        use xmtp_id::associations::signature::SignatureError;
+        use xmtp_id::scw_verifier::VerifierError;
+
+        // A retryable verifier error (transient RPC failure) must surface as
+        // retryable at the ClientError layer so the welcome sync path does not
+        // advance the cursor past welcomes involving SCW users. See xmtp/libxmtp#3394.
+        let retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
+            VerifierError::NoVerifier("eip155:1".to_string()),
+        ));
+        assert!(retryable.is_retryable());
+
+        // A terminal verifier error (malformed input) must remain non-retryable
+        // so we don't spin forever on bad data.
+        let non_retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
+            VerifierError::MalformedEipUrl,
+        ));
+        assert!(!non_retryable.is_retryable());
     }
 
     #[xmtp_common::test]
@@ -1476,10 +1541,10 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        let bo_group1 = bo.group(&alix_bo_group1.clone().group_id).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
-        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
         alix_bo_group1
@@ -1496,7 +1561,7 @@ pub(crate) mod tests {
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 2);
-        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 2);
     }
@@ -1520,7 +1585,7 @@ pub(crate) mod tests {
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         // Verify Bo initially has no messages
-        let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         assert_eq!(
             bo_group1
                 .find_messages(&MsgQueryArgs::default())
@@ -1528,7 +1593,7 @@ pub(crate) mod tests {
                 .len(),
             1
         );
-        let bo_group2 = bo.group(&alix_bo_group2.group_id.clone()).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         assert_eq!(
             bo_group2
                 .find_messages(&MsgQueryArgs::default())
@@ -1900,7 +1965,7 @@ pub(crate) mod tests {
 
         // second is allowing consent for the group
         alix.set_consent_states(&[StoredConsentRecord {
-            entity: hex::encode(&group.group_id),
+            entity: hex::encode(group.group_id),
             state: ConsentState::Allowed,
             entity_type: ConsentType::ConversationId,
             consented_at_ns: now_ns(),
@@ -1924,13 +1989,13 @@ pub(crate) mod tests {
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Allowed);
 
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Denied);
 
         let item = stream.next().await??;
@@ -2023,7 +2088,7 @@ pub(crate) mod tests {
                 )
                 .await
                 .unwrap();
-            all_group_ids.push(group.group_id.clone());
+            all_group_ids.push(group.group_id);
             group
                 .send_message(
                     TextCodec::encode("hello".to_string())
@@ -2054,7 +2119,7 @@ pub(crate) mod tests {
             }
             assert_eq!(results.len(), 5);
 
-            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id.clone()));
+            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id));
 
             before_ns = Some(
                 results

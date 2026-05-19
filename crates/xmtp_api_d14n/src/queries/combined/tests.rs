@@ -10,6 +10,7 @@ use xmtp_proto::xmtp::migration::api::v1::FetchD14nCutoverResponse;
 use super::*;
 use crate::V3Client;
 use crate::protocol::InMemoryCursorStore;
+use crate::protocol::XmtpQuery;
 
 /// Wrapper around `Arc<MockNetworkClient>` that also implements [`IsConnectedCheck`].
 /// `Arc<MockNetworkClient>` already implements `Client` + `Clone`.
@@ -271,4 +272,26 @@ async fn write_with_refresh_does_not_retry_on_other_error() {
     assert!(result.is_err());
     // Should only be called once — no retry
     assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn is_d14n_returns_false_before_migration() {
+    let store = InMemoryCursorStore::new();
+    let far_future = xmtp_common::time::now_ns() + CUTOVER_REFRESH_TIME * 10;
+    store.set_cutover_ns(far_future)?;
+
+    let v3 = mock_v3_with_cutover(far_future as u64);
+    let client = build_test_client(v3, TestNetworkClient::new(), store);
+
+    assert!(!client.is_d14n()?);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn is_d14n_returns_true_after_migration() {
+    let store = InMemoryCursorStore::new();
+    store.set_has_migrated(true)?;
+
+    let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+    assert!(client.is_d14n()?);
 }

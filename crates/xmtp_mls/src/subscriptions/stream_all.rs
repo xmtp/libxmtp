@@ -27,7 +27,6 @@ use xmtp_db::{
 };
 use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::GroupId;
 
 #[pin_project(PinnedDrop)]
 pub struct StreamAllMessages<'a, Context, Conversations, Messages>
@@ -129,15 +128,11 @@ where
                     StoredGroup {
                         conversation_type: ConversationType::Sync,
                         ..
-                    } => Some(g.id.clone()),
+                    } => Some(g.id.to_vec()),
                     _ => None,
                 })
                 .collect();
-            let active_conversations = groups
-                .into_iter()
-                // TODO: Create find groups query only for group ID
-                .map(|g| GroupId::from(g.id))
-                .collect();
+            let active_conversations = groups.into_iter().map(|g| g.id).collect();
 
             Ok::<_, SubscribeError>((active_conversations, sync_groups))
         }
@@ -176,7 +171,7 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
-    #[tracing::instrument(skip_all, level = "trace", name = "poll_next_stream_all")]
+    #[tracing::instrument(skip_all, level = "debug", name = "poll_next_stream_all")]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -187,7 +182,10 @@ where
         let next_message = this.messages.as_mut().poll_next(cx);
         if let Ready(Some(msg)) = next_message {
             if let Ok(msg) = &msg
-                && self.sync_groups.contains(&msg.group_id)
+                && self
+                    .sync_groups
+                    .iter()
+                    .any(|id| id.as_slice() == msg.group_id.as_slice())
             {
                 let _ = self
                     .context

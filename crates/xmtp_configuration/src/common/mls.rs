@@ -42,6 +42,20 @@ pub const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 pub const ENABLE_COMMIT_LOG: bool = true;
 pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 
+/// Default floor written into `MIN_SUPPORTED_PROTOCOL_VERSION` when a
+/// group is migrated via `enable_proposals` without an explicit override.
+///
+/// Set to the release where the AppData-migration / proposals feature
+/// first ships. Clients older than this version cannot read the
+/// AppData dictionary, so the welcome-time / commit-time pause path
+/// uses this value to gate them out of migrated groups before they
+/// fork.
+///
+/// Callers that need a different floor (testing, dev nightlies,
+/// staged rollouts) pass `EnableProposalsOptions::min_version` instead
+/// of relying on this default.
+pub const PROPOSALS_MIN_PROTOCOL_VERSION: &str = "1.11.0";
+
 // Welcome pointers are mostly the hpke public key and less than 100 bytes for the welcome pointer
 // so as long as we have 2 installations that need a single welcome it will result in less data being
 // ingested by the nodes and stored. There is a slight penalty for egress data, but the amount needed

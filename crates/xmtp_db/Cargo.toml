@@ -46,6 +46,7 @@ prost.workspace = true
 rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error = { workspace = true, optional = true }
 thiserror.workspace = true
 toml = { workspace = true, optional = true }
 tracing.workspace = true
@@ -53,7 +54,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
-xmtp_proto.workspace = true
+xmtp_proto = { workspace = true, features = ["diesel"] }
 zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -86,6 +87,8 @@ wasm-bindgen-test.workspace = true
 
 [features]
 update-schema = ["dep:toml"]
+# Re-decode bincode failures via serde_path_to_error to log failing field path on `openmls_kv` target.
+deserialize-paths = ["dep:serde_path_to_error"]
 test-utils = [
   "dep:futures",
   "xmtp_common/test-utils",

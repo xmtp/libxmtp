@@ -196,7 +196,7 @@ where
                 .get(group_id.as_slice())
                 .cloned()
                 .unwrap_or_default();
-            topic_cursor.add(Topic::new_group_message(group_id.clone()), cursor);
+            topic_cursor.add(Topic::new_group_message(*group_id), cursor);
         }
 
         let groups_list = GroupList::new(topic_cursor, seen_cursors.clone());
@@ -235,13 +235,13 @@ where
     /// The actual subscription update happens when the stream is polled.
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         if self.add_queue.iter().any(|g| g.group_id == group.group_id) {
-            tracing::debug!("group {} already queued", hex::encode(&group.group_id));
+            tracing::debug!("group {} already queued", hex::encode(group.group_id));
             return;
         }
         tracing::debug!(
             "queuing group {} for {}",
-            hex::encode(&group.group_id),
-            if self.groups.contains(&group.group_id) {
+            hex::encode(group.group_id),
+            if self.groups.contains(group.group_id) {
                 "re-subscription"
             } else {
                 "add"
@@ -276,12 +276,12 @@ where
     /// # Errors
     /// May return errors if:
     /// - Creating the new subscription fails
-    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
+    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = %new_group))]
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
         topic_cursor: TopicCursor,
-        new_group: Vec<u8>,
+        new_group: xmtp_proto::types::GroupId,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
@@ -294,7 +294,7 @@ where
             .await?;
         Ok((
             stream,
-            new_group,
+            new_group.to_vec(),
             Some(Cursor::new(1 as SequenceId, 0 as OriginatorId)),
         ))
     }
@@ -461,11 +461,11 @@ where
     fn resolve_group_additions(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         tracing::debug!(
             "begin establishing new message stream to include group_id={}",
-            hex::encode(&group.group_id)
+            hex::encode(group.group_id)
         );
         let this = self.as_mut().project();
-        if !this.groups.contains(&group.group_id) {
-            this.groups.add(&group.group_id, GlobalCursor::default());
+        if !this.groups.contains(group.group_id) {
+            this.groups.add(group.group_id, GlobalCursor::default());
         }
         let groups_with_positions = self.groups.groups_with_positions().clone();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
@@ -505,7 +505,7 @@ where
             this.got.push(envelope.cursor);
             tracing::trace!(
                 "got new message for group=[{}] @cursor=[{}] from network, total messages=[{}]",
-                xmtp_common::fmt::debug_hex(&envelope.group_id),
+                xmtp_common::fmt::debug_hex(envelope.group_id),
                 envelope.cursor,
                 this.got.len()
             );
@@ -606,7 +606,7 @@ pub mod tests {
         tester!(bob, with_name: "bob");
 
         let alice_group = alice.create_group(None, None).unwrap();
-        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
+        tracing::info!("Group Id = [{}]", hex::encode(alice_group.group_id));
 
         alice_group.add_members(&[bob.inbox_id()]).await.unwrap();
         let bob_groups = bob.sync_welcomes().await.unwrap();

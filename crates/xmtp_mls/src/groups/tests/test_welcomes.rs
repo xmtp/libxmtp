@@ -20,6 +20,7 @@ use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_mls_common::group::GroupMetadataOptions;
 
+use xmtp_proto::types::GroupId;
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_cursor() {
     // Welcomes now come with a cursor so that clients no longer pull down
@@ -35,7 +36,7 @@ async fn test_welcome_cursor() {
 
     alix2.sync_welcomes().await?;
     let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
-        &group.group_id,
+        group.group_id,
         &[EntityKind::CommitMessage],
         None,
     )?;
@@ -45,13 +46,13 @@ async fn test_welcome_cursor() {
 }
 
 #[track_caller]
-fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
+fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     let msg = db
         .get_group_messages(group_id, &Default::default())
         .unwrap();
     let msg = msg.last().unwrap();
     let cursor = db
-        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
         .unwrap()
         .values()
         .next()
@@ -74,7 +75,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
         "GroupMessage must equal group message of db2"
     );
     let other_cursor = db2
-        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
         .unwrap()
         .values()
         .next()

@@ -1,6 +1,5 @@
 use super::{GroupError, MlsGroup, PreconfiguredPolicies};
 use crate::context::XmtpSharedContext;
-use openmls::group::GroupId;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::{
     MlsProviderExt, XmtpMlsStorageProvider,
@@ -11,7 +10,7 @@ use xmtp_db::{
 use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
 use xmtp_proto::{
-    types::Cursor,
+    types::{Cursor, GroupId},
     xmtp::mls::message_contents::{OneshotMessage, oneshot_message},
 };
 
@@ -69,8 +68,9 @@ impl Oneshot {
                     &readd_request.group_id,
                     &sender_installation_id,
                 )? {
+                    let group_id = GroupId::try_from(readd_request.group_id.as_slice())?;
                     provider.key_store().db().update_requested_at_sequence_id(
-                        readd_request.group_id.as_slice(),
+                        &group_id,
                         &sender_installation_id,
                         readd_request.latest_commit_sequence_id as i64,
                     )?;
@@ -134,9 +134,10 @@ impl Oneshot {
             return Ok(false);
         }
         // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
-        let Ok(Some(openmls_group)) =
-            openmls::group::MlsGroup::load(storage, &GroupId::from_slice(group_id))
-        else {
+        let Ok(Some(openmls_group)) = openmls::group::MlsGroup::load(
+            storage,
+            &openmls::group::GroupId::from_slice(group_id.as_slice()),
+        ) else {
             tracing::warn!(
                 group_id = group_id.snippet(),
                 "Unable to load OpenMLS group for readd request"
@@ -177,7 +178,8 @@ mod tests {
             .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
             .await
             .unwrap();
-        let group_id = a_group.group_id.clone();
+        let group_id = a_group.group_id;
+        let group_id_typed: GroupId = group_id;
         bo.sync_all_welcomes_and_groups(None).await.unwrap();
         caro.sync_all_welcomes_and_groups(None).await.unwrap();
         let b_group = bo.group(&group_id).unwrap();
@@ -190,7 +192,7 @@ mod tests {
         let bo_initial_status = bo
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status");
         assert!(
             bo_initial_status.is_none(),
@@ -200,7 +202,7 @@ mod tests {
         let caro_initial_status = caro
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status");
         assert!(
             caro_initial_status.is_none(),
@@ -209,7 +211,7 @@ mod tests {
 
         // Create a test oneshot message (using ReaddRequest as example)
         let readd_request = ReaddRequest {
-            group_id: group_id.clone(),
+            group_id: group_id.to_vec(),
             latest_commit_sequence_id,
         };
         let oneshot_message = OneshotMessage {
@@ -232,7 +234,7 @@ mod tests {
         let bo_status = bo
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status")
             .expect("Bo should have readd status for Alix after syncing");
 
@@ -254,7 +256,7 @@ mod tests {
         let caro_status = caro
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status")
             .expect("Caro should have readd status for Alix after syncing");
 

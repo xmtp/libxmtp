@@ -156,7 +156,7 @@ pub struct Message {
 impl From<StoredGroupMessage> for Message {
   fn from(msg: StoredGroupMessage) -> Self {
     let id = hex::encode(msg.id.clone());
-    let convo_id = hex::encode(msg.group_id.clone());
+    let convo_id = hex::encode(msg.group_id);
     let contents = msg.decrypted_message_bytes.clone();
     let content: EncodedContent = match XmtpEncodedContent::decode(contents.as_slice()) {
       Ok(value) => value.into(),

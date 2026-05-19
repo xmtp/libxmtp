@@ -21,6 +21,8 @@ let
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (
       src + /apps/mls_validation_service
     ))
+    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps/xnet/cli))
+    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps/xnet/lib))
   ];
 
   # Narrow fileset for buildDepsOnly — only includes files that affect
@@ -44,23 +46,26 @@ let
     (src + /Cargo.toml)
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
+
     # include folders for apps/bindings so cargo workspace globs are satisfied
     # One-off files that are needed outside of cargo sources
     (src + /apps/.gitkeep)
     (src + /bindings/.gitkeep)
+    (src + /apps/xnet/.gitkeep)
     (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
     (src + /crates/xmtp_proto/src/gen/proto_descriptor.bin)
     (src + /webdriver.json)
+    (src + /apps/xnet/lib/signers.txt)
     (src + /.config/nextest.toml)
     # all crates in `crates/` are treated as required library crates
     (crateSources (src + /crates))
     apps
   ]);
   binaries = unions (flatten [
-    (src + /bindings/mobile/Makefile)
+    (commonCargoSources (src + /apps/xnet/cli))
     (commonCargoSources (src + /apps/android/xmtpv3_example))
     (crateSources (src + /bindings))
     (crateSources (src + /apps))

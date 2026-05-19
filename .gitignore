@@ -191,9 +191,15 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
-
+*.qcow2
 # Superpowers
 docs/plans
 
 # VM Images
 *.qcow2
+
+# Firecrawl
+.firecrawl
+
+# Claude Code
+.claude/scheduled_tasks.lock

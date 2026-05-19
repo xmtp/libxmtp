@@ -4,6 +4,7 @@ on:
 jobs:
   check-swift:
     runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -18,6 +19,7 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
+          with-warpbuild-cache: "false"
       - name: Check iOS bindings compile
         run: |
           nix develop .#ios --command \
@@ -25,6 +27,7 @@ jobs:
 
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
+    timeout-minutes: 30
     env:
       NIX_DEVSHELL: android
     steps:
@@ -35,6 +38,7 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
+          with-warpbuild-cache: "false"
       - uses: taiki-e/install-action@just
       - name: Check Android bindings compile
         run: just android check

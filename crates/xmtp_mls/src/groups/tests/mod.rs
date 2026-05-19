@@ -14,6 +14,7 @@ mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_send_message_opts;
+mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 
@@ -30,6 +31,7 @@ use prost::Message;
 use tls_codec::Deserialize;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_configuration::Originators;
+use xmtp_db::ConnectionExt;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_id::InboxOwner;
@@ -168,7 +170,7 @@ async fn test_send_message() {
     let messages = alix
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await?;
 
     group.sync().await?;
@@ -323,7 +325,7 @@ async fn test_add_member_conflict() {
 
     let amal_uncommitted_intents = amal_db
         .find_group_intents(
-            amal_group.group_id.clone(),
+            amal_group.group_id,
             Some(vec![
                 IntentState::ToPublish,
                 IntentState::Published,
@@ -335,11 +337,7 @@ async fn test_add_member_conflict() {
     assert_eq!(amal_uncommitted_intents.len(), 0);
 
     let bola_failed_intents = bola_db
-        .find_group_intents(
-            bola_group.group_id.clone(),
-            Some(vec![IntentState::Error]),
-            None,
-        )
+        .find_group_intents(bola_group.group_id, Some(vec![IntentState::Error]), None)
         .unwrap();
     // Bola's attempted add should be deleted, since it will have been a no-op on the second try
     assert_eq!(bola_failed_intents.len(), 0);
@@ -437,7 +435,7 @@ async fn test_dm_stitching() {
     let alix_groups = alix
         .context
         .db()
-        .raw_query_read(|conn| {
+        .raw_query(|conn| {
             groups::table
                 .order(groups::created_at_ns.desc())
                 .load::<StoredGroup>(conn)
@@ -496,7 +494,7 @@ async fn test_add_inbox() {
     let messages = client
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group_id), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 1);
@@ -575,7 +573,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_bola_1 = bola_1
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap();
 
@@ -586,7 +584,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_alix = alix
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap();
 
@@ -1064,7 +1062,7 @@ async fn test_remove_inbox() {
     let messages = client_1
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group_id), None)
         .await
         .expect("read topic");
 
@@ -2157,7 +2155,7 @@ async fn test_key_update() {
     let messages = client
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -2290,7 +2288,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
 
     let bola_group = TestMlsGroup::new(
         bola.context.clone(),
-        amal_group.group_id.clone(),
+        amal_group.group_id,
         amal_group.dm_id.clone(),
         amal_group.conversation_type,
         amal_group.created_at_ns,
@@ -3102,7 +3100,7 @@ async fn test_staged_welcome() {
     // Bola gets the group id. This will be needed to fetch the group from
     // the database.
     let bola_group = bola_groups.first().unwrap();
-    let bola_group_id = bola_group.group_id.clone();
+    let bola_group_id = bola_group.group_id;
 
     // Bola fetches group from the database
     let bola_fetched_group = bola.group(&bola_group_id).unwrap();
@@ -3429,14 +3427,14 @@ async fn process_messages_abort_on_retryable_error() {
     let bo_messages = bo
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&bo_group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(bo_group.group_id), None)
         .await
         .unwrap()
         .group_messages()
         .unwrap();
 
     let db = bo.context.store().db();
-    db.raw_query_write(|c| {
+    db.raw_query(|c| {
         c.batch_execute("BEGIN EXCLUSIVE").unwrap();
         Ok::<_, diesel::result::Error>(())
     })
@@ -3472,7 +3470,7 @@ async fn skip_already_processed_messages() {
     let mut bo_messages_from_api = bo
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&bo_group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(bo_group.group_id), None)
         .await
         .unwrap()
         .group_messages()
@@ -3492,7 +3490,7 @@ async fn skip_already_processed_messages() {
     // get new, unprocessed messages
     let new_message = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id)
+        .query_group_messages(bo_group.group_id)
         .await
         .unwrap();
     bo_messages_from_api.extend(new_message);
@@ -3526,11 +3524,7 @@ async fn skip_already_processed_intents() {
     let intent = bo_client
         .context
         .db()
-        .find_group_intents(
-            bo_group.clone().group_id,
-            Some(vec![IntentState::Processed]),
-            None,
-        )
+        .find_group_intents(bo_group.group_id, Some(vec![IntentState::Processed]), None)
         .unwrap();
     assert_eq!(intent.len(), 2); //key_update and send_message
 
@@ -3581,7 +3575,7 @@ async fn test_parallel_syncs() {
         .context
         .api()
         .query_at(
-            TopicKind::GroupMessagesV1.create(&alix1_group.group_id),
+            TopicKind::GroupMessagesV1.create(alix1_group.group_id),
             None,
         )
         .await
@@ -3691,7 +3685,7 @@ async fn add_missing_installs_reentrancy() {
         .context
         .api()
         .query_at(
-            TopicKind::GroupMessagesV1.create(&alix1_group.group_id),
+            TopicKind::GroupMessagesV1.create(alix1_group.group_id),
             None,
         )
         .await
@@ -3746,7 +3740,7 @@ async fn respect_allow_epoch_increment() {
     let messages = client
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap()
         .group_messages()
@@ -4876,7 +4870,7 @@ async fn can_stream_out_of_order_without_forking() {
     let messages = client_b
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group_b.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group_b.group_id), None)
         .await
         .unwrap()
         .group_messages()
@@ -4943,7 +4937,7 @@ async fn non_retryable_error_increments_cursor() {
     let message = xmtp_proto::types::GroupMessage {
         cursor: new_cursor,
         created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()),
-        group_id: group.group_id.clone().into(),
+        group_id: group.group_id,
         message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice())
             .unwrap()
             .try_into_protocol_message()
@@ -4961,7 +4955,7 @@ async fn non_retryable_error_increments_cursor() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            &group.group_id,
+            group.group_id,
             EntityKind::ApplicationMessage,
             Originators::MLS_COMMITS,
         )

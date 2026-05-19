@@ -35,10 +35,6 @@ where
 {
     /// External proxy for `process_stream_entry`
     /// Useful for streaming outside of an InboxApp, like for Push Notifications.
-    /// in d14n, may return multiple
-    /// [`StoredGroupMessage`](xmtp_db::group_message::StoredGroupMessage)'s,
-    /// since a subscription response may include many
-    /// [`OriginatorEnvelope`](xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope)'s.
     /// In case d14n iceboxes the message, returns an empty vector.
     pub async fn process_streamed_group_message(
         &self,
@@ -46,8 +42,8 @@ where
     ) -> Result<Vec<StoredGroupMessage>> {
         let message = decode_group_message(envelope_bytes.as_slice())?;
         let messages: Vec<_> = match message {
-            V3OrD14n::D14n(subscribe) => {
-                let messages = subscribe.envelopes;
+            V3OrD14n::D14n(envelope) => {
+                let messages = vec![envelope];
                 let topics = messages.topics()?;
                 let store = SqliteCursorStore::new(self.context.db());
                 let cursor: TopicCursor = store
@@ -89,7 +85,7 @@ where
             }
         }?;
 
-        future_stream::iter(messages.into_iter())
+        future_stream::iter(messages)
             .then(|msg| async move {
                 ProcessMessageFuture::new(self.context.clone())
                     .create(msg)
@@ -107,7 +103,7 @@ where
     where
         Context::ApiClient: XmtpMlsStreams + 'a,
     {
-        StreamGroupMessages::new(&self.context, vec![self.group_id.clone().into()]).await
+        StreamGroupMessages::new(&self.context, vec![self.group_id]).await
     }
 
     /// create a stream that is not attached to any lifetime
@@ -119,13 +115,12 @@ where
         Context::ApiClient: XmtpMlsStreams + 'static,
         Context::Db: 'static,
     {
-        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])
-            .await
+        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id]).await
     }
 
     pub fn stream_with_callback(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
@@ -135,7 +130,7 @@ where
     {
         stream_messages_with_callback(
             context.clone(),
-            vec![group_id.into()].into_iter(),
+            vec![group_id].into_iter(),
             callback,
             on_close,
         )
@@ -196,7 +191,6 @@ pub(crate) mod tests {
         AuthenticatedData, ClientEnvelope, OriginatorEnvelope, PayerEnvelope,
         UnsignedOriginatorEnvelope, client_envelope, originator_envelope,
     };
-    use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -318,9 +312,11 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::try_from(group_id.as_ref())
+                            .expect("group_id must be 16 bytes"),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -362,7 +358,7 @@ pub(crate) mod tests {
             version: Some(group_message::Version::V1(group_message::V1 {
                 id: 1,
                 created_ns: 1000000,
-                group_id: group.group_id.clone(),
+                group_id: group.group_id.to_vec(),
                 data: message_data,
                 sender_hmac: vec![],
                 should_push: false,
@@ -404,9 +400,11 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::try_from(group_id.as_ref())
+                            .expect("group_id must be 16 bytes"),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -456,7 +454,7 @@ pub(crate) mod tests {
 
         let client_envelope = ClientEnvelope {
             aad: Some(AuthenticatedData {
-                target_topic: group.group_id.clone(),
+                target_topic: group.group_id.to_vec(),
                 depends_on: None,
             }),
             payload: Some(client_envelope::Payload::GroupMessage(group_message_input)),
@@ -497,12 +495,8 @@ pub(crate) mod tests {
             )),
         };
 
-        let d14n_response = SubscribeEnvelopesResponse {
-            envelopes: vec![originator_envelope],
-        };
-
         let mut envelope_bytes = Vec::new();
-        d14n_response.encode(&mut envelope_bytes).unwrap();
+        originator_envelope.encode(&mut envelope_bytes).unwrap();
 
         let result = group.process_streamed_group_message(envelope_bytes).await;
 

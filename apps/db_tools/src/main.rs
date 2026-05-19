@@ -5,6 +5,7 @@ use clap::{Parser, ValueEnum};
 use dotenvy::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
+use xmtp_db::proto::types::GroupId;
 use xmtp_db::{
     ConnectionExt, DbConnection, EncryptedMessageStore, EncryptionKey, NativeDb, XmtpDb,
     migrations::QueryMigrations,
@@ -104,12 +105,12 @@ fn main() -> Result<()> {
         }
         Task::EnableGroup => {
             let arg_group_ids = args.group_ids()?;
-            let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
+            let group_ids: Vec<_> = arg_group_ids.iter().map(GroupId::as_slice).collect();
             tasks::enable_groups(&manager.store.db(), &group_ids)?;
         }
         Task::DisableGroup => {
             let arg_group_ids = args.group_ids()?;
-            let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
+            let group_ids: Vec<_> = arg_group_ids.iter().map(GroupId::as_slice).collect();
             tasks::disable_groups(&manager.store.db(), &group_ids)?;
         }
         Task::DbListMigrations => {
@@ -196,14 +197,14 @@ impl Args {
         })
     }
 
-    fn group_ids(&self) -> Result<Vec<Vec<u8>>> {
+    fn group_ids(&self) -> Result<Vec<GroupId>> {
         let Some(group_id) = &self.target else {
             bail!("A hex-encoded group_id must be provided as the --target param for this task.");
         };
-        let group_ids: Vec<Vec<u8>> = group_id
+        let group_ids: Vec<GroupId> = group_id
             .split(',')
             .filter(|id| !id.trim().is_empty())
-            .map(hex::decode)
+            .map(|s| s.parse::<GroupId>())
             .collect::<Result<Vec<_>, _>>()?;
 
         if group_ids.is_empty() {

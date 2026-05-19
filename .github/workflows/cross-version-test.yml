@@ -1,0 +1,232 @@
+name: cross-version-test
+
+# Sanity-check that xdbg builds across recent versions remain compatible
+# when sharing one xdbg data dir. Two jobs run in parallel for every
+# PR / cron / dispatch:
+#
+#   stable-only — last two stable release branches + HEAD. Strict.
+#                 Catches regressions that affect what we'd ship in a
+#                 release; unaffected by broken nightlies.
+#
+#   with-nightlies — same + N most-recent nightlies. Lenient (a nightly
+#                    runtime failure warns + continues, doesn't fail the
+#                    job). Covers main-branch drift between releases.
+#
+# Two jobs because a single broken nightly otherwise blocks the whole
+# run, including the stable-only signal we actually need for releases.
+#
+# All logic lives in the packaged driver; this workflow only wires
+# triggers + nix invocations. See:
+#   docs/superpowers/specs/2026-05-08-xdbg-cross-version-compat-design.md
+
+on:
+  pull_request:
+    paths:
+      - "apps/xmtp_debug/**"
+      - "crates/xmtp_mls/**"
+      - "crates/xmtp_mls_common/**"
+      - "crates/xmtp_api/**"
+      - "crates/xmtp_db/**"
+      - "crates/xmtp_id/**"
+      - "crates/xmtp_cryptography/**"
+      - "crates/xmtp_proto/**"
+      - "crates/xmtp_api_grpc/**"
+      - "crates/xmtp_api_d14n/**"
+      - "crates/xmtp_configuration/**"
+      - "crates/xmtp_common/**"
+      - "crates/xmtp_content_types/**"
+      - "crates/xmtp_archive/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "flake.nix"
+      - "nix/**"
+      - ".github/workflows/cross-version-test.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+  workflow_dispatch:
+    inputs:
+      nightly-sample-size:
+        description: "Most-recent N nightlies in the with-nightlies job (stable-only ignores this)"
+        required: false
+        default: "3"
+        type: string
+      backend:
+        description: "xdbg backend (-b flag)"
+        required: false
+        default: "dev"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compat:
+    name: ${{ matrix.profile }}
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      # Both profiles always run; one is independently meaningful even if
+      # the other fails (e.g. nightly breakage doesn't mask stable signal).
+      fail-fast: false
+      matrix:
+        include:
+          - profile: stable
+            sample-size: "0"
+            lenient: ""
+          - profile: nightly
+            # sample-size resolved at runtime from inputs.nightly-sample-size
+            sample-size: ""
+            lenient: "--lenient-nightlies"
+    steps:
+      # Shallow clone of just the PR ref, with NO tags. The repo carries
+      # ~1500 tags (per-commit cli/binding tags) that otherwise dominate
+      # checkout time (~75s). We only need:
+      #   - release/* branches (fetched in the next step)
+      #   - *-nightly.* tags (fetched in the step after that)
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - name: Fetch release branches + nightly tags
+        run: |
+          set -euo pipefail
+          # Stable branches for last_two_stable_branches() resolution.
+          git fetch origin \
+            '+refs/heads/release/*:refs/remotes/origin/release/*' \
+            --no-tags --depth=1
+
+          # Nightly tags only (skip ~1500 cli/kotlin/swift/ios per-commit
+          # tags that dominate fetch time). `git fetch` refspecs reject
+          # mid-pattern globs, so list remote tags first, filter to the
+          # nightly-binding patterns the script's regex actually matches,
+          # then fetch by exact name.
+          mapfile -t nightly_tags < <(
+            git ls-remote --tags --refs origin \
+              | awk '{print $2}' \
+              | sed 's|^refs/tags/||' \
+              | grep -E '^(node-bindings|wasm-bindings|android|ios)-.*-nightly\.[0-9]{8}\.[0-9a-f]{7}$'
+          )
+          if [ "${#nightly_tags[@]}" -eq 0 ]; then
+            echo "::warning::no nightly tags matched; nightly sampling will be empty"
+          else
+            echo "Fetching ${#nightly_tags[@]} nightly tags"
+            # Build refspec list: refs/tags/<name>:refs/tags/<name>
+            refspecs=()
+            for t in "${nightly_tags[@]}"; do
+              refspecs+=("refs/tags/${t}:refs/tags/${t}")
+            done
+            git fetch origin --no-tags --depth=1 "${refspecs[@]}"
+          fi
+
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "false"
+          with-warpbuild-cache: "false"
+
+      - name: Resolve sample size
+        id: sample
+        env:
+          MATRIX_SAMPLE_SIZE: ${{ matrix.sample-size }}
+          INPUT_NIGHTLY_SAMPLE_SIZE: ${{ inputs.nightly-sample-size }}
+        run: |
+          # stable-only profile pins sample-size to 0 via the matrix.
+          # with-nightlies takes the dispatch input, falling back to 3.
+          if [ -n "$MATRIX_SAMPLE_SIZE" ]; then
+            size="$MATRIX_SAMPLE_SIZE"
+          elif [ -n "$INPUT_NIGHTLY_SAMPLE_SIZE" ]; then
+            size="$INPUT_NIGHTLY_SAMPLE_SIZE"
+          else
+            size=3
+          fi
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+
+      - name: Pick versions
+        id: pick
+        env:
+          SAMPLE_SIZE: ${{ steps.sample.outputs.size }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          nix run .#cross-version-test -- pick-versions \
+            --sample-size "$SAMPLE_SIZE" \
+            > plan.json
+          jq . plan.json
+          {
+            echo "## xdbg cross-version plan ($PROFILE, sample-size: $SAMPLE_SIZE)"
+            echo
+            echo '```json'
+            jq . plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run sequence
+        id: run
+        env:
+          BACKEND: ${{ inputs.backend || 'dev' }}
+          LENIENT: ${{ matrix.lenient }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086  # LENIENT is either empty or a single flag
+          nix run .#cross-version-test -- run-sequence $LENIENT plan.json
+
+      # xdbg's NDJSON log files are named "YYYY-MM-DD HH:MM:SS.json".
+      # actions/upload-artifact rejects filenames with `:`, `<`, `>`, etc.
+      # Rename to ISO-safe form before upload so the archive succeeds.
+      - name: Sanitize log filenames
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        env:
+          OUT_DIR: ${{ steps.run.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          find "$OUT_DIR" -type f -name '*.json' | while IFS= read -r f; do
+            base=$(basename "$f")
+            sanitized=${base//:/-}
+            sanitized=${sanitized// /T}
+            if [ "$base" != "$sanitized" ]; then
+              mv -- "$f" "$(dirname "$f")/$sanitized"
+            fi
+          done
+
+      # Only upload if `Run sequence` actually executed and produced an
+      # out_dir. Without this guard, a cancelled or skipped run leaves
+      # steps.run.outputs.out_dir empty and the glob expands to absolute
+      # `/**/*.json` — which then tries to scan the entire filesystem and
+      # fails with permission errors on /boot/efi etc.
+      - name: Upload plan + summary
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-version-test-${{ matrix.profile }}-summary-${{ github.run_id }}
+          path: |
+            plan.json
+            ${{ steps.run.outputs.out_dir }}/summary.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload libxmtp NDJSON logs
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-version-test-${{ matrix.profile }}-libxmtp-logs-${{ github.run_id }}
+          path: |
+            ${{ steps.run.outputs.out_dir }}/**/*.json
+            !${{ steps.run.outputs.out_dir }}/summary.json
+          if-no-files-found: ignore
+          retention-days: 14

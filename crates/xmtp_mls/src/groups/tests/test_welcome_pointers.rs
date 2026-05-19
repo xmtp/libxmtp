@@ -138,7 +138,7 @@ async fn test_welcome_pointer_round_trip(
 
     // Create a group with alix as the creator
     let alix_group = alix.create_group(None, None).unwrap();
-    tracing::info!("Alix group id: {}", hex::encode(&alix_group.group_id));
+    tracing::info!("Alix group id: {}", hex::encode(alix_group.group_id));
     alix_group.sync().await.unwrap();
 
     // Add bola to the group - this should trigger welcome message creation
@@ -229,27 +229,24 @@ async fn test_welcome_pointer_round_trip(
     .unwrap();
 
     // Verify testers can see the group
-    let welcomes = futures::future::join_all(
-        testers
-            .into_iter()
-            .chain(extra_installations.into_iter())
-            .map(|tester| async {
-                tester.sync_welcomes().await.unwrap();
-                let tester_groups = tester
-                    .find_groups(xmtp_db::group::GroupQueryArgs::default())
-                    .unwrap();
-                assert_eq!(tester_groups.len(), 1);
-                let installation_id = tester.identity().installation_id();
-                drop(tester);
-                // use alix's context here to avoid caching issues for welcome topics
-                alix_group
-                    .context
-                    .api()
-                    .query_welcome_messages(&installation_id)
-                    .await
-                    .unwrap()
-            }),
-    )
+    let welcomes = futures::future::join_all(testers.into_iter().chain(extra_installations).map(
+        |tester| async {
+            tester.sync_welcomes().await.unwrap();
+            let tester_groups = tester
+                .find_groups(xmtp_db::group::GroupQueryArgs::default())
+                .unwrap();
+            assert_eq!(tester_groups.len(), 1);
+            let installation_id = tester.identity().installation_id();
+            drop(tester);
+            // use alix's context here to avoid caching issues for welcome topics
+            alix_group
+                .context
+                .api()
+                .query_welcome_messages(&installation_id)
+                .await
+                .unwrap()
+        },
+    ))
     .await;
 
     for welcome in welcomes {
@@ -650,9 +647,9 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .unwrap();
     match event {
         crate::subscriptions::LocalEvents::NewGroup(id) => {
-            assert_eq!(id, group.group_id.clone());
+            assert_eq!(id, group.group_id);
         }
-        _ => panic!("Expected NewGroup event"),
+        e => panic!("Expected NewGroup event, got {:?}", e),
     }
 
     tracing::info!("Finding group for bo");
@@ -670,7 +667,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .find_group_by_sequence_id(welcome_from_api.cursor)
         .unwrap()
         .unwrap();
-    assert_eq!(stored_group.id, bo_group.group_id);
+    assert_eq!(stored_group.id.as_slice(), bo_group.group_id.as_slice());
 
     tracing::info!("Verifying message is received in conversation stream");
     let conversation_group =

@@ -24,7 +24,7 @@ check target="workspace" *args="":
 
 [private]
 _check-workspace:
-  cargo check --locked --workspace --exclude bindings_wasm
+  cargo check --locked
 
 [private]
 _check-crate +crates:
@@ -36,8 +36,7 @@ _check-crate +crates:
 lint: lint-rust lint-config lint-markdown
 
 lint-rust:
-  cargo clippy --locked --workspace \
-    --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
+  cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
   cargo fmt --check
   cargo hakari generate --diff
   cargo hakari manage-deps --dry-run
@@ -99,6 +98,61 @@ _test-d14n *args="":
 _test-crate +crates:
   args=""; for c in {{crates}}; do args="$args -p $c"; done; \
   {{cargo_test}} $args
+
+# Args forwarded to xdbg (verbosity etc.) via XVT_XDBG_FLAGS:
+#   just cross-test -vvvv                  # stable, -vvvv to xdbg
+#   just cross-test stable -vvvv           # explicit profile
+#   just cross-test nightly 5 -vvvv        # nightly profile, sample 5, -vvvv
+#
+# Run xdbg cross-version compat harness with stable HEADs (default) or nightlies
+[script("bash")]
+cross-test *args="":
+  set -euo pipefail
+  # First positional arg controls profile selection only when it does NOT
+  # start with `-`. Everything else passes through to xdbg as global flags.
+  args=({{args}})
+  profile="stable"
+  if [ "${#args[@]}" -gt 0 ] && [[ "${args[0]}" != -* ]]; then
+      profile="${args[0]}"
+      args=("${args[@]:1}")
+  fi
+  case "$profile" in
+      stable|nightly) ;;
+      *) echo "cross-test: unknown profile '$profile' (want stable|nightly)" >&2; exit 2 ;;
+  esac
+  just "_cross-test-${profile}" "${args[@]}"
+
+# `just cross-test stable` → stable HEADs + repo HEAD only (sample-size 0).
+# Same shape the workflow's stable-only job runs. Strict failure mode.
+# Any leading non-numeric args pass through to xdbg as global flags via
+# XVT_XDBG_FLAGS (e.g. -vvvv for trace logging).
+[private]
+[script("bash")]
+_cross-test-stable *args="":
+  set -euo pipefail
+  plan=$(mktemp -t xvt-plan-XXXXXX.json)
+  nix run .#cross-version-test -- pick-versions --sample-size 0 > "$plan"
+  jq . "$plan"
+  XVT_XDBG_FLAGS="{{args}}" nix run .#cross-version-test -- run-sequence "$plan"
+
+# `just cross-test nightly` (default 3) or `just cross-test nightly 5`.
+# Includes the N most-recent nightlies. Lenient — nightly runtime failures
+# warn + continue instead of failing the run. Trailing args (after the
+# optional numeric sample size) pass through to xdbg via XVT_XDBG_FLAGS.
+[private]
+[script("bash")]
+_cross-test-nightly *args="":
+  set -euo pipefail
+  args=({{args}})
+  n=3
+  if [ "${#args[@]}" -gt 0 ] && [[ "${args[0]}" =~ ^[0-9]+$ ]]; then
+      n="${args[0]}"
+      args=("${args[@]:1}")
+  fi
+  plan=$(mktemp -t xvt-plan-XXXXXX.json)
+  nix run .#cross-version-test -- pick-versions --sample-size "$n" > "$plan"
+  jq . "$plan"
+  XVT_XDBG_FLAGS="${args[*]}" nix run .#cross-version-test -- run-sequence --lenient-nightlies "$plan"
 
 # --- BACKEND ---
 

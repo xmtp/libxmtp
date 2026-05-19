@@ -89,10 +89,32 @@ runs:
           sudo chown -R root:wheel /nix/var/nix/db
           sudo launchctl bootstrap system /Library/LaunchDaemons/org.nixos.nix-daemon.plist 2>/dev/null || true
           sudo launchctl kickstart -k system/org.nixos.nix-daemon || true
+          DAEMON_WAIT_MAX=60
         else
           sudo chown -R root:root /nix/var/nix/db
           sudo systemctl start nix-daemon.socket nix-daemon.service
+          DAEMON_WAIT_MAX=30
         fi
+        # Wait for the daemon to accept connections before returning; otherwise
+        # the next step can race it, fall back to single-user mode, and fail on
+        # `/nix/var/nix/db/big-lock: Permission denied`.
+        echo "Waiting up to ${DAEMON_WAIT_MAX}s for Nix daemon to become ready..."
+        for i in $(seq 1 "$DAEMON_WAIT_MAX"); do
+          if nix store ping --store daemon >/dev/null 2>&1; then
+            echo "Nix daemon ready after ${i}s"
+            break
+          fi
+          if [ "$i" -eq "$DAEMON_WAIT_MAX" ]; then
+            echo "::error::Nix daemon failed to become ready within ${DAEMON_WAIT_MAX}s after restart"
+            if [ "$(uname)" = "Darwin" ]; then
+              sudo launchctl print system/org.nixos.nix-daemon 2>&1 || true
+            else
+              sudo systemctl status --no-pager nix-daemon.service 2>&1 || true
+            fi
+            exit 1
+          fi
+          sleep 1
+        done
       shell: bash
 
     - name: Fix Nix directory ownership for cache save

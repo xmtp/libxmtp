@@ -7,6 +7,7 @@ use xmtp_db::group_intent::IntentKind;
 use xmtp_proto::types::Cursor;
 
 use super::{GroupError, mls_sync::GroupMessageProcessingError};
+use xmtp_proto::types::GroupId;
 
 #[derive(Default)]
 pub struct SyncSummary {
@@ -150,7 +151,7 @@ impl std::fmt::Display for SyncSummary {
 pub struct MessageIdentifier {
     /// the cursor of the message as it exists on the network
     pub cursor: Cursor,
-    pub group_id: xmtp_proto::types::GroupId,
+    pub group_id: GroupId,
     pub created_ns: chrono::DateTime<Utc>,
     /// true if the message has been processed previously
     #[builder(default = false)]
@@ -177,7 +178,7 @@ impl std::fmt::Debug for MessageIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessageIdentifier")
             .field("cursor", &self.cursor)
-            .field("group_id", &xmtp_common::fmt::debug_hex(&self.group_id))
+            .field("group_id", &xmtp_common::fmt::debug_hex(self.group_id))
             .field("created_ns", &self.created_ns)
             .field("internal_id", &self.internal_id)
             .field("context", &self.group_context.as_ref().map(|g| g.epoch()))
@@ -190,7 +191,7 @@ impl From<&xmtp_proto::types::GroupMessage> for MessageIdentifierBuilder {
     fn from(value: &xmtp_proto::types::GroupMessage) -> Self {
         MessageIdentifierBuilder {
             cursor: Some(value.cursor),
-            group_id: Some(value.group_id.clone()),
+            group_id: Some(value.group_id),
             created_ns: Some(value.created_ns),
             internal_id: None,
             group_context: None,
@@ -204,7 +205,7 @@ impl From<&xmtp_proto::types::GroupMessage> for MessageIdentifier {
     fn from(value: &xmtp_proto::types::GroupMessage) -> Self {
         MessageIdentifier {
             cursor: value.cursor,
-            group_id: value.group_id.clone(),
+            group_id: value.group_id,
             created_ns: value.created_ns,
             internal_id: None,
             group_context: None,

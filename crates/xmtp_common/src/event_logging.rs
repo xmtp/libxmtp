@@ -78,7 +78,7 @@ pub enum Event {
     /// Attempted to sync on an inactive group.
     #[context(group_id, icon = "⏸️")]
     GroupSyncGroupInactive,
-    /// Intent failed to sync but did not error. This can happen for a variety of reasons.
+    /// Intent failed to sync and will be retried.
     #[context(group_id, intent_id, intent_kind, state, icon = "🔁")]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
@@ -165,4 +165,15 @@ pub enum Event {
     /// Cannot send sync archive. No server_url present.
     #[context(pin)]
     DeviceSyncNoServerUrl,
+
+    // ===================== AppData Migration =====================
+    /// `enable_proposals` started — pre-flight passed, about to publish
+    /// the legacy-GMM bump (step A) and/or bootstrap commit (step B).
+    #[context(group_id, min_version, force, icon = "🌱")]
+    EnableProposalsStart,
+    /// `enable_proposals` completed. `already_migrated = true` means
+    /// the call was a no-op fast-path; `false` means a bootstrap
+    /// commit was actually published.
+    #[context(group_id, already_migrated, min_version, icon = "🌳")]
+    EnableProposalsCompleted,
 }

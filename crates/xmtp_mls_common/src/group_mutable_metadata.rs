@@ -33,6 +33,26 @@ pub enum GroupMutableMetadataError {
     NoUpdates,
     #[error("missing metadata field")]
     MissingMetadataField,
+    /// A well-known component in the AppData dictionary failed to
+    /// decode — surfaced by the migrated-group read paths when a
+    /// component's wire bytes can't be parsed.
+    ///
+    /// Structured rather than a flat `String` so downstream consumers
+    /// (bindings, error mapping) can match on the offending
+    /// `component_id` to discriminate failure modes without parsing a
+    /// display string. `component_id` is `Option` because the upstream
+    /// `ComponentSourceError` has a few variants that don't carry one
+    /// (e.g. wrapped legacy-metadata errors); those map to `None`. The
+    /// inner `reason` is diagnostic-only — typically a formatted
+    /// `ComponentSourceError` — and should not be matched against.
+    #[error("malformed app-data component {component_id:?}: {reason}")]
+    MalformedComponent {
+        /// Component whose wire bytes failed to decode. `None` for
+        /// errors that don't originate at a specific component.
+        component_id: Option<super::app_data::component_id::ComponentId>,
+        /// Diagnostic string (display-only; not a stable API).
+        reason: String,
+    },
 }
 
 /// Represents the "updateable" metadata fields for a group.
@@ -355,7 +375,20 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) ->
     })
 }
 
-pub fn extract_group_mutable_metadata(
+/// Read `GroupMutableMetadata` from the **legacy** group-context
+/// extension only.
+///
+/// Use only when the caller is certain the group is unmigrated — on
+/// post-bootstrap groups the legacy extension is gone and this returns
+/// [`GroupMutableMetadataError::MissingExtension`].
+///
+/// For capability-aware reads that handle both legacy and migrated
+/// groups, use `extract_group_mutable_metadata_capability_aware` in
+/// the `xmtp_mls` crate at
+/// `xmtp_mls::groups::app_data::component_source`.
+/// (`xmtp_mls_common` cannot rustdoc-link to it because the dependency
+/// direction is one-way — this comment is the pointer.)
+pub fn extract_legacy_group_mutable_metadata(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
     find_mutable_metadata_extension(group.extensions())
