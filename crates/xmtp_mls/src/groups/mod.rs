@@ -2,6 +2,8 @@ pub mod app_data;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
+pub mod external_commit_policy;
+pub use external_commit_policy::{ExternalInviteCoordinates, ExternalInviteSettings};
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
@@ -2134,6 +2136,159 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
+    }
+
+    /// Set the full `EXTERNAL_COMMIT_POLICY` well-known component for
+    /// this group — master switch + time-window controls for MLS
+    /// External Commits per RFC 9420 §12.4.3.2 (the QR-invite flow).
+    ///
+    /// Low-level: the supplied policy is validated against the XIP-82
+    /// field-coupling invariants and queued as-is, with no coupled
+    /// registry write. Prefer [`MlsGroup::enable_external_commits`] /
+    /// [`MlsGroup::revoke_external_commits`], which mint fresh invite
+    /// coordinates, preserve durable settings, and establish the
+    /// `GROUP_MEMBERSHIP` external-committer grant atomically.
+    ///
+    /// Writes via the generic `AppDataUpdate(EXTERNAL_COMMIT_POLICY)`
+    /// intent with `AppDataUpdateOp::Replace` semantics. Requires the
+    /// group to be migrated to AppData. The component's
+    /// `permissions.update_policy` (super-admin-only by default) gates
+    /// who can flip the bits.
+    pub async fn set_external_commit_policy(
+        &self,
+        policy: xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1,
+    ) -> Result<(), GroupError> {
+        external_commit_policy::validate_policy_v1(&policy)?;
+        self.queue_external_commit_policy(policy, None).await
+    }
+
+    /// Encode + queue an `EXTERNAL_COMMIT_POLICY` write, optionally
+    /// coupled with an `AppDataUpdate(COMPONENT_REGISTRY)` payload that
+    /// MUST land in the same commit (XIP-82 enable atomicity).
+    async fn queue_external_commit_policy(
+        &self,
+        policy: xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1,
+        registry_payload: Option<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        use xmtp_mls_common::app_data::component_id::ComponentId;
+        self.ensure_not_paused().await?;
+
+        // Encode the policy proto into the wire-form bytes that go on
+        // both the local intent and the eventual AppDataUpdate proposal.
+        let policy_bytes = {
+            use prost::Message;
+            use xmtp_proto::xmtp::mls::message_contents::{
+                ExternalCommitPolicyEntry,
+                external_commit_policy_entry::Version as ExternalCommitPolicyVersion,
+            };
+            ExternalCommitPolicyEntry {
+                version: Some(ExternalCommitPolicyVersion::V1(policy)),
+            }
+            .encode_to_vec()
+        };
+
+        let mut intent_data = crate::groups::intents::AppDataUpdateIntentData::new(
+            ComponentId::EXTERNAL_COMMIT_POLICY.as_u16(),
+            policy_bytes,
+        );
+        if let Some(payload) = registry_payload {
+            intent_data = intent_data
+                .with_additional_update(ComponentId::COMPONENT_REGISTRY.as_u16(), payload);
+        }
+        let intent = QueueIntent::app_data_update()
+            .data(Vec::<u8>::from(intent_data))
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
+    /// Enable MLS External Commits (the QR-invite flow) for this group,
+    /// in one commit (XIP-82 enable atomicity):
+    ///
+    /// - `allow_external_commit = true` with a freshly CSPRNG-generated
+    ///   `symmetric_key` + `external_group_id`. Uniform randomness is
+    ///   what guarantees a re-enable never revives a revoked key — no
+    ///   key-history tracking exists anywhere.
+    /// - The caller's [`ExternalInviteSettings`] (campaign expiry,
+    ///   staleness bound, `max_uses`, refresh pointers).
+    /// - The `GROUP_MEMBERSHIP` external-committer insert grant, written
+    ///   in the same commit when not already present — every conforming
+    ///   external commit must write the joiner's own membership entry,
+    ///   so without the grant the switch would be on but every join
+    ///   would dead-end at validation.
+    ///
+    /// Returns the [`ExternalInviteCoordinates`] the QR payload carries
+    /// (alongside the per-QR service pointer, which is intentionally not
+    /// group state).
+    pub async fn enable_external_commits(
+        &self,
+        settings: ExternalInviteSettings,
+    ) -> Result<ExternalInviteCoordinates, GroupError> {
+        use xmtp_mls_common::invite::payload::{
+            generate_external_group_id, generate_symmetric_key,
+        };
+        use xmtp_proto::xmtp::mls::message_contents::SymmetricKey;
+
+        let symmetric_key = generate_symmetric_key();
+        let external_group_id = generate_external_group_id().to_vec();
+
+        let policy = xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1 {
+            allow_external_commit: true,
+            expires_at_ns: settings.expires_at_ns,
+            expire_in_ns: settings.expire_in_ns,
+            symmetric_key: Some(SymmetricKey {
+                material: symmetric_key.to_vec(),
+            }),
+            external_group_id: external_group_id.clone(),
+            max_uses: settings.max_uses,
+            refresh_pointers: settings.refresh_pointers,
+        };
+        external_commit_policy::validate_policy_v1(&policy)?;
+
+        let registry_payload =
+            self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+                external_commit_policy::build_membership_grant_registry_payload(&mls_group)
+                    .map_err(GroupError::from)
+            })?;
+
+        self.queue_external_commit_policy(policy, Some(registry_payload))
+            .await?;
+        Ok(ExternalInviteCoordinates {
+            symmetric_key,
+            external_group_id,
+        })
+    }
+
+    /// Revoke MLS External Commits for this group. The revoke leaves
+    /// every per-invite field absent — `symmetric_key`,
+    /// `external_group_id`, `expires_at_ns`, `refresh_pointers` — so the
+    /// resulting policy serializes to nothing but the durable settings
+    /// (`expire_in_ns`, `max_uses`, preserved from the current state),
+    /// byte-identical to a policy that never had an invite. Existing
+    /// members reject any subsequent external commit; this is the
+    /// recommended kill switch (a key-only rotation, by contrast, races
+    /// in-flight joins and does not hold against a member who kept the
+    /// old key).
+    pub async fn revoke_external_commits(&self) -> Result<(), GroupError> {
+        let current = self
+            .load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+                external_commit_policy::load_external_commit_policy(&mls_group)
+                    .map_err(GroupError::from)
+            })?
+            .unwrap_or_default();
+
+        let policy = xmtp_proto::xmtp::mls::message_contents::ExternalCommitPolicyV1 {
+            allow_external_commit: false,
+            expires_at_ns: 0,
+            expire_in_ns: current.expire_in_ns,
+            symmetric_key: None,
+            external_group_id: Vec::new(),
+            max_uses: current.max_uses,
+            refresh_pointers: Vec::new(),
+        };
+        external_commit_policy::validate_policy_v1(&policy)?;
+        self.queue_external_commit_policy(policy, None).await
     }
 
     fn min_protocol_version_from_extensions(

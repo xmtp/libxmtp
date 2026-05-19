@@ -281,6 +281,12 @@ pub enum GroupError {
     /// AppDataUpdate path. Not retryable.
     #[error("component source error: {0}")]
     ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+    /// An `EXTERNAL_COMMIT_POLICY` value violates the XIP-82
+    /// field-coupling invariants (enable requires key + slot id; revoke
+    /// leaves every per-invite field absent). Not retryable — the caller
+    /// supplied a malformed policy.
+    #[error("external commit policy error: {0}")]
+    ExternalCommitPolicy(#[from] super::external_commit_policy::ExternalCommitPolicyError),
     /// AppData commit error.
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
@@ -587,6 +593,7 @@ impl RetryableError for GroupError {
             Self::MinVersionDowngrade { .. } => false,
             Self::InvalidMinVersion { .. } => false,
             Self::ComponentSource(_) => false,
+            Self::ExternalCommitPolicy(_) => false,
             Self::AppDataCommit(e) => e.is_retryable(),
             // Bootstrap synthesis can fail on a transient identity-update
             // API blip — delegate to the inner error so we retry on

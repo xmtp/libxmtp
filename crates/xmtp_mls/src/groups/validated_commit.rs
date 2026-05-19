@@ -124,6 +124,15 @@ pub enum CommitValidationError {
     #[error(transparent)]
     ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
 
+    /// An `EXTERNAL_COMMIT_POLICY` write violates the XIP-82
+    /// field-coupling invariants (post-state check: enable requires a
+    /// 32-byte key + slot id + the GROUP_MEMBERSHIP external-committer
+    /// grant; revoke leaves every per-invite field absent). Convergent:
+    /// a pure function of the proposed value and the commit's own
+    /// registry write.
+    #[error(transparent)]
+    ExternalCommitPolicy(#[from] super::external_commit_policy::ExternalCommitPolicyError),
+
     /// All bootstrap-commit-validator failures. The bootstrap path runs
     /// only during the one-time AppData migration; isolating its many
     /// failure modes in a sub-enum keeps the steady-state validator's
@@ -1574,6 +1583,13 @@ fn validate_app_data_update_proposals_in_commit(
     // re-walk the admin lists and re-parse the credential for every one.
     let mut participants: HashMap<LeafNodeIndex, CommitParticipant> = HashMap::new();
 
+    // Capture the LAST write to each of the two components the XIP-82
+    // post-state invariant couples. For a Bytes component the Update
+    // payload IS the post-state value, and within one commit the last
+    // write wins (matching the accumulate order on apply).
+    let mut policy_write: Option<Vec<u8>> = None;
+    let mut registry_write: Option<Vec<u8>> = None;
+
     for queued in proposals {
         let app_data = queued.app_data_update_proposal();
         let proposer_leaf = app_data_update_proposer_leaf(queued.sender())?;
@@ -1590,16 +1606,163 @@ fn validate_app_data_update_proposals_in_commit(
             }
         };
 
+        let component_id = ComponentId::from(app_data.component_id());
         validate_one_app_data_update(
-            ComponentId::from(app_data.component_id()),
+            component_id,
             app_data.operation(),
             ActorAuthority::from(proposer),
             &proposer.inbox_id,
             registry,
             openmls_group,
         )?;
+
+        if let openmls::messages::proposals::AppDataUpdateOperation::Update(payload) =
+            app_data.operation()
+        {
+            if component_id == ComponentId::EXTERNAL_COMMIT_POLICY {
+                policy_write = Some(payload.as_slice().to_vec());
+            } else if component_id == ComponentId::COMPONENT_REGISTRY {
+                registry_write = Some(payload.as_slice().to_vec());
+            }
+        }
     }
 
+    if let Some(policy_bytes) = policy_write {
+        validate_external_commit_policy_post_state(
+            &policy_bytes,
+            registry_write.as_deref(),
+            registry,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// XIP-82 post-state invariant on `EXTERNAL_COMMIT_POLICY` writes,
+/// enforced on every commit that carries one (member senders; the
+/// external-commit validator path has its own checks):
+///
+/// * The proposed policy value satisfies the field-coupling invariants —
+///   enabled ⇒ 32-byte key + ≥4-byte slot id (+ well-formed refresh
+///   pointers); disabled ⇒ every per-invite field absent.
+/// * Enabled ⇒ the **post-state** `GROUP_MEMBERSHIP`
+///   `ComponentMetadata.external_committer_permissions` admits the
+///   joiner-self-entry insert. Post-state means a `COMPONENT_REGISTRY`
+///   write carried by the same commit counts — the enable commit is
+///   REQUIRED to establish the grant when absent.
+///
+/// Convergent by construction: both checks are pure functions of the
+/// commit's own proposal payloads plus the pre-commit registry, which
+/// every member shares.
+fn validate_external_commit_policy_post_state(
+    policy_bytes: &[u8],
+    registry_write: Option<&[u8]>,
+    pre_registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
+) -> Result<(), CommitValidationError> {
+    use super::external_commit_policy::{
+        ExternalCommitPolicyError, grant_admits_joiner_insert, validate_policy_v1,
+    };
+    use prost::Message;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_mls_common::tls_map::{TlsMapDelta, TlsMapMutation};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentMetadata, ExternalCommitPolicyEntry,
+        external_commit_policy_entry::Version as ExternalCommitPolicyVersion,
+    };
+
+    let malformed = |component_id, reason: String| {
+        CommitValidationError::ComponentSource(
+            super::app_data::component_source::ComponentSourceError::MalformedComponentValue {
+                component_id,
+                reason,
+            },
+        )
+    };
+
+    let entry = ExternalCommitPolicyEntry::decode(policy_bytes).map_err(|e| {
+        malformed(
+            ComponentId::EXTERNAL_COMMIT_POLICY,
+            format!("ExternalCommitPolicyEntry decode: {e}"),
+        )
+    })?;
+    // Unknown future variant: older validators cannot check invariants
+    // they don't understand — same unknown-variant tolerance as the
+    // policy reader (a newer client validates it; this client fails
+    // closed at external-commit time regardless).
+    let Some(ExternalCommitPolicyVersion::V1(policy)) = entry.version else {
+        return Ok(());
+    };
+
+    validate_policy_v1(&policy)?;
+
+    if !policy.allow_external_commit {
+        return Ok(());
+    }
+
+    // Post-state GROUP_MEMBERSHIP metadata: a registry write in the same
+    // commit supersedes the pre-commit registry entry (last write wins,
+    // matching apply order). A Delete of the GROUP_MEMBERSHIP entry in
+    // the same commit counts as post-state ABSENT — it must not fall
+    // back to the (stale) pre-commit grant.
+    enum InCommit {
+        Untouched,
+        Written(ComponentMetadata),
+        Deleted,
+    }
+    let in_commit_metadata = match registry_write {
+        Some(delta_bytes) => {
+            use tls_codec::Deserialize;
+            let delta =
+                TlsMapDelta::<ComponentId, tls_codec::VLBytes>::tls_deserialize_exact(delta_bytes)
+                    .map_err(|e| {
+                        malformed(
+                            ComponentId::COMPONENT_REGISTRY,
+                            format!("registry delta decode: {e}"),
+                        )
+                    })?;
+            delta
+                .mutations
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    TlsMapMutation::Insert { key, value }
+                    | TlsMapMutation::Update { key, value }
+                        if *key == ComponentId::GROUP_MEMBERSHIP =>
+                    {
+                        Some(ComponentMetadata::decode(value.as_slice()).map(InCommit::Written))
+                    }
+                    TlsMapMutation::Delete { key } if *key == ComponentId::GROUP_MEMBERSHIP => {
+                        Some(Ok(InCommit::Deleted))
+                    }
+                    _ => None,
+                })
+                .transpose()
+                .map_err(|e| {
+                    malformed(
+                        ComponentId::GROUP_MEMBERSHIP,
+                        format!("ComponentMetadata decode: {e}"),
+                    )
+                })?
+                .unwrap_or(InCommit::Untouched)
+        }
+        None => InCommit::Untouched,
+    };
+    let membership_metadata = match in_commit_metadata {
+        InCommit::Written(meta) => Some(meta),
+        InCommit::Deleted => None,
+        InCommit::Untouched => pre_registry
+            .get(&ComponentId::GROUP_MEMBERSHIP)
+            .ok()
+            .flatten(),
+    };
+
+    if !grant_admits_joiner_insert(
+        membership_metadata
+            .as_ref()
+            .and_then(|m| m.external_committer_permissions.as_ref()),
+    ) {
+        return Err(ExternalCommitPolicyError::MissingMembershipGrant.into());
+    }
     Ok(())
 }
 

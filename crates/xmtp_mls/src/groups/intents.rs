@@ -1033,6 +1033,14 @@ pub struct AppDataUpdateIntentData {
     /// Verbatim AppDataUpdate proposal payload. See the type-level
     /// docs for the per-`ComponentType` interpretation.
     pub payload: Vec<u8>,
+    /// Further component writes that MUST land in the same commit as
+    /// the primary update — each becomes its own standalone
+    /// `AppDataUpdate` proposal, swept into one commit. Used by writes
+    /// whose invariants couple components atomically: enabling
+    /// `EXTERNAL_COMMIT_POLICY` must establish the `GROUP_MEMBERSHIP`
+    /// external-committer grant in the same commit (XIP-82 enable
+    /// atomicity). Empty for ordinary single-component writes.
+    pub additional_updates: Vec<(u16, Vec<u8>)>,
 }
 
 impl AppDataUpdateIntentData {
@@ -1042,7 +1050,15 @@ impl AppDataUpdateIntentData {
         Self {
             component_id,
             payload,
+            additional_updates: vec![],
         }
+    }
+
+    /// Attach a further component write that must land in the same
+    /// commit as the primary update.
+    pub fn with_additional_update(mut self, component_id: u16, payload: Vec<u8>) -> Self {
+        self.additional_updates.push((component_id, payload));
+        self
     }
 }
 
@@ -1063,17 +1079,22 @@ impl From<AppDataUpdateIntentData> for Vec<u8> {
     fn from(intent: AppDataUpdateIntentData) -> Self {
         use prost::Message;
         use xmtp_proto::xmtp::mls::database::{
-            AppDataUpdateData, app_data_update_data::V1 as AppDataUpdateDataV1,
+            AppDataUpdateData, app_data_update_data::Update as AppDataUpdateExtra,
+            app_data_update_data::V1 as AppDataUpdateDataV1,
             app_data_update_data::Version as AppDataUpdateVersion,
         };
         AppDataUpdateData {
             version: Some(AppDataUpdateVersion::V1(AppDataUpdateDataV1 {
                 component_id: intent.component_id as u32,
                 payload: intent.payload,
-                // Multi-component atomic writes (XIP-82 enable atomicity)
-                // populate this in the external-commit stack; the generic
-                // single-component intent carries none.
-                additional_updates: vec![],
+                additional_updates: intent
+                    .additional_updates
+                    .into_iter()
+                    .map(|(component_id, payload)| AppDataUpdateExtra {
+                        component_id: component_id as u32,
+                        payload,
+                    })
+                    .collect(),
             })),
         }
         .encode_to_vec()
@@ -1111,9 +1132,23 @@ impl TryFrom<&[u8]> for AppDataUpdateIntentData {
                 v1.component_id
             ))
         })?;
+        let additional_updates = v1
+            .additional_updates
+            .into_iter()
+            .map(|extra| {
+                let id = u16::try_from(extra.component_id).map_err(|_| {
+                    IntentError::Generic(format!(
+                        "AppDataUpdateIntentData additional component_id {} exceeds u16 range",
+                        extra.component_id
+                    ))
+                })?;
+                Ok((id, extra.payload))
+            })
+            .collect::<Result<Vec<_>, IntentError>>()?;
         Ok(Self {
             component_id,
             payload: v1.payload,
+            additional_updates,
         })
     }
 }

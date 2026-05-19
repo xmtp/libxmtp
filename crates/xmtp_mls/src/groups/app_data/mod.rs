@@ -268,6 +268,33 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     component_id: ComponentId,
     payload: Vec<u8>,
 ) -> Result<(MlsMessageOut, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
+    let (mut proposal_msgs, bundle) = stage_app_data_propose_many_and_commit(
+        mls_group,
+        provider,
+        signer,
+        vec![(component_id, payload)],
+    )?;
+    let proposal_msg = proposal_msgs
+        .pop()
+        .expect("one update stages exactly one proposal");
+    Ok((proposal_msg, bundle))
+}
+
+/// Multi-component variant of [`stage_app_data_propose_and_commit`]:
+/// stages one standalone `AppDataUpdate` proposal **per update**, then a
+/// single commit that consumes them all. Used by writes whose invariants
+/// couple components atomically — enabling `EXTERNAL_COMMIT_POLICY` must
+/// establish the `GROUP_MEMBERSHIP` external-committer grant in the same
+/// commit (XIP-82 enable atomicity).
+///
+/// Returns the proposal messages in update order; the caller publishes
+/// all of them followed by the commit, in that order, in one batch.
+pub(crate) fn stage_app_data_propose_many_and_commit<Provider: OpenMlsProvider>(
+    mls_group: &mut OpenMlsGroup,
+    provider: &Provider,
+    signer: &impl openmls_traits::signatures::Signer,
+    updates: Vec<(ComponentId, Vec<u8>)>,
+) -> Result<(Vec<MlsMessageOut>, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
     // Lazy-batching: we deliberately do NOT block on pre-existing
     // pending proposals. This helper queues a new `AppDataUpdate` then
     // commits via `consume_proposal_store(true)`, sweeping whatever
@@ -283,15 +310,18 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     // information than the on-wire commit, but the producer of each
     // folded-in proposal already accepted that outcome by leaving it
     // pending instead of issuing its own commit.
-    let openmls_id = component_id.as_u16();
-    let operation = AppDataUpdateOperation::Update(payload.into());
-
-    // Step 1: publish a standalone proposal. This adds the proposal to
-    // the local pending-proposal store AND returns the wire-form
-    // MlsMessageOut for the proposal so the caller can broadcast it.
-    let (proposal_msg, _proposal_ref) = mls_group
-        .propose_app_data_update(provider, signer, openmls_id, operation)
-        .map_err(GroupAppDataError::Propose)?;
+    // Step 1: publish one standalone proposal per update. Each call adds
+    // the proposal to the local pending-proposal store AND returns the
+    // wire-form MlsMessageOut so the caller can broadcast it.
+    let mut proposal_msgs = Vec::with_capacity(updates.len());
+    for (component_id, payload) in updates {
+        let openmls_id = component_id.as_u16();
+        let operation = AppDataUpdateOperation::Update(payload.into());
+        let (proposal_msg, _proposal_ref) = mls_group
+            .propose_app_data_update(provider, signer, openmls_id, operation)
+            .map_err(GroupAppDataError::Propose)?;
+        proposal_msgs.push(proposal_msg);
+    }
 
     // Step 2: compute the per-component dict updates by sweeping every
     // `AppDataUpdate` proposal currently in the store. The store may
@@ -326,7 +356,6 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     let app_data_updates =
         accumulate_app_data_updates(mls_group, pending_iter).inspect_err(|e| {
             tracing::error!(
-                component_id = %component_id,
                 error = %e,
                 "Failed to compute AppDataUpdates for standalone propose+commit"
             );
@@ -346,7 +375,7 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
         .build(provider.rand(), provider.crypto(), signer, |_| true)?
         .stage_commit(provider)?;
 
-    Ok((proposal_msg, bundle))
+    Ok((proposal_msgs, bundle))
 }
 
 /// Errors surfaced by [`stage_app_data_propose_and_commit`].

@@ -31,7 +31,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
-use super::{load_component_registry, stage_app_data_propose_and_commit};
+use super::{
+    load_component_registry, stage_app_data_propose_and_commit,
+    stage_app_data_propose_many_and_commit,
+};
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -268,19 +271,25 @@ pub(crate) fn apply_app_data_update_intent(
 ) -> Result<PublishIntentData, GroupError> {
     let storage = context.mls_storage();
 
-    let component_id = ComponentId::new(intent_data.component_id);
-    let payload = intent_data.payload;
+    // Primary update first, then any coupled writes that must land in
+    // the same commit (XIP-82 enable atomicity: policy + GROUP_MEMBERSHIP
+    // grant). Each becomes its own standalone proposal; the commit sweeps
+    // them all.
+    let mut updates = Vec::with_capacity(1 + intent_data.additional_updates.len());
+    updates.push((
+        ComponentId::new(intent_data.component_id),
+        intent_data.payload,
+    ));
+    for (component_id, payload) in intent_data.additional_updates {
+        updates.push((ComponentId::new(component_id), payload));
+    }
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
+    let ((proposal_msgs, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                component_id,
-                payload,
+            Ok(stage_app_data_propose_many_and_commit(
+                group, provider, &signer, updates,
             )?)
         },
     )?;
@@ -290,11 +299,13 @@ pub(crate) fn apply_app_data_update_intent(
         welcome.is_none(),
         "AppDataUpdate intent must not produce a welcome"
     );
+    let mut payloads_to_publish = Vec::with_capacity(proposal_msgs.len() + 1);
+    for proposal_msg in proposal_msgs {
+        payloads_to_publish.push(proposal_msg.tls_serialize_detached()?);
+    }
+    payloads_to_publish.push(commit.tls_serialize_detached()?);
     Ok(PublishIntentData {
-        payloads_to_publish: vec![
-            proposal_msg.tls_serialize_detached()?,
-            commit.tls_serialize_detached()?,
-        ],
+        payloads_to_publish,
         staged_commit,
         post_commit_action: None,
         should_send_push_notification,
