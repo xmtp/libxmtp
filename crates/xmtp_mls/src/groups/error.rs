@@ -27,6 +27,7 @@ use xmtp_db::NotFound;
 use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
+use xmtp_mls_common::invite::encrypted_group_info::EncryptedGroupInfoError;
 use xmtp_mls_common::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
 
 /// Wraps multiple message processing errors from a single receive operation.
@@ -443,6 +444,33 @@ pub enum GroupError {
     /// Device sync operation failed. May be retryable.
     #[error(transparent)]
     DeviceSync(#[from] Box<DeviceSyncError>),
+    /// Export group info error.
+    ///
+    /// OpenMLS failed to export a GroupInfo object for the current epoch
+    /// (used by the external-invite producer path). Not retryable.
+    #[error("export group info: {0}")]
+    ExportGroupInfo(#[from] openmls::group::ExportGroupInfoError),
+    /// Encrypted group info wrap/unwrap error.
+    ///
+    /// Wrapping or unwrapping an [`EncryptedGroupInfoBlob`] failed.
+    /// Not retryable.
+    ///
+    /// [`EncryptedGroupInfoBlob`]: xmtp_proto::xmtp::mls::message_contents::EncryptedGroupInfoBlob
+    #[error(transparent)]
+    EncryptedGroupInfo(#[from] EncryptedGroupInfoError),
+    /// Tried to issue or accept an external commit on a group whose
+    /// `EXTERNAL_COMMIT_POLICY` has `allow_external_commit = false` or
+    /// is absent entirely. Not retryable; admin must enable the policy
+    /// via [`MlsGroup::set_allow_external_commit`] first.
+    #[error("external commit is not allowed for this group")]
+    ExternalCommitNotAllowed,
+    /// `EXTERNAL_COMMIT_POLICY.v1` is present but the in-group key
+    /// material doesn't meet the lifecycle invariants
+    /// (`symmetric_key.len() == 32`, `external_group_id.len() >= 4`).
+    /// Indicates corruption or a malicious / buggy peer that wrote a
+    /// malformed policy. Not retryable.
+    #[error("EXTERNAL_COMMIT_POLICY malformed: {0}")]
+    ExternalCommitPolicyMalformed(String),
 }
 
 #[derive(Error, Debug)]
@@ -637,6 +665,10 @@ impl RetryableError for GroupError {
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
+            | Self::ExportGroupInfo(_)
+            | Self::EncryptedGroupInfo(_)
+            | Self::ExternalCommitNotAllowed
+            | Self::ExternalCommitPolicyMalformed(_)
             | Self::UninitializedResult => false,
         }
     }
