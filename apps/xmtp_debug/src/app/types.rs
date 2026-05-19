@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use std::sync::atomic::AtomicBool;
 
-use alloy::signers::local::PrivateKeySigner;
+use alloy_signer_local::PrivateKeySigner;
 use color_eyre::eyre::{self, Result};
 use ecdsa::SigningKey;
 use openmls::{credentials::BasicCredential, prelude::Credential};
@@ -32,7 +32,7 @@ impl EthereumWallet {
 
     // checksummed addresses for a bit more chaos
     fn address(&self) -> String {
-        alloy::primitives::Address::to_checksum(&self.clone().into_alloy().address(), None)
+        alloy_primitives::Address::to_checksum(&self.clone().into_alloy().address(), None)
     }
 }
 

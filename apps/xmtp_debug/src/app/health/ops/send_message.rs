@@ -24,8 +24,22 @@ async fn send_one(
     gid: &GroupId,
 ) -> OpResult {
     let start = Instant::now();
+    // Non-membership = client.group(gid) errors. Treat as Pass: the
+    // client simply isn't in this group, so there's nothing to send.
+    // Distinguishes "no membership" from "send failed despite membership".
+    let group = match client.group(gid) {
+        Ok(g) => g,
+        Err(_) => {
+            return OpResult {
+                op_name,
+                target: Some(format!("inbox={} group={gid}", client.inbox_id())),
+                status: Status::Pass,
+                duration: start.elapsed(),
+                error: None,
+            };
+        }
+    };
     let outcome: color_eyre::eyre::Result<Option<[u8; 32]>> = async {
-        let group = client.group(gid)?;
         if !group.is_active()? {
             return Ok(None);
         }

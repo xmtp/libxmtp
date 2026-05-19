@@ -11,12 +11,11 @@ use crate::{
     },
     args,
 };
-use alloy::primitives::map::HashSet;
 use color_eyre::eyre::WrapErr;
 use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::{RngExt, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::IndexedRandom};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;

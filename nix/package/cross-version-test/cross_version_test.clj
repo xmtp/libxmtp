@@ -157,12 +157,18 @@
             :eval-failed
             (do (when (seq stderr)
                   (binding [*out* *err*] (print stderr) (flush)))
-                (d/eputs (str "::error::run-sequence: aborting on probe eval failure for "
-                              short))
-                (recur [] (-> results
-                              (conj (assoc base-row :status "FAIL"))
-                              (d/record-not-run-remaining rest-todo))
-                       completed-count true nightly-failure?))
+                (if required?
+                  (do (d/eputs (str "::error::run-sequence: aborting on probe eval failure for "
+                                    short))
+                      (recur [] (-> results
+                                    (conj (assoc base-row :status "FAIL"))
+                                    (d/record-not-run-remaining rest-todo))
+                             completed-count true nightly-failure?))
+                  (do (d/eputs (str "::warning::xdbg@" short " nightly " label
+                                    " probe eval failed; skipping"))
+                      (recur rest-todo
+                             (conj results (assoc base-row :status "SKIP-EVAL"))
+                             completed-count required-failure? true))))
 
             ;; Defensive default — keeps the loop from crashing if a
             ;; future probe variant slips through unmapped.

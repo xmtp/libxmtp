@@ -106,25 +106,45 @@
   (run-strict* {:tee? false} env-extras out-dir kind sha args))
 
 (defn- preflight!
-  "Probe + check --strict-versioning + sync subcommand. Exit 1 on any
-   failure; cross-talk doesn't have a SKIP-NOT-RUN fallback."
-  [env-extras {:keys [kind sha short]}]
+  "Probe + check --strict-versioning + sync subcommand. For required
+   entries any failure exits 1; for non-required (nightly) entries a
+   capability gap returns :skip with a reason so the caller can drop
+   the entry from the plan and record a SKIP-CAPABILITY row."
+  [env-extras {:keys [kind sha short required?]}]
   (let [mode (if (= kind "nightly") "full" "dry")
         {:keys [status stderr]} (xdbg/probe mode kind sha)]
-    (when-not (= :ok status)
-      (when (seq stderr)
-        (binding [*out* *err*] (print stderr) (flush)))
-      (d/eputs (str "::error::probe failed for " short " (" kind ") status=" status))
-      (System/exit 1)))
-  (when-not (xdbg/supports-flag kind sha "--strict-versioning")
-    (d/eputs (str "::error::xdbg@" short
-                  " lacks --strict-versioning; cannot participate in cross-talk-test"))
-    (System/exit 1))
-  (when-not (xdbg/supports-subcommand kind sha "sync")
-    (d/eputs (str "::error::xdbg@" short
-                  " lacks 'sync' subcommand; cannot participate in cross-talk-test"))
-    (System/exit 1))
-  (d/run-xdbg-info env-extras kind sha "--version"))
+    (cond
+      (not= :ok status)
+      (do (when (seq stderr)
+            (binding [*out* *err*] (print stderr) (flush)))
+          (if required?
+            (do (d/eputs (str "::error::probe failed for " short " (" kind ") status=" status))
+                (System/exit 1))
+            (do (d/eputs (str "::warning::xdbg@" short " (" kind ") probe " status
+                              "; dropping from cross-talk plan"))
+                {:status :skip :reason (str "probe-" (name status))})))
+
+      (not (xdbg/supports-flag kind sha "--strict-versioning"))
+      (if required?
+        (do (d/eputs (str "::error::xdbg@" short
+                          " lacks --strict-versioning; cannot participate in cross-talk-test"))
+            (System/exit 1))
+        (do (d/eputs (str "::warning::xdbg@" short
+                          " lacks --strict-versioning; dropping from cross-talk plan"))
+            {:status :skip :reason "lacks-strict-versioning"}))
+
+      (not (xdbg/supports-subcommand kind sha "sync"))
+      (if required?
+        (do (d/eputs (str "::error::xdbg@" short
+                          " lacks 'sync' subcommand; cannot participate in cross-talk-test"))
+            (System/exit 1))
+        (do (d/eputs (str "::warning::xdbg@" short
+                          " lacks 'sync' subcommand; dropping from cross-talk plan"))
+            {:status :skip :reason "lacks-sync"}))
+
+      :else
+      (do (d/run-xdbg-info env-extras kind sha "--version")
+          {:status :ok}))))
 
 (defn- sync!
   "sync everyones client"
@@ -136,12 +156,14 @@
 
 
 (defn- phase1-bootstrap!
-  "each version creates an identity"
-  [env-extras out-dir parsed oldest-idx]
+  "each version creates one identity. SendMessage iterates clients ×
+   groups, and prior-version binaries don't skip non-members — extra
+   bootstrap identities show up as 'group not found' rows in their
+   healthcheck output. One-per-version keeps every existing_client a
+   member of every shared group."
+  [env-extras out-dir parsed _oldest-idx]
   (d/eputs "::group::cross-talk phase 1: bootstrap identities")
-  (doseq [[i {:keys [kind sha]}] (map-indexed vector parsed)
-          :let [n (if (= i oldest-idx) 3 1)]
-          _ (range n)]
+  (doseq [{:keys [kind sha]} parsed]
     (run-strict env-extras out-dir kind sha
                 "generate" "-e" "identity" "--amount" "1"))
   (d/eputs "::endgroup::"))
@@ -178,7 +200,7 @@
 
 (defn- phase4-healthcheck!
   [env-extras out-dir parsed]
-  (d/eputs "::group::cross-talk phase 7: healthcheck")
+  (d/eputs "::group::cross-talk phase 4: healthcheck")
   (let [result
         (reduce
           (fn [acc {:keys [kind sha short branch label]}]
@@ -203,22 +225,45 @@
   [env-extras parsed out-dir lenient-nightlies]
   (let [_ (d/eputs (str "::notice::Running " (count parsed) " versions"))]
     (d/emit-plan-table parsed)
-    (doseq [entry parsed] (preflight! env-extras entry))
-    (let [oldest-idx 0
-          oldest (nth parsed oldest-idx)]
-      (phase1-bootstrap! env-extras out-dir parsed oldest-idx)
-      (let [gid (phase2-create-group! env-extras out-dir oldest)]
-        (phase3-oldest-adds-joiners! env-extras out-dir oldest gid)
-        (sync! env-extras out-dir parsed)
-        (let [{:keys [results completed-count
-                      required-failure? nightly-failure?]}
-              (phase4-healthcheck! env-extras out-dir parsed)]
-          (finalize! {:results results
-                      :completed-count completed-count
-                      :required-failure required-failure?
-                      :nightly-failure nightly-failure?
-                      :lenient-nightlies lenient-nightlies
-                      :out-dir out-dir}))))))
+    (let [preflight-results (mapv (fn [entry]
+                                    {:entry entry
+                                     :preflight (preflight! env-extras entry)})
+                                  parsed)
+          runnable (mapv :entry
+                         (filter #(= :ok (get-in % [:preflight :status]))
+                                 preflight-results))
+          skip-rows (mapv (fn [{:keys [entry preflight]}]
+                            (let [{:keys [kind sha short branch label]} entry]
+                              {:short short :sha sha :kind kind
+                               :branch branch :label label
+                               :status (str "SKIP-CAPABILITY-" (:reason preflight))}))
+                          (filter #(= :skip (get-in % [:preflight :status]))
+                                  preflight-results))
+          ;; A capability skip on a nightly is a soft failure — finalize
+          ;; treats nightly-failure? as warn-only in lenient mode.
+          nightly-skip? (boolean (seq skip-rows))]
+      (if (empty? runnable)
+        (finalize! {:results skip-rows
+                    :completed-count 0
+                    :required-failure false
+                    :nightly-failure nightly-skip?
+                    :lenient-nightlies lenient-nightlies
+                    :out-dir out-dir})
+        (let [oldest-idx 0
+              oldest (nth runnable oldest-idx)]
+          (phase1-bootstrap! env-extras out-dir runnable oldest-idx)
+          (let [gid (phase2-create-group! env-extras out-dir oldest)]
+            (phase3-oldest-adds-joiners! env-extras out-dir oldest gid)
+            (sync! env-extras out-dir runnable)
+            (let [{:keys [results completed-count
+                          required-failure? nightly-failure?]}
+                  (phase4-healthcheck! env-extras out-dir runnable)]
+              (finalize! {:results (into skip-rows results)
+                          :completed-count completed-count
+                          :required-failure required-failure?
+                          :nightly-failure (or nightly-failure? nightly-skip?)
+                          :lenient-nightlies lenient-nightlies
+                          :out-dir out-dir}))))))))
 
 (defn- default-sample-size [profile]
   (case profile "stable" 0 "nightly" 3))

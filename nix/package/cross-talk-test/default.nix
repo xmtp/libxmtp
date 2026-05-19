@@ -15,7 +15,6 @@ mkBabashkaApp {
   text = builtins.readFile ./cross_talk_test.clj;
   classpath = [ "${xmtp.xdbg-driver-lib}/lib/src" ];
   runtimeInputs = [
-    xmtp.xdbg-driver-lib
     git
     jq
     nix

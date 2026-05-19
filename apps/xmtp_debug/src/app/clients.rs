@@ -8,7 +8,7 @@ use crate::app::store::Database;
 use crate::app::store::IdentityStore;
 use crate::app::store::RandomDatabase;
 use crate::app::types::*;
-use alloy::signers::local::PrivateKeySigner;
+use alloy_signer_local::PrivateKeySigner;
 use color_eyre::eyre::{WrapErr, eyre};
 use tokio::sync::Mutex;
 use xmtp_api_d14n::MessageBackendBuilder;

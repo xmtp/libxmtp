@@ -34,6 +34,10 @@ edition = "2024"
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
 alloy = { version = "2", default-features = false }
+alloy-primitives = { version = "1", default-features = false, features = [
+  "std",
+] }
+alloy-signer-local = { version = "2", default-features = false }
 anyhow = "1.0"
 arc-swap = "1.9"
 async-compression = { default-features = false, version = "0.4", features = [
@@ -150,6 +154,7 @@ tonic-web-wasm-client = "0.9"
 tower = { version = "0.5", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 tracing = { version = "0.1", features = ["log"] }
+tracing-appender = "0.2"
 tracing-forest = { version = "0.3", features = ["chrono"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }

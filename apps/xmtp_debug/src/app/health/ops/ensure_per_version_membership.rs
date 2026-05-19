@@ -58,21 +58,24 @@ impl HealthOp for EnsurePerVersionMembership {
                 ));
             }
 
-            let redb: Arc<redb::Database> = App::db()?;
-            let id_store: IdentityStore<'static> = redb.into();
-            let net_key = u64::from(&ctx.network);
-
             // Materialize the full IdentityStore for this network once,
             // keyed by inbox. Avoids N+1 table scans in the loops below.
-            let identities: HashMap<InboxId, Identity> = id_store
-                .load(net_key)?
-                .into_iter()
-                .flatten()
-                .map(|g| {
-                    let id = g.value();
-                    (id.inbox_id, id)
-                })
-                .collect();
+            // Scoped so the redb handle drops before we re-open it below
+            // (redb refuses concurrent opens within a single process).
+            let net_key = u64::from(&ctx.network);
+            let identities: HashMap<InboxId, Identity> = {
+                let redb: Arc<redb::Database> = App::db()?;
+                let id_store: IdentityStore<'static> = redb.into();
+                id_store
+                    .load(net_key)?
+                    .into_iter()
+                    .flatten()
+                    .map(|g| {
+                        let id = g.value();
+                        (id.inbox_id, id)
+                    })
+                    .collect()
+            };
 
             let present_versions: BTreeSet<u64> = updated_members
                 .iter()

@@ -14,10 +14,15 @@
 
 (defn flake-ref
   "Build the flake reference for a (kind, sha) pair. For kind=head the
-   local working-tree flake is used; otherwise github:xmtp/libxmtp/<sha>."
+   local working-tree flake is used — resolved to an absolute `path:`
+   ref (via GITHUB_WORKSPACE or the process's startup cwd) so callers
+   can change subprocess cwd for tempdir isolation without breaking
+   the relative `.#xdbg` lookup. For other kinds: github:xmtp/libxmtp/<sha>."
   [kind sha]
   (if (= kind "head")
-    ".#xdbg"
+    (let [root (or (System/getenv "GITHUB_WORKSPACE")
+                   (System/getProperty "user.dir"))]
+      (str "path:" root "#xdbg"))
     (str "github:xmtp/libxmtp/" sha "#xdbg")))
 
 (defn sandbox-env-args
