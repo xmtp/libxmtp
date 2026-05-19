@@ -82,6 +82,42 @@ impl IdentityStore<'_> {
             Ok(Some(rows.into_iter().map(|(_, v)| v)))
         })
     }
+
+    /// Sample up to `n` random identities for `network`, honoring
+    /// `--strict-versioning`. Strict mode restricts sampling to the
+    /// current binary's version partition
+    /// (`App::current_version_hash`); non-strict samples from every
+    /// version partition under `network`.
+    ///
+    /// Caps at the number of identities available. Callers that need
+    /// to exclude additional inboxes (e.g. the group owner) should
+    /// over-sample and filter the result.
+    ///
+    /// v1.9 has no global strict-versioning accessor, so the flag is
+    /// threaded in explicitly.
+    pub fn sample_n(
+        &self,
+        network: impl Into<u64> + Copy,
+        rng: &mut impl rand::Rng,
+        n: usize,
+        strict: bool,
+    ) -> Result<Vec<Identity>> {
+        use rand::seq::IteratorRandom;
+        if !strict {
+            use super::RandomDatabase;
+            return Ok(self
+                .random_n_capped(network, rng, n)?
+                .iter()
+                .map(|g| g.value())
+                .collect());
+        }
+        let Some(iter) =
+            self.load_for_version(network, crate::app::App::current_version_hash())?
+        else {
+            return Ok(Vec::new());
+        };
+        Ok(iter.map(|g| g.value()).choose_multiple(rng, n))
+    }
 }
 
 impl super::DeriveKey<IdentityKey> for Identity {
