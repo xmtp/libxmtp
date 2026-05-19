@@ -26,9 +26,17 @@ impl WrapperAlgorithm {
     // hardcoded because the functions to do the translations are private
     // and placed here so that any changes to the this algorithm will have to be handled
     pub fn to_hpke_config(self) -> hpke_rs::Hpke<hpke_rs::libcrux::HpkeLibcrux> {
+        // Pin XWING to the obsolete 0x004D codepoint so the HPKE
+        // suite_id labels (and thus AEAD keys) match v1.9 / v1.10
+        // clients which shipped on hpke-rs 0.4 where 0x004D was the
+        // only XWING variant. Upstream hpke-rs-libcrux 0.6.1 lacks
+        // dispatch for the Obsolete variant; we use a fork via
+        // [patch.crates-io] in this Cargo.toml. See #3661 for the
+        // d14n cutover plan to the canonical 0x647a codepoint.
+        #[allow(deprecated)]
         let kem = match self {
             Self::Curve25519 => hpke_rs::hpke_types::KemAlgorithm::DhKem25519,
-            Self::XWingMLKEM768Draft6 => hpke_rs::hpke_types::KemAlgorithm::XWingDraft06,
+            Self::XWingMLKEM768Draft6 => hpke_rs::hpke_types::KemAlgorithm::XWingDraft06Obsolete,
         };
         hpke_rs::Hpke::<hpke_rs::libcrux::HpkeLibcrux>::new(
             hpke_rs::Mode::Base,

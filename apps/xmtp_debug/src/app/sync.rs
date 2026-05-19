@@ -14,6 +14,7 @@ use color_eyre::eyre::{self, Report, Result};
 use itertools::Itertools;
 use std::time::Instant;
 use tracing::warn;
+use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
 pub struct Sync {
@@ -135,7 +136,16 @@ impl Sync {
             }
 
             let db = client.db();
-            let msgs = db.get_group_messages(&gid, &Default::default())?;
+            // Application only — MembershipChange commits fan out
+            // per-member at backend-dependent times. Recording them
+            // makes NoMissingMessages racy across peers.
+            let msgs = db.get_group_messages(
+                &gid,
+                &MsgQueryArgs::builder()
+                    .kind(GroupMessageKind::Application)
+                    .build()
+                    .expect("MsgQueryArgs builder"),
+            )?;
 
             for m in msgs {
                 let message_id: [u8; 32] =

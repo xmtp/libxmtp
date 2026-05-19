@@ -42,5 +42,6 @@ rustPlatform.buildRustPackage {
   doCheck = false;
   meta = {
     description = "Custom maintained wasm-bindgen-cli package to match Cargo.toml";
+    mainProgram = "wasm-bindgen";
   };
 }

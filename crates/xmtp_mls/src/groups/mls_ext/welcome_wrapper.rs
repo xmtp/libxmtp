@@ -325,6 +325,15 @@ mod tests {
             crypto_provider,
         )?)
     }
+    // Verifies wrap_welcome / unwrap_welcome is byte-compatible with
+    // openmls's canonical hpke::encrypt_with_label /
+    // decrypt_with_label path. Currently ignored: we pin XWING to the
+    // obsolete 0x004D codepoint for wire compat with v1.9 / v1.10
+    // (hpke-rs 0.4 only knew 0x004D — see to_hpke_config). The two
+    // paths thus produce different HPKE suite_id labels and can't
+    // round-trip against each other. Un-ignore + verify once the d14n
+    // cutover migrates everyone back to the canonical 0x647a (#3661).
+    #[ignore = "pinned to obsolete XWING codepoint for v1.9 / v1.10 wire compat (#3661)"]
     #[xmtp_common::test]
     async fn round_trip_xwing_mlkem512_current_to_previous_and_back() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;

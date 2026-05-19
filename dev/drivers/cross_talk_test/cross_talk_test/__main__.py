@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import xdbg_driver_lib_py as d
 
@@ -127,6 +128,10 @@ def run_sequence(
             "--amount",
             "1",
         )
+        # Use --out so xdbg writes the export JSON to a file rather than
+        # stdout — `-vvvvv` floods stdout with JSON log lines that would
+        # otherwise mix with the payload and break parsing.
+        export_path = Path(out_dir) / "groups-export.json"
         r = run_strict(
             env_extras,
             out_dir,
@@ -135,12 +140,14 @@ def run_sequence(
             "export",
             "-e",
             "group",
+            "--out",
+            str(export_path),
             tee=False,
         )
         gid = None
-        if r.returncode == 0 and r.stdout:
+        if r.returncode == 0 and export_path.exists():
             try:
-                groups = json.loads(r.stdout)
+                groups = json.loads(export_path.read_text())
                 if groups:
                     gid = groups[0].get("id")
             except json.JSONDecodeError:
