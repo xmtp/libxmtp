@@ -13,7 +13,7 @@
   pkg-config,
   mkShell,
   openssl,
-  sqlite,
+  sqlcipher,
   zstd,
   xmtp,
   swiftformat,
@@ -44,7 +44,7 @@ mkShell {
     rust-ios-toolchain
     zstd
     openssl
-    sqlite
+    sqlcipher
     # Swift code formatting/linting tools for the iOS SDK development
     swiftformat
     swiftlint
