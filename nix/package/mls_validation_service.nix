@@ -57,8 +57,6 @@ rust.buildPackage (
     cargoExtraArgs = "--bin mls-validation-service";
     doInstallCargoArtifacts = false;
     version = xmtp.mkVersion rust;
-    NIX_GIT_SHA = xmtp.gitSha;
-    NIX_GIT_COMMIT_DATE = xmtp.gitCommitDate;
     doCheck = false;
   }
 )

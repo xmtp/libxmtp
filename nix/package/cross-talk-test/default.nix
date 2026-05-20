@@ -1,23 +1,26 @@
-# cross-talk-test driver. Sibling to cross-version-test; the difference
-# is that each version runs under --strict-versioning so identities are
-# partitioned per version, testing wire-level MLS interop rather than
-# SQLite upgrade compat.
 {
-  mkBabashkaApp,
+  python3Packages,
   xmtp,
   git,
-  jq,
   nix,
   coreutils,
+  lib,
 }:
-mkBabashkaApp {
-  name = "cross-talk-test";
-  text = builtins.readFile ./cross_talk_test.clj;
-  classpath = [ "${xmtp.xdbg-driver-lib}/lib/src" ];
-  runtimeInputs = [
-    git
-    jq
-    nix
-    coreutils
+python3Packages.buildPythonApplication {
+  pname = "cross-talk-test";
+  version = "0.1.0";
+  pyproject = true;
+  src = ../../../dev/drivers/cross_talk_test;
+  build-system = [ python3Packages.setuptools ];
+  dependencies = [ xmtp.xdbg-driver-lib ];
+  makeWrapperArgs = [
+    "--prefix"
+    "PATH"
+    ":"
+    (lib.makeBinPath [
+      git
+      nix
+      coreutils
+    ])
   ];
 }

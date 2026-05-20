@@ -1,22 +1,26 @@
-# cross-version-test driver. Delegates the bulk of its logic to
-# xdbg-driver-lib via shared classpath; this derivation just bundles
-# the script + wires the runtime deps.
 {
-  mkBabashkaApp,
+  python3Packages,
   xmtp,
   git,
-  jq,
   nix,
   coreutils,
+  lib,
 }:
-mkBabashkaApp {
-  name = "cross-version-test";
-  text = builtins.readFile ./cross_version_test.clj;
-  classpath = [ "${xmtp.xdbg-driver-lib}/lib/src" ];
-  runtimeInputs = [
-    git
-    jq
-    nix
-    coreutils
+python3Packages.buildPythonApplication {
+  pname = "cross-version-test";
+  version = "0.1.0";
+  pyproject = true;
+  src = ../../../dev/drivers/cross_version_test;
+  build-system = [ python3Packages.setuptools ];
+  dependencies = [ xmtp.xdbg-driver-lib ];
+  makeWrapperArgs = [
+    "--prefix"
+    "PATH"
+    ":"
+    (lib.makeBinPath [
+      git
+      nix
+      coreutils
+    ])
   ];
 }

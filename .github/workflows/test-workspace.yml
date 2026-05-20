@@ -1,9 +1,6 @@
 name: Test Workspace
 on:
   workflow_call:
-env:
-  NIX_DEVSHELL: rust
-  CARGO_TEST_CMD: "cargo llvm-cov nextest --no-fail-fast --no-report"
 jobs:
   test:
     name: Test (Rust Workspace)

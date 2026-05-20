@@ -1,8 +1,15 @@
-# Shared bb library for cross-version-test and cross-talk-test.
-# Stages src/ + bb.edn under $out/lib/src for downstream classpath use.
-{ runCommand }:
-runCommand "xdbg-driver-lib" { } ''
-  install -dm755 $out/lib
-  cp -r --no-preserve=mode ${./src} $out/lib/src
-  install -Dm644 ${./bb.edn} $out/lib/src/bb.edn
-''
+# Shared Python helpers for cross-version + cross-talk drivers.
+# Library only — entry points live in the test-runner packages.
+{ python3Packages }:
+python3Packages.buildPythonPackage {
+  pname = "xdbg-driver-lib";
+  version = "0.1.0";
+  pyproject = true;
+  src = ../../../dev/drivers/xdbg_driver_lib;
+  build-system = [ python3Packages.setuptools ];
+  dependencies = with python3Packages; [
+    gitpython
+    packaging
+    rich
+  ];
+}

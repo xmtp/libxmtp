@@ -17,7 +17,6 @@ let
   # tools stay host-built). `final` is the current pkgset — use it for
   # anything that must follow the target (toolchain, stdenv, crane).
   xmtpOverlay = host: final: _: rec {
-    mkBabashkaApp = host.callPackage ./mkBabashkaApp.nix { };
     ffi-uniffi-bindgen = host.callPackage ./packages/uniffi-bindgen.nix { };
     wasm-bindgen-cli = host.callPackage ./packages/wasm-bindgen-cli.nix { };
     napi-rs-cli = host.callPackage ./packages/napi-rs-cli { };

@@ -1,0 +1,40 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+indent_size = 4
+max_line_length = 120
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_imports_layout = *,java.**,javax.**,kotlin.**,^
+ij_kotlin_continuation_indent_size = 4
+
+# ktlint rule set shared between gradle/spotless and treefmt/nix.
+# Bumped pins on either side must keep this file as the source of truth.
+ktlint_code_style = ktlint_official
+ktlint_standard_no-wildcard-imports = disabled
+ktlint_standard_package-name = disabled
+ktlint_standard_filename = disabled
+ktlint_standard_function-naming = disabled
+ktlint_standard_property-naming = disabled
+ktlint_standard_enum-entry-name-case = disabled
+ktlint_standard_backing-property-naming = disabled
+
+# Generated uniffi binding — never lint.
+[**/xmtpv3.kt]
+ktlint = disabled
+
+[*.py]
+indent_size = 4
+
+[*.rs]
+indent_size = 4
+
+[Makefile]
+indent_style = tab

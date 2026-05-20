@@ -291,7 +291,7 @@ sealed class Conversation {
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group ->
+                is Group -> {
                     group.messages(
                         limit,
                         beforeNs,
@@ -304,7 +304,9 @@ sealed class Conversation {
                         insertedBeforeNs,
                         sortBy,
                     )
-                is Dm ->
+                }
+
+                is Dm -> {
                     dm.messages(
                         limit,
                         beforeNs,
@@ -317,6 +319,7 @@ sealed class Conversation {
                         insertedBeforeNs,
                         sortBy,
                     )
+                }
             }
         }
 
@@ -332,7 +335,7 @@ sealed class Conversation {
     ): Long =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group ->
+                is Group -> {
                     group.countMessages(
                         beforeNs,
                         afterNs,
@@ -342,7 +345,9 @@ sealed class Conversation {
                         insertedAfterNs,
                         insertedBeforeNs,
                     )
-                is Dm ->
+                }
+
+                is Dm -> {
                     dm.countMessages(
                         beforeNs,
                         afterNs,
@@ -352,6 +357,7 @@ sealed class Conversation {
                         insertedAfterNs,
                         insertedBeforeNs,
                     )
+                }
             }
         }
 
@@ -386,7 +392,7 @@ sealed class Conversation {
     ): List<DecodedMessageV2> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group ->
+                is Group -> {
                     group.enrichedMessages(
                         limit,
                         beforeNs,
@@ -399,8 +405,9 @@ sealed class Conversation {
                         insertedBeforeNs,
                         sortBy,
                     )
+                }
 
-                is Dm ->
+                is Dm -> {
                     dm.enrichedMessages(
                         limit,
                         beforeNs,
@@ -413,6 +420,7 @@ sealed class Conversation {
                         insertedBeforeNs,
                         sortBy,
                     )
+                }
             }
         }
 
@@ -431,7 +439,7 @@ sealed class Conversation {
     ): List<DecodedMessage> =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group ->
+                is Group -> {
                     group.messagesWithReactions(
                         limit,
                         beforeNs,
@@ -444,8 +452,9 @@ sealed class Conversation {
                         insertedBeforeNs,
                         sortBy,
                     )
+                }
 
-                is Dm ->
+                is Dm -> {
                     dm.messagesWithReactions(
                         limit,
                         beforeNs,
@@ -458,6 +467,7 @@ sealed class Conversation {
                         insertedBeforeNs,
                         sortBy,
                     )
+                }
             }
         }
 

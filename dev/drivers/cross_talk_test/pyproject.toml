@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cross-talk-test"
+version = "0.1.0"
+description = "Drive multiple xdbg builds under --strict-versioning to test wire-level MLS interop"
+requires-python = ">=3.13"
+dependencies = ["xdbg-driver-lib"]
+
+[project.scripts]
+cross-talk-test = "cross_talk_test.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["cross_talk_test*"]
