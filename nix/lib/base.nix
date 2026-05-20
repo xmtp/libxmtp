@@ -5,7 +5,7 @@
   xmtp,
   zstd,
   openssl,
-  sqlite,
+  sqlcipher,
   pkg-config,
   perl,
   darwin,
@@ -52,7 +52,7 @@ let
     buildInputs = [
       zstd
       openssl
-      sqlite
+      sqlcipher
     ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.libiconv ];
 
