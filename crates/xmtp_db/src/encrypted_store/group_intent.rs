@@ -54,6 +54,18 @@ pub enum IntentKind {
     /// sniffing the extension-set shape.
     #[doc(alias = "AppData migration")]
     BootstrapMigration = 11,
+    /// Generic AppData component write. The intent payload carries a
+    /// `(component_id, AppDataUpdateOp)` pair where `AppDataUpdateOp` is
+    /// either `Replace(bytes)` (full-replace components — Bytes / String
+    /// types) or `DeltaWithBase { pre, post }` (TlsMap / TlsSet types,
+    /// where the handler computes the residual delta at commit time from
+    /// the current state, the pre value, and the post value).
+    ///
+    /// Replaces the proliferation of per-component IntentKinds. Existing
+    /// typed intents (`UpdateAdminList`, `UpdatePermission`,
+    /// `MetadataUpdate`) are not migrated by the introducing PR — they
+    /// continue to work, and a follow-on can fold them in.
+    AppDataUpdate = 12,
 }
 
 impl std::fmt::Display for IntentKind {
@@ -70,6 +82,7 @@ impl std::fmt::Display for IntentKind {
             IntentKind::ProposeGroupContextExtensions => "ProposeGroupContextExtensions",
             IntentKind::CommitPendingProposals => "CommitPendingProposals",
             IntentKind::BootstrapMigration => "BootstrapMigration",
+            IntentKind::AppDataUpdate => "AppDataUpdate",
         };
         write!(f, "{}", description)
     }
@@ -652,6 +665,7 @@ where
             9 => Ok(IntentKind::ProposeGroupContextExtensions),
             10 => Ok(IntentKind::CommitPendingProposals),
             11 => Ok(IntentKind::BootstrapMigration),
+            12 => Ok(IntentKind::AppDataUpdate),
             x => Err(format!("Unrecognized IntentKind variant {}", x).into()),
         }
     }

@@ -457,6 +457,79 @@ impl ::prost::Name for UpdatePermissionData {
         "/xmtp.mls.database.UpdatePermissionData".into()
     }
 }
+/// Generic AppData write intent — local-only serialization for the
+/// `group_intents` table. Replaces the proliferation of per-component
+/// IntentKind/IntentData pairs with a single shape that carries the
+/// target component_id and the same payload bytes that will be written
+/// to the on-wire `AppDataUpdate` proposal. Interpretation of `payload`
+/// is determined by the target component's `ComponentType` in the
+/// registry:
+///
+/// * `Bytes` / `String` typed components — payload is the new value
+///   written verbatim (last-writer-wins).
+/// * `TlsMap` typed components — payload is a TLS-encoded
+///   `TlsMapDelta<K, V>` carrying `Insert` / `Update` / `Delete`
+///   mutations. Apply semantics on the receive side are total
+///   (Insert is no-op-if-present, Update is upsert, Delete is
+///   idempotent); the strict variants of the in-process TlsMap API
+///   are not exposed on the wire. No "conflict" failure path.
+/// * `TlsSet` typed components — payload is a TLS-encoded
+///   `TlsSetDelta<E>` (`Add` is no-op-if-present, `Remove` is
+///   idempotent).
+///
+/// Never appears on the MLS wire; lives only in the local intents
+/// table.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AppDataUpdateData {
+    /// Versioned envelope. New variants are added as new oneof entries;
+    /// readers that don't recognize a variant fail closed.
+    #[prost(oneof = "app_data_update_data::Version", tags = "1")]
+    pub version: ::core::option::Option<app_data_update_data::Version>,
+}
+/// Nested message and enum types in `AppDataUpdateData`.
+pub mod app_data_update_data {
+    /// v1 payload shape.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct V1 {
+        /// u16 component_id widened to u32 (proto has no u16). The
+        /// dispatcher narrows back to u16 at decode time.
+        #[prost(uint32, tag = "1")]
+        pub component_id: u32,
+        /// The bytes that will be written verbatim as the on-wire
+        /// AppDataUpdate proposal payload. Interpretation determined by
+        /// the component's registered ComponentType (see message-level
+        /// comment above).
+        #[prost(bytes = "vec", tag = "2")]
+        pub payload: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.database";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.database.AppDataUpdateData.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.database.AppDataUpdateData.V1".into()
+        }
+    }
+    /// Versioned envelope. New variants are added as new oneof entries;
+    /// readers that don't recognize a variant fail closed.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for AppDataUpdateData {
+    const NAME: &'static str = "AppDataUpdateData";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.AppDataUpdateData".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.AppDataUpdateData".into()
+    }
+}
 /// Generic data-type for all post-commit actions
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PostCommitAction {
