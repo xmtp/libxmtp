@@ -24,7 +24,16 @@ from packaging.version import InvalidVersion, Version
 from rich.console import Console
 from rich.table import Table
 
-_stderr_console = Console(stderr=True, highlight=False)
+
+def _console_width() -> int | None:
+    """Force a wide table in CI (GH Actions reports 80 cols but doesn't
+    actually wrap), keep auto-sizing on real TTYs."""
+    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        return 200
+    return None
+
+
+_stderr_console = Console(stderr=True, highlight=False, width=_console_width())
 
 NIGHTLY_TAG_RE = re.compile(
     r"^(?:node-bindings|wasm-bindings|android|ios)-.*-nightly\.\d{8}\.[0-9a-f]{7}$"
