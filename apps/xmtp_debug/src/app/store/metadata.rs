@@ -21,8 +21,8 @@ pub type MetadataStore<'a> = super::KeyValueStore<'a, MetadataStorage>;
 #[macro_export]
 #[macro_use]
 macro_rules! meta_key {
-    ($network:expr) => {
-        $crate::app::store::NetworkKey::<0>::new(u64::from($network), [])
+    () => {
+        $crate::app::store::NetworkKey::<0>::new([])
     };
 }
 
@@ -69,56 +69,37 @@ impl<'a> super::TableProvider<'a, MetaKey, Metadata> for MetadataStorage {
 
 // No-Op for Metadata Table
 impl super::TrackMetadata for MetadataStorage {
-    fn increment<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
+    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
         Ok(())
     }
-    fn decrement<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
+    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
         Ok(())
     }
 }
 
 impl super::DeriveKey<MetaKey> for Metadata {
-    fn key(&self, network: u64) -> MetaKey {
-        MetaKey {
-            network,
-            key: Default::default(),
-        }
+    fn key(&self) -> MetaKey {
+        meta_key!()
     }
 }
 
 impl super::DeriveKey<MetaKey> for &Metadata {
-    fn key(&self, network: u64) -> MetaKey {
-        MetaKey {
-            network,
-            key: Default::default(),
-        }
+    fn key(&self) -> MetaKey {
+        meta_key!()
     }
 }
 
 impl From<Arc<redb::Database>> for MetadataStore<'static> {
     fn from(value: Arc<redb::Database>) -> Self {
-        MetadataStore {
-            db: super::DatabaseOrTransaction::Db(value),
-            store: MetadataStorage,
-        }
+        MetadataStore::new(MetadataStorage, super::DatabaseOrTransaction::Db(value))
     }
 }
 
 impl From<Arc<redb::ReadOnlyDatabase>> for MetadataStore<'static> {
     fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
-        MetadataStore {
-            db: super::DatabaseOrTransaction::ReadOnly(value),
-            store: MetadataStorage,
-        }
+        MetadataStore::new(
+            MetadataStorage,
+            super::DatabaseOrTransaction::ReadOnly(value),
+        )
     }
 }

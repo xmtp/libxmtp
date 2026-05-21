@@ -12,7 +12,10 @@ use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_proto::{types::GroupId, xmtp::identity::MlsCredential};
 
-use crate::app::store::MessageKey;
+use crate::{
+    app::{App, store::MessageKey},
+    args,
+};
 
 /// An InboxId represented as fixed bytes
 pub type InboxId = [u8; 32];
@@ -141,7 +144,7 @@ impl Identity {
 
     /// SQLite database path for this identity
     pub fn db_path(&self, network: impl Into<u64> + Copy) -> Result<std::path::PathBuf> {
-        let dir = crate::app::App::db_directory(network)?;
+        let dir = crate::app::App::db_directory()?;
         let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
         Ok(dir.join(db_name))
     }
@@ -149,13 +152,10 @@ impl Identity {
     /// SQLite path for this identity, addressing a specific
     /// `version_hash` partition. Used when loading an identity that
     /// was written by a different xdbg version (non-strict mode).
-    pub fn db_path_for(
-        &self,
-        network: impl Into<u64> + Copy,
-        version_hash: u64,
-    ) -> Result<std::path::PathBuf> {
-        let dir = crate::app::App::db_directory_for(network, version_hash)?;
-        let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
+    pub fn db_path_for(&self, version_hash: u64) -> Result<std::path::PathBuf> {
+        let dir = crate::app::App::db_directory_for(version_hash)?;
+        let net_hash = App::network_hash();
+        let db_name = format!("{}:{net_hash}.db3", hex::encode(self.inbox_id));
         Ok(dir.join(db_name))
     }
 
@@ -168,6 +168,10 @@ impl Identity {
             version_hash: 0,
             version_string: [0u8; VERSION_STRING_LEN],
         }
+    }
+
+    pub fn inbox_id(&self) -> args::InboxId {
+        args::InboxId::new(self.inbox_id)
     }
 }
 
@@ -266,7 +270,11 @@ impl Group {
     /// Build a `Group` from id + creator + members; the redundant
     /// `member_size` field is derived. Use this everywhere instead of
     /// the struct literal so the size never drifts from `members.len()`.
-    pub fn new(id: impl Into<[u8; 16]>, created_by: InboxId, members: Vec<InboxId>) -> Self {
+    pub fn new(
+        id: impl Into<[u8; 16]>,
+        created_by: InboxId,
+        members: Vec<InboxId>,
+    ) -> Self {
         let member_size = members.len() as u32;
         Self {
             created_by,
@@ -274,7 +282,7 @@ impl Group {
             member_size,
             members,
             version_string: pack_version_string(&crate::get_version())
-                .expect("version must be valid"),
+                .expect("version must be valid")
         }
     }
 
@@ -303,12 +311,6 @@ impl Group {
 
     pub fn has_member(&self, inbox: &InboxId) -> bool {
         self.members.contains(inbox)
-    }
-}
-
-impl std::fmt::Display for Group {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
     }
 }
 
@@ -347,6 +349,102 @@ impl redb::Value for Group {
     }
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Readable, Writable)]
+pub struct Dm {
+    /// user that created dm
+    pub created_by: InboxId,
+
+    with: InboxId,
+
+    group_id: [u8; 16],
+
+    /// `crate::get_version()` of the xdbg binary that created this
+    /// group, right-zero-padded UTF-8. Same shape as
+    /// `Identity::version_string`. Decode via `Group::version_string`.
+    pub version_string: [u8; VERSION_STRING_LEN],
+}
+
+pub struct DmId([u8; 64]);
+impl DmId {
+    pub fn new(lhs: [u8; 32], rhs: [u8; 32]) -> Self {
+        let id = [lhs, rhs];
+        id.sort();
+        Self(id)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 64] {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Dm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
+    }
+}
+
+impl Dm {
+    pub fn new(created_by: InboxId, with: InboxId, group_id: GroupId) -> Self {
+        Self {
+            created_by, with, group_id, version_string: pack_version_string(&crate::get_version())
+                .expect("version must be valid")
+        }
+    }
+
+    /// return the XMTP DM ID (dm:inbox1:inbox2)
+    pub fn id(&self) -> String {
+        DmMembers {
+            member_one_inbox_id: hex::encode(self.created_by),
+            member_two_inbox_id: hex::encode(self.with),
+        }.to_string()
+    }
+
+    pub fn redb_key(&self) -> DmId {
+        DmId::new(self.created_by, self.with)
+    }
+
+    pub fn group_id(&self) -> GroupId {
+        GroupId::from(self.group_id)
+    }
+}
+
+impl redb::Value for Dm {
+    type SelfType<'a>
+        = Dm
+    where
+        Self: 'a;
+
+    type AsBytes<'a>
+        = [u8; size_of::<Dm>()]
+    where
+        Self: 'a;
+
+    fn fixed_width() -> Option<usize> {
+        Some(size_of::<Self::SelfType<'_>>())
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Dm::read_from_buffer(data).unwrap()
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        let mut buffer = [0u8; size_of::<Dm>()];
+        value.write_to_buffer(&mut buffer).unwrap();
+        buffer
+    }
+
+    fn type_name() -> redb::TypeName {
+        redb::TypeName::new("dm")
+    }
+}
+
 /// Message recorded for a single healthcheck `SendMessage` op.
 /// Persisted to redb so the `NoMissingMessages` validator has an
 /// authoritative source of truth across runs and versions.
@@ -367,7 +465,6 @@ pub struct Message {
     /// `crate::get_version()` output of the sending xdbg binary.
     pub xdbg_version: String,
 }
-
 impl Message {
     pub fn new(
         id: [u8; 32],
@@ -389,12 +486,12 @@ impl Message {
     /// uses `group_id ++ id` (48 bytes); the rest of the message
     /// is the value, not the key. Use this for membership checks
     /// to avoid allocating a placeholder `Message`.
-    pub fn redb_key(network: u64, group_id: impl Into<[u8; 16]>, id: [u8; 32]) -> MessageKey {
+    pub fn redb_key(group_id: impl Into<[u8; 16]>, id: [u8; 32]) -> MessageKey {
         let mut combined = [0u8; 48];
         let gid = group_id.into();
         combined[..16].copy_from_slice(&gid);
         combined[16..].copy_from_slice(&id);
-        MessageKey::new(network, combined)
+        MessageKey::new(combined)
     }
 
     pub fn group_id(&self) -> GroupId {

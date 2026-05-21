@@ -19,41 +19,40 @@ use crate::{
 
 pub struct Stream {
     db: Arc<redb::ReadOnlyDatabase>,
-    opts: args::StreamOpts,
-    network: args::BackendOpts,
+    opts: &'static args::StreamOpts,
 }
 
 impl Stream {
-    pub fn new(opts: StreamOpts, network: args::BackendOpts) -> Result<Self> {
+    pub fn new(opts: &'static StreamOpts) -> Result<Self> {
         let db = App::readonly_db()?;
-        Ok(Self { opts, network, db })
+        Ok(Self { opts, db })
     }
 
     pub async fn run(self) -> Result<()> {
-        let Stream { db, opts, network } = self;
+        let Stream { db, opts } = self;
         let identity_store: IdentityStore = db.clone().into();
         let args::StreamOpts {
             inbox,
-            ref kind,
+            kind,
             out,
             format,
         } = opts;
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let identity = if let Some(inbox_id) = inbox {
-            let identity = identity_store.find_by_inbox(u64::from(&network), *inbox_id)?;
+            let identity = identity_store.find_by_inbox(**inbox_id)?;
             if identity.is_none() {
                 bail!("No local identity with inbox_id=[{}]", inbox_id);
             }
             identity.expect("checked for some")
         } else {
             identity_store
-                .load(&network)?
+                .load()?
                 .ok_or(eyre!("No identities in store"))?
                 .map(|i| i.value())
                 .choose(rng)
                 .ok_or(eyre!("Identity not found"))?
         };
-        let client = app::client_from_identity(&identity, &network)?;
+        let client = app::client_from_identity(&identity)?;
 
         let mut buffer: Box<dyn Write> = if let Some(p) = out {
             Box::new(BufWriter::new(fs::File::create(p)?))

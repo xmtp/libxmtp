@@ -5,7 +5,6 @@ use crate::app::{
     store::{Database, GroupStore, IdentityStore},
     types::*,
 };
-use crate::args;
 use crate::metrics::{
     csv_metric, push_metrics, record_latency, record_member_count, record_phase_metric,
     record_throughput,
@@ -22,15 +21,13 @@ use xmtp_proto::types::{GroupId, InstallationId};
 pub struct GenerateGroups {
     group_store: GroupStore<'static>,
     identity_store: IdentityStore<'static>,
-    network: args::BackendOpts,
 }
 
 impl GenerateGroups {
-    pub fn new(db: Arc<redb::Database>, network: args::BackendOpts) -> Self {
+    pub fn new(db: Arc<redb::Database>) -> Self {
         Self {
             group_store: db.clone().into(),
             identity_store: db.clone().into(),
-            network,
         }
     }
 
@@ -46,8 +43,7 @@ impl GenerateGroups {
             .ok()
             .and_then(|v| v.parse().ok());
 
-        let network = &self.network;
-        let identities = self.identity_store.len(network)?;
+        let identities = self.identity_store.len()?;
         ensure!(
             identities >= invitees,
             "not enough identities generated. have {}, but need to invite {}. groups cannot hold duplicate identities",
@@ -59,7 +55,7 @@ impl GenerateGroups {
         );
         let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
 
-        let clients = load_n_identities(&self.identity_store, network, n)?;
+        let clients = load_n_identities(&self.identity_store, n)?;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
         let groups = stream::iter(clients.iter())
@@ -68,8 +64,6 @@ impl GenerateGroups {
                 let client = client.clone();
                 let owner = *owner;
                 let store = self.identity_store.clone();
-                let network_u64 = u64::from(network);
-                let network_clone = network.clone();
                 let semaphore = semaphore.clone();
                 Ok(tokio::spawn(Box::pin({
                     async move {
@@ -77,7 +71,7 @@ impl GenerateGroups {
                         let t_total = Instant::now();
 
                         let (invitee_inboxes, invitee_hex, first_invitee) =
-                            resolve_invitees(&store, network_u64, invitees, owner)?;
+                            resolve_invitees(&store, invitees, owner)?;
 
                         let (group_id, create_secs) =
                             create_group_on_network(&client, &invitee_hex).await?;
@@ -91,8 +85,7 @@ impl GenerateGroups {
                         .await;
 
                         if let Some(ref invitee) = first_invitee
-                            && let Err(e) =
-                                check_member_visibility(&group_id, invitee, &network_clone).await
+                            && let Err(e) = check_member_visibility(&group_id, invitee).await
                         {
                             if crate::fail_fast() {
                                 return Err(e);
@@ -121,7 +114,8 @@ impl GenerateGroups {
                         // `Group::add_members` dedupes, so even if an
                         // upstream filter slips up the owner can't appear
                         // twice in the persisted member list.
-                        Ok(Group::new(group_id, owner, vec![owner]).add_members(invitee_inboxes))
+                        Ok(Group::new(group_id, owner, vec![owner], false)
+                            .add_members(invitee_inboxes))
                     }
                 }))
                 .map_err(|_| eyre!("failed to spawn tasks for group creation")))
@@ -131,7 +125,7 @@ impl GenerateGroups {
             .await?
             .into_iter()
             .collect::<Result<Vec<_>, eyre::Report>>()?;
-        self.group_store.set_all(groups.as_slice(), &self.network)?;
+        self.group_store.set_all(groups.as_slice())?;
         // ensure cleanup for each client
         for client in clients.values() {
             let client = client.lock().await;
@@ -148,7 +142,6 @@ impl GenerateGroups {
 /// points.
 fn resolve_invitees(
     store: &IdentityStore<'static>,
-    network_u64: u64,
     invitees: usize,
     owner: InboxId,
 ) -> Result<(Vec<InboxId>, Vec<String>, Option<Identity>)> {
@@ -157,12 +150,7 @@ fn resolve_invitees(
     // sample) doesn't leave us short. `sample_n` honors
     // `--strict-versioning`, so cross-version inboxes are filtered at
     // the store level — no need to re-filter here.
-    let sample = store.sample_n(
-        network_u64,
-        &mut rng,
-        invitees + 1,
-        crate::app::App::strict_versioning(),
-    )?;
+    let sample = store.sample_n(&mut rng, invitees + 1, crate::app::App::strict_versioning())?;
     let mut iter = sample
         .into_iter()
         .filter(|id| id.inbox_id != owner)
@@ -226,12 +214,8 @@ async fn create_group_on_network(
 }
 
 /// Check whether an invitee can see the group via sync_welcomes (read-your-own-writes).
-async fn check_member_visibility(
-    group_id: &GroupId,
-    invitee: &Identity,
-    network: &args::BackendOpts,
-) -> Result<()> {
-    let reader_client = app::client_from_identity(invitee, network)?;
+async fn check_member_visibility(group_id: &GroupId, invitee: &Identity) -> Result<()> {
+    let reader_client = app::client_from_identity(invitee)?;
 
     let t_visibility = Instant::now();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);

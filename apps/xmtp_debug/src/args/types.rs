@@ -3,6 +3,12 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct InboxId([u8; 32]);
 
+impl InboxId {
+    pub fn new(id: [u8; 32]) -> Self {
+        Self(id)
+    }
+}
+
 impl std::fmt::Display for InboxId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", hex::encode(self.0))

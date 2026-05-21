@@ -62,12 +62,11 @@ impl HealthOp for EnsurePerVersionMembership {
             // keyed by inbox. Avoids N+1 table scans in the loops below.
             // Scoped so the redb handle drops before we re-open it below
             // (redb refuses concurrent opens within a single process).
-            let net_key = u64::from(&ctx.network);
             let identities: HashMap<InboxId, Identity> = {
                 let redb: Arc<redb::Database> = App::db()?;
                 let id_store: IdentityStore<'static> = redb.into();
                 id_store
-                    .load(net_key)?
+                    .load()?
                     .into_iter()
                     .flatten()
                     .map(|g| {

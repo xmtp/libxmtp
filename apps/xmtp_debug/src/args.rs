@@ -102,7 +102,7 @@ pub struct Generate {
     pub ryow: bool,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Copy, Debug, Clone)]
 pub struct MessageGenerateOpts {
     /// Continuously generate & send messages
     #[arg(long, short)]
@@ -404,6 +404,10 @@ fn default_ryow_timeout() -> humantime::Duration {
 }
 
 impl BackendOpts {
+    pub fn hash(&self) -> u64 {
+        (self).into()
+    }
+
     pub fn xmtpd_gateway_url(&self) -> eyre::Result<url::Url> {
         use BackendKind::*;
 

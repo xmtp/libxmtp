@@ -14,6 +14,7 @@ use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::xmtpv4::envelopes::{OriginatorEnvelope, UnsignedOriginatorEnvelope};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
+use crate::app::App;
 use crate::{
     app::{self, generate_wallet},
     args::{self, TestOpts, TestScenario},
@@ -62,12 +63,13 @@ async fn query_v4_envelopes(
 }
 
 pub struct Test {
-    opts: TestOpts,
+    opts: &'static TestOpts,
     network: args::BackendOpts,
 }
 
 impl Test {
-    pub fn new(opts: TestOpts, network: args::BackendOpts) -> Self {
+    pub fn new(opts: &'static TestOpts) -> Self {
+        let network = App::network().clone();
         Self { opts, network }
     }
 
@@ -135,14 +137,14 @@ impl Test {
         // Step 1: Create 2 fresh users/identities
         info!("creating sender");
         let wallet1 = generate_wallet();
-        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        let client1 = app::temp_client(Some(&wallet1)).await?;
         app::register_client(&client1, wallet1.clone().into_alloy()).await?;
         let inbox_id1 = client1.inbox_id().to_string();
         info!(inbox_id = inbox_id1, "sender created");
 
         info!("creating receiver");
         let wallet2 = generate_wallet();
-        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        let client2 = app::temp_client(Some(&wallet2)).await?;
         app::register_client(&client2, wallet2.clone().into_alloy()).await?;
         let inbox_id2 = client2.inbox_id().to_string();
         info!(inbox_id = inbox_id2, "receiver created");
@@ -286,14 +288,14 @@ impl Test {
         // Step 1: Create 2 fresh users/identities
         info!("creating sender");
         let wallet1 = generate_wallet();
-        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        let client1 = app::temp_client(Some(&wallet1)).await?;
         app::register_client(&client1, wallet1.clone().into_alloy()).await?;
         let inbox_id1 = client1.inbox_id().to_string();
         info!(inbox_id = inbox_id1, "sender created");
 
         info!("creating receiver");
         let wallet2 = generate_wallet();
-        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        let client2 = app::temp_client(Some(&wallet2)).await?;
         app::register_client(&client2, wallet2.clone().into_alloy()).await?;
         let inbox_id2 = client2.inbox_id().to_string();
         info!(inbox_id = inbox_id2, "receiver created");
@@ -470,7 +472,7 @@ impl Test {
         // Step 1: Create a V3 SDK client
         info!("creating V3 sender identity");
         let wallet = generate_wallet();
-        let client = app::temp_client(&self.network, Some(&wallet)).await?;
+        let client = app::temp_client(Some(&wallet)).await?;
         app::register_client(&client, wallet.clone().into_alloy()).await?;
         info!(inbox_id = client.inbox_id(), "V3 sender registered");
 
@@ -532,7 +534,7 @@ impl Test {
         // Step 1: Create 2 V3 clients (sender + receiver)
         info!("creating sender");
         let wallet1 = generate_wallet();
-        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        let client1 = app::temp_client(Some(&wallet1)).await?;
         app::register_client(&client1, wallet1.clone().into_alloy()).await?;
         let inbox_id1 = client1.inbox_id().to_string();
         let install_id1 = client1.installation_public_key();
@@ -540,7 +542,7 @@ impl Test {
 
         info!("creating receiver");
         let wallet2 = generate_wallet();
-        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        let client2 = app::temp_client(Some(&wallet2)).await?;
         app::register_client(&client2, wallet2.clone().into_alloy()).await?;
         let inbox_id2 = client2.inbox_id().to_string();
         let install_id2 = client2.installation_public_key();
@@ -1082,14 +1084,14 @@ impl Test {
         // Step 1: Create V3 sender + receiver
         info!("creating V3 sender");
         let wallet1 = generate_wallet();
-        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        let client1 = app::temp_client(Some(&wallet1)).await?;
         app::register_client(&client1, wallet1.clone().into_alloy()).await?;
         let inbox_id1 = client1.inbox_id().to_string();
         info!(inbox_id = inbox_id1, "V3 sender registered");
 
         info!("creating V3 receiver");
         let wallet2 = generate_wallet();
-        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        let client2 = app::temp_client(Some(&wallet2)).await?;
         app::register_client(&client2, wallet2.clone().into_alloy()).await?;
         let inbox_id2 = client2.inbox_id().to_string();
         info!(inbox_id = inbox_id2, "V3 receiver registered");
@@ -1165,7 +1167,7 @@ impl Test {
         };
 
         info!("creating V4 SDK client with sender's wallet");
-        let v4_sdk_client = app::temp_client(&d14n_backend, Some(&wallet1)).await?;
+        let v4_sdk_client = app::temp_client(Some(&wallet1)).await?;
         let v4_inbox_id = v4_sdk_client.inbox_id().to_string();
 
         // CHECK 1: inbox_id derivation is deterministic across backends

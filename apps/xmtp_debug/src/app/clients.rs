@@ -18,7 +18,6 @@ use xmtp_mls::builder::DeviceSyncMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 
 pub async fn new_unregistered_client(
-    network: &args::BackendOpts,
     wallet: Option<&types::EthereumWallet>,
 ) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
@@ -26,14 +25,11 @@ pub async fn new_unregistered_client(
     } else {
         generate_wallet().into_alloy()
     };
-    new_client_inner(network, &local_wallet, None).await
+    new_client_inner(&local_wallet, None).await
 }
 
 /// Create a new client + Identity
-pub async fn temp_client(
-    network: &args::BackendOpts,
-    wallet: Option<&types::EthereumWallet>,
-) -> Result<crate::DbgClient> {
+pub async fn temp_client(wallet: Option<&types::EthereumWallet>) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
         w.clone().into_alloy()
     } else {
@@ -42,40 +38,33 @@ pub async fn temp_client(
 
     let tmp_dir = (*crate::constants::TMPDIR).path();
     let public = local_wallet.get_identifier()?;
-    let name = format!("{public}:{}.db3", u64::from(network));
+    let network = App::network().hash();
+    let name = format!("{public}:{network}.db3");
 
-    new_client_inner(
-        network,
-        &local_wallet,
-        Some(tmp_dir.to_path_buf().join(name)),
-    )
-    .await
+    new_client_inner(&local_wallet, Some(tmp_dir.to_path_buf().join(name))).await
 }
 
 /// Get the XMTP Client from an [`Identity`]
-pub fn client_from_identity(
-    identity: &Identity,
-    network: &args::BackendOpts,
-) -> Result<crate::DbgClient> {
+pub fn client_from_identity(identity: &Identity) -> Result<crate::DbgClient> {
     // Use the identity's stored version_hash so cross-version loads
     // (under non-strict mode) find the correct SQLite partition. In
     // strict mode, all loaded identities have version_hash == this
     // binary's hash, so db_path_for and db_path agree.
-    let path = identity.db_path_for(network, identity.version_hash)?;
+    let path = identity.db_path_for(identity.version_hash)?;
     debug!(
         inbox_id = hex::encode(identity.inbox_id),
         db_path = %path.display(),
         "creating client from identity"
     );
-    existing_client_inner(network, path)
+    existing_client_inner(path)
 }
 
 /// Create a new client + Identity & register it
 async fn new_client_inner(
-    network: &args::BackendOpts,
     wallet: &PrivateKeySigner,
     db_path: Option<PathBuf>,
 ) -> Result<crate::DbgClient> {
+    let network = App::network();
     let api = network.client_bundle()?;
     let sync_api = network.client_bundle()?;
     let ident = wallet.get_identifier()?;
@@ -84,8 +73,8 @@ async fn new_client_inner(
     let dir = if let Some(p) = db_path {
         p
     } else {
-        let dir = crate::app::App::db_directory(network)?;
-        let db_name = format!("{inbox_id}:{}.db3", u64::from(network));
+        let dir = crate::app::App::db_directory()?;
+        let db_name = format!("{inbox_id}:{}.db3", network.hash());
         dir.join(db_name)
     };
     let path = dir
@@ -147,10 +136,8 @@ pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) 
 }
 
 /// Create a new client + Identity
-fn existing_client_inner(
-    network: &args::BackendOpts,
-    db_path: PathBuf,
-) -> Result<crate::DbgClient> {
+fn existing_client_inner(db_path: PathBuf) -> Result<crate::DbgClient> {
+    let network = App::network();
     let api = network.client_bundle()?;
     let sync_api = network.client_bundle()?;
     let path = db_path.clone().into_os_string().into_string().unwrap();
@@ -183,6 +170,7 @@ fn existing_client_inner(
         .default_mls_store()?
         .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
         .with_allow_offline(Some(true))
+        .with_disable_workers(true)
         .build_offline()?;
 
     Ok(client)
@@ -193,17 +181,16 @@ fn existing_client_inner(
 /// version on the network.
 pub fn load_all_identities(
     store: &IdentityStore<'static>,
-    network: &args::BackendOpts,
 ) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
     let identities: Vec<Identity> = if crate::app::App::strict_versioning() {
         store
-            .load_for_version(u64::from(network), crate::app::App::current_version_hash())?
+            .load_for_version(crate::app::App::current_version_hash())?
             .ok_or(eyre!("no identities in store, try generating some"))?
             .map(|g| g.value())
             .collect()
     } else {
         store
-            .load(u64::from(network))?
+            .load()?
             .ok_or(eyre!("no identities in store, try generating some"))?
             .map(|g| g.value())
             .collect()
@@ -213,7 +200,7 @@ pub fn load_all_identities(
     let mut skipped = 0u32;
     for identity in identities {
         let inbox_id = identity.inbox_id;
-        match client_from_identity(&identity, network) {
+        match client_from_identity(&identity) {
             Ok(client) => {
                 clients.insert(inbox_id, Mutex::new(client));
             }
@@ -242,7 +229,6 @@ pub fn load_all_identities(
 
 pub fn load_n_identities(
     store: &IdentityStore<'static>,
-    network: &args::BackendOpts,
     n: usize,
 ) -> Result<Arc<HashMap<InboxId, Arc<Mutex<crate::DbgClient>>>>> {
     let mut rng = rand::rng();
@@ -252,7 +238,7 @@ pub fn load_n_identities(
         // Strict: pool from this version's partition only, sample n.
         use rand::seq::SliceRandom;
         let mut pool: Vec<Identity> = store
-            .load_for_version(u64::from(network), crate::app::App::current_version_hash())?
+            .load_for_version(crate::app::App::current_version_hash())?
             .ok_or(eyre!("no identities in store, try generating some"))?
             .map(|g| g.value())
             .collect();
@@ -262,7 +248,7 @@ pub fn load_n_identities(
     } else {
         // Non-strict: existing random_n path.
         store
-            .random_n(u64::from(network), &mut rng, n)?
+            .random_n(&mut rng, n)?
             .into_iter()
             .map(|g| g.value())
             .collect()
@@ -279,7 +265,7 @@ pub fn load_n_identities(
         .map(|id| {
             Ok::<_, eyre::Report>((
                 id.inbox_id,
-                Arc::new(Mutex::new(client_from_identity(&id, network)?)),
+                Arc::new(Mutex::new(client_from_identity(&id)?)),
             ))
         })
         .collect::<Result<HashMap<_, _>, _>>()?;

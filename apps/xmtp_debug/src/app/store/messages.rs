@@ -20,20 +20,20 @@ const TABLE: TableDefinition<MessageKey, Message> = TableDefinition::new(NAMESPA
 pub type MessageKey = super::NetworkKey<48>;
 
 impl super::DeriveKey<MessageKey> for Message {
-    fn key(&self, network: u64) -> MessageKey {
+    fn key(&self) -> MessageKey {
         let mut combined = [0u8; 48];
         combined[..16].copy_from_slice(&*self.group_id());
         combined[16..].copy_from_slice(&self.id);
-        MessageKey::new(network, combined)
+        MessageKey::new(combined)
     }
 }
 
 impl super::DeriveKey<MessageKey> for &Message {
-    fn key(&self, network: u64) -> MessageKey {
+    fn key(&self) -> MessageKey {
         let mut combined = [0u8; 48];
         combined[..16].copy_from_slice(&*self.group_id());
         combined[16..].copy_from_slice(&self.id);
-        MessageKey::new(network, combined)
+        MessageKey::new(combined)
     }
 }
 
@@ -41,19 +41,16 @@ pub type MessageStore<'a> = super::KeyValueStore<'a, MessageStorage>;
 
 impl From<Arc<redb::Database>> for MessageStore<'_> {
     fn from(value: Arc<redb::Database>) -> Self {
-        MessageStore {
-            db: super::DatabaseOrTransaction::Db(value),
-            store: MessageStorage,
-        }
+        MessageStore::new(MessageStorage, super::DatabaseOrTransaction::Db(value))
     }
 }
 
 impl From<Arc<redb::ReadOnlyDatabase>> for MessageStore<'_> {
     fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
-        MessageStore {
-            db: super::DatabaseOrTransaction::ReadOnly(value),
-            store: MessageStorage,
-        }
+        MessageStore::new(
+            MessageStorage,
+            super::DatabaseOrTransaction::ReadOnly(value),
+        )
     }
 }
 
@@ -67,25 +64,15 @@ impl<'a> super::TableProvider<'a, MessageKey, Message> for MessageStorage {
 }
 
 impl super::TrackMetadata for MessageStorage {
-    fn increment<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
+    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
         let store = store.into();
-        store.modify(crate::meta_key!(network), |meta| meta.messages += n)?;
+        store.modify(crate::meta_key!(), |meta| meta.messages += n)?;
         Ok(())
     }
 
-    fn decrement<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
+    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
         let store = store.into();
-        store.modify(crate::meta_key!(network), |meta| meta.messages -= n)?;
+        store.modify(crate::meta_key!(), |meta| meta.messages -= n)?;
         Ok(())
     }
 }
@@ -93,7 +80,7 @@ impl super::TrackMetadata for MessageStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::store::Database;
+    use crate::app::{App, store::Database};
     use std::sync::Arc;
     use tempfile::NamedTempFile;
 
@@ -109,11 +96,12 @@ mod tests {
 
     #[test]
     fn message_store_set_then_get_roundtrips() {
+        App::set_network(1);
         let (db, _tmp) = open_temp_db();
         let store: MessageStore<'static> = db.into();
         let msg = sample_message([0xAAu8; 16], [0xBBu8; 32]);
 
-        store.set(msg.clone(), 1u64).expect("set");
+        store.set(msg.clone()).expect("set");
 
         let key = <Message as super::super::DeriveKey<MessageKey>>::key(&msg, 1);
         let got = store.get(key).expect("get");

@@ -2,7 +2,6 @@ use crate::DbgClient;
 use crate::app::store::Database;
 use crate::app::types::{InboxId, Message};
 use crate::app::{App, load_all_identities};
-use crate::args::BackendOpts;
 use crate::metrics::record_phase_metric;
 use crate::{
     app::{
@@ -30,7 +29,6 @@ use xmtp_mls::groups::summary::SyncSummary;
 /// surfaces; we just don't record those rows.
 fn record_generated_message(
     store: &MessageStore<'static>,
-    network: &args::BackendOpts,
     group_id: &[u8],
     message_id: &[u8],
     sender_inbox_id: InboxId,
@@ -61,7 +59,7 @@ fn record_generated_message(
         sender_inbox_id,
         sent_at_ns,
     );
-    if let Err(e) = store.set(msg, u64::from(network)) {
+    if let Err(e) = store.set(msg) {
         tracing::warn!(target: "generate", error = %e, "redb set failed; skipping message record");
     }
 }
@@ -90,7 +88,6 @@ enum MessageSendError {
 }
 
 pub struct GenerateMessages {
-    network: args::BackendOpts,
     opts: args::MessageGenerateOpts,
     identity_store: IdentityStore<'static>,
     group_store: GroupStore<'static>,
@@ -100,11 +97,7 @@ pub struct GenerateMessages {
 }
 
 impl GenerateMessages {
-    pub fn new(
-        network: args::BackendOpts,
-        opts: args::MessageGenerateOpts,
-        concurrency: usize,
-    ) -> Result<Self> {
+    pub fn new(opts: args::MessageGenerateOpts, concurrency: usize) -> Result<Self> {
         // Always open write-capable redb so we can mirror sent messages
         // into `MessageStore`. add_member/change_description already
         // required write; default path now does too because we record
@@ -114,11 +107,10 @@ impl GenerateMessages {
         let identity_store: IdentityStore<'static> = db.clone().into();
         let group_store: GroupStore<'static> = db.clone().into();
         let message_store: MessageStore<'static> = db.into();
-        let identities = load_all_identities(&identity_store, &network)?;
+        let identities = load_all_identities(&identity_store)?;
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
         Ok(Self {
-            network,
             opts,
             identity_store,
             group_store,
@@ -155,7 +147,6 @@ impl GenerateMessages {
                 tokio::time::sleep(*interval).await;
                 let semaphore = self.semaphore.clone();
                 let group_store = self.group_store.clone();
-                let network = self.network.clone();
                 let identities = self.identities.clone();
                 let (latencies, _, _) = tokio::try_join!(
                     self.send_many_messages(n),
@@ -163,14 +154,12 @@ impl GenerateMessages {
                         add_and_change_description,
                         add_up_to,
                         semaphore.clone(),
-                        network.clone(),
                         group_store.clone(),
                         identities.clone()
                     ))),
                     flatten(tokio::spawn(Self::change_group_description(
                         change_description || add_and_change_description,
                         semaphore.clone(),
-                        network.clone(),
                         group_store.clone(),
                         identities.clone()
                     ))),
@@ -185,7 +174,6 @@ impl GenerateMessages {
         run: bool,
         add_up_to: u32,
         semaphore: ConcSemaphore,
-        network: BackendOpts,
         group_store: GroupStore<'static>,
         identities: IdentityMap,
     ) -> Result<()> {
@@ -195,7 +183,7 @@ impl GenerateMessages {
         info!(time = ?std::time::Instant::now(), "adding new member");
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let group = group_store
-            .random(&network, rng)?
+            .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
         if group.members.len() >= add_up_to.try_into()? {
             // added up to required amount
@@ -226,7 +214,7 @@ impl GenerateMessages {
         new_group.members.push(*not_in_group);
         new_group.member_size += 1;
         group_store
-            .set(new_group, network)
+            .set(new_group)
             .wrap_err("failed to update group with new member in redb index")?;
         Ok(())
     }
@@ -234,7 +222,6 @@ impl GenerateMessages {
     async fn change_group_description(
         run: bool,
         semaphore: ConcSemaphore,
-        network: BackendOpts,
         group_store: GroupStore<'static>,
         identities: IdentityMap,
     ) -> Result<()> {
@@ -245,7 +232,7 @@ impl GenerateMessages {
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let clients = identities.clone();
         let group = group_store
-            .random(&network, rng)?
+            .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
         if let Some(inbox_id) = group.members.choose(rng) {
             let client = clients
@@ -271,7 +258,7 @@ impl GenerateMessages {
 
     /// Returns a Vec of send_message latencies (only the actual send, not sync overhead)
     async fn send_many_messages(&self, n: usize) -> Result<Vec<Duration>> {
-        let Self { network, opts, .. } = self;
+        let Self { opts, .. } = self;
 
         let style = ProgressStyle::with_template(
             "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
@@ -289,14 +276,13 @@ impl GenerateMessages {
         );
         for _ in 0..n {
             let bar_pointer = bar.clone();
-            let n = network.clone();
             let opts = opts.clone();
             let (_, group, messages) = stores.clone();
             let semaphore = semaphore.clone();
             let cs = clients.clone();
             set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
-                let latency = Self::send_message(&group, &messages, cs, n, opts)
+                let latency = Self::send_message(&group, &messages, cs, opts)
                     .await
                     .inspect_err(|e| error!("{}", e))?;
                 bar_pointer.inc(1);
@@ -337,7 +323,6 @@ impl GenerateMessages {
         group_store: &GroupStore<'static>,
         message_store: &MessageStore<'static>,
         clients: Arc<HashMap<InboxId, Mutex<DbgClient>>>,
-        network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
     ) -> Result<Duration, MessageSendError> {
         let args::MessageGenerateOpts {
@@ -347,7 +332,7 @@ impl GenerateMessages {
 
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let stored_group = group_store
-            .random(&network, rng)?
+            .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
         info!(time = ?Instant::now(), group = %stored_group.id(), "sending message");
         let Some(sender_inbox_id) = stored_group.members.choose(rng).copied() else {
@@ -385,7 +370,6 @@ impl GenerateMessages {
         // and any cross-tool inspection can find this message later.
         record_generated_message(
             message_store,
-            &network,
             &*stored_group.id(),
             &message_id,
             sender_inbox_id,

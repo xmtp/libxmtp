@@ -18,14 +18,12 @@ use color_eyre::eyre::{Result, eyre};
 use std::time::Instant;
 
 pub struct Health {
-    #[allow(dead_code)]
-    opts: args::HealthcheckOpts,
-    network: args::BackendOpts,
+    opts: &'static args::HealthcheckOpts,
 }
 
 impl Health {
-    pub fn new(opts: args::HealthcheckOpts, network: args::BackendOpts) -> Self {
-        Self { opts, network }
+    pub fn new(opts: &'static args::HealthcheckOpts) -> Self {
+        Self { opts }
     }
 
     pub async fn run(self) -> Result<()> {
@@ -33,10 +31,11 @@ impl Health {
         // visible even if bootstrap fails.
         print!("{}", ops::tree::render_order_tree());
 
-        let mut ctx = HealthContext::bootstrap(self.network, self.opts.read_only).await?;
+        let mut active = conditions::Conditions::active();
+
+        let mut ctx = HealthContext::bootstrap(self.opts.read_only).await?;
         let mut report = result::Report::new();
 
-        let mut active = conditions::Conditions::active();
         if !self.opts.read_only {
             active |= conditions::Conditions::WRITES;
         }

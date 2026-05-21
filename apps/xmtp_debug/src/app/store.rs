@@ -1,3 +1,4 @@
+mod dms;
 mod groups;
 mod identity;
 mod messages;
@@ -14,6 +15,8 @@ pub use groups::*;
 pub use identity::*;
 pub use messages::*;
 pub use metadata::*;
+
+use crate::app::App;
 
 /// Open a read-only table, treating `TableDoesNotExist` as a legitimate
 /// empty case (returns `Ok(None)`). Any other table error (type mismatch,
@@ -41,36 +44,30 @@ pub struct NetworkKey<const N: usize> {
 }
 
 impl<const N: usize> NetworkKey<N> {
-    pub fn new(network: u64, key: impl Into<[u8; N]>) -> Self {
+    pub fn new(key: impl Into<[u8; N]>) -> Self {
         Self {
-            network,
+            network: App::network().hash(),
             key: key.into(),
         }
     }
 }
 
-impl<const N: usize> From<(u64, [u8; N])> for NetworkKey<N> {
-    fn from(value: (u64, [u8; N])) -> Self {
+impl<const N: usize> From<[u8; N]> for NetworkKey<N> {
+    fn from(value: [u8; N]) -> Self {
         NetworkKey {
-            network: value.0,
-            key: value.1,
+            network: App::network().hash(),
+            key: value,
         }
     }
 }
 
 impl<const N: usize> NetworkKey<N> {
-    fn create_low(prefix: impl Into<u64>) -> Self {
-        Self {
-            network: prefix.into(),
-            key: [0u8; N],
-        }
+    fn create_low() -> Self {
+        Self::new([0u8; N])
     }
 
-    fn create_high(prefix: impl Into<u64>) -> Self {
-        Self {
-            network: prefix.into(),
-            key: [u8::MAX; N],
-        }
+    fn create_high() -> Self {
+        Self::new([u8::MAX; N])
     }
 }
 
@@ -166,45 +163,43 @@ pub struct IdentityKey {
     pub inbox: [u8; 32],
 }
 
+impl std::fmt::Display for IdentityKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.inbox))
+    }
+}
+
 impl IdentityKey {
+    pub fn new(version_hash: u64, inbox: [u8; 32]) -> Self {
+        Self {
+            network: App::network().hash(),
+            version_hash,
+            inbox,
+        }
+    }
+
     /// Lower bound for a range scan covering every version of `network`.
     /// Used by non-strict reads.
-    pub fn low_all_versions(network: u64) -> Self {
-        Self {
-            network,
-            version_hash: 0,
-            inbox: [0u8; 32],
-        }
+    pub fn low_all_versions() -> Self {
+        Self::new(0, [0u8; 32])
     }
 
     /// Upper bound for a range scan covering every version of `network`.
     /// Used by non-strict reads. Inclusive — use with `range(lo..=hi)`.
-    pub fn high_all_versions(network: u64) -> Self {
-        Self {
-            network,
-            version_hash: u64::MAX,
-            inbox: [u8::MAX; 32],
-        }
+    pub fn high_all_versions() -> Self {
+        Self::new(u64::MAX, [u8::MAX; 32])
     }
 
     /// Lower bound for a range scan covering one (network, version_hash).
     /// Used by strict reads.
-    pub fn low_one_version(network: u64, version_hash: u64) -> Self {
-        Self {
-            network,
-            version_hash,
-            inbox: [0u8; 32],
-        }
+    pub fn low_one_version(version_hash: u64) -> Self {
+        Self::new(version_hash, [0u8; 32])
     }
 
     /// Upper bound for a range scan covering one (network, version_hash).
     /// Used by strict reads. Inclusive — use with `range(lo..=hi)`.
-    pub fn high_one_version(network: u64, version_hash: u64) -> Self {
-        Self {
-            network,
-            version_hash,
-            inbox: [u8::MAX; 32],
-        }
+    pub fn high_one_version(version_hash: u64) -> Self {
+        Self::new(version_hash, [u8::MAX; 32])
     }
 }
 
@@ -273,35 +268,32 @@ impl redb::Key for IdentityKey {
 }
 
 pub trait DeriveKey<Key> {
-    fn key(&self, network: u64) -> Key;
+    fn key(&self) -> Key;
 }
 
 pub trait Database<Key, Value> {
     /// get length of items in db.
-    fn len(&self, network: impl Into<u64>) -> Result<usize>;
+    fn len(&self) -> Result<usize>;
 
     /// store only `value` to disk
-    fn set(&self, value: Value, network: impl Into<u64>) -> Result<()> {
-        Database::set_all(self, &[value], network)
+    fn set(&self, value: Value) -> Result<()> {
+        Database::set_all(self, &[value])
     }
 
     /// store all entities in `values` to disk
-    fn set_all(&self, values: &[Value], network: impl Into<u64>) -> Result<()>;
+    fn set_all(&self, values: &[Value]) -> Result<()>;
 
     /// Get an entity by key from this database store
     fn get(&self, value: Key) -> Result<Option<Value>>;
 
     /// Load all items in db as iterator
-    fn load(
-        &'_ self,
-        network: impl Into<u64>,
-    ) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
+    fn load(&'_ self) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
     where
         Value: redb::Value + 'static;
 
     #[allow(unused)]
     /// Clear all items on a network
-    fn clear_network(&self, network: impl Into<u64>) -> Result<()>;
+    fn clear_network(&self) -> Result<()>;
 
     /// Modify a single value by removing and re-inserting
     fn modify(&self, key: Key, f: impl FnMut(&mut Value)) -> Result<()>
@@ -311,26 +303,16 @@ pub trait Database<Key, Value> {
 
 pub trait RandomDatabase<Key, Value> {
     /// Get a random entity from this database store
-    fn random(&self, network: impl Into<u64> + Copy, rng: &mut impl Rng) -> Result<Option<Value>>;
+    fn random(&self, rng: &mut impl Rng) -> Result<Option<Value>>;
 
     /// get random n
     /// caps at the amount of items in the db. if `n` is greater than stored local items,
     /// returned values will only be up to how many items exist in the db.
-    fn random_n_capped(
-        &self,
-        network: impl Into<u64> + Copy,
-        rng: &mut impl Rng,
-        n: usize,
-    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    fn random_n_capped(&self, rng: &mut impl Rng, n: usize) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq + redb::Value;
 
-    fn random_n(
-        &self,
-        network: impl Into<u64> + Copy,
-        rng: &mut impl Rng,
-        n: usize,
-    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    fn random_n(&self, rng: &mut impl Rng, n: usize) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq + redb::Value;
 }
@@ -340,20 +322,10 @@ pub trait TableProvider<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
 }
 
 pub trait TrackMetadata {
-    fn increment<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()>;
+    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()>;
     // decrement a metadata item
     #[allow(unused)]
-    fn decrement<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()>;
+    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()>;
 }
 
 #[derive(Clone)]
@@ -368,6 +340,16 @@ enum DatabaseOrTransaction<'a> {
 pub struct KeyValueStore<'db, Storage> {
     db: DatabaseOrTransaction<'db>,
     store: Storage,
+    network: u64,
+}
+impl<'db, Storage> KeyValueStore<'db, Storage> {
+    pub fn new(store: Storage, db: DatabaseOrTransaction<'db>) -> Self {
+        Self {
+            db,
+            store,
+            network: App::network().hash(),
+        }
+    }
 }
 
 impl<Storage> KeyValueStore<'_, Storage> {
@@ -423,27 +405,26 @@ where
     for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<NetworkKey<N>> + 'static,
     for<'a> Value: Borrow<<Value as redb::Value>::SelfType<'a>>,
 {
-    fn set_all(&self, values: &[Value], network: impl Into<u64>) -> Result<()> {
-        let network: u64 = network.into();
+    fn set_all(&self, values: &[Value]) -> Result<()> {
         let op = |w: &WriteTransaction| -> Result<()> {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             for value in values.iter() {
-                let key: NetworkKey<N> = value.key(network);
+                let key: NetworkKey<N> = value.key();
                 if table.insert(key, value)?.is_none() {
                     total += 1;
                 }
             }
-            self.store.increment(w, network, total)?;
+            self.store.increment(w, total)?;
             Ok(())
         };
         self.apply_write(op)?;
         Ok(())
     }
 
-    fn len(&self, network: impl Into<u64>) -> Result<usize> {
+    fn len(&self) -> Result<usize> {
         Ok(self
-            .load(network)?
+            .load()?
             .ok_or(eyre!("no items found, try generating some"))?
             .fold(0, |acc, _| acc + 1))
     }
@@ -458,10 +439,7 @@ where
         self.apply_read(op)
     }
 
-    fn load(
-        &'_ self,
-        network: impl Into<u64>,
-    ) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
+    fn load(&'_ self) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
     where
         Value: redb::Value + 'static,
     {
@@ -469,9 +447,8 @@ where
             let Some(table) = open_table_optional(r, Self::table())? else {
                 return Ok(None);
             };
-            let network: u64 = network.into();
-            let start = NetworkKey::<N>::create_low(network);
-            let end = NetworkKey::<N>::create_high(network);
+            let start = NetworkKey::<N>::create_low();
+            let end = NetworkKey::<N>::create_high();
             // Eager collect so a redb StorageError surfaces here instead
             // of lazily panicking at the caller's iteration site.
             let rows: Vec<_> = table.range(start..end)?.collect::<Result<_, _>>()?;
@@ -479,19 +456,18 @@ where
         })
     }
 
-    fn clear_network(&self, network: impl Into<u64>) -> Result<()> {
-        let network: u64 = network.into();
+    fn clear_network(&self) -> Result<()> {
         self.apply_write(|w| {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             table.retain(|k: NetworkKey<N>, _| {
-                if k.network == network {
+                if k.network == self.network {
                     total += 1;
                     return false;
                 }
                 true
             })?;
-            self.store.decrement(w, network, total)?;
+            self.store.decrement(w, total)?;
             Ok(())
         })
     }
@@ -508,7 +484,7 @@ where
             f(&mut item);
             table.insert(key, item)?;
             if !was_present {
-                self.store.increment(w, key.network, 1)?;
+                self.store.increment(w, 1)?;
             }
             Ok(())
         })
@@ -521,11 +497,11 @@ where
     Storage: TrackMetadata + TableProvider<'key, NetworkKey<N>, Value>,
     for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<NetworkKey<N>> + 'static,
 {
-    fn random(&self, network: impl Into<u64> + Copy, rng: &mut impl Rng) -> Result<Option<Value>> {
+    fn random(&self, rng: &mut impl Rng) -> Result<Option<Value>> {
         self.apply_read(|r| {
             let table = r.open_table(Self::table())?;
-            let start = NetworkKey::create_low(network);
-            let end = NetworkKey::create_high(network);
+            let start = NetworkKey::create_low();
+            let end = NetworkKey::create_high();
             Ok(table
                 .range(start..end)?
                 .choose(rng)
@@ -537,12 +513,7 @@ where
     /// get random n
     /// caps at the amount of items in the db. if `n` is greater than stored local items,
     /// returned values will only be up to how many items exist in the db.
-    fn random_n_capped(
-        &self,
-        network: impl Into<u64> + Copy,
-        rng: &mut impl Rng,
-        n: usize,
-    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    fn random_n_capped(&self, rng: &mut impl Rng, n: usize) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq + redb::Value,
     {
@@ -550,17 +521,12 @@ where
             return Ok(Vec::new());
         }
         let items = self
-            .load(network)?
+            .load()?
             .ok_or(eyre!("no items found, try generating some"))?;
         Ok(items.sample(rng, n))
     }
 
-    fn random_n(
-        &self,
-        network: impl Into<u64> + Copy,
-        rng: &mut impl Rng,
-        n: usize,
-    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    fn random_n(&self, rng: &mut impl Rng, n: usize) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq,
     {
@@ -568,7 +534,7 @@ where
             return Ok(Vec::new());
         }
         let len = self
-            .load(network)?
+            .load()?
             .ok_or(eyre!("no items found, try generating some"))?
             .fold(0, |acc, _| acc + 1);
         if len == 0 {
@@ -580,7 +546,7 @@ where
         let mut random = Vec::with_capacity(n);
         while random.len() < n {
             let items = self
-                .load(network)?
+                .load()?
                 .ok_or(eyre!("no items found, try generating some"))?;
             let want = (n - random.len()).min(len);
             random.extend(items.sample(rng, want));
@@ -595,27 +561,26 @@ where
     for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<IdentityKey> + 'static,
     for<'a> Value: Borrow<<Value as redb::Value>::SelfType<'a>>,
 {
-    fn set_all(&self, values: &[Value], network: impl Into<u64>) -> Result<()> {
-        let network: u64 = network.into();
+    fn set_all(&self, values: &[Value]) -> Result<()> {
         let op = |w: &WriteTransaction| -> Result<()> {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             for value in values.iter() {
-                let key: IdentityKey = value.key(network);
+                let key: IdentityKey = value.key();
                 if table.insert(key, value)?.is_none() {
                     total += 1;
                 }
             }
-            self.store.increment(w, network, total)?;
+            self.store.increment(w, total)?;
             Ok(())
         };
         self.apply_write(op)?;
         Ok(())
     }
 
-    fn len(&self, network: impl Into<u64>) -> Result<usize> {
+    fn len(&self) -> Result<usize> {
         Ok(self
-            .load(network)?
+            .load()?
             .ok_or(eyre!("no items found, try generating some"))?
             .fold(0, |acc, _| acc + 1))
     }
@@ -633,10 +598,7 @@ where
     /// Load every identity under `network`, regardless of version. This
     /// matches the existing `Database` trait semantics — strict-mode
     /// filtered loads are exposed via `IdentityStore::load_for_version`.
-    fn load(
-        &'_ self,
-        network: impl Into<u64>,
-    ) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
+    fn load(&'_ self) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
     where
         Value: redb::Value + 'static,
     {
@@ -644,27 +606,25 @@ where
             let Some(table) = open_table_optional(r, Self::table())? else {
                 return Ok(None);
             };
-            let network: u64 = network.into();
-            let start = IdentityKey::low_all_versions(network);
-            let end = IdentityKey::high_all_versions(network);
+            let start = IdentityKey::low_all_versions();
+            let end = IdentityKey::high_all_versions();
             let rows: Vec<_> = table.range(start..=end)?.collect::<Result<_, _>>()?;
             Ok(Some(rows.into_iter().map(|(_, v)| v)))
         })
     }
 
-    fn clear_network(&self, network: impl Into<u64>) -> Result<()> {
-        let network: u64 = network.into();
+    fn clear_network(&self) -> Result<()> {
         self.apply_write(|w| {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             table.retain(|k: IdentityKey, _| {
-                if k.network == network {
+                if k.network == self.network {
                     total += 1;
                     return false;
                 }
                 true
             })?;
-            self.store.decrement(w, network, total)?;
+            self.store.decrement(w, total)?;
             Ok(())
         })
     }
@@ -681,7 +641,7 @@ where
             f(&mut item);
             table.insert(key, item)?;
             if !was_present {
-                self.store.increment(w, key.network, 1)?;
+                self.store.increment(w, 1)?;
             }
             Ok(())
         })
@@ -693,11 +653,11 @@ where
     Storage: TrackMetadata + TableProvider<'key, IdentityKey, Value>,
     for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<IdentityKey> + 'static,
 {
-    fn random(&self, network: impl Into<u64> + Copy, rng: &mut impl Rng) -> Result<Option<Value>> {
+    fn random(&self, rng: &mut impl Rng) -> Result<Option<Value>> {
         self.apply_read(|r| {
             let table = r.open_table(Self::table())?;
-            let start = IdentityKey::low_all_versions(network.into());
-            let end = IdentityKey::high_all_versions(network.into());
+            let start = IdentityKey::low_all_versions();
+            let end = IdentityKey::high_all_versions();
             Ok(table
                 .range(start..=end)?
                 .choose(rng)
@@ -709,36 +669,25 @@ where
     /// get random n
     /// caps at the amount of items in the db. if `n` is greater than stored local items,
     /// returned values will only be up to how many items exist in the db.
-    fn random_n_capped(
-        &self,
-        network: impl Into<u64> + Copy,
-        rng: &mut impl Rng,
-        n: usize,
-    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    fn random_n_capped(&self, rng: &mut impl Rng, n: usize) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq + redb::Value,
     {
         if n == 0 {
             return Ok(Vec::new());
         }
-        let items =
-            Database::load(self, network)?.ok_or(eyre!("no items found, try generating some"))?;
+        let items = Database::load(self)?.ok_or(eyre!("no items found, try generating some"))?;
         Ok(items.sample(rng, n))
     }
 
-    fn random_n(
-        &self,
-        network: impl Into<u64> + Copy,
-        rng: &mut impl Rng,
-        n: usize,
-    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    fn random_n(&self, rng: &mut impl Rng, n: usize) -> Result<Vec<AccessGuard<'_, Value>>>
     where
         Value: std::hash::Hash + Eq,
     {
         if n == 0 {
             return Ok(Vec::new());
         }
-        let len = Database::load(self, network)?
+        let len = Database::load(self)?
             .ok_or(eyre!("no items found, try generating some"))?
             .fold(0, |acc, _| acc + 1);
         if len == 0 {
@@ -749,8 +698,8 @@ where
         // only materializes on `value()`, so cheap.
         let mut random = Vec::with_capacity(n);
         while random.len() < n {
-            let items = Database::load(self, network)?
-                .ok_or(eyre!("no items found, try generating some"))?;
+            let items =
+                Database::load(self)?.ok_or(eyre!("no items found, try generating some"))?;
             let want = (n - random.len()).min(len);
             random.extend(items.sample(rng, want));
         }
@@ -763,6 +712,7 @@ pub struct Metadata {
     pub identities: u32,
     pub groups: u32,
     pub messages: u32,
+    pub dms: u32,
 }
 
 impl redb::Value for Metadata {
@@ -804,45 +754,30 @@ impl redb::Value for Metadata {
 
 impl<'a: 'b, 'b> From<IdentityStore<'a>> for MetadataStore<'b> {
     fn from(store: IdentityStore<'a>) -> MetadataStore<'b> {
-        MetadataStore {
-            db: store.db,
-            store: MetadataStorage,
-        }
+        MetadataStore::new(MetadataStorage, store.db)
     }
 }
 
 impl<'a: 'b, 'b> From<GroupStore<'a>> for MetadataStore<'b> {
     fn from(store: GroupStore<'a>) -> MetadataStore<'b> {
-        MetadataStore {
-            db: store.db,
-            store: MetadataStorage,
-        }
+        MetadataStore::new(MetadataStorage, store.db)
     }
 }
 
 impl<'a: 'b, 'b> From<MessageStore<'a>> for MetadataStore<'b> {
     fn from(store: MessageStore<'a>) -> MetadataStore<'b> {
-        MetadataStore {
-            db: store.db,
-            store: MetadataStorage,
-        }
+        MetadataStore::new(MetadataStorage, store.db)
     }
 }
 
 impl<'a> From<&'a WriteTransaction> for MetadataStore<'a> {
     fn from(tx: &'a WriteTransaction) -> MetadataStore<'a> {
-        MetadataStore {
-            db: DatabaseOrTransaction::WriteTx(tx),
-            store: MetadataStorage,
-        }
+        MetadataStore::new(MetadataStorage, DatabaseOrTransaction::WriteTx(tx))
     }
 }
 impl<'a> From<&'a ReadTransaction> for MetadataStore<'a> {
     fn from(tx: &'a ReadTransaction) -> MetadataStore<'a> {
-        MetadataStore {
-            db: DatabaseOrTransaction::ReadTx(tx),
-            store: MetadataStorage,
-        }
+        MetadataStore::new(MetadataStorage, DatabaseOrTransaction::ReadTx(tx))
     }
 }
 
@@ -961,11 +896,15 @@ mod identity_database_tests {
         let (db, _dir) = open();
         let store: IdentityStore<'static> = db.into();
 
-        store.set(ident(1, 100), 1u64).unwrap();
-        store.set(ident(2, 100), 2u64).unwrap();
+        App::set_network_hash(1);
+        store.set(ident(1, 100)).unwrap();
+        App::set_network_hash(2);
+        store.set(ident(2, 100)).unwrap();
 
-        let net1: Vec<_> = store.load(1u64).unwrap().unwrap().collect();
-        let net2: Vec<_> = store.load(2u64).unwrap().unwrap().collect();
+        App::set_network_hash(1);
+        let net1: Vec<_> = store.load().unwrap().unwrap().collect();
+        App::set_network_hash(2);
+        let net2: Vec<_> = store.load().unwrap().unwrap().collect();
         assert_eq!(net1.len(), 1);
         assert_eq!(net2.len(), 1);
     }
@@ -975,20 +914,13 @@ mod identity_database_tests {
         let (db, _dir) = open();
         let store: IdentityStore<'static> = db.into();
 
-        store.set(ident(1, 100), 1u64).unwrap();
-        store.set(ident(2, 100), 1u64).unwrap();
-        store.set(ident(3, 200), 1u64).unwrap();
+        App::set_network_hash(1);
+        store.set(ident(1, 100)).unwrap();
+        store.set(ident(2, 100)).unwrap();
+        store.set(ident(3, 200)).unwrap();
 
-        let v100: Vec<_> = store
-            .load_for_version(1u64, 100)
-            .unwrap()
-            .unwrap()
-            .collect();
-        let v200: Vec<_> = store
-            .load_for_version(1u64, 200)
-            .unwrap()
-            .unwrap()
-            .collect();
+        let v100: Vec<_> = store.load_for_version(100).unwrap().unwrap().collect();
+        let v200: Vec<_> = store.load_for_version(200).unwrap().unwrap().collect();
         assert_eq!(v100.len(), 2);
         assert_eq!(v200.len(), 1);
     }

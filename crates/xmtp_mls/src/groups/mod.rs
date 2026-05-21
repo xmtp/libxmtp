@@ -2899,7 +2899,6 @@ where
 
         Ok(mls_groups)
     }
-
     /// Used for testing that dm group validation works as expected.
     ///
     /// See the `test_validate_dm_group` test function for more details.
