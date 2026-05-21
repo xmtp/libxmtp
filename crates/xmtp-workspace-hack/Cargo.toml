@@ -51,7 +51,7 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
-hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc", features = ["hazmat", "libcrux", "serialization"] }
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
@@ -143,7 +143,7 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
-hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc", features = ["hazmat", "libcrux", "serialization"] }
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }

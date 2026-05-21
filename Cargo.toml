@@ -236,6 +236,18 @@ lto = true
 [patch.crates-io]
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+# xmtp/hpke-rs fork of v0.6.1 with one extra commit adding
+# XWingDraft06Obsolete dispatch in the libcrux backend. Lets the
+# welcome wrapper pin to the obsolete 0x004D codepoint for wire compat
+# with v1.9 / v1.10 clients (hpke-rs 0.4). All four sister crates patch
+# together: they're one workspace with internal path deps, so patching
+# only the backend produces two HpkeCrypto trait versions in the graph
+# and breaks openmls_libcrux_crypto. Remove when the d14n cutover
+# migrates everyone to 0x647a (#3661).
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
+hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
+hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
+hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
 
 [patch.crates-io.xmtp-workspace-hack]
 path = "crates/xmtp-workspace-hack"
