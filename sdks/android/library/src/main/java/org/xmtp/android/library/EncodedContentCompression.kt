@@ -23,6 +23,7 @@ enum class EncodedContentCompression {
                     }
                 }
             }
+
             GZIP -> {
                 ByteArrayOutputStream(content.size).use { bos ->
                     GZIPOutputStream(bos).use { gzipOS ->
@@ -41,6 +42,7 @@ enum class EncodedContentCompression {
                 InflaterOutputStream(bos).write(content)
                 bos.toByteArray()
             }
+
             GZIP -> {
                 ByteArrayInputStream(content).use { bis ->
                     ByteArrayOutputStream().use { bos ->

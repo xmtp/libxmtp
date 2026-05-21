@@ -79,7 +79,7 @@ impl Export {
                 let store: GroupStore = store.into();
                 let groups = store.load(&network)?.ok_or_eyre("no groups in store")?;
                 let topics: Vec<Topic> = groups
-                    .map(|g| Topic::new_group_message(g.value().id))
+                    .map(|g| Topic::new_group_message(g.value().id()))
                     .collect();
                 let json = serde_json::to_string(&topics)?;
                 writer.write_all(json.as_bytes())?;
@@ -115,6 +115,7 @@ pub struct IdentityExport {
     inbox_id: String,
     ethereum_address: String,
     installation_public_key: String,
+    version: String,
 }
 
 impl From<Identity> for IdentityExport {
@@ -124,6 +125,9 @@ impl From<Identity> for IdentityExport {
             inbox_id: hex::encode(identity.inbox_id),
             ethereum_address: identity.address(),
             installation_public_key: hex::encode(inst.public_bytes()),
+            version: String::from_utf8_lossy(&identity.version_string)
+                .trim_matches('\0')
+                .to_string(),
         }
     }
 }
@@ -139,16 +143,20 @@ pub struct GroupExportInner {
     created_by: String,
     member_size: u32,
     members: Vec<String>,
+    version: String,
 }
 
 impl From<Group> for GroupExport {
     fn from(group: Group) -> Self {
         GroupExport {
-            id: hex::encode(group.id),
+            id: hex::encode(group.id()),
             group: GroupExportInner {
                 created_by: hex::encode(group.created_by),
                 member_size: group.member_size,
                 members: group.members.into_iter().map(hex::encode).collect(),
+                version: String::from_utf8_lossy(&group.version_string)
+                    .trim_matches('\0')
+                    .to_string(),
             },
         }
     }

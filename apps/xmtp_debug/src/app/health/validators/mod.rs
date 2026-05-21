@@ -24,9 +24,15 @@ impl Named for dyn Validator {
     }
 }
 
+use crate::app::health::conditions::Conditions;
+use crate::app::health::registry::RegistryBuild;
+
 pub struct ValidatorEntry {
     pub depends_on: &'static [&'static str],
     pub validator: &'static (dyn Validator + Sync),
+    /// Condition bits this validator needs to be runnable.
+    /// `Conditions::ALWAYS` = always runnable.
+    pub requires: Conditions,
 }
 
 inventory::collect!(ValidatorEntry);
@@ -41,8 +47,11 @@ impl RegistryEntry for ValidatorEntry {
     fn value(&self) -> &'static dyn Validator {
         self.validator
     }
+    fn requires(&self) -> Conditions {
+        self.requires
+    }
 }
 
-pub fn registry() -> Vec<&'static dyn Validator> {
-    registry::topo_sort::<ValidatorEntry>(inventory::iter::<ValidatorEntry>)
+pub fn registry(active: Conditions) -> RegistryBuild<dyn Validator> {
+    registry::topo_sort::<ValidatorEntry>(inventory::iter::<ValidatorEntry>, active)
 }

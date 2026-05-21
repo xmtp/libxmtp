@@ -43,18 +43,13 @@ impl HealthOp for RemoveMember {
 
             // Primary adds the victim, then admin-removes them via
             // `remove_members`. Both commits go through primary.
-            let primary_group = ctx
-                .primary
-                .group(&gid)
-                .map_err(color_eyre::eyre::Report::from)?;
+            let primary_group = ctx.primary.group(&gid)?;
             primary_group
                 .add_members(std::slice::from_ref(&victim_inbox))
-                .await
-                .map_err(color_eyre::eyre::Report::from)?;
+                .await?;
             primary_group
                 .remove_members(&[victim_inbox.as_str()])
-                .await
-                .map_err(color_eyre::eyre::Report::from)?;
+                .await?;
             Ok(())
         }
         .await;
@@ -98,5 +93,6 @@ inventory::submit! {
             "GetMutableMetadata",
         ],
         op: &RemoveMember,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

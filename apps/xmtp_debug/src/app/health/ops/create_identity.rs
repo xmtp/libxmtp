@@ -49,5 +49,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &[],
         op: &CreateIdentity,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

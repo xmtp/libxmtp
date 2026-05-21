@@ -1,0 +1,162 @@
+//! Strict-versioning-only op: ensure every xdbg version known to this
+//! run is represented by at least one member in the newly-created
+//! group. If a version is missing, pick one of its inboxes and add
+//! it; only fail if a representative can't be found or the add call
+//! itself errors.
+//!
+//! Motivation: cross-talk tests want every version-partition to have
+//! at least one member in the test group so downstream ops can drive
+//! cross-version traffic. Without `--strict-versioning`, version
+//! partitioning isn't meaningful (all identities are loaded
+//! uniformly), so this op is gated on `Conditions::STRICT_VERSIONING`.
+
+use crate::app::App;
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::ops::HealthOp;
+use crate::app::health::result::{OpResult, Status};
+use crate::app::store::{Database, IdentityStore};
+use crate::app::types::{Identity, InboxId};
+use async_trait::async_trait;
+use color_eyre::eyre::eyre;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use xmtp_mls::groups::UpdateAdminListType::*;
+
+pub struct EnsurePerVersionMembership;
+
+#[async_trait]
+impl HealthOp for EnsurePerVersionMembership {
+    fn name(&self) -> &'static str {
+        "EnsurePerVersionMembership"
+    }
+
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(op = "EnsurePerVersionMembership")
+    )]
+    async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
+        let Some(new_group_id) = ctx.new_groups.first().cloned() else {
+            return vec![OpResult {
+                op_name: self.name(),
+                target: None,
+                status: Status::Fail,
+                duration: Duration::ZERO,
+                error: Some(eyre!(
+                    "no new group; CreateGroup + AddMembersToNewGroup must run first"
+                )),
+            }];
+        };
+
+        let start = Instant::now();
+        let outcome: color_eyre::eyre::Result<()> = async {
+            let mut updated_members = ctx.persisted_members(&new_group_id);
+            if updated_members.is_empty() {
+                return Err(eyre!(
+                    "group has no persisted members; AddMembersToNewGroup must run first"
+                ));
+            }
+
+            // Materialize the full IdentityStore for this network once,
+            // keyed by inbox. Avoids N+1 table scans in the loops below.
+            // Scoped so the redb handle drops before we re-open it below
+            // (redb refuses concurrent opens within a single process).
+            let net_key = u64::from(&ctx.network);
+            let identities: HashMap<InboxId, Identity> = {
+                let redb: Arc<redb::Database> = App::db()?;
+                let id_store: IdentityStore<'static> = redb.into();
+                id_store
+                    .load(net_key)?
+                    .into_iter()
+                    .flatten()
+                    .map(|g| {
+                        let id = g.value();
+                        (id.inbox_id, id)
+                    })
+                    .collect()
+            };
+
+            let present_versions: BTreeSet<u64> = updated_members
+                .iter()
+                .filter_map(|inbox| identities.get(inbox).map(|id| id.version_hash))
+                .collect();
+
+            // First inbox per version_hash wins; primary represents the
+            // current version, other_identities cover the rest.
+            let mut version_representative: BTreeMap<u64, InboxId> = BTreeMap::new();
+            version_representative.insert(
+                App::current_version_hash(),
+                inbox_id_to_bytes(ctx.primary.inbox_id()),
+            );
+            for inbox in &ctx.other_identities {
+                if let Some(id) = identities.get(inbox) {
+                    version_representative
+                        .entry(id.version_hash)
+                        .or_insert(*inbox);
+                }
+            }
+
+            let to_add: Vec<InboxId> = version_representative
+                .iter()
+                .filter(|(v, _)| !present_versions.contains(v))
+                .map(|(_, inbox)| *inbox)
+                .collect();
+
+            let group = ctx
+                .primary
+                .group(&new_group_id)
+                .map_err(|e| eyre!("primary cannot load group: {e}"))?;
+
+            if !to_add.is_empty() {
+                let hex_to_add: Vec<String> = to_add.iter().map(hex::encode).collect();
+                tracing::info!(
+                    target: "healthcheck",
+                    group = %new_group_id,
+                    adding = ?hex_to_add,
+                    "adding representative members for missing versions",
+                );
+                group.add_members(&hex_to_add).await?;
+                updated_members.extend(to_add);
+                ctx.update_group_members(&new_group_id, updated_members);
+                // Welcomes aren't auto-pulled mid-run — sync so the new
+                // members can `client.group(...)` immediately.
+                ctx.sync_welcomes_fanout(self.name()).await;
+            }
+
+            // Each version needs a locally-available super-admin so future
+            // cross-version runs can pick one via `pick_super_admin`.
+            for inbox in version_representative.values() {
+                let hex_inbox = hex::encode(inbox);
+                if group.is_super_admin(hex_inbox.clone()).unwrap_or(false) {
+                    continue;
+                }
+                group.update_admin_list(AddSuper, hex_inbox).await?;
+            }
+
+            Ok(())
+        }
+        .await;
+
+        let (status, error) = match outcome {
+            Ok(_) => (Status::Pass, None),
+            Err(e) => (Status::Fail, Some(e)),
+        };
+
+        vec![OpResult {
+            op_name: self.name(),
+            target: Some(format!("{new_group_id}")),
+            status,
+            duration: start.elapsed(),
+            error,
+        }]
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        depends_on: &["AddMembersToNewGroup"],
+        op: &EnsurePerVersionMembership,
+        requires: crate::app::health::conditions::Conditions::STRICT_VERSIONING,
+    }
+}

@@ -2,7 +2,7 @@
 use crate::app::load_n_identities;
 use crate::app::{
     self,
-    store::{Database, GroupStore, IdentityStore, RandomDatabase},
+    store::{Database, GroupStore, IdentityStore},
     types::*,
 };
 use crate::args;
@@ -14,9 +14,10 @@ use color_eyre::eyre::{self, Result, ensure, eyre};
 use futures::{StreamExt, TryFutureExt, TryStreamExt, stream};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::time::Instant;
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::{GroupId, InstallationId};
 
 pub struct GenerateGroups {
     group_store: GroupStore<'static>,
@@ -75,11 +76,11 @@ impl GenerateGroups {
                         let _permit = semaphore.acquire().await?;
                         let t_total = Instant::now();
 
-                        let (ids, first_invitee) =
+                        let (invitee_inboxes, invitee_hex, first_invitee) =
                             resolve_invitees(&store, network_u64, invitees, owner)?;
 
                         let (group_id, create_secs) =
-                            create_group_on_network(&client, &ids).await?;
+                            create_group_on_network(&client, &invitee_hex).await?;
 
                         record_phase_metric(
                             "group_create_client_only",
@@ -111,30 +112,16 @@ impl GenerateGroups {
 
                         bar_pointer.inc(1);
 
-                        let mut members = ids
-                            .iter()
-                            .map(|id| {
-                                let mut buf = [0u8; 32];
-                                hex::decode_to_slice(id, &mut buf).ok();
-                                buf
-                            })
-                            .collect::<Vec<InboxId>>();
-                        members.push(owner);
-
                         // -- XDBG_LOOP_PAUSE --
                         if let Some(secs) = loop_pause_secs {
                             tracing::debug!(secs, "sleeping XDBG_LOOP_PAUSE after group");
                             tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
                         }
 
-                        Ok(Group {
-                            id: group_id
-                                .try_into()
-                                .expect("Group id expected to be 32 bytes"),
-                            member_size: members.len() as u32,
-                            members,
-                            created_by: owner,
-                        })
+                        // `Group::add_members` dedupes, so even if an
+                        // upstream filter slips up the owner can't appear
+                        // twice in the persisted member list.
+                        Ok(Group::new(group_id, owner, vec![owner]).add_members(invitee_inboxes))
                     }
                 }))
                 .map_err(|_| eyre!("failed to spawn tasks for group creation")))
@@ -154,43 +141,59 @@ impl GenerateGroups {
     }
 }
 
-/// Resolve random invitees from the identity store.
-/// Returns hex-encoded inbox IDs and optionally the first invitee's raw identity
-/// (resolved eagerly so no non-Send rng is held across await points).
+/// Resolve random invitees from the identity store. Returns the raw
+/// inbox bytes (for redb persistence), the hex-encoded inbox ids (for
+/// libxmtp's `add_members`), and optionally the first invitee's raw
+/// identity. Resolved eagerly so no non-Send rng is held across await
+/// points.
 fn resolve_invitees(
     store: &IdentityStore<'static>,
     network_u64: u64,
     invitees: usize,
     owner: InboxId,
-) -> Result<(Vec<String>, Option<Identity>)> {
+) -> Result<(Vec<InboxId>, Vec<String>, Option<Identity>)> {
     let mut rng = rand::rng();
-    let invitee_identities = store.random_n_capped(network_u64, &mut rng, invitees)?;
-    let first_invitee = invitee_identities.first().map(|i| i.value());
-    let mut ids = Vec::with_capacity(invitee_identities.len());
-    for member in &invitee_identities {
-        let member = member.value();
+    // Over-sample by 1 so dropping the owner (if it lands in the
+    // sample) doesn't leave us short. `sample_n` honors
+    // `--strict-versioning`, so cross-version inboxes are filtered at
+    // the store level — no need to re-filter here.
+    let sample = store.sample_n(
+        network_u64,
+        &mut rng,
+        invitees + 1,
+        crate::app::App::strict_versioning(),
+    )?;
+    let mut iter = sample
+        .into_iter()
+        .filter(|id| id.inbox_id != owner)
+        .take(invitees);
+
+    let first_invitee = iter.next();
+    let mut inboxes = Vec::with_capacity(invitees);
+    let mut hex_ids = Vec::with_capacity(invitees);
+    for member in first_invitee.into_iter().chain(iter) {
         let cred = XmtpInstallationCredential::from_bytes(&member.installation_key)?;
-        let inbox_id = hex::encode(member.inbox_id);
         tracing::debug!(
-            inbox_ids = hex::encode(member.inbox_id),
+            inbox_id = hex::encode(member.inbox_id),
             installation_key = %InstallationId::from(*cred.public_bytes()),
             "Adding Members"
         );
-        ids.push(inbox_id);
+        inboxes.push(member.inbox_id);
+        hex_ids.push(hex::encode(member.inbox_id));
     }
     debug!(
         owner = hex::encode(owner),
-        member_count = ids.len(),
+        member_count = hex_ids.len(),
         "group owner"
     );
-    Ok((ids, first_invitee))
+    Ok((inboxes, hex_ids, first_invitee))
 }
 
 /// Create a group and add members, returning the group ID and the group-creation latency.
 async fn create_group_on_network(
-    client: &tokio::sync::Mutex<crate::DbgClient>,
+    client: &Mutex<crate::DbgClient>,
     member_ids: &[String],
-) -> Result<(Vec<u8>, f64)> {
+) -> Result<(GroupId, f64)> {
     let t_create = Instant::now();
     let client_guard = client.lock().await;
     let group = client_guard.create_group(Default::default(), Default::default())?;
@@ -217,20 +220,18 @@ async fn create_group_on_network(
     );
     push_metrics("xdbg_debug").await;
 
-    let group_id = group.group_id.to_vec();
     drop(client_guard);
 
-    Ok((group_id, create_secs))
+    Ok((group.group_id, create_secs))
 }
 
 /// Check whether an invitee can see the group via sync_welcomes (read-your-own-writes).
 async fn check_member_visibility(
-    group_id: &[u8],
+    group_id: &GroupId,
     invitee: &Identity,
     network: &args::BackendOpts,
 ) -> Result<()> {
     let reader_client = app::client_from_identity(invitee, network)?;
-    let group_id_typed = xmtp_proto::types::GroupId::try_from(group_id)?;
 
     let t_visibility = Instant::now();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
@@ -239,7 +240,7 @@ async fn check_member_visibility(
 
     loop {
         reader_client.sync_welcomes().await?;
-        if reader_client.group(&group_id_typed).is_ok() {
+        if reader_client.group(group_id).is_ok() {
             visible = true;
             break;
         }

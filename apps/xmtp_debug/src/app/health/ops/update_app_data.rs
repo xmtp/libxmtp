@@ -20,14 +20,8 @@ impl HealthOp for UpdateAppData {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
-                group
-                    .update_app_data("healthcheck-app-data".into())
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
+                group.update_app_data("healthcheck-app-data".into()).await?;
                 Ok(())
             }
             .await;
@@ -60,5 +54,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateAppData,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

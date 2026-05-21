@@ -75,5 +75,6 @@ inventory::submit! {
     crate::app::health::validators::ValidatorEntry {
         depends_on: &[],
         validator: &NoForkedGroups,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

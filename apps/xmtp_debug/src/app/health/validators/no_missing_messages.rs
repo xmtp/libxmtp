@@ -174,5 +174,6 @@ inventory::submit! {
     crate::app::health::validators::ValidatorEntry {
         depends_on: &[],
         validator: &NoMissingMessages,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

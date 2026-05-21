@@ -13985,8 +13985,10 @@ checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
 name = "xdbg"
 version = "1.11.0-dev"
 dependencies = [
- "alloy",
+ "alloy-primitives",
+ "alloy-signer-local",
  "async-trait",
+ "bitflags 2.11.1",
  "chrono",
  "clap",
  "clap-verbosity-flag",
@@ -14023,6 +14025,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-appender",
+ "tracing-error",
  "tracing-log",
  "tracing-logfmt",
  "tracing-subscriber",

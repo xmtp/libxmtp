@@ -8,7 +8,7 @@ use crate::app::store::Database;
 use crate::app::store::IdentityStore;
 use crate::app::store::RandomDatabase;
 use crate::app::types::*;
-use alloy::signers::local::PrivateKeySigner;
+use alloy_signer_local::PrivateKeySigner;
 use color_eyre::eyre::{WrapErr, eyre};
 use tokio::sync::Mutex;
 use xmtp_api_d14n::MessageBackendBuilder;
@@ -57,7 +57,11 @@ pub fn client_from_identity(
     identity: &Identity,
     network: &args::BackendOpts,
 ) -> Result<crate::DbgClient> {
-    let path = identity.db_path(network)?;
+    // Use the identity's stored version_hash so cross-version loads
+    // (under non-strict mode) find the correct SQLite partition. In
+    // strict mode, all loaded identities have version_hash == this
+    // binary's hash, so db_path_for and db_path agree.
+    let path = identity.db_path_for(network, identity.version_hash)?;
     debug!(
         inbox_id = hex::encode(identity.inbox_id),
         db_path = %path.display(),
@@ -184,20 +188,32 @@ fn existing_client_inner(
     Ok(client)
 }
 
-/// Loads all identities
+/// Loads all identities. Honors `App::strict_versioning()`: when set,
+/// reads only this binary's version partition; otherwise reads every
+/// version on the network.
 pub fn load_all_identities(
     store: &IdentityStore<'static>,
     network: &args::BackendOpts,
 ) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
-    let identities = store
-        .load(u64::from(network))?
-        .ok_or(eyre!("no identities in store, try generating some"))?;
+    let identities: Vec<Identity> = if crate::app::App::strict_versioning() {
+        store
+            .load_for_version(u64::from(network), crate::app::App::current_version_hash())?
+            .ok_or(eyre!("no identities in store, try generating some"))?
+            .map(|g| g.value())
+            .collect()
+    } else {
+        store
+            .load(u64::from(network))?
+            .ok_or(eyre!("no identities in store, try generating some"))?
+            .map(|g| g.value())
+            .collect()
+    };
     let now = std::time::Instant::now();
     let mut clients = HashMap::new();
     let mut skipped = 0u32;
-    for i in identities {
-        let inbox_id = i.value().inbox_id;
-        match client_from_identity(&i.value(), network) {
+    for identity in identities {
+        let inbox_id = identity.inbox_id;
+        match client_from_identity(&identity, network) {
             Ok(client) => {
                 clients.insert(inbox_id, Mutex::new(client));
             }
@@ -231,13 +247,36 @@ pub fn load_n_identities(
 ) -> Result<Arc<HashMap<InboxId, Arc<Mutex<crate::DbgClient>>>>> {
     let mut rng = rand::rng();
     let now = std::time::Instant::now();
-    let identities = store.random_n(u64::from(network), &mut rng, n)?;
-    tracing::info!("loaded {} identities in {:?}", n, now.elapsed());
+
+    let identities: Vec<Identity> = if crate::app::App::strict_versioning() {
+        // Strict: pool from this version's partition only, sample n.
+        use rand::seq::SliceRandom;
+        let mut pool: Vec<Identity> = store
+            .load_for_version(u64::from(network), crate::app::App::current_version_hash())?
+            .ok_or(eyre!("no identities in store, try generating some"))?
+            .map(|g| g.value())
+            .collect();
+        pool.shuffle(&mut rng);
+        pool.truncate(n);
+        pool
+    } else {
+        // Non-strict: existing random_n path.
+        store
+            .random_n(u64::from(network), &mut rng, n)?
+            .into_iter()
+            .map(|g| g.value())
+            .collect()
+    };
+
+    tracing::info!(
+        "loaded {} identities in {:?}",
+        identities.len(),
+        now.elapsed()
+    );
     let now = std::time::Instant::now();
     let clients = identities
         .into_iter()
-        .map(move |i| {
-            let id = i.value();
+        .map(|id| {
             Ok::<_, eyre::Report>((
                 id.inbox_id,
                 Arc::new(Mutex::new(client_from_identity(&id, network)?)),

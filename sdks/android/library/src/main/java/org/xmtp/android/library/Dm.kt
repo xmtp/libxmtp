@@ -267,23 +267,31 @@ class Dm(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
+                                    MessageDeliveryStatus.PUBLISHED -> {
                                         FfiDeliveryStatus.PUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                    MessageDeliveryStatus.UNPUBLISHED -> {
                                         FfiDeliveryStatus.UNPUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.FAILED ->
+                                    MessageDeliveryStatus.FAILED -> {
                                         FfiDeliveryStatus.FAILED
+                                    }
 
-                                    else -> null
+                                    else -> {
+                                        null
+                                    }
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING ->
+                                    SortDirection.ASCENDING -> {
                                         FfiDirection.ASCENDING
+                                    }
 
-                                    else -> FfiDirection.DESCENDING
+                                    else -> {
+                                        FfiDirection.DESCENDING
+                                    }
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
@@ -317,16 +325,21 @@ class Dm(
                         limit = null,
                         deliveryStatus =
                             when (deliveryStatus) {
-                                MessageDeliveryStatus.PUBLISHED ->
+                                MessageDeliveryStatus.PUBLISHED -> {
                                     FfiDeliveryStatus.PUBLISHED
+                                }
 
-                                MessageDeliveryStatus.UNPUBLISHED ->
+                                MessageDeliveryStatus.UNPUBLISHED -> {
                                     FfiDeliveryStatus.UNPUBLISHED
+                                }
 
-                                MessageDeliveryStatus.FAILED ->
+                                MessageDeliveryStatus.FAILED -> {
                                     FfiDeliveryStatus.FAILED
+                                }
 
-                                else -> null
+                                else -> {
+                                    null
+                                }
                             },
                         direction = null,
                         contentTypes = null,
@@ -361,23 +374,31 @@ class Dm(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
+                                    MessageDeliveryStatus.PUBLISHED -> {
                                         FfiDeliveryStatus.PUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                    MessageDeliveryStatus.UNPUBLISHED -> {
                                         FfiDeliveryStatus.UNPUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.FAILED ->
+                                    MessageDeliveryStatus.FAILED -> {
                                         FfiDeliveryStatus.FAILED
+                                    }
 
-                                    else -> null
+                                    else -> {
+                                        null
+                                    }
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING ->
+                                    SortDirection.ASCENDING -> {
                                         FfiDirection.ASCENDING
+                                    }
 
-                                    else -> FfiDirection.DESCENDING
+                                    else -> {
+                                        FfiDirection.DESCENDING
+                                    }
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
@@ -435,23 +456,31 @@ class Dm(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
+                                    MessageDeliveryStatus.PUBLISHED -> {
                                         FfiDeliveryStatus.PUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                    MessageDeliveryStatus.UNPUBLISHED -> {
                                         FfiDeliveryStatus.UNPUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.FAILED ->
+                                    MessageDeliveryStatus.FAILED -> {
                                         FfiDeliveryStatus.FAILED
+                                    }
 
-                                    else -> null
+                                    else -> {
+                                        null
+                                    }
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING ->
+                                    SortDirection.ASCENDING -> {
                                         FfiDirection.ASCENDING
+                                    }
 
-                                    else -> FfiDirection.DESCENDING
+                                    else -> {
+                                        FfiDirection.DESCENDING
+                                    }
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,

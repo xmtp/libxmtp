@@ -48,6 +48,7 @@ bower_components
 result/**
 result-*/**
 result-*
+**/result-*/**
 
 # node-waf configuration
 .lock-wscript

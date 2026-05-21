@@ -25,16 +25,12 @@ impl HealthOp for UpdateMessageDisappearing {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
                 group
                     .update_conversation_message_disappearing_settings(
                         MessageDisappearingSettings::new(1, 86_400_000_000_000),
                     )
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                    .await?;
                 Ok(())
             }
             .await;
@@ -72,14 +68,10 @@ impl HealthOp for RemoveMessageDisappearing {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
                 group
                     .remove_conversation_message_disappearing_settings()
-                    .await
-                    .map_err(color_eyre::eyre::Report::from)?;
+                    .await?;
                 Ok(())
             }
             .await;
@@ -119,6 +111,7 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateMessageDisappearing,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }
 
@@ -126,5 +119,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["UpdateMessageDisappearing"],
         op: &RemoveMessageDisappearing,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

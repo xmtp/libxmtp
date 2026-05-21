@@ -22,7 +22,7 @@ pub type MessageKey = super::NetworkKey<48>;
 impl super::DeriveKey<MessageKey> for Message {
     fn key(&self, network: u64) -> MessageKey {
         let mut combined = [0u8; 48];
-        combined[..16].copy_from_slice(&self.group_id);
+        combined[..16].copy_from_slice(&*self.group_id());
         combined[16..].copy_from_slice(&self.id);
         MessageKey::new(network, combined)
     }
@@ -31,7 +31,7 @@ impl super::DeriveKey<MessageKey> for Message {
 impl super::DeriveKey<MessageKey> for &Message {
     fn key(&self, network: u64) -> MessageKey {
         let mut combined = [0u8; 48];
-        combined[..16].copy_from_slice(&self.group_id);
+        combined[..16].copy_from_slice(&*self.group_id());
         combined[16..].copy_from_slice(&self.id);
         MessageKey::new(network, combined)
     }
@@ -104,14 +104,7 @@ mod tests {
     }
 
     fn sample_message(group: [u8; 16], msg_id: [u8; 32]) -> Message {
-        Message {
-            id: msg_id,
-            group_id: group,
-            sender_inbox_id: [1u8; 32],
-            sent_at_ns: 42,
-            op_run_id: [2u8; 16],
-            xdbg_version: "test".to_string(),
-        }
+        Message::new(msg_id, group, [1u8; 32], 42)
     }
 
     #[test]
@@ -160,7 +153,7 @@ mod tests {
         let iter = store.load(7u64).expect("load").expect("non-empty");
         let only_a: Vec<Message> = iter
             .map(|g| g.value())
-            .filter(|m| m.group_id == group_a)
+            .filter(|m| m.group_id() == group_a)
             .collect();
         assert_eq!(only_a.len(), 2);
         assert!(only_a.contains(&a1));

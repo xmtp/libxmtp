@@ -21,13 +21,8 @@ impl HealthOp for GetMutableMetadata {
         for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx
-                    .primary
-                    .group(gid)
-                    .map_err(color_eyre::eyre::Report::from)?;
-                let _ = group
-                    .mutable_metadata()
-                    .map_err(color_eyre::eyre::Report::from)?;
+                let group = ctx.primary.group(gid)?;
+                let _ = group.mutable_metadata()?;
                 Ok(())
             })();
             let (status, error) = match outcome {
@@ -60,5 +55,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &GetMutableMetadata,
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

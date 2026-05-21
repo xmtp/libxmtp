@@ -7,6 +7,7 @@ use color_eyre::eyre;
 use owo_colors::OwoColorize;
 use tracing::Dispatch;
 use tracing::{Event, Subscriber};
+use tracing_error::ErrorLayer;
 use tracing_log::LogTracer;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -69,7 +70,7 @@ impl Logger {
         let app_filter = || {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 EnvFilter::builder()
-                    .parse(format!("xdbg={verbosity}"))
+                    .parse(format!("xdbg={verbosity},welcome_debug=trace"))
                     .expect("filter is static")
             })
         };
@@ -87,6 +88,7 @@ impl Logger {
                     .parse()
                     .expect("static directive"),
             );
+            filter = filter.add_directive("welcome_debug=trace".parse().expect("static directive"));
             if trace_openmls_kv {
                 filter = filter.add_directive(
                     format!("{}=trace", xmtp_configuration::OPENMLS_KV_TARGET)
@@ -109,7 +111,7 @@ impl Logger {
         // capture logs as tracing events from crates which use `log` (openmls)
         LogTracer::init()?;
 
-        let subscriber = tracing_subscriber::registry();
+        let subscriber = tracing_subscriber::registry().with(ErrorLayer::default());
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
 
