@@ -95,4 +95,20 @@ impl Client {
       .map_err(ErrorWrapper::from)?;
     Ok(())
   }
+
+  /// Cleanly shut down this client: cancel in-flight workers and streams, then
+  /// release the DB connection. Idempotent — a second call resolves to `Ok`.
+  ///
+  /// `await` this before deleting the SQLite file or dropping the client
+  /// reference to avoid late log spew from detached workers/streams firing
+  /// against a dead DB.
+  #[napi]
+  pub async fn close(&self) -> Result<()> {
+    self
+      .inner_client
+      .close()
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
 }
