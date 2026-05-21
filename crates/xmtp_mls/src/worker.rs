@@ -7,6 +7,7 @@ pub mod tasks;
 
 use crate::context::XmtpSharedContext;
 use device_sync::worker::SyncMetric;
+use futures::future::{AbortHandle, Abortable};
 use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
@@ -14,10 +15,16 @@ use std::fmt::Debug;
 use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
 use tasks::TaskWorkerChannels;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::instrument::Instrumented;
 use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm, time::Duration};
 use xmtp_configuration::WORKER_RESTART_DELAY;
+
+/// Hard cap on how long `WorkerRunner::shutdown` waits for the supervisor
+/// task to drain after cancellation. Anything beyond this gets logged and
+/// the task is allowed to detach — keeps `Client::close` bounded.
+const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
 pub enum WorkerKind {
@@ -36,6 +43,11 @@ pub struct WorkerRunner {
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     task_channels: TaskWorkerChannels,
     handle: Mutex<Option<Box<dyn StreamHandle<StreamOutput = ()>>>>,
+    // Per-worker abort handles. `shutdown` calls `abort()` on each so the
+    // worker future is dropped at its next poll regardless of whether the
+    // outer loop observed the cancellation token. Belt to the token's
+    // suspenders for workers that don't yield to cancellation promptly.
+    abort_handles: Mutex<Vec<AbortHandle>>,
 }
 
 impl Default for WorkerRunner {
@@ -51,6 +63,7 @@ impl WorkerRunner {
             metrics: Arc::default(),
             task_channels: TaskWorkerChannels::default(),
             handle: Mutex::default(),
+            abort_handles: Mutex::default(),
         }
     }
 
@@ -67,6 +80,13 @@ impl WorkerRunner {
 
     pub fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
+    }
+
+    /// True while the supervisor handle is held; false after a successful
+    /// `shutdown` or before the first `spawn`. Used in tests and as a
+    /// cheap liveness check.
+    pub fn is_running(&self) -> bool {
+        self.handle.lock().is_some()
     }
 }
 
@@ -87,8 +107,13 @@ impl WorkerRunner {
         if let Some(handle) = handle_lock.take() {
             handle.abort_handle().end();
         }
+        // Force-abort any prior worker futures still alive from a previous spawn.
+        for h in self.abort_handles.lock().drain(..) {
+            h.abort();
+        }
 
         let this = self.clone();
+        let cancel = ctx.cancellation_token().clone();
         let handle = xmtp_common::spawn(
             None,
             async move {
@@ -97,6 +122,7 @@ impl WorkerRunner {
                 }
 
                 let mut futs = FuturesUnordered::new();
+                let mut new_handles = Vec::with_capacity(this.factories.len());
 
                 for factory in &this.factories {
                     let metric = this.metrics.lock().get(&factory.kind()).cloned();
@@ -110,17 +136,48 @@ impl WorkerRunner {
                         let mut m = this.metrics.lock();
                         m.insert(worker.kind(), metrics);
                     }
-                    futs.push(worker.spawn());
+                    let (abort_handle, reg) = AbortHandle::new_pair();
+                    new_handles.push(abort_handle);
+                    futs.push(Abortable::new(worker.spawn(cancel.clone()), reg));
                 }
+                *this.abort_handles.lock() = new_handles;
 
-                while let Some(kind) = futs.next().await {
-                    tracing::warn!("Worker {kind:?} completed unexpectedly")
+                while let Some(outcome) = futs.next().await {
+                    match outcome {
+                        Ok(kind) => tracing::warn!("Worker {kind:?} completed unexpectedly"),
+                        Err(_aborted) => tracing::debug!("worker aborted during shutdown"),
+                    }
                 }
             }
             .instrument(tracing::debug_span!("xmtp_worker_supervisor")),
         );
 
         *handle_lock = Some(Box::new(handle));
+    }
+
+    /// Drain the running worker supervisor. Bounded by [`WORKER_SHUTDOWN_TIMEOUT`].
+    /// Cancellation must be signalled separately (via the shared
+    /// `CancellationToken` on the context); this method additionally aborts
+    /// each worker's future to guarantee no further DB writes happen,
+    /// independent of whether the worker's loop respects the token.
+    pub async fn shutdown(&self) {
+        // Hard-kill each worker future at its next poll. Critical for workers
+        // that sit on long sleeps and only check the token between intervals.
+        for h in self.abort_handles.lock().drain(..) {
+            h.abort();
+        }
+        let mut handle = self.handle.lock().take();
+        let Some(handle) = handle.as_mut() else {
+            return;
+        };
+        match xmtp_common::time::timeout(WORKER_SHUTDOWN_TIMEOUT, handle.end_and_wait()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::debug!("worker supervisor ended with: {e:?}"),
+            Err(_) => tracing::warn!(
+                "worker supervisor did not drain within {:?}; abandoning",
+                WORKER_SHUTDOWN_TIMEOUT
+            ),
+        }
     }
 
     pub async fn wait_for_sync_worker_init(&self) {
@@ -167,24 +224,40 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
         Box::new(self) as Box<_>
     }
 
-    fn spawn(mut self: Box<Self>) -> Instrumented<Pin<Box<SpawnWorkerFut>>> {
+    // Wrap the outer loop (not each `run_tasks` impl) so individual workers
+    // observe cancellation by having their in-flight future dropped at the
+    // next await point — no per-impl plumbing required.
+    fn spawn(
+        mut self: Box<Self>,
+        cancel: CancellationToken,
+    ) -> Instrumented<Pin<Box<SpawnWorkerFut>>> {
         let kind_str = format!("{:?}", self.kind());
         let fut = Box::pin(async move {
-            loop {
-                if let Err(err) = self.run_tasks().await {
-                    if err.needs_db_reconnect() {
-                        // drop the worker
-                        tracing::debug!("pool disconnected. task will restart on reconnect");
-                        break;
-                    } else {
-                        tracing::error!("{:?} worker error: {}", self.kind(), err);
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting {:?} worker...", self.kind());
+            let kind = self.kind();
+            let run = async move {
+                loop {
+                    if let Err(err) = self.run_tasks().await {
+                        if err.needs_db_reconnect() {
+                            // drop the worker
+                            tracing::debug!("pool disconnected. task will restart on reconnect");
+                            break;
+                        } else {
+                            tracing::error!("{:?} worker error: {}", self.kind(), err);
+                            xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                            tracing::info!("Restarting {:?} worker...", self.kind());
+                        }
                     }
                 }
-            }
+                self.kind()
+            };
 
-            self.kind()
+            tokio::select! {
+                k = run => k,
+                _ = cancel.cancelled() => {
+                    tracing::debug!("{:?} worker cancelled", kind);
+                    kind
+                }
+            }
         }) as Pin<Box<SpawnWorkerFut>>;
         fut.instrument(tracing::debug_span!("libxmtp_worker", kind = kind_str))
     }

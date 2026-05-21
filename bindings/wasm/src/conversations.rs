@@ -689,6 +689,7 @@ impl Conversations {
     &self,
     callback: StreamCallback,
   ) -> Result<StreamCloser, JsError> {
+    let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
       self.inner_client.clone(),
       move |message| match message {
@@ -698,6 +699,7 @@ impl Conversations {
         },
         Err(e) => callback.on_error(JsError::from(e)),
       },
+      move || on_close_cb.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }

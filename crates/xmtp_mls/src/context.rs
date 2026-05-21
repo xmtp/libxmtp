@@ -14,7 +14,9 @@ use crate::{
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -51,6 +53,13 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) cancellation_token: CancellationToken,
+    // Set only after a successful `Client::close` (workers stopped + DB
+    // disconnected). The cancellation token tracks "shutdown initiated";
+    // this tracks "shutdown completed cleanly" — distinct semantics so
+    // a `disconnect()` failure mid-`close` doesn't silently short-circuit
+    // future retries.
+    pub(crate) shutdown_complete: Arc<AtomicBool>,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -117,6 +126,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             fork_recovery_opts: self.fork_recovery_opts,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            cancellation_token: self.cancellation_token,
+            shutdown_complete: self.shutdown_complete,
         }
     }
 }
@@ -159,6 +170,18 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             .lock()
             .get(&WorkerKind::DeviceSync)?
             .as_sync_metrics()
+    }
+
+    pub fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    pub fn shutdown_complete(&self) -> bool {
+        self.shutdown_complete.load(Ordering::Acquire)
+    }
+
+    pub fn mark_shutdown_complete(&self) {
+        self.shutdown_complete.store(true, Ordering::Release);
     }
 }
 
@@ -212,6 +235,20 @@ where
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
+    fn cancellation_token(&self) -> &CancellationToken;
+
+    /// Returns `true` once `Client::close` has been called on this context.
+    fn is_closed(&self) -> bool {
+        self.cancellation_token().is_cancelled()
+    }
+
+    /// Returns `true` only after `Client::close` has fully torn the client
+    /// down (workers drained + DB disconnected). Distinct from [`is_closed`]
+    /// which fires the moment shutdown begins — this guards `close`'s
+    /// idempotency check so a mid-shutdown failure stays retryable.
+    fn shutdown_complete(&self) -> bool;
+
+    fn mark_shutdown_complete(&self);
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -293,6 +330,18 @@ where
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
     }
+
+    fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        self.shutdown_complete.load(Ordering::Acquire)
+    }
+
+    fn mark_shutdown_complete(&self) {
+        self.shutdown_complete.store(true, Ordering::Release);
+    }
 }
 
 impl<T> XmtpSharedContext for &T
@@ -370,5 +419,17 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn cancellation_token(&self) -> &CancellationToken {
+        <T as XmtpSharedContext>::cancellation_token(self)
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        <T as XmtpSharedContext>::shutdown_complete(self)
+    }
+
+    fn mark_shutdown_complete(&self) {
+        <T as XmtpSharedContext>::mark_shutdown_complete(self)
     }
 }

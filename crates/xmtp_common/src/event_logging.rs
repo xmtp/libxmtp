@@ -16,6 +16,9 @@ pub enum Event {
     /// Client dropped.
     #[context(icon = "⬇️")]
     ClientDropped,
+    /// Client cleanly closed via `Client::close`.
+    #[context(icon = "🔒")]
+    ClientClosed,
     /// Associating name with installation.
     #[context(name)]
     AssociateName,

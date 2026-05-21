@@ -1109,6 +1109,7 @@ async fn test_stream_message_deletions_from_other_client() {
                 notify_clone.notify_one();
             }
         },
+        || {},
     );
 
     // Wait for stream to be ready
@@ -1176,6 +1177,7 @@ async fn test_stream_message_deletions_fires_for_self_after_publish() {
                 notify_clone.notify_one();
             }
         },
+        || {},
     );
 
     // Wait for stream to be ready

@@ -1963,6 +1963,7 @@ impl FfiConversations {
                     callback.on_message_deleted(Arc::new(ffi_message))
                 }
             },
+            || {},
         );
 
         FfiStreamCloser::new(handle)

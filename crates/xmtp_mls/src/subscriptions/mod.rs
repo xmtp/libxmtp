@@ -412,6 +412,7 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let stream = match client
                 .stream_conversations(conversation_type, include_duplicate_dms)
                 .await
@@ -425,8 +426,14 @@ where
             };
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(convo) = stream.next().await {
-                convo_callback(convo)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(convo) => convo_callback(convo),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
             on_close();
@@ -477,6 +484,7 @@ where
 
         xmtp_common::spawn(Some(rx), async move {
             tracing::debug!("stream all messages with callback");
+            let cancel = context.cancellation_token().clone();
             let stream =
                 match StreamAllMessages::new(&context, conversation_type, consent_state).await {
                     Ok(stream) => stream,
@@ -490,8 +498,14 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
 
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
             on_close();
@@ -507,13 +521,20 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_consent_updates();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_consent` stream ended, dropping stream");
             on_close();
@@ -529,13 +550,20 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_preference_updates();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_preferences` stream ended, dropping stream");
             on_close();
@@ -546,19 +574,28 @@ where
     pub fn stream_message_deletions_with_callback(
         client: Arc<Client<Context>>,
         mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_message_deletions();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }

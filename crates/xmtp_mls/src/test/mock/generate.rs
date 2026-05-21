@@ -39,6 +39,8 @@ pub fn context() -> NewMockContext {
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         task_channels: TaskWorkerChannels::default(),
         worker_metrics: Arc::default(),
+        cancellation_token: tokio_util::sync::CancellationToken::new(),
+        shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }
 }
 
