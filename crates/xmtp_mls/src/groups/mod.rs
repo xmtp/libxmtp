@@ -695,9 +695,17 @@ where
         // Validate the floor string up-front so we fail with a clear
         // error before publishing the legacy GMM bump rather than
         // discovering it mid-flight when the validator parses it.
-        let target_v = LibXMTPVersion::parse(&min_version).map_err(|e| {
-            GroupError::ProposalsNotSupported(format!("parsing min_version '{min_version}': {e}"))
-        })?;
+        let target_v =
+            LibXMTPVersion::parse(&min_version).map_err(|e| GroupError::InvalidMinVersion {
+                value: min_version.clone(),
+                reason: e.to_string(),
+            })?;
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v =
+            LibXMTPVersion::parse(&own_version_str).map_err(|e| GroupError::InvalidMinVersion {
+                value: own_version_str.clone(),
+                reason: format!("own pkg_version: {e}"),
+            })?;
         let force = options.force;
 
         log_event!(
@@ -715,8 +723,28 @@ where
                             .to_string(),
                     ));
                 }
+                // Idempotency: re-calling enable_proposals on an
+                // already-migrated group is a no-op success.
+                // The footgun clamp below MUST run after this
+                // early-return — otherwise a caller pinning a
+                // forward-looking constant in idempotent retry code
+                // would error post-migration even when the floor was
+                // already set by the original call.
                 if self.proposals_enabled(&mls_group) {
                     return Ok::<(bool, bool), GroupError>((true, false));
+                }
+                // Footgun guard: a caller setting min_version above
+                // their own pkg_version would pause themselves (and
+                // every peer at or below their version) the moment the
+                // bump landed — bricking the group from the inside.
+                // Refuse. Honest mistakes only; a malicious client can
+                // patch this out, but honest mistakes are what we're
+                // protecting against.
+                if target_v > own_v {
+                    return Err(GroupError::MinVersionExceedsOwnVersion {
+                        requested: min_version.clone(),
+                        own: own_version_str.clone(),
+                    });
                 }
                 let metadata =
                     xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
@@ -726,14 +754,25 @@ where
                 let current = metadata.and_then(|m| Self::min_protocol_version_from_extensions(&m));
                 let needs_bump = match current.as_deref() {
                     None => true,
-                    Some(current_str) => {
-                        let current_v = LibXMTPVersion::parse(current_str).map_err(|e| {
-                            GroupError::ProposalsNotSupported(format!(
-                                "parsing legacy GMM MinimumSupportedProtocolVersion '{current_str}': {e}"
-                            ))
-                        })?;
-                        current_v < target_v
-                    }
+                    Some(current_str) => match LibXMTPVersion::parse(current_str) {
+                        Ok(current_v) => current_v < target_v,
+                        Err(e) => {
+                            // Lenient on a malformed legacy GMM floor (mirrors the
+                            // receive-side leniency in
+                            // [`enforce_min_version_monotonicity`]). Step A
+                            // overwrites the value entirely with a known-good
+                            // semver string, so a malformed prior can't poison the
+                            // bump. Log a warning so operators can detect
+                            // corrupted state.
+                            tracing::warn!(
+                                current = %current_str,
+                                error = %e,
+                                "enable_proposals: legacy GMM MinimumSupportedProtocolVersion is unparseable; \
+                                 proceeding with step-A bump to overwrite"
+                            );
+                            true
+                        }
+                    },
                 };
                 Ok::<(bool, bool), GroupError>((false, needs_bump))
             })
@@ -796,6 +835,16 @@ where
                             .to_string(),
                     ));
                 }
+                // Re-check `proposals_enabled` inside the lock: a
+                // concurrent migrator may have completed the migration
+                // between the first idempotency check and this second
+                // lock acquisition. Returning `None` here lets the
+                // outer code skip queuing a redundant bootstrap intent
+                // — preserves the idempotency contract documented at
+                // the top of `enable_proposals_inner`.
+                if self.proposals_enabled(&mls_group) {
+                    return Ok::<Option<Extensions<GroupContext>>, GroupError>(None);
+                }
                 let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
 
                 // 1. Remove the four legacy XMTP extensions. The
@@ -819,9 +868,16 @@ where
                 //    commit for missing required extensions.
                 update_required_capabilities_for_bootstrap(&mut extensions)?;
 
-                Ok(extensions)
+                Ok(Some(extensions))
             })
             .await?;
+
+        // Concurrent migrator won the race between the two lock
+        // acquisitions — group is already migrated, no bootstrap
+        // intent to queue.
+        let Some(new_extensions) = new_extensions else {
+            return Ok(());
+        };
 
         use openmls::prelude::tls_codec::Serialize;
         let extensions_bytes = new_extensions.tls_serialize_detached()?;
@@ -1967,7 +2023,70 @@ where
     /// A `Result` indicating success or failure of the operation.
     pub async fn update_group_min_version(&self, version: &str) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        tracing::info!("updating group min version to match self: {}", version);
+
+        // Footgun guards (apply on send side; receive side enforces
+        // the same monotonicity invariant as the source of truth):
+        //
+        // 1. `version > own pkg_version` would pause this client (and
+        //    every peer at or below this version) the moment the bump
+        //    lands. Refuse.
+        // 2. `version < current floor` would silently unpause peers
+        //    between the new and old floors, defeating the gate. Refuse.
+        //    Lenient on an unparseable current floor — mirror the
+        //    receive-side behavior in `enforce_min_version_monotonicity`
+        //    rather than have the send-side refuse where the receive-
+        //    side accepts. (Brick recovery: a group with malformed
+        //    legacy GMM bytes shouldn't be permanently un-bumpable.)
+        let target_v =
+            LibXMTPVersion::parse(version).map_err(|e| GroupError::InvalidMinVersion {
+                value: version.to_string(),
+                reason: e.to_string(),
+            })?;
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v =
+            LibXMTPVersion::parse(&own_version_str).map_err(|e| GroupError::InvalidMinVersion {
+                value: own_version_str.clone(),
+                reason: format!("own pkg_version: {e}"),
+            })?;
+        if target_v > own_v {
+            return Err(GroupError::MinVersionExceedsOwnVersion {
+                requested: version.to_string(),
+                own: own_version_str,
+            });
+        }
+        let current_str = self
+            .mutable_metadata()?
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
+            .cloned();
+        if let Some(current_str) = current_str.as_deref()
+            && !current_str.is_empty()
+        {
+            match LibXMTPVersion::parse(current_str) {
+                Ok(current_v) => {
+                    if target_v < current_v {
+                        return Err(GroupError::MinVersionDowngrade {
+                            requested: version.to_string(),
+                            current: current_str.to_string(),
+                        });
+                    }
+                }
+                Err(e) => {
+                    // Observability: malformed prior floor is an operator-
+                    // visible signal that the legacy GMM bytes are corrupt.
+                    // Leniency below preserves brick-recovery; the warning
+                    // surfaces the corruption.
+                    tracing::warn!(
+                        current = %current_str,
+                        error = %e,
+                        "update_group_min_version: existing min_version is unparseable; \
+                         proceeding without downgrade check"
+                    );
+                }
+            }
+        }
+
+        tracing::info!("update_group_min_version: queuing bump to {}", version);
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),

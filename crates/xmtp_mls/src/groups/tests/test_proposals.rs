@@ -1373,6 +1373,167 @@ async fn test_adding_unsupported_member_rejected_when_proposals_enabled() {
     );
 }
 
+/// Footgun guard: `enable_proposals` refuses to write a floor above the
+/// caller's own pkg_version. Without this guard a developer who picked
+/// the wrong constant could brick the group from the inside on the
+/// very next sync.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enable_proposals_rejects_min_version_above_own() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+    let result = alix_group
+        .enable_proposals(EnableProposalsOptions {
+            force: true,
+            min_version: Some("99.0.0".to_string()),
+        })
+        .await;
+    let err = result.expect_err("min_version above own pkg_version must be rejected");
+    assert!(
+        matches!(
+            err,
+            GroupError::MinVersionExceedsOwnVersion { ref requested, .. }
+            if requested == "99.0.0"
+        ),
+        "expected MinVersionExceedsOwnVersion, got {err:?}",
+    );
+}
+
+/// Send-side mirror of the receive-side downgrade check. Calling
+/// `update_group_min_version` with a value below the existing floor
+/// fails fast with a structured error rather than queueing a doomed
+/// AppDataUpdate that every receiver would reject anyway.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_group_min_version_rejects_downgrade() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    // Raise the floor to alix's own pkg_version (legal — equal to own,
+    // above the test_default 0.0.0 prior).
+    let pkg = alix.version_info().pkg_version().to_string();
+    alix_group.update_group_min_version(&pkg).await?;
+
+    // Attempt to lower the floor to 0.0.0. Rejected before any intent
+    // is queued.
+    let err = alix_group
+        .update_group_min_version("0.0.0")
+        .await
+        .expect_err("downgrade must be rejected by the send-side guard");
+    assert!(
+        matches!(
+            err,
+            GroupError::MinVersionDowngrade { ref requested, ref current }
+            if requested == "0.0.0" && current == &pkg
+        ),
+        "expected MinVersionDowngrade, got {err:?}",
+    );
+}
+
+/// `enable_proposals` is idempotent on an already-migrated group even
+/// when the second call passes a forward-looking `min_version` that
+/// would normally trip the above-own clamp. The clamp runs inside the
+/// lock AFTER the `proposals_enabled` early-return so retry-on-failure
+/// patterns can pin a constant without bricking idempotent callers.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enable_proposals_idempotent_with_forward_min_version() {
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    // First call succeeds — group migrates with the test floor.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    // Second call with a min_version far above own pkg_version must
+    // be a no-op (idempotent), NOT a MinVersionExceedsOwnVersion error.
+    alix_group
+        .enable_proposals(EnableProposalsOptions {
+            force: true,
+            min_version: Some("99.0.0".to_string()),
+        })
+        .await?;
+}
+
+/// `update_group_min_version` surfaces an unparseable input as a clean
+/// `ProposalsNotSupported` error rather than leaking the internal
+/// `CommitValidationError::InvalidVersionFormat` through the send-side
+/// API. Pinned so a future refactor that drops the `map_err` wrapper
+/// surfaces in CI.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_group_min_version_rejects_malformed_input() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    let err = alix_group
+        .update_group_min_version("not-a-version")
+        .await
+        .expect_err("malformed semver must be rejected");
+    assert!(
+        matches!(
+            err,
+            GroupError::InvalidMinVersion { ref value, .. } if value == "not-a-version"
+        ),
+        "expected InvalidMinVersion, got {err:?}",
+    );
+}
+
+/// Send-side mirror of the `enable_proposals` clamp on the steady-state
+/// bump path: `update_group_min_version` also refuses values above own
+/// pkg_version. Same footgun, same guard.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_group_min_version_rejects_above_own() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    let err = alix_group
+        .update_group_min_version("99.0.0")
+        .await
+        .expect_err("min_version above own pkg_version must be rejected");
+    assert!(
+        matches!(
+            err,
+            GroupError::MinVersionExceedsOwnVersion { ref requested, .. }
+            if requested == "99.0.0"
+        ),
+        "expected MinVersionExceedsOwnVersion, got {err:?}",
+    );
+}
+
 // =============================================================================
 // Build Extensions Tests
 // =============================================================================
@@ -3765,13 +3926,23 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
 /// below-floor receiver silently kept processing commits.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
+    use crate::builder::ClientBuilder;
     use crate::groups::tests::increment_patch_version;
+    use crate::utils::VersionInfo;
+    use xmtp_cryptography::utils::generate_local_wallet;
 
-    // Both alix and bo at the default pkg_version so both can apply the
-    // bootstrap commit cleanly. `enable_proposals`' step-A legacy GMM
-    // bump sets the floor to alix's pkg_version (== bo's pkg_version),
-    // so neither is paused by the legacy path, and both migrate.
-    tester!(alix);
+    // Alix runs one patch ahead of the default pkg_version so she can
+    // legitimately bump the floor to her own version — the send-side
+    // clamp added in this change rejects `min_version > own_pkg_version`
+    // (footgun guard). Bo stays at the default version so he ends up
+    // below the new floor.
+    let mut alix_version = VersionInfo::default();
+    let bumped = increment_patch_version(alix_version.pkg_version()).expect("patch bump");
+    alix_version.test_update_version(&bumped);
+    let alix_pkg_version = alix_version.pkg_version().to_string();
+    let alix =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), alix_version).await;
+
     tester!(bo);
 
     let alix_group = alix.create_group(None, None)?;
@@ -3786,6 +3957,9 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         .expect("bo should receive a welcome for alix_group");
     bo_group.sync().await?;
 
+    // Migrate with the test floor (`0.0.0`) so bo isn't paused by the
+    // step-A legacy GMM bump — this test specifically exercises the
+    // POST-migration steady-state pause path, not the pre-bootstrap one.
     alix_group
         .enable_proposals(EnableProposalsOptions::test_default())
         .await?;
@@ -3804,32 +3978,21 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         );
     }
 
-    // Alix raises the floor above both members' pkg_version. On the
-    // migrated group this flows as an
-    // `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)` proposal inside a
-    // commit — the legacy GMM extension is gone, so the dict is the
-    // only path the floor can ride on. Alix's call may return Ok (her
-    // local sync resolves the intent before her validator re-applies
-    // the commit against the new floor) or Err (her local replay hits
-    // `ProtocolVersionTooLow` since her pkg_version is also below the
-    // new floor). Either way, the commit reaches the server. Log the
-    // error instead of swallowing it silently so a non-version-pause
-    // failure mode (network, intent rejection) would surface in test
-    // output if this assumption stopped holding.
-    let pkg = alix.version_info().pkg_version().to_string();
-    let bumped = increment_patch_version(&pkg).expect("patch bump");
-    if let Err(e) = alix_group.update_group_min_version(&bumped).await {
-        tracing::debug!(
-            "expected: alix's update_group_min_version surfaced an error \
-             (her pkg_version is below the new floor): {e}"
-        );
-    }
+    // Alix raises the floor to her own version, which is above bo's.
+    // Send-side clamp is satisfied (alix's pkg_version == requested
+    // floor). The bump flows as an
+    // `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)` inside a commit —
+    // post-bootstrap the legacy GMM extension is gone so the dict is
+    // the only path the floor can ride on.
+    alix_group
+        .update_group_min_version(&alix_pkg_version)
+        .await?;
 
     bo_group.sync().await?;
     let paused = bo_group.paused_for_version()?;
     assert_eq!(
         paused.as_deref(),
-        Some(bumped.as_str()),
+        Some(alix_pkg_version.as_str()),
         "bo must be paused at the new floor via the AppDataUpdate-driven path; \
          post-bootstrap the legacy GMM extension is gone so the dict overlay is the \
          only floor signal the validator can read"

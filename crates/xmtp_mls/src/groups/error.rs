@@ -256,6 +256,25 @@ pub enum GroupError {
     /// Encountered a proposal when our client does not support proposals. Not retryable.
     #[error("Proposals not supported: {0}")]
     ProposalsNotSupported(String),
+    /// Caller asked to set `MIN_SUPPORTED_PROTOCOL_VERSION` to a value
+    /// the caller's own client does not satisfy. Refusing prevents the
+    /// caller from immediately pausing themselves (and every peer at or
+    /// below their version) the moment the bump lands. Not retryable.
+    #[error("min_version {requested} exceeds own pkg_version {own}")]
+    MinVersionExceedsOwnVersion { requested: String, own: String },
+    /// Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the
+    /// floor already on the group. Monotonic-only: a downgrade would
+    /// silently unpause peers between the old and new floors, defeating
+    /// the gate. Not retryable.
+    #[error("min_version {requested} would downgrade existing floor {current}")]
+    MinVersionDowngrade { requested: String, current: String },
+    /// Caller passed a `min_version` string that doesn't parse as
+    /// semver. Surfaces from the send-side paths
+    /// (`enable_proposals`, `update_group_min_version`) so SDK
+    /// consumers can `match`-handle malformed input without parsing
+    /// string-flattened wrappers. Not retryable.
+    #[error("invalid min_version {value:?}: {reason}")]
+    InvalidMinVersion { value: String, reason: String },
     /// Component source error.
     ///
     /// Failed to encode, decode, or look up a well-known component during the
@@ -564,6 +583,9 @@ impl RetryableError for GroupError {
             Self::Proposal(e) => e.is_retryable(),
             Self::CommitToPendingProposals(e) => e.is_retryable(),
             Self::ProposalsNotSupported(_) => false,
+            Self::MinVersionExceedsOwnVersion { .. } => false,
+            Self::MinVersionDowngrade { .. } => false,
+            Self::InvalidMinVersion { .. } => false,
             Self::ComponentSource(_) => false,
             Self::AppDataCommit(e) => e.is_retryable(),
             // Bootstrap synthesis can fail on a transient identity-update
