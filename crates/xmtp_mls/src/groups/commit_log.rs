@@ -228,7 +228,7 @@ where
         Ok(())
     }
 
-    async fn tick(&mut self) -> Result<(), CommitLogError> {
+    pub async fn tick(&mut self) -> Result<(), CommitLogError> {
         self.save_remote_commit_log().await?;
         self.update_forked_state().await?;
         self.publish_commit_logs_to_remote().await?;
