@@ -1,9 +1,8 @@
 //! Validator: every (client, group) pair must not be in a forked state.
 //!
-//! For each client, queries the local DB for every group's fork status via
-//! `QueryGroup::get_group_commit_log_forked_status`. A `Some(true)` is a
-//! fail. `Some(false)` and `None` are passes (the latter means commit-log
-//! verification isn't enabled for that group).
+//! Per client: force a fresh reconciliation tick so the DB column is current
+//! at check time, then read `is_commit_log_forked`. Without this, the
+//! healthcheck races the periodic CommitLogWorker and reports stale state.
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::result::{OpResult, Status};
@@ -12,6 +11,7 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_db::prelude::QueryGroup;
+use xmtp_mls::groups::commit_log::CommitLogWorker;
 
 pub struct NoForkedGroups;
 
@@ -30,6 +30,22 @@ impl Validator for NoForkedGroups {
         let mut out = Vec::new();
         for client in ctx.all_clients() {
             let db = client.db();
+
+            // Force a reconciliation pass so fork status reflects what's on
+            // the server *now*, not what the last periodic tick wrote.
+            let tick_start = Instant::now();
+            let mut worker = CommitLogWorker::new(client.context.clone());
+            if let Err(e) = worker.tick().await {
+                out.push(OpResult {
+                    op_name: self.name(),
+                    target: Some(format!("inbox={} reconcile", client.inbox_id())),
+                    status: Status::Fail,
+                    duration: tick_start.elapsed(),
+                    error: Some(eyre!("commit-log reconcile failed: {e}")),
+                });
+                continue;
+            }
+
             for gid in ctx.all_groups() {
                 // Skip clients that aren't active members. A removed
                 // client's frozen local commit-log diverges from the
