@@ -98,7 +98,7 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateConsentState,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }
 
@@ -106,6 +106,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["UpdateConsentState"],
         op: &UpdateConsentStateQuiet,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

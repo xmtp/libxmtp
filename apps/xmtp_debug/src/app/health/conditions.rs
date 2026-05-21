@@ -17,6 +17,9 @@ bitflags! {
         /// assertions). Without strict, `existing_clients` conflates
         /// versions and those assertions are vacuous.
         const STRICT_VERSIONING = 1 << 0;
+        /// Mutating ops (Create/Add/Update/Remove/Leave) require this
+        /// bit. Default-on; cleared by `--read-only`.
+        const WRITES = 1 << 1;
     }
 }
 

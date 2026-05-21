@@ -93,6 +93,6 @@ inventory::submit! {
             "GetMutableMetadata",
         ],
         op: &RemoveMember,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

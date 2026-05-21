@@ -5,7 +5,7 @@ use crate::app::store::{Database, GroupStore, IdentityStore, MessageStore, Netwo
 use crate::app::types::{Group, Identity, InboxId, Message};
 use crate::app::{self, App};
 use crate::args;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -52,7 +52,9 @@ pub struct HealthContext {
 impl HealthContext {
     /// Build the full context: load existing state, bootstrap on fresh DB,
     /// create the primary identity. Hard-fails on infrastructure errors.
-    pub async fn bootstrap(network: args::BackendOpts) -> Result<Self> {
+    /// With `read_only`, primary is reused from `existing_clients`
+    /// instead of registering a new on-network identity.
+    pub async fn bootstrap(network: args::BackendOpts, read_only: bool) -> Result<Self> {
         let redb = App::db()?;
         let id_store: IdentityStore<'static> = redb.clone().into();
         let group_store: GroupStore<'static> = redb.into();
@@ -109,20 +111,47 @@ impl HealthContext {
             }
         }
 
-        // 2. Primary new identity. Also persisted to redb so subsequent
-        //    healthcheck runs see it as an existing identity.
-        let primary_wallet = app::generate_wallet();
-        let primary_client = app::new_unregistered_client(&network, Some(&primary_wallet)).await?;
-        let primary_identity =
-            Identity::from_libxmtp(primary_client.identity(), primary_wallet.clone())?;
-        app::register_client(&primary_client, primary_wallet.into_alloy()).await?;
-        id_store.set(primary_identity, net_key)?;
-        let primary = Arc::new(primary_client);
+        // 2. Primary identity. Register fresh + persist, or reuse
+        //    existing under read_only.
+        let primary = if read_only {
+            existing_clients.values().next().cloned().ok_or_else(|| {
+                eyre!("read_only healthcheck requires at least one existing client")
+            })?
+        } else {
+            let primary_wallet = app::generate_wallet();
+            let primary_client =
+                app::new_unregistered_client(&network, Some(&primary_wallet)).await?;
+            let primary_identity =
+                Identity::from_libxmtp(primary_client.identity(), primary_wallet.clone())?;
+            app::register_client(&primary_client, primary_wallet.into_alloy()).await?;
+            id_store.set(primary_identity, net_key)?;
+            Arc::new(primary_client)
+        };
 
-        // 3. Existing groups from redb.
-        let existing_groups = group_store
+        // 3. Existing groups from redb, filtered to non-DM groups any
+        // existing_client knows about. DM entries would fail every op
+        // run by a primary that isn't a DM member.
+        let group_only_ids: std::collections::HashSet<GroupId> = existing_clients
+            .values()
+            .flat_map(|c| {
+                c.find_groups(xmtp_db::group::GroupQueryArgs {
+                    conversation_type: Some(xmtp_db::group::ConversationType::Group),
+                    ..Default::default()
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .map(|g| GroupId::from(g.group_id))
+            })
+            .collect();
+        let existing_groups: Vec<GroupId> = group_store
             .load(net_key)?
-            .map(|iter| iter.map(|g| g.value().id()).collect::<Vec<_>>())
+            .map(|iter| {
+                iter.filter_map(|g| {
+                    let id = g.value().id();
+                    group_only_ids.contains(&id).then_some(id)
+                })
+                .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
 
         tracing::info!(
@@ -220,11 +249,19 @@ impl HealthContext {
 
     /// Every persisted client involved in this run: primary + every
     /// entry in `existing_clients`. Run-scoped throwaway transients
-    /// created by ops are NOT included — they're op-local.
+    /// created by ops are NOT included — they're op-local. Under
+    /// `read_only`, primary is one of `existing_clients` — deduped
+    /// here so it isn't processed twice.
     pub fn all_clients(&self) -> Vec<Arc<DbgClient>> {
+        let primary_inbox = self.primary.inbox_id();
         let mut out = Vec::with_capacity(self.existing_clients.len() + 1);
         out.push(self.primary.clone());
-        out.extend(self.existing_clients.values().cloned());
+        out.extend(
+            self.existing_clients
+                .iter()
+                .filter(|(_, c)| c.inbox_id() != primary_inbox)
+                .map(|(_, c)| c.clone()),
+        );
         out
     }
 
@@ -257,18 +294,17 @@ impl HealthContext {
     /// Best-effort concurrent welcome sync across all run clients;
     /// failures are logged only (plumbing, not a validation step).
     pub async fn sync_welcomes_fanout(&self, label: &'static str) {
-        let syncs = std::iter::once(self.primary.as_ref())
-            .chain(self.existing_clients.values().map(|c| c.as_ref()))
-            .map(|c| async move {
-                if let Err(e) = c.sync_welcomes().await {
-                    tracing::warn!(
-                        target: "healthcheck",
-                        inbox = c.inbox_id(),
-                        error = %e,
-                        label,
-                        "sync_welcomes fanout failed",
-                    );
-                }
+        let clients = self.all_clients();
+        let syncs = clients.iter().map(|c| async move {
+            if let Err(e) = c.sync_welcomes().await {
+                tracing::warn!(
+                    target: "healthcheck",
+                    inbox = c.inbox_id(),
+                    error = %e,
+                    label,
+                    "sync_welcomes fanout failed",
+                );
+            }
             });
         futures::future::join_all(syncs).await;
     }

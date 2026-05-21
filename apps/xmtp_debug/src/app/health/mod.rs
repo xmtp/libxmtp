@@ -33,10 +33,13 @@ impl Health {
         // visible even if bootstrap fails.
         print!("{}", ops::tree::render_order_tree());
 
-        let mut ctx = HealthContext::bootstrap(self.network).await?;
+        let mut ctx = HealthContext::bootstrap(self.network, self.opts.read_only).await?;
         let mut report = result::Report::new();
 
-        let active = conditions::Conditions::active();
+        let mut active = conditions::Conditions::active();
+        if !self.opts.read_only {
+            active |= conditions::Conditions::WRITES;
+        }
         let op_build = ops::registry(active);
 
         // Surface skipped ops up-front so the operator sees the

@@ -111,7 +111,7 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateMessageDisappearing,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }
 
@@ -119,6 +119,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["UpdateMessageDisappearing"],
         op: &RemoveMessageDisappearing,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

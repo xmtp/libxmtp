@@ -611,7 +611,12 @@ pub enum TestScenario {
 /// Runs every user-visible protocol op against the local xdbg state,
 /// validates that all clients converge, and exits non-zero on any failure.
 #[derive(Args, Debug)]
-pub struct HealthcheckOpts {}
+pub struct HealthcheckOpts {
+    /// Skip mutating ops; only reads, sends, and validators run.
+    /// Primary is reused from existing_clients instead of registered.
+    #[arg(long)]
+    pub read_only: bool,
+}
 
 /// Walk identities loaded from redb, run `sync_welcomes` + per-group
 /// `sync` on each, and reconcile redb's `GroupStore` / `MessageStore`

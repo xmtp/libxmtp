@@ -6,6 +6,7 @@ are partitioned. Tests wire-level MLS interop."""
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,7 +21,14 @@ _FINALIZE_MSGS = {
 }
 
 
-def run_strict(env_extras, out_dir, kind, sha, *args, tee=True):
+def run_strict(
+    env_extras: dict[str, str],
+    out_dir: str,
+    kind: str,
+    sha: str,
+    *args: str,
+    tee: bool = True,
+) -> subprocess.CompletedProcess:
     return d.run_xdbg(
         env_extras=env_extras,
         out_dir=out_dir,
@@ -177,14 +185,23 @@ def run_sequence(
         for e in runnable:
             run_strict(env_extras, out_dir, e.kind, e.sha, "sync")
 
-    with d.gh_group("cross-talk phase 4: healthcheck"):
+    with d.gh_group("cross-talk phase 4: round-trip healthcheck"):
+        # Fwd: each version writes. Rev (everyone except newest, read-only):
+        # older clients re-verify on groups newer versions wrote to.
+        fwd = list(runnable)
+        rev = list(reversed(runnable[:-1]))
+        sweep = fwd + rev
+
         results: list[d.ResultRow] = []
         completed = 0
         required_fail = False
         nightly_fail = False
-        for e in runnable:
+        for i, e in enumerate(sweep):
+            leg = "fwd" if i < len(fwd) else "rev"
             row = d.base_row(e)
-            r = run_strict(env_extras, out_dir, e.kind, e.sha, "healthcheck")
+            row["leg"] = leg
+            extra = ["--read-only"] if leg == "rev" else []
+            r = run_strict(env_extras, out_dir, e.kind, e.sha, "healthcheck", *extra)
             if r.returncode == 0:
                 results.append({**row, "status": "PASS"})
                 completed += 1
