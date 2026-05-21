@@ -22,8 +22,8 @@ def run_sequence(
 
     for i, e in enumerate(parsed):
         row = d.base_row(e)
-        probe_mode = "dry" if e.required else "full"
-        status, stderr = d.probe(probe_mode, e.kind, e.sha)
+        build_mode = "dry" if e.required else "full"
+        status, stderr = d.build(build_mode, e.kind, e.sha)
         rest = parsed[i + 1 :]
 
         if status == "build-failed":
@@ -49,7 +49,7 @@ def run_sequence(
                 sys.stderr.flush()
             if e.required:
                 d.gh_error(
-                    f"run-sequence: aborting on probe eval failure for {e.short}"
+                    f"run-sequence: aborting on build eval failure for {e.short}"
                 )
                 results = d.record_not_run_remaining(
                     results + [{**row, "status": "FAIL"}], rest
@@ -57,7 +57,7 @@ def run_sequence(
                 required_fail = True
                 break
             d.gh_warning(
-                f"xdbg@{e.short} nightly {e.label} probe eval failed; skipping"
+                f"xdbg@{e.short} nightly {e.label} build eval failed; skipping"
             )
             results.append({**row, "status": "SKIP-EVAL"})
             nightly_fail = True
