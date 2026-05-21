@@ -381,9 +381,13 @@ def pick_versions(sample_size: int = 3) -> list[dict[str, Any]]:
 
 
 def flake_ref(kind: str, sha: str) -> str:
+    # HEAD uses git+file:// so nix's git fetcher honors .gitignore —
+    # skips target/ (~35GB) and .jj/ (~1.6GB). path:/abs/path would
+    # hash the entire tree (minutes). shallow=1 allows shallow clones.
+    # cwd-independent, so callers can set cwd to per-run tempdirs.
     if kind == "head":
         root = os.environ.get("GITHUB_WORKSPACE") or repo_root()
-        return f"path:{root}#xdbg"
+        return f"git+file://{root}?shallow=1#xdbg"
     return f"github:xmtp/libxmtp/{sha}#xdbg"
 
 
@@ -439,13 +443,14 @@ def _cache_set(key: str, value: int) -> None:
         f.write(f"{key}\t{value}\n")
 
 
-def probe(mode: str, kind: str, sha: str) -> tuple[str, str]:
-    """Returns (status, stderr) where status in {ok, build-failed, eval-failed}."""
+def build(mode: str, kind: str, sha: str) -> tuple[str, str]:
+    """Build xdbg via `nix build` (or `--dry-run` for `mode="dry"`).
+    Returns (status, stderr) where status in {ok, build-failed, eval-failed}."""
     args = ["nix", "build", "-L"]
     if mode == "dry":
         args.append("--dry-run")
     args.append(flake_ref(kind, sha))
-    label = f"probing xdbg@{sha[:7]} ({kind}{', dry' if mode == 'dry' else ''})"
+    label = f"building xdbg@{sha[:7]} ({kind}{', dry' if mode == 'dry' else ''})"
     with with_spinner(label):
         r = subprocess.run(args, cwd=repo_root(), capture_output=True, text=True)
     if r.returncode == 0:

@@ -35,18 +35,18 @@ def run_strict(env_extras, out_dir, kind, sha, *args, tee=True):
 def preflight(env_extras: dict[str, str], e: d.Entry) -> tuple[str, str]:
     """Returns (status, reason). status in {ok, skip}; on hard failure exits."""
     mode = "full" if e.kind == "nightly" else "dry"
-    status, stderr = d.probe(mode, e.kind, e.sha)
+    status, stderr = d.build(mode, e.kind, e.sha)
     if status != "ok":
         if stderr:
             sys.stderr.write(stderr)
             sys.stderr.flush()
         if e.required:
-            d.gh_error(f"probe failed for {e.short} ({e.kind}) status={status}")
+            d.gh_error(f"build failed for {e.short} ({e.kind}) status={status}")
             sys.exit(1)
         d.gh_warning(
-            f"xdbg@{e.short} ({e.kind}) probe {status}; dropping from cross-talk plan"
+            f"xdbg@{e.short} ({e.kind}) build {status}; dropping from cross-talk plan"
         )
-        return ("skip", f"probe-{status}")
+        return ("skip", f"build-{status}")
     if not d.supports_flag(e.kind, e.sha, "--strict-versioning"):
         if e.required:
             d.gh_error(
