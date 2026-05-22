@@ -1,9 +1,10 @@
 mod identity_ext;
+mod unregistered;
 pub use identity_ext::*;
+pub use unregistered::{PendingAttestation, UnregisteredIdentity};
 
 use crate::XmtpApi;
 use crate::groups::mls_ext::WelcomePointersExtension;
-use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use derive_builder::Builder;
 use openmls::prelude::hash_ref::HashReference;
@@ -33,7 +34,7 @@ use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
-    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
+    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS,
     MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
@@ -48,18 +49,13 @@ use xmtp_db::sql_key_store::{
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::key_package::KeyPackageVerificationError;
 use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId, InboxIdRef,
-    associations::{
-        MemberIdentifier,
-        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        sign_with_legacy_key,
-    },
+    associations::builder::{SignatureRequest, SignatureRequestError},
 };
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::identity::MlsCredential;
@@ -426,6 +422,10 @@ impl Identity {
     /// If a legacy key is provided, it will be used to sign the identity update and no wallet signature is needed.
     ///
     /// If no legacy key is provided, a wallet signature is always required.
+    ///
+    /// Compatibility shim over [`UnregisteredIdentity`]. New callers should
+    /// use that two-phase API directly:
+    /// `UnregisteredIdentity::generate` → `attest` → (caller signs) → `publish`.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn new<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         inbox_id: InboxId,
@@ -436,180 +436,21 @@ impl Identity {
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
-        // check if address is already associated with an inbox_id
-        let inbox_ids = api_client
-            .get_inbox_ids(vec![identifier.clone().into()])
+        let mut pending =
+            UnregisteredIdentity::generate(inbox_id, identifier, nonce, legacy_signed_private_key)?;
+        pending
+            .attest(api_client, mls_storage, &scw_signature_verifier)
             .await?;
-        let associated_inbox_id = inbox_ids.get(&(&identifier).into());
-        let installation_keys = XmtpInstallationCredential::new();
 
-        if let Some(associated_inbox_id) = associated_inbox_id {
-            // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
-            // We would need a signature from user's wallet.
-            if *associated_inbox_id != inbox_id {
-                return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
-            }
-
-            // get sequence_id from identity updates and loaded into the DB
-            load_identity_updates(
-                api_client,
-                &mls_storage.db(),
-                &[associated_inbox_id.as_str()],
-            )
-            .await
-            .map_err(|e| {
-                IdentityError::NewIdentity(format!("Failed to load identity updates: {e}"))
-            })?;
-
-            let state = get_association_state_with_verifier(
-                &mls_storage.db(),
-                &inbox_id,
-                None,
-                &scw_signature_verifier,
-            )
-            .await
-            .map_err(|err| {
-                IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
-            })?;
-
-            let current_installation_count = state.installation_ids().len();
-            if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
-                return Err(IdentityError::TooManyInstallations {
-                    inbox_id: associated_inbox_id.clone(),
-                    count: current_installation_count,
-                    max: MAX_INSTALLATIONS_PER_INBOX,
-                });
-            }
-
-            let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            let signature = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        signature,
-                        installation_keys.verifying_key(),
-                    ),
-                    scw_signature_verifier,
-                )
-                .await?;
-
-            let identity = Self {
-                inbox_id: associated_inbox_id.clone(),
-                installation_keys,
-                credential: create_credential(associated_inbox_id.clone())?,
-                signature_request: Some(signature_request),
-                is_ready: AtomicBool::new(false),
-            };
-
-            Ok(identity)
-        } else if let Some(legacy_signed_private_key) = legacy_signed_private_key {
-            // The legacy signed private key may only be used if the nonce is 0
-            if nonce != 0 {
-                return Err(IdentityError::NewIdentity(
-                    "Nonce must be 0 if legacy key is provided".to_string(),
-                ));
-            }
-            // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
-            let generated_inbox_id = identifier.inbox_id(nonce)?;
-            if inbox_id != generated_inbox_id {
-                return Err(IdentityError::NewIdentity(
-                    "Inbox ID doesn't match nonce & address".to_string(),
-                ));
-            }
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone(), nonce);
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            let sig = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        sig,
-                        installation_keys.verifying_key(),
-                    ),
-                    &scw_signature_verifier,
-                )
-                .await?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::LegacyDelegated(sign_with_legacy_key(
-                        signature_request.signature_text(),
-                        legacy_signed_private_key,
-                    )?),
-                    scw_signature_verifier,
-                )
-                .await?;
-
-            // Make sure to register the identity before applying the signature request
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
-                installation_keys,
-                credential: create_credential(inbox_id)?,
-                signature_request: None,
-                is_ready: AtomicBool::new(true),
-            };
-
-            identity.register(api_client, mls_storage).await?;
-
-            let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
-
-            Ok(identity)
-        } else {
-            let generated_inbox_id = identifier.inbox_id(nonce)?;
-            if inbox_id != generated_inbox_id {
-                return Err(IdentityError::NewIdentity(
-                    "Inbox ID doesn't match nonce & address".to_string(),
-                ));
-            }
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone(), nonce);
-
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            // We can pre-sign the request with an installation key signature, since we have access to the key
-            let sig = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        sig,
-                        installation_keys.verifying_key(),
-                    ),
-                    scw_signature_verifier,
-                )
-                .await?;
-
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
-                installation_keys,
-                credential: create_credential(inbox_id.clone())?,
-                signature_request: Some(signature_request),
-                is_ready: AtomicBool::new(false),
-            };
-
-            Ok(identity)
+        // Legacy V2 path completes registration inline; preserve that.
+        if pending.can_self_publish() {
+            return pending.publish(api_client, mls_storage).await;
         }
+
+        // Non-legacy branches return an `Identity` carrying an
+        // unfinished `signature_request` that the caller will complete
+        // and then drive through `Identity::register` themselves.
+        pending.into_legacy_shim()
     }
 
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -678,8 +519,22 @@ impl Identity {
             .build(provider, include_post_quantum)
     }
 
+    /// Persist this identity's key package: rotate + upload one key
+    /// package to the network and write `StoredIdentity` to the local
+    /// DB. Idempotent — no-ops if a `StoredIdentity` already exists.
+    ///
+    /// **Most callers want [`Client::register_identity`](crate::Client::register_identity)
+    /// instead.** That is the full production pipeline: signature
+    /// validation, identity-update publish, registration cursor
+    /// bookkeeping, and old-key cleanup, in addition to what this
+    /// method does. It is also the API the FFI bindings drive.
+    ///
+    /// `persist_key_package` is a low-level primitive used internally
+    /// by the [`UnregisteredIdentity`](crate::identity::UnregisteredIdentity)
+    /// typestate flow once the identity-update publish has already
+    /// been arranged.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn register<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
+    pub(crate) async fn persist_key_package<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         &self,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,

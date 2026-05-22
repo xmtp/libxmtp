@@ -989,8 +989,18 @@ where
             .collect())
     }
 
-    /// Upload a Key Package to the network and publish the signed identity update
-    /// from the provided SignatureRequest
+    /// **Production register entry point.** Run the full registration
+    /// pipeline from a completed [`SignatureRequest`]: validate
+    /// signatures, build + publish the identity update, upload a key
+    /// package, persist `StoredIdentity` + registration cursor, and
+    /// clean up old keys. Idempotent.
+    ///
+    /// FFI bindings (mobile / node / wasm) drive this method. Callers
+    /// outside the low-level identity construction code should prefer
+    /// this over the internal
+    /// [`Identity::persist_key_package`](crate::identity::Identity::persist_key_package)
+    /// primitive, which only handles the key-package upload + DB
+    /// persist step.
     pub async fn register_identity(
         &self,
         signature_request: SignatureRequest,

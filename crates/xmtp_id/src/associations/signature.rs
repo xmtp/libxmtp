@@ -244,12 +244,16 @@ impl AccountId {
 }
 
 /// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
+///
+/// Takes the key bytes by reference so callers can keep the source
+/// allocation in a `zeroize::Zeroizing` wrapper — no internal copy of
+/// the secret is created here.
 pub fn sign_with_legacy_key(
     signature_text: String,
-    legacy_signed_private_key: Vec<u8>,
+    legacy_signed_private_key: &[u8],
 ) -> Result<UnverifiedLegacyDelegatedSignature, SignatureError> {
     let legacy_signed_private_key_proto =
-        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
+        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key)?;
     let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
         .union
         .ok_or(SignatureError::MalformedLegacyKey(
