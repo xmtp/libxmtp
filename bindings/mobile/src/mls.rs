@@ -700,8 +700,12 @@ impl FfiXmtpClient {
     /// `await` this before deleting the SQLite file or dropping the client
     /// reference to avoid late log spew from detached workers/streams firing
     /// against a dead DB.
+    ///
+    /// Named `shutdown` rather than `close` because uniffi reserves `close`
+    /// on every exported object for the Kotlin `Disposable` handle-disposal
+    /// method, which would conflict with this one.
     #[tracing::instrument(skip_all)]
-    pub async fn close(&self) -> Result<(), FfiError> {
+    pub async fn shutdown(&self) -> Result<(), FfiError> {
         Ok(self.inner_client.close().await?)
     }
 
