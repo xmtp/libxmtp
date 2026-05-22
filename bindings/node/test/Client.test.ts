@@ -388,6 +388,26 @@ describe('Client', () => {
     // Verify database operations work again after reconnecting
     expect(() => client.conversations().list()).not.toThrow()
   })
+
+  it('should close cleanly and be idempotent', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+
+    // Verify database operations work initially
+    expect(() => client.conversations().list()).not.toThrow()
+
+    // Close the client: stops workers/streams and releases the DB
+    await expect(client.close()).resolves.toBeUndefined()
+
+    // Database operations fail once the connection is released
+    expect(() => client.conversations().list()).toThrow()
+
+    // A second close is a no-op and still resolves
+    await expect(client.close()).resolves.toBeUndefined()
+
+    // Reconnecting after close is refused
+    await expect(client.dbReconnect()).rejects.toThrow()
+  })
 })
 
 describe('Streams', () => {
