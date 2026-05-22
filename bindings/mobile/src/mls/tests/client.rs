@@ -291,3 +291,12 @@ async fn test_get_hmac_keys() {
         assert!(value.epoch >= 1);
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_close_is_idempotent() {
+    let client = new_test_client().await;
+    client.close().await.unwrap();
+    // A second call must resolve to Ok(()) without panicking — consumers may
+    // call close() defensively on a client they cannot prove is still open.
+    client.close().await.unwrap();
+}
