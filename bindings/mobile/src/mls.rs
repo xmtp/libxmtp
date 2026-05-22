@@ -693,6 +693,22 @@ impl FfiXmtpClient {
         Ok(self.inner_client.reconnect_db()?)
     }
 
+    /// Cleanly shut down this client: cancel in-flight workers and detached
+    /// streams, then release the DB connection. Idempotent — a second call
+    /// resolves to `Ok`.
+    ///
+    /// `await` this before deleting the SQLite file or dropping the client
+    /// reference to avoid late log spew from detached workers/streams firing
+    /// against a dead DB.
+    ///
+    /// Named `shutdown` rather than `close` because uniffi reserves `close`
+    /// on every exported object for the Kotlin `Disposable` handle-disposal
+    /// method, which would conflict with this one.
+    #[tracing::instrument(skip_all)]
+    pub async fn shutdown(&self) -> Result<(), FfiError> {
+        Ok(self.inner_client.close().await?)
+    }
+
     #[tracing::instrument(skip_all)]
     pub async fn find_inbox_id(
         &self,
