@@ -2,12 +2,14 @@
 //! The new group's id is appended to `ctx.new_groups` so downstream ops
 //! and validators see it.
 
-use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
+use crate::app::types::InboxId;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
+use xmtp_proto::types::GroupId;
 
 pub struct CreateGroup;
 
@@ -20,25 +22,21 @@ impl HealthOp for CreateGroup {
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateGroup"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
-        let outcome = ctx.primary.create_group(None, None);
-        let (status, target, error) = match outcome {
-            Ok(group) => {
-                let new_group_id = group.group_id;
-                let hex_id = format!("{new_group_id}");
-                let creator = inbox_id_to_bytes(ctx.primary.inbox_id());
+        let outcome: color_eyre::eyre::Result<(GroupId, InboxId)> = (|| {
+            let primary = ctx.primary()?;
+            let group = primary.create_group(None, None).map_err(|e| eyre!("{e}"))?;
+            let creator = ctx.primary.inbox_id_bytes();
+            Ok((group.group_id, creator))
+        })();
+        match outcome {
+            Ok((new_group_id, creator)) => {
+                let target = Some(format!("{new_group_id}"));
                 ctx.persist_new_group(&new_group_id, creator, vec![creator]);
                 ctx.new_groups.push(new_group_id);
-                (Status::Pass, Some(hex_id), None)
+                vec![OpResult::from_result(self.name(), target, start, Ok(()))]
             }
-            Err(e) => (Status::Fail, None, Some(eyre!("{e}"))),
-        };
-        vec![OpResult {
-            op_name: self.name(),
-            target,
-            status,
-            duration: start.elapsed(),
-            error,
-        }]
+            Err(e) => vec![OpResult::fail(self.name(), None, e)],
+        }
     }
 }
 

@@ -114,8 +114,7 @@ impl GenerateGroups {
                         // `Group::add_members` dedupes, so even if an
                         // upstream filter slips up the owner can't appear
                         // twice in the persisted member list.
-                        Ok(Group::new(group_id, owner, vec![owner], false)
-                            .add_members(invitee_inboxes))
+                        Ok(Group::new(group_id, owner, vec![owner]).add_members(invitee_inboxes))
                     }
                 }))
                 .map_err(|_| eyre!("failed to spawn tasks for group creation")))

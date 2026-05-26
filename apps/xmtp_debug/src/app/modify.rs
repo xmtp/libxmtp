@@ -102,7 +102,7 @@ impl Modify {
                 group
                     .update_admin_list(UpdateAdminListType::AddSuper, inbox_id.to_string())
                     .await?;
-                if !local_group.has_member(&inbox_id) {
+                if !local_group.has_member(inbox_id) {
                     local_group.member_size += 1;
                     local_group.members.push(**inbox_id);
                 }

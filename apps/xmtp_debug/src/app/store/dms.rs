@@ -16,13 +16,13 @@ const TABLE: TableDefinition<DmKey, Dm> = TableDefinition::new(NAMESPACE);
 
 impl super::DeriveKey<DmKey> for Dm {
     fn key(&self) -> DmKey {
-        DmKey::new(*self.redb_key())
+        DmKey::new(self.redb_key().into_bytes())
     }
 }
 
 impl super::DeriveKey<DmKey> for &Dm {
     fn key(&self) -> DmKey {
-        DmKey::new(*self.redb_key())
+        DmKey::new(self.redb_key().into_bytes())
     }
 }
 
@@ -63,14 +63,14 @@ impl<'a> super::TableProvider<'a, DmKey, Dm> for DmStorage {
     }
 }
 impl super::TrackMetadata for DmStorage {
-    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
-        let store = store.into();
+    fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
         store.modify(crate::meta_key!(), |meta| meta.dms += n)?;
         Ok(())
     }
 
-    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
-        let store = store.into();
+    fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
         store.modify(crate::meta_key!(), |meta| meta.dms -= n)?;
         Ok(())
     }

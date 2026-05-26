@@ -20,16 +20,37 @@ use xmtp_mls::cursor_store::SqliteCursorStore;
 pub async fn new_unregistered_client(
     wallet: Option<&types::EthereumWallet>,
 ) -> Result<crate::DbgClient> {
+    new_unregistered_client_for(wallet, App::network()).await
+}
+
+/// Like [`new_unregistered_client`] but targets the supplied backend
+/// instead of the process-global `App::network()`. Use this when one
+/// xdbg run needs to talk to more than one network (e.g. the v3→d14n
+/// identity-continuity test).
+pub async fn new_unregistered_client_for(
+    wallet: Option<&types::EthereumWallet>,
+    backend: &crate::args::BackendOpts,
+) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
         w.clone().into_alloy()
     } else {
         generate_wallet().into_alloy()
     };
-    new_client_inner(&local_wallet, None).await
+    new_client_inner(&local_wallet, None, backend).await
 }
 
 /// Create a new client + Identity
 pub async fn temp_client(wallet: Option<&types::EthereumWallet>) -> Result<crate::DbgClient> {
+    temp_client_for(wallet, App::network()).await
+}
+
+/// Like [`temp_client`] but targets the supplied backend. SQLite file
+/// is bucketed by `backend.hash()` so the same wallet on different
+/// networks resolves to different on-disk databases.
+pub async fn temp_client_for(
+    wallet: Option<&types::EthereumWallet>,
+    backend: &crate::args::BackendOpts,
+) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
         w.clone().into_alloy()
     } else {
@@ -38,10 +59,15 @@ pub async fn temp_client(wallet: Option<&types::EthereumWallet>) -> Result<crate
 
     let tmp_dir = (*crate::constants::TMPDIR).path();
     let public = local_wallet.get_identifier()?;
-    let network = App::network().hash();
+    let network = backend.hash();
     let name = format!("{public}:{network}.db3");
 
-    new_client_inner(&local_wallet, Some(tmp_dir.to_path_buf().join(name))).await
+    new_client_inner(
+        &local_wallet,
+        Some(tmp_dir.to_path_buf().join(name)),
+        backend,
+    )
+    .await
 }
 
 /// Get the XMTP Client from an [`Identity`]
@@ -63,8 +89,8 @@ pub fn client_from_identity(identity: &Identity) -> Result<crate::DbgClient> {
 async fn new_client_inner(
     wallet: &PrivateKeySigner,
     db_path: Option<PathBuf>,
+    network: &crate::args::BackendOpts,
 ) -> Result<crate::DbgClient> {
-    let network = App::network();
     let api = network.client_bundle()?;
     let sync_api = network.client_bundle()?;
     let ident = wallet.get_identifier()?;
@@ -137,7 +163,13 @@ pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) 
 
 /// Create a new client + Identity
 fn existing_client_inner(db_path: PathBuf) -> Result<crate::DbgClient> {
-    let network = App::network();
+    existing_client_inner_for(db_path, App::network())
+}
+
+fn existing_client_inner_for(
+    db_path: PathBuf,
+    network: &crate::args::BackendOpts,
+) -> Result<crate::DbgClient> {
     let api = network.client_bundle()?;
     let sync_api = network.client_bundle()?;
     let path = db_path.clone().into_os_string().into_string().unwrap();

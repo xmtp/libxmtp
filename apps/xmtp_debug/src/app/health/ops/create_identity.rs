@@ -1,11 +1,30 @@
-//! Op: record that the run's primary identity was successfully created.
-//! The actual creation happens during `HealthContext::bootstrap`; this op
-//! exposes that success as a discrete check in the run's result table.
+//! Op: generate a fresh wallet, register an MLS client for it on the
+//! network, persist the resulting `Identity` to the redb
+//! `IdentityStore`, and write the registered `HealthClient` into
+//! `ctx.primary`. Bootstrap leaves `ctx.primary` as a local-only
+//! placeholder; no op realizes the placeholder before this op runs
+//! (we have no deps, so we're first in the writable schedule).
+//!
+//! Gated on `WRITES` — read-only runs reuse an existing identity
+//! picked during `HealthContext::bootstrap` and skip this op entirely.
+//!
+//! NOTE: reusing the installation keys baked into `bootstrap`'s
+//! placeholder via `.identity()` injection on the builder isn't
+//! feasible without rebuilding the full SignatureRequest (CreateInbox,
+//! install->inbox AddAssociation, install pre-signature). The MLS
+//! network rejects every group commit with `InboxValidationFailed`
+//! when the install->inbox association is missing. Letting the builder
+//! generate its own install keys via `IdentityStrategy::new` is the
+//! supported path.
 
-use crate::app::health::context::HealthContext;
+use crate::app;
+use crate::app::health::context::{HealthClient, HealthContext};
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
+use crate::app::store::Database;
+use crate::app::types::Identity;
 use async_trait::async_trait;
+use color_eyre::eyre::Result;
 use std::time::Instant;
 
 pub struct CreateIdentity;
@@ -19,19 +38,24 @@ impl HealthOp for CreateIdentity {
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateIdentity"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
-        let inbox_id = ctx.primary.inbox_id().to_string();
-        let status = if inbox_id.is_empty() {
-            Status::Fail
-        } else {
-            Status::Pass
-        };
-        vec![OpResult {
-            op_name: self.name(),
-            target: Some(inbox_id),
-            status,
-            duration: start.elapsed(),
-            error: None,
-        }]
+        let outcome: Result<Identity> = async {
+            let wallet = app::generate_wallet();
+            let client = app::new_unregistered_client(Some(&wallet)).await?;
+            let identity = Identity::from_libxmtp(client.identity(), wallet.clone())?;
+            app::register_client(&client, wallet.into_alloy()).await?;
+            ctx.id_store.set(identity)?;
+            Ok(identity)
+        }
+        .await;
+
+        match outcome {
+            Ok(identity) => {
+                let target = Some(hex::encode(identity.inbox_id));
+                ctx.primary = HealthClient::new(identity);
+                vec![OpResult::from_result(self.name(), target, start, Ok(()))]
+            }
+            Err(e) => vec![OpResult::fail(self.name(), None, e)],
+        }
     }
 }
 
@@ -49,6 +73,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &[],
         op: &CreateIdentity,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

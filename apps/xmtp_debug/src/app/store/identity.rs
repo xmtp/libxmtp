@@ -66,7 +66,8 @@ impl IdentityStore<'_> {
         version_hash: u64,
     ) -> Result<Option<impl Iterator<Item = redb::AccessGuard<'_, Identity>>>> {
         use super::TableProvider;
-        self.apply_read(|r| {
+        let net = self.network_hash();
+        self.apply_read(move |r| {
             let Some(table) = super::open_table_optional(
                 r,
                 <Self as TableProvider<IdentityKey, Identity>>::table(),
@@ -74,8 +75,8 @@ impl IdentityStore<'_> {
             else {
                 return Ok(None);
             };
-            let start = IdentityKey::low_one_version(version_hash);
-            let end = IdentityKey::high_one_version(version_hash);
+            let start = IdentityKey::low_one_version(net, version_hash);
+            let end = IdentityKey::high_one_version(net, version_hash);
             let rows: Vec<_> = table.range(start..=end)?.collect::<Result<_, _>>()?;
             Ok(Some(rows.into_iter().map(|(_, v)| v)))
         })
@@ -87,7 +88,8 @@ impl IdentityStore<'_> {
         version_hash: u64,
     ) -> Result<Option<impl Iterator<Item = redb::AccessGuard<'_, Identity>>>> {
         use super::TableProvider;
-        self.apply_read(|r| {
+        let net = self.network_hash();
+        self.apply_read(move |r| {
             let Some(table) = super::open_table_optional(
                 r,
                 <Self as TableProvider<IdentityKey, Identity>>::table(),
@@ -96,8 +98,8 @@ impl IdentityStore<'_> {
                 return Ok(None);
             };
 
-            let start = IdentityKey::low_one_version(version_hash);
-            let end = IdentityKey::high_one_version(version_hash);
+            let start = IdentityKey::low_one_version(net, version_hash);
+            let end = IdentityKey::high_one_version(net, version_hash);
             let before = table.range(..start)?;
             let after = table.range(end..)?;
             let rows: Vec<_> = before.chain(after).try_collect()?;
@@ -157,16 +159,16 @@ impl<'a> super::TableProvider<'a, IdentityKey, Identity> for IdentityStorage {
 }
 
 impl super::TrackMetadata for IdentityStorage {
-    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
-        let store: MetadataStore = store.into();
+    fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
         store.modify(crate::meta_key!(), |meta| {
             meta.identities += n;
         })?;
         Ok(())
     }
 
-    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
-        let store: MetadataStore = store.into();
+    fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
         store.modify(crate::meta_key!(), |meta| {
             meta.identities -= n;
         })?;

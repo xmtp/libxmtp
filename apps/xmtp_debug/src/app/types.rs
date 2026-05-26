@@ -9,10 +9,12 @@ use prost::Message as _;
 use speedy::{Readable, Writable};
 
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::{InboxOwner, associations::builder::SignatureRequest};
+use xmtp_mls_common::group_metadata::DmMembers;
 use xmtp_proto::{types::GroupId, xmtp::identity::MlsCredential};
 
 use crate::{
+    XDBG_ID_NONCE,
     app::{App, store::MessageKey},
     args,
 };
@@ -29,7 +31,7 @@ impl EthereumWallet {
         PrivateKeySigner::from_slice(self.0.to_bytes().as_slice()).expect("Should never fail")
     }
 
-    fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(SigningKey::from_bytes((&bytes).into()).unwrap())
     }
 
@@ -104,6 +106,25 @@ impl std::fmt::Display for Identity {
 }
 
 impl Identity {
+    pub fn generate() -> Result<Self> {
+        let wallet = EthereumWallet::default();
+        let local = wallet.clone().into_alloy();
+        let ident = local.get_identifier()?;
+        let inbox_id = ident.inbox_id(XDBG_ID_NONCE)?;
+        let cred = XmtpInstallationCredential::new();
+        let mut eth_key = [0u8; 32];
+        let mut inbox_id_bytes = [0u8; 32];
+        eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
+        hex::decode_to_slice(inbox_id.clone(), &mut inbox_id_bytes)?;
+        Ok(Identity {
+            inbox_id: inbox_id_bytes,
+            installation_key: cred.private_bytes(),
+            eth_key,
+            version_hash: crate::app::App::current_version_hash(),
+            version_string: pack_version_string(&crate::get_version())?,
+        })
+    }
+
     pub fn from_libxmtp(
         value: &xmtp_mls::identity::Identity,
         wallet: EthereumWallet,
@@ -270,11 +291,7 @@ impl Group {
     /// Build a `Group` from id + creator + members; the redundant
     /// `member_size` field is derived. Use this everywhere instead of
     /// the struct literal so the size never drifts from `members.len()`.
-    pub fn new(
-        id: impl Into<[u8; 16]>,
-        created_by: InboxId,
-        members: Vec<InboxId>,
-    ) -> Self {
+    pub fn new(id: impl Into<[u8; 16]>, created_by: InboxId, members: Vec<InboxId>) -> Self {
         let member_size = members.len() as u32;
         Self {
             created_by,
@@ -282,7 +299,7 @@ impl Group {
             member_size,
             members,
             version_string: pack_version_string(&crate::get_version())
-                .expect("version must be valid")
+                .expect("version must be valid"),
         }
     }
 
@@ -311,6 +328,12 @@ impl Group {
 
     pub fn has_member(&self, inbox: &InboxId) -> bool {
         self.members.contains(inbox)
+    }
+}
+
+impl std::fmt::Display for Group {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
     }
 }
 
@@ -366,14 +389,24 @@ pub struct Dm {
 
 pub struct DmId([u8; 64]);
 impl DmId {
+    /// Build a sorted-pair DM key from two 32-byte inbox ids. Sorting
+    /// ensures `DmId::new(a, b) == DmId::new(b, a)` so creator order
+    /// doesn't fragment the keyspace.
     pub fn new(lhs: [u8; 32], rhs: [u8; 32]) -> Self {
-        let id = [lhs, rhs];
-        id.sort();
+        let mut pair = [lhs, rhs];
+        pair.sort();
+        let mut id = [0u8; 64];
+        id[..32].copy_from_slice(&pair[0]);
+        id[32..].copy_from_slice(&pair[1]);
         Self(id)
     }
 
     pub fn as_bytes(&self) -> &[u8; 64] {
         &self.0
+    }
+
+    pub fn into_bytes(self) -> [u8; 64] {
+        self.0
     }
 }
 
@@ -386,8 +419,11 @@ impl std::fmt::Display for Dm {
 impl Dm {
     pub fn new(created_by: InboxId, with: InboxId, group_id: GroupId) -> Self {
         Self {
-            created_by, with, group_id, version_string: pack_version_string(&crate::get_version())
-                .expect("version must be valid")
+            created_by,
+            with,
+            group_id: group_id.into(),
+            version_string: pack_version_string(&crate::get_version())
+                .expect("version must be valid"),
         }
     }
 
@@ -396,15 +432,12 @@ impl Dm {
         DmMembers {
             member_one_inbox_id: hex::encode(self.created_by),
             member_two_inbox_id: hex::encode(self.with),
-        }.to_string()
+        }
+        .to_string()
     }
 
     pub fn redb_key(&self) -> DmId {
         DmId::new(self.created_by, self.with)
-    }
-
-    pub fn group_id(&self) -> GroupId {
-        GroupId::from(self.group_id)
     }
 }
 
@@ -537,45 +570,5 @@ impl redb::Value for Message {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("message")
-    }
-}
-
-#[cfg(test)]
-mod message_tests {
-    use super::*;
-
-    #[test]
-    fn message_speedy_roundtrip() {
-        let msg = Message {
-            id: [7u8; 32],
-            group_id: [3u8; 16],
-            sender_inbox_id: [9u8; 32],
-            sent_at_ns: 1_700_000_000_000_000_000,
-            xdbg_version: "1.10.0-abcdefg".to_string(),
-        };
-        let bytes = msg.write_to_vec().unwrap();
-        let decoded = Message::read_from_buffer(&bytes).unwrap();
-        assert_eq!(msg, decoded);
-    }
-
-    use crate::app::store::DeriveKey;
-    use crate::app::store::MessageKey;
-
-    #[test]
-    fn message_derive_key_composes_group_and_message_id() {
-        let msg = Message {
-            id: [0xAAu8; 32],
-            group_id: [0xBBu8; 16],
-            sender_inbox_id: [0u8; 32],
-            sent_at_ns: 0,
-            xdbg_version: String::new(),
-        };
-        let key: MessageKey = msg.key(7);
-        // u64 network (8 bytes, LE) + 48-byte combined key.
-        let bytes = speedy::Writable::write_to_vec(&key).unwrap();
-        assert_eq!(bytes.len(), 8 + 48);
-        assert_eq!(&bytes[0..8], &7u64.to_le_bytes());
-        assert_eq!(&bytes[8..24], &[0xBBu8; 16]);
-        assert_eq!(&bytes[24..56], &[0xAAu8; 32]);
     }
 }

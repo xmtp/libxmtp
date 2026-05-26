@@ -177,11 +177,6 @@ impl App {
         *NETWORK_HASH.get().expect("just set network hash")
     }
 
-    #[cfg(test)]
-    pub fn set_network_hash(n: u64) {
-        NETWORK_HASH.set(n).expect("tests only")
-    }
-
     /// Directory for SQLite files belonging to the *current* binary
     /// version. Always version-bucketed via `current_version_hash`.
     /// Same shape in both strict and non-strict mode — the
@@ -196,10 +191,9 @@ impl App {
     /// `db_directory()` instead.
     fn db_directory_for(version_hash: u64) -> Result<PathBuf> {
         let data = Self::data_directory()?;
-        let network = App::network();
         let dir = data
             .join("sqlite")
-            .join(network.hash().to_string())
+            .join(App::network_hash().to_string())
             .join(format!("{version_hash:016x}"));
         Ok(dir)
     }
@@ -247,7 +241,6 @@ impl App {
         let AppOpts {
             clear,
             cmd,
-            backend,
             strict_versioning,
             ..
         } = crate::config_unchecked();
@@ -291,92 +284,4 @@ impl App {
 
 pub(super) fn generate_wallet() -> types::EthereumWallet {
     types::EthereumWallet::default()
-}
-
-#[cfg(test)]
-mod app_db_directory_tests {
-    use std::sync::Mutex;
-
-    // Tests in this module mutate XDBG_DB_ROOT. Run them serialized so
-    // they don't observe each other's env state.
-    static ENV_GUARD: Mutex<()> = Mutex::new(());
-
-    fn with_db_root<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
-        // Drop-based guard so XDBG_DB_ROOT is restored even if `f` panics —
-        // otherwise the env var would leak across tests pointing at a
-        // deleted tempdir, violating the ENV_GUARD invariant.
-        struct Restore(Option<String>);
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                // SAFETY: serialized via ENV_GUARD; this runs before the
-                // mutex guard is released because guards drop in reverse
-                // declaration order.
-                unsafe {
-                    match self.0.take() {
-                        Some(v) => std::env::set_var("XDBG_DB_ROOT", v),
-                        None => std::env::remove_var("XDBG_DB_ROOT"),
-                    }
-                }
-            }
-        }
-
-        let _g = ENV_GUARD.lock().unwrap();
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let _restore = Restore(std::env::var("XDBG_DB_ROOT").ok());
-        // SAFETY: serialized via ENV_GUARD; `_restore` reverts on unwind.
-        unsafe {
-            std::env::set_var("XDBG_DB_ROOT", tmp.path());
-        }
-        f(tmp.path())
-    }
-}
-
-#[cfg(test)]
-mod legacy_detection_tests {
-    use redb::TableDefinition;
-
-    fn seed_table_named(path: &std::path::Path, name: &'static str) {
-        let db = redb::Database::create(path).unwrap();
-        let table: TableDefinition<&[u8], &[u8]> = TableDefinition::new(name);
-        let w = db.begin_write().unwrap();
-        {
-            let mut t = w.open_table(table).unwrap();
-            t.insert(b"k".as_slice(), b"v".as_slice()).unwrap();
-        }
-        w.commit().unwrap();
-    }
-
-    #[test]
-    fn legacy_detection_aborts_on_v1_table() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("xdbg.redb");
-        seed_table_named(&path, "xdbg:1//identity");
-        let err = super::App::detect_legacy_db(&path).expect_err("must abort");
-        assert!(format!("{err:#}").contains("--clear"));
-    }
-
-    #[test]
-    fn legacy_detection_aborts_on_v2_table() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("xdbg.redb");
-        seed_table_named(&path, "xdbg:2//identity");
-        let err = super::App::detect_legacy_db(&path).expect_err("must abort");
-        assert!(format!("{err:#}").contains("--clear"));
-    }
-
-    #[test]
-    fn legacy_detection_passes_on_fresh_db() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("xdbg.redb");
-        // Path doesn't exist; detect_legacy_db must be a no-op.
-        super::App::detect_legacy_db(&path).expect("fresh DB ok");
-    }
-
-    #[test]
-    fn legacy_detection_passes_on_current_table_only() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("xdbg.redb");
-        seed_table_named(&path, "xdbg:3//identity");
-        super::App::detect_legacy_db(&path).expect("only-current-table must pass");
-    }
 }

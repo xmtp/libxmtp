@@ -2,9 +2,8 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
-use std::time::Instant;
 use xmtp_mls::groups::intents::{PermissionPolicyOption, PermissionUpdateType};
 
 pub struct UpdatePermissionPolicy;
@@ -21,34 +20,18 @@ impl HealthOp for UpdatePermissionPolicy {
         fields(op = "UpdatePermissionPolicy")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        for gid in ctx.all_groups() {
-            let start = Instant::now();
-            let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid)?;
-                group
-                    .update_permission_policy(
-                        PermissionUpdateType::AddMember,
-                        PermissionPolicyOption::Allow,
-                        None,
-                    )
-                    .await?;
-                Ok(())
-            }
-            .await;
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+        ctx.for_each_group(self.name(), |primary, gid| async move {
+            primary
+                .group(&gid)?
+                .update_permission_policy(
+                    PermissionUpdateType::AddMember,
+                    PermissionPolicyOption::Allow,
+                    None,
+                )
+                .await?;
+            Ok(())
+        })
+        .await
     }
 }
 

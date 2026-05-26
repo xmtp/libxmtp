@@ -69,10 +69,10 @@ impl<'a> super::TableProvider<'a, MetaKey, Metadata> for MetadataStorage {
 
 // No-Op for Metadata Table
 impl super::TrackMetadata for MetadataStorage {
-    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
+    fn increment(&self, _tx: &WriteTransaction, _network: u64, _n: u32) -> Result<()> {
         Ok(())
     }
-    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
+    fn decrement(&self, _tx: &WriteTransaction, _network: u64, _n: u32) -> Result<()> {
         Ok(())
     }
 }

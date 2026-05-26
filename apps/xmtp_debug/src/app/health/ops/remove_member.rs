@@ -9,10 +9,10 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub struct RemoveMember;
 
@@ -25,13 +25,11 @@ impl HealthOp for RemoveMember {
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "RemoveMember"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(gid) = ctx.new_groups.first().cloned() else {
-            return vec![OpResult {
-                op_name: self.name(),
-                target: None,
-                status: Status::Fail,
-                duration: Duration::ZERO,
-                error: Some(eyre!("no new group to remove from")),
-            }];
+            return vec![OpResult::fail(
+                self.name(),
+                None,
+                eyre!("no new group to remove from"),
+            )];
         };
 
         let start = Instant::now();
@@ -43,7 +41,8 @@ impl HealthOp for RemoveMember {
 
             // Primary adds the victim, then admin-removes them via
             // `remove_members`. Both commits go through primary.
-            let primary_group = ctx.primary.group(&gid)?;
+            let primary = ctx.primary()?;
+            let primary_group = primary.group(&gid)?;
             primary_group
                 .add_members(std::slice::from_ref(&victim_inbox))
                 .await?;
@@ -53,17 +52,12 @@ impl HealthOp for RemoveMember {
             Ok(())
         }
         .await;
-        let (status, error) = match outcome {
-            Ok(_) => (Status::Pass, None),
-            Err(e) => (Status::Fail, Some(e)),
-        };
-        vec![OpResult {
-            op_name: self.name(),
-            target: Some(format!("group={gid} victim={victim_label}")),
-            status,
-            duration: start.elapsed(),
-            error,
-        }]
+        vec![OpResult::from_result(
+            self.name(),
+            Some(format!("group={gid} victim={victim_label}")),
+            start,
+            outcome,
+        )]
     }
 }
 

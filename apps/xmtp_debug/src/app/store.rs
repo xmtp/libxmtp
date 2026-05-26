@@ -11,6 +11,7 @@ use rand::{Rng, seq::IteratorRandom};
 use redb::{AccessGuard, ReadTransaction, ReadableDatabase, TableDefinition, WriteTransaction};
 use speedy::{Readable, Writable};
 
+pub use dms::*;
 pub use groups::*;
 pub use identity::*;
 pub use messages::*;
@@ -39,35 +40,50 @@ where
 
 #[derive(Debug, Copy, Clone)]
 pub struct NetworkKey<const N: usize> {
+    /// Network discriminator. Populated by the owning `KeyValueStore`
+    /// at write/read time — `DeriveKey` impls and `From` conversions
+    /// leave this as 0. See `KeyValueStore::with_network`.
     network: u64,
     key: [u8; N],
 }
 
 impl<const N: usize> NetworkKey<N> {
+    /// Construct a key with the network field left as 0. The store
+    /// overrides this with its own `network_hash` at insert time.
     pub fn new(key: impl Into<[u8; N]>) -> Self {
         Self {
-            network: App::network().hash(),
+            network: 0,
             key: key.into(),
         }
+    }
+
+    fn with_network(self, network: u64) -> Self {
+        Self { network, ..self }
     }
 }
 
 impl<const N: usize> From<[u8; N]> for NetworkKey<N> {
     fn from(value: [u8; N]) -> Self {
         NetworkKey {
-            network: App::network().hash(),
+            network: 0,
             key: value,
         }
     }
 }
 
 impl<const N: usize> NetworkKey<N> {
-    fn create_low() -> Self {
-        Self::new([0u8; N])
+    fn create_low(network: u64) -> Self {
+        Self {
+            network,
+            key: [0u8; N],
+        }
     }
 
-    fn create_high() -> Self {
-        Self::new([u8::MAX; N])
+    fn create_high(network: u64) -> Self {
+        Self {
+            network,
+            key: [u8::MAX; N],
+        }
     }
 }
 
@@ -170,36 +186,58 @@ impl std::fmt::Display for IdentityKey {
 }
 
 impl IdentityKey {
+    /// Construct a key with the network field left as 0. The store
+    /// overrides this with its own `network_hash` at insert time.
     pub fn new(version_hash: u64, inbox: [u8; 32]) -> Self {
         Self {
-            network: App::network().hash(),
+            network: 0,
             version_hash,
             inbox,
         }
     }
 
+    fn with_network(self, network: u64) -> Self {
+        Self { network, ..self }
+    }
+
     /// Lower bound for a range scan covering every version of `network`.
     /// Used by non-strict reads.
-    pub fn low_all_versions() -> Self {
-        Self::new(0, [0u8; 32])
+    pub fn low_all_versions(network: u64) -> Self {
+        Self {
+            network,
+            version_hash: 0,
+            inbox: [0u8; 32],
+        }
     }
 
     /// Upper bound for a range scan covering every version of `network`.
     /// Used by non-strict reads. Inclusive — use with `range(lo..=hi)`.
-    pub fn high_all_versions() -> Self {
-        Self::new(u64::MAX, [u8::MAX; 32])
+    pub fn high_all_versions(network: u64) -> Self {
+        Self {
+            network,
+            version_hash: u64::MAX,
+            inbox: [u8::MAX; 32],
+        }
     }
 
     /// Lower bound for a range scan covering one (network, version_hash).
     /// Used by strict reads.
-    pub fn low_one_version(version_hash: u64) -> Self {
-        Self::new(version_hash, [0u8; 32])
+    pub fn low_one_version(network: u64, version_hash: u64) -> Self {
+        Self {
+            network,
+            version_hash,
+            inbox: [0u8; 32],
+        }
     }
 
     /// Upper bound for a range scan covering one (network, version_hash).
     /// Used by strict reads. Inclusive — use with `range(lo..=hi)`.
-    pub fn high_one_version(version_hash: u64) -> Self {
-        Self::new(version_hash, [u8::MAX; 32])
+    pub fn high_one_version(network: u64, version_hash: u64) -> Self {
+        Self {
+            network,
+            version_hash,
+            inbox: [u8::MAX; 32],
+        }
     }
 }
 
@@ -322,33 +360,49 @@ pub trait TableProvider<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
 }
 
 pub trait TrackMetadata {
-    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()>;
+    fn increment(&self, tx: &WriteTransaction, network: u64, n: u32) -> Result<()>;
     // decrement a metadata item
     #[allow(unused)]
-    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()>;
+    fn decrement(&self, tx: &WriteTransaction, network: u64, n: u32) -> Result<()>;
 }
 
 #[derive(Clone)]
-enum DatabaseOrTransaction<'a> {
+pub(super) enum DatabaseOrTransaction<'a> {
     ReadOnly(Arc<redb::ReadOnlyDatabase>),
     Db(Arc<redb::Database>),
     WriteTx(&'a WriteTransaction),
-    ReadTx(&'a redb::ReadTransaction),
 }
 
 #[derive(Clone)]
 pub struct KeyValueStore<'db, Storage> {
     db: DatabaseOrTransaction<'db>,
     store: Storage,
-    network: u64,
+    network_hash: u64,
 }
 impl<'db, Storage> KeyValueStore<'db, Storage> {
-    pub fn new(store: Storage, db: DatabaseOrTransaction<'db>) -> Self {
+    pub(super) fn new(store: Storage, db: DatabaseOrTransaction<'db>) -> Self {
+        Self::with_network(store, db, App::network_hash())
+    }
+
+    /// Construct a store bound to an explicit `network_hash` instead of
+    /// reading `App::network_hash()`. Use for tests (where the process
+    /// has no configured network) and for callers that talk to more
+    /// than one backend in the same process (continuity tests).
+    #[allow(dead_code)]
+    pub(super) fn with_network(
+        store: Storage,
+        db: DatabaseOrTransaction<'db>,
+        network_hash: u64,
+    ) -> Self {
         Self {
             db,
             store,
-            network: App::network().hash(),
+            network_hash,
         }
+    }
+
+    pub(super) fn network_hash(&self) -> u64 {
+        self.network_hash
     }
 }
 
@@ -362,7 +416,6 @@ impl<Storage> KeyValueStore<'_, Storage> {
                 Ok(w.commit()?)
             }
             WriteTx(w) => Ok(op(w)?),
-            ReadTx(_) => eyre::bail!("requires write"),
             ReadOnly(_) => eyre::bail!("database is in read-only mode"),
         }
     }
@@ -377,7 +430,6 @@ impl<Storage> KeyValueStore<'_, Storage> {
                 let r = d.begin_read()?;
                 Ok(op(&r)?)
             }
-            ReadTx(r) => Ok(op(r)?),
             WriteTx(_) => eyre::bail!("requires read only"),
             ReadOnly(ref d) => {
                 let r = d.begin_read()?;
@@ -406,16 +458,17 @@ where
     for<'a> Value: Borrow<<Value as redb::Value>::SelfType<'a>>,
 {
     fn set_all(&self, values: &[Value]) -> Result<()> {
+        let net = self.network_hash;
         let op = |w: &WriteTransaction| -> Result<()> {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             for value in values.iter() {
-                let key: NetworkKey<N> = value.key();
+                let key: NetworkKey<N> = value.key().with_network(net);
                 if table.insert(key, value)?.is_none() {
                     total += 1;
                 }
             }
-            self.store.increment(w, total)?;
+            self.store.increment(w, net, total)?;
             Ok(())
         };
         self.apply_write(op)?;
@@ -430,6 +483,7 @@ where
     }
 
     fn get(&self, key: NetworkKey<N>) -> Result<Option<Value>> {
+        let key = key.with_network(self.network_hash);
         let op = |r: &ReadTransaction| -> Result<Option<Value>> {
             let Some(table) = open_table_optional(r, Self::table())? else {
                 return Ok(None);
@@ -443,12 +497,13 @@ where
     where
         Value: redb::Value + 'static,
     {
-        self.apply_read(|r| {
+        let net = self.network_hash;
+        self.apply_read(move |r| {
             let Some(table) = open_table_optional(r, Self::table())? else {
                 return Ok(None);
             };
-            let start = NetworkKey::<N>::create_low();
-            let end = NetworkKey::<N>::create_high();
+            let start = NetworkKey::<N>::create_low(net);
+            let end = NetworkKey::<N>::create_high(net);
             // Eager collect so a redb StorageError surfaces here instead
             // of lazily panicking at the caller's iteration site.
             let rows: Vec<_> = table.range(start..end)?.collect::<Result<_, _>>()?;
@@ -457,17 +512,18 @@ where
     }
 
     fn clear_network(&self) -> Result<()> {
-        self.apply_write(|w| {
+        let net = self.network_hash;
+        self.apply_write(move |w| {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             table.retain(|k: NetworkKey<N>, _| {
-                if k.network == self.network {
+                if k.network == net {
                     total += 1;
                     return false;
                 }
                 true
             })?;
-            self.store.decrement(w, total)?;
+            self.store.decrement(w, net, total)?;
             Ok(())
         })
     }
@@ -476,6 +532,8 @@ where
     where
         Value: Default,
     {
+        let net = self.network_hash;
+        let key = key.with_network(net);
         self.apply_write(|w| {
             let mut table = w.open_table(Self::table())?;
             let existing = table.remove(key)?;
@@ -484,7 +542,7 @@ where
             f(&mut item);
             table.insert(key, item)?;
             if !was_present {
-                self.store.increment(w, 1)?;
+                self.store.increment(w, net, 1)?;
             }
             Ok(())
         })
@@ -498,10 +556,11 @@ where
     for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<NetworkKey<N>> + 'static,
 {
     fn random(&self, rng: &mut impl Rng) -> Result<Option<Value>> {
-        self.apply_read(|r| {
+        let net = self.network_hash;
+        self.apply_read(move |r| {
             let table = r.open_table(Self::table())?;
-            let start = NetworkKey::create_low();
-            let end = NetworkKey::create_high();
+            let start = NetworkKey::<N>::create_low(net);
+            let end = NetworkKey::<N>::create_high(net);
             Ok(table
                 .range(start..end)?
                 .choose(rng)
@@ -562,16 +621,17 @@ where
     for<'a> Value: Borrow<<Value as redb::Value>::SelfType<'a>>,
 {
     fn set_all(&self, values: &[Value]) -> Result<()> {
+        let net = self.network_hash;
         let op = |w: &WriteTransaction| -> Result<()> {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             for value in values.iter() {
-                let key: IdentityKey = value.key();
+                let key: IdentityKey = value.key().with_network(net);
                 if table.insert(key, value)?.is_none() {
                     total += 1;
                 }
             }
-            self.store.increment(w, total)?;
+            self.store.increment(w, net, total)?;
             Ok(())
         };
         self.apply_write(op)?;
@@ -586,6 +646,7 @@ where
     }
 
     fn get(&self, key: IdentityKey) -> Result<Option<Value>> {
+        let key = key.with_network(self.network_hash);
         let op = |r: &ReadTransaction| -> Result<Option<Value>> {
             let Some(table) = open_table_optional(r, Self::table())? else {
                 return Ok(None);
@@ -602,29 +663,31 @@ where
     where
         Value: redb::Value + 'static,
     {
-        self.apply_read(|r| {
+        let net = self.network_hash;
+        self.apply_read(move |r| {
             let Some(table) = open_table_optional(r, Self::table())? else {
                 return Ok(None);
             };
-            let start = IdentityKey::low_all_versions();
-            let end = IdentityKey::high_all_versions();
+            let start = IdentityKey::low_all_versions(net);
+            let end = IdentityKey::high_all_versions(net);
             let rows: Vec<_> = table.range(start..=end)?.collect::<Result<_, _>>()?;
             Ok(Some(rows.into_iter().map(|(_, v)| v)))
         })
     }
 
     fn clear_network(&self) -> Result<()> {
-        self.apply_write(|w| {
+        let net = self.network_hash;
+        self.apply_write(move |w| {
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             table.retain(|k: IdentityKey, _| {
-                if k.network == self.network {
+                if k.network == net {
                     total += 1;
                     return false;
                 }
                 true
             })?;
-            self.store.decrement(w, total)?;
+            self.store.decrement(w, net, total)?;
             Ok(())
         })
     }
@@ -633,6 +696,8 @@ where
     where
         Value: Default,
     {
+        let net = self.network_hash;
+        let key = key.with_network(net);
         self.apply_write(|w| {
             let mut table = w.open_table(Self::table())?;
             let existing = table.remove(key)?;
@@ -641,7 +706,7 @@ where
             f(&mut item);
             table.insert(key, item)?;
             if !was_present {
-                self.store.increment(w, 1)?;
+                self.store.increment(w, net, 1)?;
             }
             Ok(())
         })
@@ -654,10 +719,11 @@ where
     for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<IdentityKey> + 'static,
 {
     fn random(&self, rng: &mut impl Rng) -> Result<Option<Value>> {
-        self.apply_read(|r| {
+        let net = self.network_hash;
+        self.apply_read(move |r| {
             let table = r.open_table(Self::table())?;
-            let start = IdentityKey::low_all_versions();
-            let end = IdentityKey::high_all_versions();
+            let start = IdentityKey::low_all_versions(net);
+            let end = IdentityKey::high_all_versions(net);
             Ok(table
                 .range(start..=end)?
                 .choose(rng)
@@ -752,32 +818,9 @@ impl redb::Value for Metadata {
     }
 }
 
-impl<'a: 'b, 'b> From<IdentityStore<'a>> for MetadataStore<'b> {
-    fn from(store: IdentityStore<'a>) -> MetadataStore<'b> {
-        MetadataStore::new(MetadataStorage, store.db)
-    }
-}
-
-impl<'a: 'b, 'b> From<GroupStore<'a>> for MetadataStore<'b> {
-    fn from(store: GroupStore<'a>) -> MetadataStore<'b> {
-        MetadataStore::new(MetadataStorage, store.db)
-    }
-}
-
-impl<'a: 'b, 'b> From<MessageStore<'a>> for MetadataStore<'b> {
-    fn from(store: MessageStore<'a>) -> MetadataStore<'b> {
-        MetadataStore::new(MetadataStorage, store.db)
-    }
-}
-
-impl<'a> From<&'a WriteTransaction> for MetadataStore<'a> {
-    fn from(tx: &'a WriteTransaction) -> MetadataStore<'a> {
-        MetadataStore::new(MetadataStorage, DatabaseOrTransaction::WriteTx(tx))
-    }
-}
-impl<'a> From<&'a ReadTransaction> for MetadataStore<'a> {
-    fn from(tx: &'a ReadTransaction) -> MetadataStore<'a> {
-        MetadataStore::new(MetadataStorage, DatabaseOrTransaction::ReadTx(tx))
+impl<'a> MetadataStore<'a> {
+    pub(super) fn from_write_tx(tx: &'a WriteTransaction, network: u64) -> Self {
+        Self::with_network(MetadataStorage, DatabaseOrTransaction::WriteTx(tx), network)
     }
 }
 
@@ -879,49 +922,15 @@ mod identity_database_tests {
     #[test]
     fn set_then_load_returns_all_versions_for_network() {
         let (db, _dir) = open();
-        let store: IdentityStore<'static> = db.into();
+        let store = KeyValueStore::with_network(IdentityStorage, DatabaseOrTransaction::Db(db), 0);
 
         // Two identities in version A, one in version B, all on network=1
         let a1 = ident(1, 100);
         let a2 = ident(2, 100);
         let b1 = ident(3, 200);
-        store.set_all(&[a1, a2, b1], 1u64).unwrap();
+        store.set_all(&[a1, a2, b1]).unwrap();
 
-        let loaded: Vec<_> = store.load(1u64).unwrap().unwrap().collect();
+        let loaded: Vec<_> = store.load().unwrap().unwrap().collect();
         assert_eq!(loaded.len(), 3, "load(network) returns every version");
-    }
-
-    #[test]
-    fn set_then_load_isolates_by_network() {
-        let (db, _dir) = open();
-        let store: IdentityStore<'static> = db.into();
-
-        App::set_network_hash(1);
-        store.set(ident(1, 100)).unwrap();
-        App::set_network_hash(2);
-        store.set(ident(2, 100)).unwrap();
-
-        App::set_network_hash(1);
-        let net1: Vec<_> = store.load().unwrap().unwrap().collect();
-        App::set_network_hash(2);
-        let net2: Vec<_> = store.load().unwrap().unwrap().collect();
-        assert_eq!(net1.len(), 1);
-        assert_eq!(net2.len(), 1);
-    }
-
-    #[test]
-    fn load_for_version_filters_to_one_version() {
-        let (db, _dir) = open();
-        let store: IdentityStore<'static> = db.into();
-
-        App::set_network_hash(1);
-        store.set(ident(1, 100)).unwrap();
-        store.set(ident(2, 100)).unwrap();
-        store.set(ident(3, 200)).unwrap();
-
-        let v100: Vec<_> = store.load_for_version(100).unwrap().unwrap().collect();
-        let v200: Vec<_> = store.load_for_version(200).unwrap().unwrap().collect();
-        assert_eq!(v100.len(), 2);
-        assert_eq!(v200.len(), 1);
     }
 }

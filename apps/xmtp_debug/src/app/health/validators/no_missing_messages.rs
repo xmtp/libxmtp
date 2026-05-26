@@ -26,7 +26,18 @@ impl Validator for NoMissingMessages {
     )]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-        let clients = ctx.all_clients();
+        let clients = match ctx.all_clients() {
+            Ok(cs) => cs,
+            Err(e) => {
+                return vec![OpResult {
+                    op_name: self.name(),
+                    target: None,
+                    status: Status::Fail,
+                    duration: std::time::Duration::ZERO,
+                    error: Some(e),
+                }];
+            }
+        };
         // Load everything once — `recorded_messages` per-group would
         // rescan the whole network per iteration.
         let by_group = ctx.recorded_messages_by_group();

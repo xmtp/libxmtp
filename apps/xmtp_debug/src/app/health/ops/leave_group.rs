@@ -8,10 +8,10 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub struct LeaveGroup;
 
@@ -24,13 +24,11 @@ impl HealthOp for LeaveGroup {
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "LeaveGroup"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(gid) = ctx.new_groups.first().cloned() else {
-            return vec![OpResult {
-                op_name: self.name(),
-                target: None,
-                status: Status::Fail,
-                duration: Duration::ZERO,
-                error: Some(eyre!("no new group to leave")),
-            }];
+            return vec![OpResult::fail(
+                self.name(),
+                None,
+                eyre!("no new group to leave"),
+            )];
         };
 
         let start = Instant::now();
@@ -42,7 +40,8 @@ impl HealthOp for LeaveGroup {
 
             // Primary adds the transient to the group, then transient
             // syncs the welcome and leaves.
-            let primary_group = ctx.primary.group(&gid)?;
+            let primary = ctx.primary()?;
+            let primary_group = primary.group(&gid)?;
             primary_group
                 .add_members(&[transient.inbox_id().to_string()])
                 .await?;
@@ -52,17 +51,12 @@ impl HealthOp for LeaveGroup {
             Ok(())
         }
         .await;
-        let (status, error) = match outcome {
-            Ok(_) => (Status::Pass, None),
-            Err(e) => (Status::Fail, Some(e)),
-        };
-        vec![OpResult {
-            op_name: self.name(),
-            target: Some(format!("{gid}")),
-            status,
-            duration: start.elapsed(),
-            error,
-        }]
+        vec![OpResult::from_result(
+            self.name(),
+            Some(format!("{gid}")),
+            start,
+            outcome,
+        )]
     }
 }
 

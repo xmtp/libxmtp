@@ -1167,7 +1167,7 @@ impl Test {
         };
 
         info!("creating V4 SDK client with sender's wallet");
-        let v4_sdk_client = app::temp_client(Some(&wallet1)).await?;
+        let v4_sdk_client = app::temp_client_for(Some(&wallet1), &d14n_backend).await?;
         let v4_inbox_id = v4_sdk_client.inbox_id().to_string();
 
         // CHECK 1: inbox_id derivation is deterministic across backends

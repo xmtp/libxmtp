@@ -65,14 +65,14 @@ impl<'a> super::TableProvider<'a, GroupKey, Group> for GroupStorage {
 }
 
 impl super::TrackMetadata for GroupStorage {
-    fn increment<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
-        let store = store.into();
+    fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
         store.modify(crate::meta_key!(), |meta| meta.groups += n)?;
         Ok(())
     }
 
-    fn decrement<'a>(&self, store: impl Into<MetadataStore<'a>>, n: u32) -> Result<()> {
-        let store = store.into();
+    fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
         store.modify(crate::meta_key!(), |meta| meta.groups -= n)?;
         Ok(())
     }

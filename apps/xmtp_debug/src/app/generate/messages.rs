@@ -276,7 +276,7 @@ impl GenerateMessages {
         );
         for _ in 0..n {
             let bar_pointer = bar.clone();
-            let opts = opts.clone();
+            let opts = *opts;
             let (_, group, messages) = stores.clone();
             let semaphore = semaphore.clone();
             let cs = clients.clone();

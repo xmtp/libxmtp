@@ -5,9 +5,8 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
-use std::time::Instant;
 use xmtp_db::consent_record::ConsentState;
 
 pub struct UpdateConsentState;
@@ -20,27 +19,13 @@ impl HealthOp for UpdateConsentState {
 
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UpdateConsentState"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        for gid in ctx.all_groups() {
-            let start = Instant::now();
-            let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx.primary.group(gid)?;
-                group.update_consent_state(ConsentState::Allowed)?;
-                Ok(())
-            })();
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+        ctx.for_each_group(self.name(), |primary, gid| async move {
+            primary
+                .group(&gid)?
+                .update_consent_state(ConsentState::Allowed)?;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -58,28 +43,14 @@ impl HealthOp for UpdateConsentStateQuiet {
         fields(op = "UpdateConsentStateQuiet")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        let db = ctx.primary.db();
-        for gid in ctx.all_groups() {
-            let start = Instant::now();
-            let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx.primary.group(gid)?;
-                group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
-                Ok(())
-            })();
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+        ctx.for_each_group(self.name(), |primary, gid| async move {
+            let db = primary.db();
+            primary
+                .group(&gid)?
+                .quietly_update_consent_state(ConsentState::Allowed, &db)?;
+            Ok(())
+        })
+        .await
     }
 }
 

@@ -88,7 +88,7 @@ impl Stream {
                         group_name: group.group_name()?,
                         group_description: group.group_description()?,
                     };
-                    write(&format, buffer.as_mut(), &item)?;
+                    write(format, buffer.as_mut(), &item)?;
                     buffer.flush()?;
                 }
             }
@@ -119,7 +119,7 @@ impl Stream {
                         version_minor: message.version_minor,
                         authority_id: message.authority_id,
                     };
-                    write(&format, buffer.as_mut(), &item)?;
+                    write(format, buffer.as_mut(), &item)?;
                     buffer.flush()?;
                 }
             }
