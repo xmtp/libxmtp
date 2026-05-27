@@ -717,7 +717,8 @@ where
             | IntentKind::UpdatePermission
             | IntentKind::ReaddInstallations
             | IntentKind::CommitPendingProposals
-            | IntentKind::BootstrapMigration => {
+            | IntentKind::BootstrapMigration
+            | IntentKind::AppDataUpdate => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
                     let message_epoch = message_epoch.as_u64() as i64;
@@ -3338,6 +3339,33 @@ where
                     should_send_push_notification: intent.should_push,
                     group_epoch,
                 }))
+            }
+            IntentKind::AppDataUpdate => {
+                // Generic AppData write: full-replace or 3-way-merge
+                // delta. The handler decodes the intent payload, computes
+                // the final wire bytes (running residual computation for
+                // DeltaWithBase), and stages an
+                // `AppDataUpdate(component_id, payload)` proposal +
+                // commit. All AppData writes go through the same path.
+                if !super::app_data::is_migrated_group(openmls_group) {
+                    return Err(GroupError::ProposalsNotSupported(
+                        "AppDataUpdate intent requires the group to be migrated to AppData. \
+                         Call `enable_proposals` first."
+                            .into(),
+                    ));
+                }
+                let intent_data = crate::groups::intents::AppDataUpdateIntentData::try_from(
+                    intent.data.as_slice(),
+                )?;
+                let signer = self.context.identity().installation_keys.clone();
+                let publish = super::app_data::sender_intents::apply_app_data_update_intent(
+                    &self.context,
+                    openmls_group,
+                    intent_data,
+                    signer,
+                    intent.should_push,
+                )?;
+                return Ok(Some(publish));
             }
             IntentKind::CommitPendingProposals => {
                 use xmtp_id::key_package::VerifiedKeyPackageV2;

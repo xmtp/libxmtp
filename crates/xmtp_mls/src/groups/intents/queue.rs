@@ -182,6 +182,16 @@ impl QueueIntent {
         this
     }
 
+    /// Create an intent to write to an AppData well-known or app-range
+    /// component. The intent's `data` field carries a serialized
+    /// [`crate::groups::intents::AppDataUpdateIntentData`] — see that
+    /// type's documentation for the merge semantics of each op flavor.
+    pub fn app_data_update() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::AppDataUpdate);
+        this
+    }
+
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
     }

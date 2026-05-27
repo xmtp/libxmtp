@@ -37,8 +37,8 @@ use crate::{
     groups::{
         AdminListActionType, GroupError,
         intents::{
-            PermissionPolicyOption, PermissionUpdateType, UpdateAdminListIntentData,
-            UpdatePermissionIntentData,
+            AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
+            UpdateAdminListIntentData, UpdatePermissionIntentData,
         },
         mls_sync::{PublishIntentData, generate_commit_with_rollback},
     },
@@ -217,6 +217,78 @@ pub(crate) fn apply_update_permission_app_data_intent(
     debug_assert!(
         welcome.is_none(),
         "UpdatePermission via AppDataUpdate must not produce a welcome"
+    );
+    Ok(PublishIntentData {
+        payloads_to_publish: vec![
+            proposal_msg.tls_serialize_detached()?,
+            commit.tls_serialize_detached()?,
+        ],
+        staged_commit,
+        post_commit_action: None,
+        should_send_push_notification,
+        group_epoch,
+    })
+}
+
+/// Stage the `AppDataUpdate(component_id, payload)` commit for a
+/// generic [`AppDataUpdateIntentData`]. Two op flavors:
+///
+/// - **`Replace(bytes)`** — the bytes ARE the new wire-form value of the
+///   component. The handler emits them directly via
+///   [`stage_app_data_propose_and_commit`]. Last-writer-wins; idempotent
+///   under replay. Covers every Bytes / String typed component
+///   (EXTERNAL_COMMIT_POLICY, GROUP_NAME, GROUP_IMAGE_URL, APP_DATA,
+///   COMMIT_LOG_SIGNER, MESSAGE_DISAPPEAR_*, MIN_SUPPORTED_PROTOCOL_VERSION).
+///
+/// - **`DeltaWithBase { pre, post }`** — for collection-typed components
+///   (TlsMap / TlsSet) where the on-wire AppDataUpdate proposal carries
+///   a *delta* against prior state. To replay correctly under concurrent
+///   same-key writes, the dispatcher reads current state at commit time
+///   and emits only the residual mutations. The residual computation is
+///   shape-specific and lives in a per-component table — landing it for
+///   each of the three collection shapes (`TlsSet<InboxId>`,
+///   `TlsMap<InboxId, bytes>`, `TlsMap<ComponentId, ComponentMetadata>`)
+///   is intentionally deferred to a follow-on PR that also migrates the
+///   existing typed `UpdateAdminList` / `UpdatePermission` /
+///   `UpdateGroupMembership` intents onto this generic shape.
+///
+///   The DeltaWithBase arm in this PR returns
+///   `GroupError::ProposalsNotSupported` with a clear error message —
+///   callers using L-0 today (only EXTERNAL_COMMIT_POLICY) only need
+///   the Replace flavor. Surfacing the explicit error keeps the
+///   forward-compat intent shape in place without silently downgrading
+///   collection writes to last-writer-wins (which would corrupt the
+///   collections' replay semantics).
+pub(crate) fn apply_app_data_update_intent(
+    context: &impl XmtpSharedContext,
+    openmls_group: &mut OpenMlsGroup,
+    intent_data: AppDataUpdateIntentData,
+    signer: impl Signer,
+    should_send_push_notification: bool,
+) -> Result<PublishIntentData, GroupError> {
+    let storage = context.mls_storage();
+
+    let component_id = ComponentId::new(intent_data.component_id);
+    let payload = intent_data.payload;
+
+    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
+        storage,
+        openmls_group,
+        move |group, provider| -> Result<_, GroupError> {
+            Ok(stage_app_data_propose_and_commit(
+                group,
+                provider,
+                &signer,
+                component_id,
+                payload,
+            )?)
+        },
+    )?;
+
+    let (commit, welcome, _group_info) = bundle.into_messages();
+    debug_assert!(
+        welcome.is_none(),
+        "AppDataUpdate intent must not produce a welcome"
     );
     Ok(PublishIntentData {
         payloads_to_publish: vec![
