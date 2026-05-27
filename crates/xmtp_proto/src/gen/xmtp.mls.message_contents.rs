@@ -186,6 +186,172 @@ impl WelcomeWrapperAlgorithm {
         }
     }
 }
+/// v1 shape of the shareable invite blob for QR-code or link-based joining
+/// of an XMTP group via an MLS external commit.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalInvitePayloadV1 {
+    /// Application-defined opaque bytes identifying the service location.
+    #[prost(bytes = "vec", tag = "1")]
+    pub service_pointer: ::prost::alloc::vec::Vec<u8>,
+    /// Identifier for the service slot holding the encrypted blob. Format
+    /// is application-defined (UUID, snowflake, short slot key, etc.) and
+    /// opaque to libxmtp; the only constraint is that the value is unique
+    /// within the chosen service. Decoupled from the MLS group_id —
+    /// rotation may keep this stable (overwrite the same slot) or change
+    /// it (new slot on the service); the admin chooses per invite.
+    ///
+    /// MUST be at least 4 bytes (collision-avoidance floor for tiny
+    /// services). RECOMMENDED: 16 random bytes when no application-
+    /// specific scheme is in use. Maximum length is not capped by the
+    /// protocol; applications should bound it to fit their QR / link
+    /// transport.
+    ///
+    /// After joining, the joiner verifies this matches
+    /// `EXTERNAL_COMMIT_POLICY.external_group_id` in the group state as
+    /// defense-in-depth against a stale or swapped QR.
+    #[prost(bytes = "vec", tag = "2")]
+    pub external_group_id: ::prost::alloc::vec::Vec<u8>,
+    /// 32 bytes; ChaCha20Poly1305 key used to wrap the GroupInfo. Matches
+    /// `EXTERNAL_COMMIT_POLICY.symmetric_key` in the group state.
+    #[prost(bytes = "vec", tag = "3")]
+    pub symmetric_key: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for ExternalInvitePayloadV1 {
+    const NAME: &'static str = "ExternalInvitePayloadV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ExternalInvitePayloadV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ExternalInvitePayloadV1".into()
+    }
+}
+/// Versioned envelope for the shareable invite blob. The application embeds
+/// the serialized bytes in whatever transport it prefers (hex, base64, raw
+/// QR, NFC, etc.) and stores the corresponding EncryptedGroupInfoBlob on an
+/// external service keyed by the v1 payload's `external_group_id`.
+///
+/// New wire-format variants are added as new oneof entries; readers that
+/// don't recognize a variant treat the invite as unparseable and fail
+/// closed (no implicit downgrade).
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalInvitePayload {
+    #[prost(oneof = "external_invite_payload::Version", tags = "1")]
+    pub version: ::core::option::Option<external_invite_payload::Version>,
+}
+/// Nested message and enum types in `ExternalInvitePayload`.
+pub mod external_invite_payload {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(super::ExternalInvitePayloadV1),
+    }
+}
+impl ::prost::Name for ExternalInvitePayload {
+    const NAME: &'static str = "ExternalInvitePayload";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ExternalInvitePayload".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ExternalInvitePayload".into()
+    }
+}
+/// v1 shape of the encrypted-GroupInfo envelope.
+///
+/// `epoch` and `group_state_hash` are plaintext metadata serving two
+/// distinct purposes:
+///
+/// * `epoch` provides a total ordering on uploads. The service accepts
+///   an upload iff `upload.epoch > current.epoch` (strictly newer);
+///   lower-epoch uploads are stale and rejected outright.
+///
+/// * `group_state_hash` is a consistency check at a single epoch. MLS
+///   is deterministic — every member that applies the same commit
+///   derives identical group state — so two correct uploads at the
+///   same epoch MUST carry the same hash. When `upload.epoch == current.epoch`: equal hashes mean an idempotent re-upload (no-op
+///   or duplicate-reject); different hashes mean the uploaders are on
+///   forked views of the group and the service must refuse to pick a
+///   winner.
+///
+/// The joiner additionally verifies on download that the blob's `epoch`
+/// and `group_state_hash` match the decrypted GroupInfo before
+/// attempting to join — closes the "malicious service swapped
+/// ciphertext" gap.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EncryptedGroupInfoBlobV1 {
+    /// 12 bytes; ChaCha20Poly1305 nonce specific to this ciphertext.
+    #[prost(bytes = "vec", tag = "1")]
+    pub nonce: ::prost::alloc::vec::Vec<u8>,
+    /// wrap_payload_symmetric output: AEAD ciphertext over the serialized
+    /// MlsMessageOut(GroupInfo).
+    #[prost(bytes = "vec", tag = "2")]
+    pub ciphertext: ::prost::alloc::vec::Vec<u8>,
+    /// MLS group epoch of the wrapped GroupInfo. Plaintext; the service
+    /// totally orders uploads by this value — strictly-newer wins, stale
+    /// is rejected. Joiner verifies against the decrypted GroupInfo
+    /// before joining.
+    #[prost(uint64, tag = "3")]
+    pub epoch: u64,
+    /// Tree-hash (or equivalent group-state digest) of the wrapped
+    /// GroupInfo. Plaintext; the service uses this only at equal epochs
+    /// to detect forks (same epoch + differing hash = forked uploaders).
+    /// Not used for ordering. Joiner verifies against the decrypted
+    /// GroupInfo before joining.
+    #[prost(bytes = "vec", tag = "4")]
+    pub group_state_hash: ::prost::alloc::vec::Vec<u8>,
+    /// Wall-clock expiry of this blob, in nanoseconds since UNIX epoch.
+    /// 0 means no expiry. The service uses this as a TTL hint and MAY
+    /// garbage-collect blobs past their `expires_at_ns` autonomously.
+    /// The joining client also enforces this — refuses to join from an
+    /// expired blob even if the service is still serving it. Admin
+    /// bounds the campaign by setting this at upload time; extending an
+    /// invite is a re-upload with a later value.
+    #[prost(uint64, tag = "5")]
+    pub expires_at_ns: u64,
+}
+impl ::prost::Name for EncryptedGroupInfoBlobV1 {
+    const NAME: &'static str = "EncryptedGroupInfoBlobV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.EncryptedGroupInfoBlobV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.EncryptedGroupInfoBlobV1".into()
+    }
+}
+/// Versioned envelope wrapping a single GroupInfo TLS-serialized bytes
+/// under an AEAD scheme (ChaCha20Poly1305 in v1) with a fresh nonce per
+/// re-encryption. Stored on the external service and replaced by joiners
+/// (with a fresh nonce) after each successful join.
+///
+/// New variants represent breaking wire-format changes (different AEAD,
+/// different metadata layout). Readers that don't recognize a variant
+/// fail closed — the joiner cannot attempt MLS state transitions against
+/// a blob it can't validate.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EncryptedGroupInfoBlob {
+    #[prost(oneof = "encrypted_group_info_blob::Version", tags = "1")]
+    pub version: ::core::option::Option<encrypted_group_info_blob::Version>,
+}
+/// Nested message and enum types in `EncryptedGroupInfoBlob`.
+pub mod encrypted_group_info_blob {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(super::EncryptedGroupInfoBlobV1),
+    }
+}
+impl ::prost::Name for EncryptedGroupInfoBlob {
+    const NAME: &'static str = "EncryptedGroupInfoBlob";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.EncryptedGroupInfoBlob".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.EncryptedGroupInfoBlob".into()
+    }
+}
 /// Message for group mutable metadata
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMutableMetadataV1 {
@@ -518,6 +684,143 @@ impl Compression {
             "COMPRESSION_GZIP" => Some(Self::Gzip),
             _ => None,
         }
+    }
+}
+/// v1 external-commit-policy payload.
+/// Field-coupling invariants enforced by libxmtp when applying an
+/// AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal:
+///
+/// * When `allow_external_commit` transitions to true: `symmetric_key`
+///   and `external_group_id` MUST be populated (non-empty, meeting
+///   their length requirements) in the same proposal. The two
+///   transitions are atomic — there is no window where the bit is on
+///   but the invite coordinates are unset.
+///
+/// * When `allow_external_commit` transitions to false (revoke):
+///   `symmetric_key` and `external_group_id` MUST be cleared (set to
+///   empty bytes) in the same proposal. Leaving stale coordinates in
+///   the group state after revoke would let a future re-enable
+///   accidentally revive a previously-distributed key.
+///
+/// * On re-enable (false → true after a prior revoke): the new
+///   `symmetric_key` MUST differ from every previously-used value for
+///   this group, and the new `external_group_id` SHOULD differ as
+///   well. Reusing a revoked key would re-validate every QR ever
+///   printed under that key, defeating the revocation. Admin clients
+///   are responsible for generating fresh material on each enable.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalCommitPolicyV1 {
+    /// Master switch for MLS External Commits adding new members.
+    /// Required for the QR-invite flow. Defaults to false; admins
+    /// (super-admin by default) opt in via
+    /// AppDataUpdate(EXTERNAL_COMMIT_POLICY).
+    ///
+    /// See the field-coupling invariants in the message-level comment
+    /// above: enabling MUST populate symmetric_key + external_group_id;
+    /// revoking (true → false) MUST clear them.
+    #[prost(bool, tag = "1")]
+    pub allow_external_commit: bool,
+    /// Wall-clock auto-disable timestamp (ns since UNIX epoch).
+    /// 0 = no automatic expiry. After this timestamp the validator
+    /// rejects all external commits regardless of `allow_external_commit`.
+    /// Lets admins issue time-bounded invite campaigns without having to
+    /// come back and flip the bit manually.
+    #[prost(uint64, tag = "2")]
+    pub expires_at_ns: u64,
+    /// Maximum staleness of the GroupInfo referenced by an external
+    /// commit, in nanoseconds since GroupInfo export. 0 = no staleness
+    /// limit. External commits whose referenced GroupInfo was exported
+    /// more than `expire_in_ns` ago are rejected. Narrows the replay
+    /// window for stolen-blob attacks and forces re-export frequency.
+    #[prost(uint64, tag = "3")]
+    pub expire_in_ns: u64,
+    /// 32-byte ChaCha20Poly1305 key used to wrap the EncryptedGroupInfoBlob
+    /// for the currently-active invite. Carried in the group state so any
+    /// member (especially a just-joined external committer) can re-export
+    /// GroupInfo and re-upload a refreshed blob under the same key after a
+    /// join — without this, a printed QR / link would die the moment the
+    /// issuing admin went offline.
+    ///
+    /// The QR carries the same key bytes. Rotation = admin sets a new value
+    /// here in a single AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal AND
+    /// issues a new QR carrying the matching key; old QR holders' keys no
+    /// longer decrypt blobs the service serves under the rotated slot.
+    ///
+    /// Length MUST be exactly 32 bytes when populated. Empty (zero-length)
+    /// means no active invite — and MUST coincide with
+    /// `allow_external_commit == false` (see the field-coupling invariants
+    /// at the top of this message). Revoking the invite MUST clear this
+    /// field; re-enabling MUST populate it with a freshly-generated value
+    /// distinct from any previously-used key for this group.
+    ///
+    /// Note: the service_pointer (where the blob lives) is intentionally
+    /// NOT stored in the group. It is per-QR application-defined opaque
+    /// bytes; different invites for the same group may point at different
+    /// services. Joiners use the service_pointer from the QR they scanned.
+    #[prost(bytes = "vec", tag = "4")]
+    pub symmetric_key: ::prost::alloc::vec::Vec<u8>,
+    /// Identifier for the service slot holding the active invite's
+    /// encrypted blob. Application-defined opaque bytes (UUID, snowflake,
+    /// short slot key, etc.); decoupled from the MLS group_id. Admins
+    /// MAY rotate the symmetric_key while keeping this stable (overwrite
+    /// the same slot on the service) or change both together (new slot,
+    /// leaves the old slot orphaned for application-side GC).
+    ///
+    /// The QR carries the same value. The joiner verifies that the QR's
+    /// `external_group_id` equals this field after joining, as
+    /// defense-in-depth against a stale or swapped QR. Mismatch indicates
+    /// the admin rotated to a new slot after the QR was minted; the
+    /// joining client SHOULD treat the just-published commit as orphaned
+    /// (it validates fine, but the refreshed blob the joiner would upload
+    /// to the old slot will not be reachable by holders of the new QR).
+    ///
+    /// MUST be at least 4 bytes when populated (collision-avoidance floor
+    /// for tiny services). RECOMMENDED: 16 random bytes when no
+    /// application-specific scheme is in use. Empty (zero-length) means
+    /// no active invite — and MUST coincide with
+    /// `allow_external_commit == false` (see the field-coupling
+    /// invariants at the top of this message). Revoking the invite MUST
+    /// clear this field; re-enabling SHOULD use a freshly-generated value
+    /// (reusing a prior `external_group_id` is permitted only when the
+    /// admin intends to overwrite the old service slot — typically the
+    /// admin generates a new value to leave the prior slot orphaned).
+    #[prost(bytes = "vec", tag = "5")]
+    pub external_group_id: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for ExternalCommitPolicyV1 {
+    const NAME: &'static str = "ExternalCommitPolicyV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ExternalCommitPolicyV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ExternalCommitPolicyV1".into()
+    }
+}
+/// Versioned envelope. New variants are added as new oneof variants;
+/// readers that don't recognize a variant treat the policy as default
+/// (all fields zero) per the standard unknown-variant tolerance rules.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalCommitPolicyEntry {
+    #[prost(oneof = "external_commit_policy_entry::Version", tags = "1")]
+    pub version: ::core::option::Option<external_commit_policy_entry::Version>,
+}
+/// Nested message and enum types in `ExternalCommitPolicyEntry`.
+pub mod external_commit_policy_entry {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(super::ExternalCommitPolicyV1),
+    }
+}
+impl ::prost::Name for ExternalCommitPolicyEntry {
+    const NAME: &'static str = "ExternalCommitPolicyEntry";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ExternalCommitPolicyEntry".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ExternalCommitPolicyEntry".into()
     }
 }
 /// Message for group mutable metadata
@@ -927,9 +1230,18 @@ pub struct ComponentMetadata {
     /// The data structure type of the component's value
     #[prost(enumeration = "ComponentType", tag = "1")]
     pub component_type: i32,
-    /// Permission policies for this component
+    /// Permission policies for this component, evaluated against regular
+    /// (member-issued) commits.
     #[prost(message, optional, tag = "2")]
     pub permissions: ::core::option::Option<ComponentPermissions>,
+    /// Permission policies for this component, evaluated against MLS External
+    /// Commits (RFC 9420 §12.4.3.2). Absent / unset is equivalent to all-Deny:
+    /// external committers cannot touch this component. Each component opts in
+    /// explicitly by setting this field. Combined with the EXTERNAL_COMMIT_POLICY
+    /// master switch (`allow_external_commit`), this is the per-component declarative
+    /// authorization for external-commit-driven joins.
+    #[prost(message, optional, tag = "3")]
+    pub external_committer_permissions: ::core::option::Option<ComponentPermissions>,
 }
 impl ::prost::Name for ComponentMetadata {
     const NAME: &'static str = "ComponentMetadata";
