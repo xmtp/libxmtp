@@ -3,8 +3,9 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
+use futures::FutureExt;
 use std::time::Instant;
 use xmtp_mls::groups::send_message_opts::SendMessageOpts;
 
@@ -18,62 +19,60 @@ impl HealthOp for CreateDm {
 
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateDm"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        let primary_inbox = ctx.primary.inbox_id().to_string();
+        ctx.for_each_existing_client(|ctx, peer_hc| {
+            async move {
+                let primary_bytes = ctx.primary.inbox_id_bytes();
+                let primary_inbox = ctx.primary.inbox_id_hex();
+                let peer_inbox_hex = peer_hc.inbox_id_hex();
+                let peer_bytes = peer_hc.inbox_id_bytes();
+                let mut rows = Vec::with_capacity(2);
 
-        for (peer_inbox_bytes, peer) in &ctx.existing_clients {
-            let peer_inbox = peer.inbox_id().to_string();
-            if peer_inbox == primary_inbox {
-                continue;
-            }
+                // Direction A: primary → peer. Persist on success.
+                let start = Instant::now();
+                let dir_a: color_eyre::eyre::Result<()> = async {
+                    let primary = ctx.primary()?;
+                    let dm = primary
+                        .find_or_create_dm(peer_inbox_hex.as_str(), None)
+                        .await?;
+                    dm.send_message(b"hi from primary", SendMessageOpts::default())
+                        .await?;
+                    ctx.persist_new_dm(
+                        &dm.group_id,
+                        primary_bytes,
+                        vec![primary_bytes, peer_bytes],
+                    );
+                    Ok(())
+                }
+                .await;
+                rows.push(OpResult::from_result(
+                    "CreateDm",
+                    Some(format!("primary->{peer_inbox_hex}")),
+                    start,
+                    dir_a,
+                ));
 
-            // Direction A: primary → peer.
-            let start = Instant::now();
-            let dir_a: color_eyre::eyre::Result<()> = async {
-                let dm = ctx
-                    .primary
-                    .find_or_create_dm(peer_inbox.as_str(), None)
-                    .await?;
-                dm.send_message(b"hi from primary", SendMessageOpts::default())
-                    .await?;
-                Ok(())
+                // Direction B: peer → primary.
+                let start = Instant::now();
+                let dir_b: color_eyre::eyre::Result<()> = async {
+                    let peer = peer_hc.realize(&ctx.id_store)?;
+                    peer.sync_all_welcomes_and_groups(None).await?;
+                    let dm = peer.find_or_create_dm(primary_inbox.as_str(), None).await?;
+                    dm.send_message(b"hi from peer", SendMessageOpts::default())
+                        .await?;
+                    Ok(())
+                }
+                .await;
+                rows.push(OpResult::from_result(
+                    "SendDmRoundTrip",
+                    Some(format!("{peer_inbox_hex}->primary")),
+                    start,
+                    dir_b,
+                ));
+                rows
             }
-            .await;
-            let (status, error) = match dir_a {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: "CreateDm",
-                target: Some(format!("primary->{}", hex::encode(peer_inbox_bytes))),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-
-            // Direction B: peer → primary.
-            let start = Instant::now();
-            let dir_b: color_eyre::eyre::Result<()> = async {
-                peer.sync_all_welcomes_and_groups(None).await?;
-                let dm = peer.find_or_create_dm(primary_inbox.as_str(), None).await?;
-                dm.send_message(b"hi from peer", SendMessageOpts::default())
-                    .await?;
-                Ok(())
-            }
-            .await;
-            let (status, error) = match dir_b {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: "SendDmRoundTrip",
-                target: Some(format!("{}->primary", hex::encode(peer_inbox_bytes))),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+            .boxed()
+        })
+        .await
     }
 }
 
@@ -91,6 +90,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["CreateIdentity"],
         op: &CreateDm,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

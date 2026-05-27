@@ -2,9 +2,8 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
-use std::time::Instant;
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 
 pub struct UpdateMessageDisappearing;
@@ -21,32 +20,16 @@ impl HealthOp for UpdateMessageDisappearing {
         fields(op = "UpdateMessageDisappearing")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        for gid in ctx.all_groups() {
-            let start = Instant::now();
-            let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid)?;
-                group
-                    .update_conversation_message_disappearing_settings(
-                        MessageDisappearingSettings::new(1, 86_400_000_000_000),
-                    )
-                    .await?;
-                Ok(())
-            }
-            .await;
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+        ctx.for_each_group(self.name(), |primary, gid| async move {
+            primary
+                .group(&gid)?
+                .update_conversation_message_disappearing_settings(
+                    MessageDisappearingSettings::new(1, 86_400_000_000_000),
+                )
+                .await?;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -64,30 +47,14 @@ impl HealthOp for RemoveMessageDisappearing {
         fields(op = "RemoveMessageDisappearing")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        for gid in ctx.all_groups() {
-            let start = Instant::now();
-            let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid)?;
-                group
-                    .remove_conversation_message_disappearing_settings()
-                    .await?;
-                Ok(())
-            }
-            .await;
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+        ctx.for_each_group(self.name(), |primary, gid| async move {
+            primary
+                .group(&gid)?
+                .remove_conversation_message_disappearing_settings()
+                .await?;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -111,7 +78,7 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateMessageDisappearing,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }
 
@@ -119,6 +86,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["UpdateMessageDisappearing"],
         op: &RemoveMessageDisappearing,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

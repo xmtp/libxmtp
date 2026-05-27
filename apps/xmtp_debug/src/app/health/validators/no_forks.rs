@@ -27,8 +27,20 @@ impl Validator for NoForkedGroups {
         fields(op = "NoForkedGroups")
     )]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
+        let clients = match ctx.all_clients() {
+            Ok(cs) => cs,
+            Err(e) => {
+                return vec![OpResult {
+                    op_name: self.name(),
+                    target: None,
+                    status: Status::Fail,
+                    duration: std::time::Duration::ZERO,
+                    error: Some(e),
+                }];
+            }
+        };
         let mut out = Vec::new();
-        for client in ctx.all_clients() {
+        for client in &clients {
             let db = client.db();
 
             // Force a reconciliation pass so fork status reflects what's on

@@ -18,15 +18,15 @@ use xmtp_proto::{
 };
 
 pub struct Query {
-    opts: args::Query,
-    #[allow(unused)]
+    opts: &'static args::Query,
     network: args::BackendOpts,
     db: Arc<redb::ReadOnlyDatabase>,
 }
 
 impl Query {
-    pub fn new(opts: args::Query, network: args::BackendOpts) -> Result<Self> {
+    pub fn new(opts: &'static args::Query) -> Result<Self> {
         let db = App::readonly_db()?;
+        let network = App::network().clone();
         Ok(Self { opts, network, db })
     }
 
@@ -196,9 +196,8 @@ impl Query {
     /// get all keypackages for installation keys in the app database
     pub async fn all_key_packages(&self) -> Result<()> {
         let store: IdentityStore = self.db.clone().into();
-        let network = u64::from(&self.network);
         let identities = store
-            .load(network)?
+            .load()?
             .ok_or(eyre!("no identities in db, try generating some"))?;
         let keys: Vec<[u8; 32]> = identities
             .map(|i| {
@@ -228,9 +227,8 @@ impl Query {
 
     pub async fn welcomes(&self) -> Result<()> {
         let store: IdentityStore = self.db.clone().into();
-        let network = u64::from(&self.network);
         let identities = store
-            .load(network)?
+            .load()?
             .ok_or(eyre!("no identities in db, try generating some"))?;
 
         let installations: Vec<([u8; 32], [u8; 32])> = identities

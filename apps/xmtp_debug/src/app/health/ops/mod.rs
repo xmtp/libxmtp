@@ -12,6 +12,7 @@ use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
 mod add_members;
+mod bootstrap;
 mod create_dm;
 mod create_group;
 mod create_identity;

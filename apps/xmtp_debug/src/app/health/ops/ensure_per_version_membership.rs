@@ -11,16 +11,15 @@
 //! uniformly), so this op is gated on `Conditions::STRICT_VERSIONING`.
 
 use crate::app::App;
-use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
-use crate::app::store::{Database, IdentityStore};
+use crate::app::health::result::OpResult;
+use crate::app::store::Database;
 use crate::app::types::{Identity, InboxId};
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use xmtp_mls::groups::UpdateAdminListType::*;
 
 pub struct EnsurePerVersionMembership;
@@ -38,15 +37,11 @@ impl HealthOp for EnsurePerVersionMembership {
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(new_group_id) = ctx.new_groups.first().cloned() else {
-            return vec![OpResult {
-                op_name: self.name(),
-                target: None,
-                status: Status::Fail,
-                duration: Duration::ZERO,
-                error: Some(eyre!(
-                    "no new group; CreateGroup + AddMembersToNewGroup must run first"
-                )),
-            }];
+            return vec![OpResult::fail(
+                self.name(),
+                None,
+                eyre!("no new group; CreateGroup + AddMembersToNewGroup must run first"),
+            )];
         };
 
         let start = Instant::now();
@@ -60,22 +55,19 @@ impl HealthOp for EnsurePerVersionMembership {
 
             // Materialize the full IdentityStore for this network once,
             // keyed by inbox. Avoids N+1 table scans in the loops below.
-            // Scoped so the redb handle drops before we re-open it below
-            // (redb refuses concurrent opens within a single process).
-            let net_key = u64::from(&ctx.network);
-            let identities: HashMap<InboxId, Identity> = {
-                let redb: Arc<redb::Database> = App::db()?;
-                let id_store: IdentityStore<'static> = redb.into();
-                id_store
-                    .load(net_key)?
-                    .into_iter()
-                    .flatten()
-                    .map(|g| {
-                        let id = g.value();
-                        (id.inbox_id, id)
-                    })
-                    .collect()
-            };
+            // Uses the context's redb handle — opening a second one
+            // would race the existing handle (redb refuses concurrent
+            // opens within a single process).
+            let identities: HashMap<InboxId, Identity> = ctx
+                .id_store
+                .load()?
+                .into_iter()
+                .flatten()
+                .map(|g| {
+                    let id = g.value();
+                    (id.inbox_id, id)
+                })
+                .collect();
 
             let present_versions: BTreeSet<u64> = updated_members
                 .iter()
@@ -85,15 +77,14 @@ impl HealthOp for EnsurePerVersionMembership {
             // First inbox per version_hash wins; primary represents the
             // current version, other_identities cover the rest.
             let mut version_representative: BTreeMap<u64, InboxId> = BTreeMap::new();
-            version_representative.insert(
-                App::current_version_hash(),
-                inbox_id_to_bytes(ctx.primary.inbox_id()),
-            );
-            for inbox in &ctx.other_identities {
-                if let Some(id) = identities.get(inbox) {
+            version_representative
+                .insert(App::current_version_hash(), ctx.primary.inbox_id_bytes());
+            for hc in &ctx.other_identities {
+                let inbox = hc.inbox_id_bytes();
+                if let Some(id) = identities.get(&inbox) {
                     version_representative
                         .entry(id.version_hash)
-                        .or_insert(*inbox);
+                        .or_insert(inbox);
                 }
             }
 
@@ -103,8 +94,8 @@ impl HealthOp for EnsurePerVersionMembership {
                 .map(|(_, inbox)| *inbox)
                 .collect();
 
-            let group = ctx
-                .primary
+            let primary = ctx.primary()?;
+            let group = primary
                 .group(&new_group_id)
                 .map_err(|e| eyre!("primary cannot load group: {e}"))?;
 
@@ -121,7 +112,7 @@ impl HealthOp for EnsurePerVersionMembership {
                 ctx.update_group_members(&new_group_id, updated_members);
                 // Welcomes aren't auto-pulled mid-run — sync so the new
                 // members can `client.group(...)` immediately.
-                ctx.sync_welcomes_fanout(self.name()).await;
+                ctx.sync_welcomes_fanout(self.name()).await?;
             }
 
             // Each version needs a locally-available super-admin so future
@@ -138,18 +129,12 @@ impl HealthOp for EnsurePerVersionMembership {
         }
         .await;
 
-        let (status, error) = match outcome {
-            Ok(_) => (Status::Pass, None),
-            Err(e) => (Status::Fail, Some(e)),
-        };
-
-        vec![OpResult {
-            op_name: self.name(),
-            target: Some(format!("{new_group_id}")),
-            status,
-            duration: start.elapsed(),
-            error,
-        }]
+        vec![OpResult::from_result(
+            self.name(),
+            Some(format!("{new_group_id}")),
+            start,
+            outcome,
+        )]
     }
 }
 
@@ -157,6 +142,7 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup"],
         op: &EnsurePerVersionMembership,
-        requires: crate::app::health::conditions::Conditions::STRICT_VERSIONING,
+        requires: crate::app::health::conditions::Conditions::STRICT_VERSIONING
+            .union(crate::app::health::conditions::Conditions::WRITES),
     }
 }

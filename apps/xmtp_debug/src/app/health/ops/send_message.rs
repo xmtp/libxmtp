@@ -4,72 +4,14 @@
 //! On success the message id is written to redb's `MessageStore` so the
 //! `NoMissingMessages` validator has an authoritative cross-version set.
 
-use crate::DbgClient;
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use std::sync::Arc;
-use std::time::Instant;
 use xmtp_mls::groups::send_message_opts::SendMessageOpts;
-use xmtp_proto::types::GroupId;
 
 pub struct SendMessage;
-
-async fn send_one(
-    op_name: &'static str,
-    ctx: &HealthContext,
-    client: &Arc<DbgClient>,
-    gid: &GroupId,
-) -> OpResult {
-    let start = Instant::now();
-    // Non-membership = client.group(gid) errors. Treat as Pass: the
-    // client simply isn't in this group, so there's nothing to send.
-    // Distinguishes "no membership" from "send failed despite membership".
-    let group = match client.group(gid) {
-        Ok(g) => g,
-        Err(_) => {
-            return OpResult {
-                op_name,
-                target: Some(format!("inbox={} group={gid}", client.inbox_id())),
-                status: Status::Pass,
-                duration: start.elapsed(),
-                error: None,
-            };
-        }
-    };
-    let outcome: color_eyre::eyre::Result<Option<[u8; 32]>> = async {
-        if !group.is_active()? {
-            return Ok(None);
-        }
-        let body = format!("healthcheck from {}", client.inbox_id());
-        let message_id = group
-            .send_message(body.as_bytes(), SendMessageOpts::default())
-            .await?;
-        let id: [u8; 32] = message_id
-            .as_slice()
-            .try_into()
-            .map_err(|_| eyre!("libxmtp returned non-32-byte message_id"))?;
-        Ok(Some(id))
-    }
-    .await;
-    let (status, error) = match outcome {
-        Ok(Some(id)) => {
-            ctx.record_message(gid, id, client);
-            (Status::Pass, None)
-        }
-        Ok(None) => (Status::Pass, None),
-        Err(e) => (Status::Fail, Some(e)),
-    };
-    OpResult {
-        op_name,
-        target: Some(format!("inbox={} group={gid}", client.inbox_id())),
-        status,
-        duration: start.elapsed(),
-        error,
-    }
-}
 
 #[async_trait]
 impl HealthOp for SendMessage {
@@ -79,13 +21,29 @@ impl HealthOp for SendMessage {
 
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "SendMessage"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        for client in ctx.all_clients() {
-            for gid in ctx.all_groups() {
-                out.push(send_one(self.name(), ctx, &client, gid).await);
-            }
-        }
-        out
+        let ctx_ref = &*ctx;
+        ctx_ref
+            .for_each_client_group(self.name(), |client, gid| async move {
+                // Non-membership = client.group(gid) errors. Pass with no
+                // send so we distinguish "not in group" from "send broke".
+                let Ok(group) = client.group(&gid) else {
+                    return Ok(());
+                };
+                if !group.is_active()? {
+                    return Ok(());
+                }
+                let body = format!("healthcheck from {}", client.inbox_id());
+                let message_id = group
+                    .send_message(body.as_bytes(), SendMessageOpts::default())
+                    .await?;
+                let id: [u8; 32] = message_id
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| eyre!("libxmtp returned non-32-byte message_id"))?;
+                ctx_ref.record_message(&gid, id, &client);
+                Ok(())
+            })
+            .await
     }
 }
 

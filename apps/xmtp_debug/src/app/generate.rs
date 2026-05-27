@@ -12,18 +12,17 @@ use std::time::Instant;
 
 #[derive(Debug)]
 pub struct Generate {
-    opts: args::Generate,
-    network: args::BackendOpts,
+    opts: &'static args::Generate,
 }
 
 impl Generate {
-    pub fn new(opts: args::Generate, network: args::BackendOpts) -> Self {
-        Self { opts, network }
+    pub fn new(opts: &'static args::Generate) -> Self {
+        Self { opts }
     }
 
     pub async fn run(self) -> Result<()> {
         use args::EntityKind::*;
-        let Generate { opts, network } = self;
+        let Generate { opts } = self;
         let args::Generate {
             entity,
             amount,
@@ -40,11 +39,11 @@ impl Generate {
             Group => {
                 let db = App::db()?;
                 let start = Instant::now();
-                GenerateGroups::new(db, network)
-                    .create_groups(amount, invite.unwrap_or(0), *concurrency)
+                GenerateGroups::new(db)
+                    .create_groups(*amount, invite.unwrap_or(0), **concurrency)
                     .await?;
                 let elapsed = start.elapsed();
-                let per_op = elapsed.as_millis() as f64 / amount as f64;
+                let per_op = elapsed.as_millis() as f64 / *amount as f64;
                 info!(
                     count = amount,
                     elapsed_ms = elapsed.as_millis() as u64,
@@ -54,9 +53,9 @@ impl Generate {
                 Ok(())
             }
             Message => {
-                let generator = GenerateMessages::new(network, message_opts, *concurrency)?;
+                let generator = GenerateMessages::new(*message_opts, **concurrency)?;
                 let start = Instant::now();
-                let latencies = generator.run(amount).await?;
+                let latencies = generator.run(*amount).await?;
                 let elapsed = start.elapsed();
 
                 let total_send_ms: u128 = latencies.iter().map(|d| d.as_millis()).sum();
@@ -77,11 +76,11 @@ impl Generate {
             Identity => {
                 let db = App::db()?;
                 let start = Instant::now();
-                GenerateIdentity::new(db.into(), network)
-                    .create_identities(amount, *concurrency, ryow)
+                GenerateIdentity::new(db.into())
+                    .create_identities(*amount, **concurrency, *ryow)
                     .await?;
                 let elapsed = start.elapsed();
-                let per_op = elapsed.as_millis() as f64 / amount as f64;
+                let per_op = elapsed.as_millis() as f64 / *amount as f64;
                 info!(
                     count = amount,
                     elapsed_ms = elapsed.as_millis() as u64,

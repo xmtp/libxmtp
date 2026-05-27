@@ -2,6 +2,7 @@
 use color_eyre::eyre::Result;
 use redb::TableDefinition;
 use std::sync::Arc;
+use xmtp_proto::types::GroupId;
 
 use crate::{app::types::*, constants::STORAGE_PREFIX};
 
@@ -15,20 +16,26 @@ pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION
 const TABLE: TableDefinition<GroupKey, Group> = TableDefinition::new(NAMESPACE);
 
 impl super::DeriveKey<GroupKey> for Group {
-    fn key(&self, network: u64) -> GroupKey {
-        GroupKey {
-            network,
-            key: *self.id().as_bytes(),
-        }
+    fn key(&self) -> GroupKey {
+        GroupKey::new(*self.id().as_bytes())
     }
 }
 
 impl super::DeriveKey<GroupKey> for &Group {
-    fn key(&self, network: u64) -> GroupKey {
-        GroupKey {
-            network,
-            key: *self.id().as_bytes(),
-        }
+    fn key(&self) -> GroupKey {
+        GroupKey::new(*self.id().as_bytes())
+    }
+}
+
+impl From<GroupId> for GroupKey {
+    fn from(value: GroupId) -> Self {
+        GroupKey::new(value.into_bytes())
+    }
+}
+
+impl From<&GroupId> for GroupKey {
+    fn from(value: &GroupId) -> Self {
+        GroupKey::new(*value.as_bytes())
     }
 }
 
@@ -38,19 +45,13 @@ pub type GroupStore<'a> = super::KeyValueStore<'a, GroupStorage>;
 
 impl From<Arc<redb::Database>> for GroupStore<'_> {
     fn from(value: Arc<redb::Database>) -> Self {
-        GroupStore {
-            db: super::DatabaseOrTransaction::Db(value),
-            store: GroupStorage,
-        }
+        GroupStore::new(GroupStorage, super::DatabaseOrTransaction::Db(value))
     }
 }
 
 impl From<Arc<redb::ReadOnlyDatabase>> for GroupStore<'_> {
     fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
-        GroupStore {
-            db: super::DatabaseOrTransaction::ReadOnly(value),
-            store: GroupStorage,
-        }
+        GroupStore::new(GroupStorage, super::DatabaseOrTransaction::ReadOnly(value))
     }
 }
 
@@ -64,25 +65,15 @@ impl<'a> super::TableProvider<'a, GroupKey, Group> for GroupStorage {
 }
 
 impl super::TrackMetadata for GroupStorage {
-    fn increment<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
-        let store = store.into();
-        store.modify(crate::meta_key!(network), |meta| meta.groups += n)?;
+    fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
+        store.modify(crate::meta_key!(), |meta| meta.groups += n)?;
         Ok(())
     }
 
-    fn decrement<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
-        let store = store.into();
-        store.modify(crate::meta_key!(network), |meta| meta.groups -= n)?;
+    fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
+        store.modify(crate::meta_key!(), |meta| meta.groups -= n)?;
         Ok(())
     }
 }

@@ -2,9 +2,8 @@
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
-use crate::app::health::result::{OpResult, Status};
+use crate::app::health::result::OpResult;
 use async_trait::async_trait;
-use std::time::Instant;
 use xmtp_mls::groups::UpdateAdminListType;
 
 /// Make Primary an Admin of all groups
@@ -18,33 +17,15 @@ impl HealthOp for UpdateAdminList {
 
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UpdateAdminList"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
-        let mut out = Vec::new();
-        for gid in ctx.all_groups() {
-            let start = Instant::now();
-            let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid)?;
-                group
-                    .update_admin_list(
-                        UpdateAdminListType::AddSuper,
-                        ctx.primary.inbox_id().to_string(),
-                    )
-                    .await?;
-                Ok(())
-            }
-            .await;
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(e)),
-            };
-            out.push(OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status,
-                duration: start.elapsed(),
-                error,
-            });
-        }
-        out
+        ctx.for_each_group(self.name(), |primary, gid| async move {
+            let inbox = primary.inbox_id().to_string();
+            primary
+                .group(&gid)?
+                .update_admin_list(UpdateAdminListType::AddSuper, inbox)
+                .await?;
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -61,6 +42,6 @@ inventory::submit! {
     crate::app::health::ops::OpEntry {
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         op: &UpdateAdminList,
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

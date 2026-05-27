@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, TypedDict
 
-from git import BadName, Repo
+from git import BadName, InvalidGitRepositoryError, NoSuchPathError, Repo
 from packaging.version import InvalidVersion, Version
 from rich.console import Console
 from rich.table import Table
@@ -107,6 +107,7 @@ class ResultRow(TypedDict, total=False):
     kind: str
     branch: str
     label: str
+    leg: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,8 +167,9 @@ def _resolve_repo() -> tuple[Repo, str]:
     `repo()` and `repo_root()` so we never run `jj root` twice."""
     try:
         plain = Repo(os.getcwd(), search_parent_directories=True)
-        return plain, plain.working_tree_dir  # type: ignore[return-value]
-    except Exception:
+        if plain.working_tree_dir:
+            return plain, plain.working_tree_dir
+    except (InvalidGitRepositoryError, NoSuchPathError):
         pass
     r = subprocess.run(["jj", "root"], capture_output=True, text=True)
     if r.returncode != 0:
@@ -439,7 +441,7 @@ def _cache_set(key: str, value: int) -> None:
     cache[key] = value
     path = _cache_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(f"{key}\t{value}\n")
 
 
@@ -544,7 +546,7 @@ def run_xdbg(
     short = sha[:7]
     try:
         env = {**os.environ, **env_extras, **sandbox_env(env_extras)}
-        backend = os.environ.get("BACKEND") or env_extras.get("BACKEND") or "dev"
+        backend = env_extras.get("BACKEND") or os.environ.get("BACKEND") or "dev"
         raw_xvt = (
             env_extras.get("XVT_XDBG_FLAGS") or os.environ.get("XVT_XDBG_FLAGS") or ""
         )
@@ -582,13 +584,20 @@ def run_xdbg(
 
 
 def emit_stderr_table(test_name: str, results: list[ResultRow]) -> None:
+    has_leg = any(r.get("leg") for r in results)
     table = Table(title=f"{test_name} summary", title_justify="left")
-    for col in ("STATUS", "KIND", "SHORT", "SHA", "LABEL"):
+    cols = ["STATUS", "KIND", "SHORT", "SHA", "LABEL"]
+    if has_leg:
+        cols.append("LEG")
+    for col in cols:
         table.add_column(col, no_wrap=True)
     for r in results:
         glyph = STATUS_PLAIN.get(r["status"], f"? {r['status']}")
         display = r.get("label") or r.get("branch") or ""
-        table.add_row(glyph, r["kind"], r["short"], r["sha"], display)
+        row = [glyph, r["kind"], r["short"], r["sha"], display]
+        if has_leg:
+            row.append(r.get("leg", ""))
+        table.add_row(*row)
     _stderr_console.print(table)
 
 
@@ -613,7 +622,7 @@ def emit_plan_step_summary(
         f"{json.dumps([asdict(e) for e in parsed], indent=2)}\n"
         "```\n"
     )
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(body)
 
 
@@ -678,23 +687,36 @@ def emit_github_step_summary(
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not path:
         return
+    has_leg = any(r.get("leg") for r in results)
     rows = []
     for r in results:
         glyph = STATUS_MD.get(r["status"], f"❓ {r['status']}")
         display = r.get("label") or r.get("branch") or "-"
-        rows.append(
-            f"| {glyph} | {r['kind']} | `{r['short']}` | {display} | `{r['sha']}` |"
+        if has_leg:
+            rows.append(
+                f"| {glyph} | {r['kind']} | `{r['short']}` | {display} | `{r['sha']}` | {r.get('leg', '-')} |"
+            )
+        else:
+            rows.append(
+                f"| {glyph} | {r['kind']} | `{r['short']}` | {display} | `{r['sha']}` |"
+            )
+    if has_leg:
+        header = (
+            "| Status | Kind | Short | Label / Branch | SHA | Leg |\n"
+            "|---|---|---|---|---|---|\n"
+        )
+    else:
+        header = (
+            "| Status | Kind | Short | Label / Branch | SHA |\n|---|---|---|---|---|\n"
         )
     body = (
-        f"## {test_name} results\n\n"
-        "| Status | Kind | Short | Label / Branch | SHA |\n"
-        "|---|---|---|---|---|\n" + "\n".join(rows) + "\n\n"
+        f"## {test_name} results\n\n" + header + "\n".join(rows) + "\n\n"
         f"**completed_count={completed_count} required_failure={int(required_failure)} "
         f"nightly_failure={int(nightly_failure)} lenient={int(lenient_nightlies)}**\n\n"
         f"**libxmtp NDJSON log files captured: {count_ndjson_logs(out_dir)}** "
         "(download the run artifact to inspect)\n"
     )
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(body)
 
 
@@ -865,7 +887,7 @@ def prepare_run(
     )
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     if gh_out := os.environ.get("GITHUB_OUTPUT"):
-        with open(gh_out, "a") as f:
+        with open(gh_out, "a", encoding="utf-8") as f:
             f.write(f"out_dir={out_dir}\n")
     env_extras = setup_run_env(tmp_prefix)
     xdbg_flags = " ".join(xdbg_args)

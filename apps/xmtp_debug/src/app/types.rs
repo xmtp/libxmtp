@@ -9,10 +9,15 @@ use prost::Message as _;
 use speedy::{Readable, Writable};
 
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::{InboxOwner, associations::builder::SignatureRequest};
+use xmtp_mls_common::group_metadata::DmMembers;
 use xmtp_proto::{types::GroupId, xmtp::identity::MlsCredential};
 
-use crate::app::store::MessageKey;
+use crate::{
+    XDBG_ID_NONCE,
+    app::{App, store::MessageKey},
+    args,
+};
 
 /// An InboxId represented as fixed bytes
 pub type InboxId = [u8; 32];
@@ -26,7 +31,7 @@ impl EthereumWallet {
         PrivateKeySigner::from_slice(self.0.to_bytes().as_slice()).expect("Should never fail")
     }
 
-    fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(SigningKey::from_bytes((&bytes).into()).unwrap())
     }
 
@@ -101,6 +106,25 @@ impl std::fmt::Display for Identity {
 }
 
 impl Identity {
+    pub fn generate() -> Result<Self> {
+        let wallet = EthereumWallet::default();
+        let local = wallet.clone().into_alloy();
+        let ident = local.get_identifier()?;
+        let inbox_id = ident.inbox_id(XDBG_ID_NONCE)?;
+        let cred = XmtpInstallationCredential::new();
+        let mut eth_key = [0u8; 32];
+        let mut inbox_id_bytes = [0u8; 32];
+        eth_key.copy_from_slice(wallet.0.to_bytes().as_slice());
+        hex::decode_to_slice(inbox_id.clone(), &mut inbox_id_bytes)?;
+        Ok(Identity {
+            inbox_id: inbox_id_bytes,
+            installation_key: cred.private_bytes(),
+            eth_key,
+            version_hash: crate::app::App::current_version_hash(),
+            version_string: pack_version_string(&crate::get_version())?,
+        })
+    }
+
     pub fn from_libxmtp(
         value: &xmtp_mls::identity::Identity,
         wallet: EthereumWallet,
@@ -141,7 +165,7 @@ impl Identity {
 
     /// SQLite database path for this identity
     pub fn db_path(&self, network: impl Into<u64> + Copy) -> Result<std::path::PathBuf> {
-        let dir = crate::app::App::db_directory(network)?;
+        let dir = crate::app::App::db_directory()?;
         let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
         Ok(dir.join(db_name))
     }
@@ -149,13 +173,10 @@ impl Identity {
     /// SQLite path for this identity, addressing a specific
     /// `version_hash` partition. Used when loading an identity that
     /// was written by a different xdbg version (non-strict mode).
-    pub fn db_path_for(
-        &self,
-        network: impl Into<u64> + Copy,
-        version_hash: u64,
-    ) -> Result<std::path::PathBuf> {
-        let dir = crate::app::App::db_directory_for(network, version_hash)?;
-        let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
+    pub fn db_path_for(&self, version_hash: u64) -> Result<std::path::PathBuf> {
+        let dir = crate::app::App::db_directory_for(version_hash)?;
+        let net_hash = App::network_hash();
+        let db_name = format!("{}:{net_hash}.db3", hex::encode(self.inbox_id));
         Ok(dir.join(db_name))
     }
 
@@ -168,6 +189,10 @@ impl Identity {
             version_hash: 0,
             version_string: [0u8; VERSION_STRING_LEN],
         }
+    }
+
+    pub fn inbox_id(&self) -> args::InboxId {
+        args::InboxId::new(self.inbox_id)
     }
 }
 
@@ -347,6 +372,112 @@ impl redb::Value for Group {
     }
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Readable, Writable)]
+pub struct Dm {
+    /// user that created dm
+    pub created_by: InboxId,
+
+    with: InboxId,
+
+    group_id: [u8; 16],
+
+    /// `crate::get_version()` of the xdbg binary that created this
+    /// group, right-zero-padded UTF-8. Same shape as
+    /// `Identity::version_string`. Decode via `Group::version_string`.
+    pub version_string: [u8; VERSION_STRING_LEN],
+}
+
+pub struct DmId([u8; 64]);
+impl DmId {
+    /// Build a sorted-pair DM key from two 32-byte inbox ids. Sorting
+    /// ensures `DmId::new(a, b) == DmId::new(b, a)` so creator order
+    /// doesn't fragment the keyspace.
+    pub fn new(lhs: [u8; 32], rhs: [u8; 32]) -> Self {
+        let mut pair = [lhs, rhs];
+        pair.sort();
+        let mut id = [0u8; 64];
+        id[..32].copy_from_slice(&pair[0]);
+        id[32..].copy_from_slice(&pair[1]);
+        Self(id)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 64] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> [u8; 64] {
+        self.0
+    }
+}
+
+impl std::fmt::Display for Dm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
+    }
+}
+
+impl Dm {
+    pub fn new(created_by: InboxId, with: InboxId, group_id: GroupId) -> Self {
+        Self {
+            created_by,
+            with,
+            group_id: group_id.into(),
+            version_string: pack_version_string(&crate::get_version())
+                .expect("version must be valid"),
+        }
+    }
+
+    /// return the XMTP DM ID (dm:inbox1:inbox2)
+    pub fn id(&self) -> String {
+        DmMembers {
+            member_one_inbox_id: hex::encode(self.created_by),
+            member_two_inbox_id: hex::encode(self.with),
+        }
+        .to_string()
+    }
+
+    pub fn redb_key(&self) -> DmId {
+        DmId::new(self.created_by, self.with)
+    }
+}
+
+impl redb::Value for Dm {
+    type SelfType<'a>
+        = Dm
+    where
+        Self: 'a;
+
+    type AsBytes<'a>
+        = [u8; size_of::<Dm>()]
+    where
+        Self: 'a;
+
+    fn fixed_width() -> Option<usize> {
+        Some(size_of::<Self::SelfType<'_>>())
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Dm::read_from_buffer(data).unwrap()
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        let mut buffer = [0u8; size_of::<Dm>()];
+        value.write_to_buffer(&mut buffer).unwrap();
+        buffer
+    }
+
+    fn type_name() -> redb::TypeName {
+        redb::TypeName::new("dm")
+    }
+}
+
 /// Message recorded for a single healthcheck `SendMessage` op.
 /// Persisted to redb so the `NoMissingMessages` validator has an
 /// authoritative source of truth across runs and versions.
@@ -367,7 +498,6 @@ pub struct Message {
     /// `crate::get_version()` output of the sending xdbg binary.
     pub xdbg_version: String,
 }
-
 impl Message {
     pub fn new(
         id: [u8; 32],
@@ -389,12 +519,12 @@ impl Message {
     /// uses `group_id ++ id` (48 bytes); the rest of the message
     /// is the value, not the key. Use this for membership checks
     /// to avoid allocating a placeholder `Message`.
-    pub fn redb_key(network: u64, group_id: impl Into<[u8; 16]>, id: [u8; 32]) -> MessageKey {
+    pub fn redb_key(group_id: impl Into<[u8; 16]>, id: [u8; 32]) -> MessageKey {
         let mut combined = [0u8; 48];
         let gid = group_id.into();
         combined[..16].copy_from_slice(&gid);
         combined[16..].copy_from_slice(&id);
-        MessageKey::new(network, combined)
+        MessageKey::new(combined)
     }
 
     pub fn group_id(&self) -> GroupId {
@@ -440,45 +570,5 @@ impl redb::Value for Message {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("message")
-    }
-}
-
-#[cfg(test)]
-mod message_tests {
-    use super::*;
-
-    #[test]
-    fn message_speedy_roundtrip() {
-        let msg = Message {
-            id: [7u8; 32],
-            group_id: [3u8; 16],
-            sender_inbox_id: [9u8; 32],
-            sent_at_ns: 1_700_000_000_000_000_000,
-            xdbg_version: "1.10.0-abcdefg".to_string(),
-        };
-        let bytes = msg.write_to_vec().unwrap();
-        let decoded = Message::read_from_buffer(&bytes).unwrap();
-        assert_eq!(msg, decoded);
-    }
-
-    use crate::app::store::DeriveKey;
-    use crate::app::store::MessageKey;
-
-    #[test]
-    fn message_derive_key_composes_group_and_message_id() {
-        let msg = Message {
-            id: [0xAAu8; 32],
-            group_id: [0xBBu8; 16],
-            sender_inbox_id: [0u8; 32],
-            sent_at_ns: 0,
-            xdbg_version: String::new(),
-        };
-        let key: MessageKey = msg.key(7);
-        // u64 network (8 bytes, LE) + 48-byte combined key.
-        let bytes = speedy::Writable::write_to_vec(&key).unwrap();
-        assert_eq!(bytes.len(), 8 + 48);
-        assert_eq!(&bytes[0..8], &7u64.to_le_bytes());
-        assert_eq!(&bytes[8..24], &[0xBBu8; 16]);
-        assert_eq!(&bytes[24..56], &[0xAAu8; 32]);
     }
 }

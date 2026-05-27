@@ -20,20 +20,20 @@ const TABLE: TableDefinition<MessageKey, Message> = TableDefinition::new(NAMESPA
 pub type MessageKey = super::NetworkKey<48>;
 
 impl super::DeriveKey<MessageKey> for Message {
-    fn key(&self, network: u64) -> MessageKey {
+    fn key(&self) -> MessageKey {
         let mut combined = [0u8; 48];
         combined[..16].copy_from_slice(&*self.group_id());
         combined[16..].copy_from_slice(&self.id);
-        MessageKey::new(network, combined)
+        MessageKey::new(combined)
     }
 }
 
 impl super::DeriveKey<MessageKey> for &Message {
-    fn key(&self, network: u64) -> MessageKey {
+    fn key(&self) -> MessageKey {
         let mut combined = [0u8; 48];
         combined[..16].copy_from_slice(&*self.group_id());
         combined[16..].copy_from_slice(&self.id);
-        MessageKey::new(network, combined)
+        MessageKey::new(combined)
     }
 }
 
@@ -41,19 +41,16 @@ pub type MessageStore<'a> = super::KeyValueStore<'a, MessageStorage>;
 
 impl From<Arc<redb::Database>> for MessageStore<'_> {
     fn from(value: Arc<redb::Database>) -> Self {
-        MessageStore {
-            db: super::DatabaseOrTransaction::Db(value),
-            store: MessageStorage,
-        }
+        MessageStore::new(MessageStorage, super::DatabaseOrTransaction::Db(value))
     }
 }
 
 impl From<Arc<redb::ReadOnlyDatabase>> for MessageStore<'_> {
     fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
-        MessageStore {
-            db: super::DatabaseOrTransaction::ReadOnly(value),
-            store: MessageStorage,
-        }
+        MessageStore::new(
+            MessageStorage,
+            super::DatabaseOrTransaction::ReadOnly(value),
+        )
     }
 }
 
@@ -67,25 +64,15 @@ impl<'a> super::TableProvider<'a, MessageKey, Message> for MessageStorage {
 }
 
 impl super::TrackMetadata for MessageStorage {
-    fn increment<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
-        let store = store.into();
-        store.modify(crate::meta_key!(network), |meta| meta.messages += n)?;
+    fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
+        store.modify(crate::meta_key!(), |meta| meta.messages += n)?;
         Ok(())
     }
 
-    fn decrement<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
-        let store = store.into();
-        store.modify(crate::meta_key!(network), |meta| meta.messages -= n)?;
+    fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
+        store.modify(crate::meta_key!(), |meta| meta.messages -= n)?;
         Ok(())
     }
 }
@@ -103,6 +90,14 @@ mod tests {
         (Arc::new(db), tmp)
     }
 
+    fn store_for(db: Arc<redb::Database>) -> MessageStore<'static> {
+        super::super::KeyValueStore::with_network(
+            MessageStorage,
+            super::super::DatabaseOrTransaction::Db(db),
+            0,
+        )
+    }
+
     fn sample_message(group: [u8; 16], msg_id: [u8; 32]) -> Message {
         Message::new(msg_id, group, [1u8; 32], 42)
     }
@@ -110,12 +105,12 @@ mod tests {
     #[test]
     fn message_store_set_then_get_roundtrips() {
         let (db, _tmp) = open_temp_db();
-        let store: MessageStore<'static> = db.into();
+        let store = store_for(db);
         let msg = sample_message([0xAAu8; 16], [0xBBu8; 32]);
 
-        store.set(msg.clone(), 1u64).expect("set");
+        store.set(msg.clone()).expect("set");
 
-        let key = <Message as super::super::DeriveKey<MessageKey>>::key(&msg, 1);
+        let key = <Message as super::super::DeriveKey<MessageKey>>::key(&msg);
         let got = store.get(key).expect("get");
         assert_eq!(got, Some(msg));
     }
@@ -123,16 +118,16 @@ mod tests {
     #[test]
     fn message_store_load_returns_all_messages_for_network() {
         let (db, _tmp) = open_temp_db();
-        let store: MessageStore<'static> = db.into();
+        let store = store_for(db);
         let m1 = sample_message([0x10u8; 16], [0x01u8; 32]);
         let m2 = sample_message([0x20u8; 16], [0x02u8; 32]);
         let m3 = sample_message([0x20u8; 16], [0x03u8; 32]);
 
         store
-            .set_all(&[m1.clone(), m2.clone(), m3.clone()], 7u64)
+            .set_all(&[m1.clone(), m2.clone(), m3.clone()])
             .expect("set_all");
 
-        let iter = store.load(7u64).expect("load").expect("non-empty");
+        let iter = store.load().expect("load").expect("non-empty");
         let collected: Vec<Message> = iter.map(|g| g.value()).collect();
         assert_eq!(collected.len(), 3);
     }
@@ -140,17 +135,17 @@ mod tests {
     #[test]
     fn message_store_load_then_filter_by_group_id() {
         let (db, _tmp) = open_temp_db();
-        let store: MessageStore<'static> = db.into();
+        let store = store_for(db);
         let group_a = [0x10u8; 16];
         let group_b = [0x20u8; 16];
         let a1 = sample_message(group_a, [0x01u8; 32]);
         let a2 = sample_message(group_a, [0x02u8; 32]);
         let b1 = sample_message(group_b, [0x03u8; 32]);
         store
-            .set_all(&[a1.clone(), a2.clone(), b1.clone()], 7u64)
+            .set_all(&[a1.clone(), a2.clone(), b1.clone()])
             .expect("set_all");
 
-        let iter = store.load(7u64).expect("load").expect("non-empty");
+        let iter = store.load().expect("load").expect("non-empty");
         let only_a: Vec<Message> = iter
             .map(|g| g.value())
             .filter(|m| m.group_id() == group_a)

@@ -14,19 +14,18 @@ use crate::{
 
 pub struct Modify {
     db: Arc<redb::Database>,
-    opts: args::Modify,
-    network: args::BackendOpts,
+    opts: &'static args::Modify,
 }
 
 impl Modify {
-    pub fn new(opts: args::Modify, network: args::BackendOpts) -> Result<Self> {
+    pub fn new(opts: &'static args::Modify) -> Result<Self> {
         let db = App::db()?;
-        Ok(Self { opts, network, db })
+        Ok(Self { opts, db })
     }
 
     pub async fn run(self) -> Result<()> {
         use args::MemberModificationKind::*;
-        let Modify { db, opts, network } = self;
+        let Modify { db, opts } = self;
 
         let identity_store: IdentityStore = db.clone().into();
         let group_store: GroupStore = db.clone().into();
@@ -37,33 +36,26 @@ impl Modify {
             include_versions,
             promote_super_admin,
         } = opts;
-        let key = (u64::from(&network), *group_id);
         let mut local_group = group_store
-            .get(key.into())?
+            .get((*group_id).into())?
             .ok_or_else(|| eyre!("no local group found for id=[{}]", hex::encode(*group_id)))?;
 
         // `AddFromRedb` manages its own actor selection; skip the shared setup.
         if matches!(action, AddFromRedb) {
-            add_members_from_redb(
-                &local_group,
-                &network,
-                &db,
-                include_versions,
-                promote_super_admin,
-            )
-            .await?;
+            add_members_from_redb(&local_group, &db, *include_versions, *promote_super_admin)
+                .await?;
             return Ok(());
         }
 
         let identity = identity_store
-            .find_by_inbox(u64::from(&network), local_group.created_by)?
+            .find_by_inbox(local_group.created_by)?
             .ok_or_else(|| {
                 eyre!(
                     "no local identity found for inbox_id=[{}]",
                     hex::encode(local_group.created_by)
                 )
             })?;
-        let admin = app::client_from_identity(&identity, &network)?;
+        let admin = app::client_from_identity(&identity)?;
         let group = admin.group(&local_group.id())?;
         match action {
             Remove => {
@@ -71,11 +63,11 @@ impl Modify {
                     bail!("Inbox ID to remove must be specified")
                 };
                 local_group.member_size -= 1;
-                local_group.members.retain(|m| *m != *inbox_id);
-                group.remove_members(&[&hex::encode(*inbox_id)]).await?;
-                group_store.set(local_group, &network)?;
+                local_group.members.retain(|m| *m != **inbox_id);
+                group.remove_members(&[&inbox_id.to_string()]).await?;
+                group_store.set(local_group)?;
                 info!(
-                    removed_inbox_id = hex::encode(*inbox_id),
+                    removed_inbox_id = %inbox_id,
                     admin_inbox_id = admin.inbox_id(),
                     "member removed"
                 );
@@ -84,7 +76,7 @@ impl Modify {
                 let rng = &mut SmallRng::from_rng(&mut rand::rng());
                 // Pick an identity NOT already in the group (we're adding a new member).
                 let identity = identity_store
-                    .load(&network)?
+                    .load()?
                     .ok_or_else(|| eyre!("no identities in store"))?
                     .map(|i| i.value())
                     .filter(|identity| !local_group.has_member(&identity.inbox_id))
@@ -98,29 +90,29 @@ impl Modify {
                     group_id = %local_group.id(),
                     "Member added"
                 );
-                group_store.set(local_group, &network)?;
+                group_store.set(local_group)?;
             }
             AddExternal => {
                 let Some(inbox_id) = inbox_id else {
                     bail!("Inbox ID to add must be specified")
                 };
-                group.add_members(&[hex::encode(*inbox_id)]).await.context(
+                group.add_members(&[inbox_id.to_string()]).await.context(
                     "the identity/inbox_id might not exist for this network in the local database",
                 )?;
                 group
                     .update_admin_list(UpdateAdminListType::AddSuper, inbox_id.to_string())
                     .await?;
-                if !local_group.has_member(&inbox_id) {
+                if !local_group.has_member(inbox_id) {
                     local_group.member_size += 1;
-                    local_group.members.push(*inbox_id);
+                    local_group.members.push(**inbox_id);
                 }
                 info!(
-                    inbox_id = hex::encode(*inbox_id),
+                    inbox_id = %inbox_id,
                     group_id = %local_group.id(),
                     added_by = hex::encode(identity.inbox_id),
                     "Member added as Super Admin"
                 );
-                group_store.set(local_group, &network)?;
+                group_store.set(local_group)?;
             }
             AddFromRedb => unreachable!("AddFromRedb is dispatched before the shared actor setup"),
         }
@@ -131,7 +123,6 @@ impl Modify {
 
 async fn add_members_from_redb(
     local_group: &Group,
-    network: &args::BackendOpts,
     db: &Arc<redb::Database>,
     include_versions: args::IncludeVersions,
     promote_super_admin: bool,
@@ -139,11 +130,10 @@ async fn add_members_from_redb(
     use args::IncludeVersions;
 
     let id_store: IdentityStore<'static> = db.clone().into();
-    let net_key = u64::from(network);
     let current_vh = App::current_version_hash();
 
     let candidates: Vec<Identity> = id_store
-        .load(net_key)?
+        .load()?
         .ok_or_else(|| eyre!("no identities in store"))?
         .map(|guard| guard.value())
         .filter(|id| match include_versions {
@@ -168,7 +158,7 @@ async fn add_members_from_redb(
         .iter()
         .find_map(|inbox| {
             id_store
-                .find_by_inbox(net_key, *inbox)
+                .find_by_inbox(*inbox)
                 .ok()
                 .flatten()
                 .filter(|id| id.version_hash == current_vh)
@@ -181,7 +171,7 @@ async fn add_members_from_redb(
                 current_vh
             )
         })?;
-    let actor_client = app::client_from_identity(&actor_identity, network)?;
+    let actor_client = app::client_from_identity(&actor_identity)?;
     let group = actor_client.group(&local_group.id())?;
 
     let inbox_ids: Vec<String> = candidates
@@ -199,7 +189,6 @@ async fn add_members_from_redb(
         local_group
             .clone()
             .add_members(candidates.iter().map(|c| c.inbox_id)),
-        u64::from(network),
     )?;
 
     if promote_super_admin {

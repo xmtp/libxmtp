@@ -1,6 +1,6 @@
 //! Op and validator result types.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use owo_colors::OwoColorize;
 
@@ -81,8 +81,6 @@ impl Default for Report {
 }
 
 impl OpResult {
-    /// Print a one-line `[✓]`/`[✗]` summary to stdout. Use [`Self::emit`]
-    /// to additionally fire a structured `tracing` event.
     /// Construct a `Skipped` result for an op that wasn't run because
     /// its declared conditions weren't all active. `missing` is the
     /// difference between `requires` and the active set.
@@ -96,6 +94,44 @@ impl OpResult {
             status: Status::Skipped(missing),
             duration: Duration::ZERO,
             error: None,
+        }
+    }
+
+    /// Bridge a `Result<()>` into an `OpResult`: `Ok` → Pass, `Err` → Fail.
+    /// `start` lets the runner record per-iteration latency.
+    pub fn from_result(
+        op_name: &'static str,
+        target: Option<String>,
+        start: Instant,
+        res: color_eyre::eyre::Result<()>,
+    ) -> Self {
+        let (status, error) = match res {
+            Ok(_) => (Status::Pass, None),
+            Err(e) => (Status::Fail, Some(e)),
+        };
+        Self {
+            op_name,
+            target,
+            status,
+            duration: start.elapsed(),
+            error,
+        }
+    }
+
+    /// Construct a `Fail` result with zero duration. Used by runner
+    /// helpers when pre-loop setup (primary materialization,
+    /// `all_clients()`) fails before any iteration starts.
+    pub fn fail(
+        op_name: &'static str,
+        target: Option<String>,
+        error: color_eyre::eyre::Report,
+    ) -> Self {
+        Self {
+            op_name,
+            target,
+            status: Status::Fail,
+            duration: Duration::ZERO,
+            error: Some(error),
         }
     }
 

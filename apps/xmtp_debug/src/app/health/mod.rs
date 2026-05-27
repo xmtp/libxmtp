@@ -18,14 +18,12 @@ use color_eyre::eyre::{Result, eyre};
 use std::time::Instant;
 
 pub struct Health {
-    #[allow(dead_code)]
-    opts: args::HealthcheckOpts,
-    network: args::BackendOpts,
+    opts: &'static args::HealthcheckOpts,
 }
 
 impl Health {
-    pub fn new(opts: args::HealthcheckOpts, network: args::BackendOpts) -> Self {
-        Self { opts, network }
+    pub fn new(opts: &'static args::HealthcheckOpts) -> Self {
+        Self { opts }
     }
 
     pub async fn run(self) -> Result<()> {
@@ -33,10 +31,17 @@ impl Health {
         // visible even if bootstrap fails.
         print!("{}", ops::tree::render_order_tree());
 
-        let mut ctx = HealthContext::bootstrap(self.network).await?;
+        let mut active = conditions::Conditions::active();
+        if !self.opts.read_only {
+            active |= conditions::Conditions::WRITES;
+        }
+
+        // bootstrap() may set `Conditions::BOOTSTRAP` if the redb identity
+        // store is empty — pass `&mut active` so the gate is visible to the
+        // op registry built below.
+        let mut ctx = HealthContext::bootstrap(self.opts.read_only, &mut active).await?;
         let mut report = result::Report::new();
 
-        let active = conditions::Conditions::active();
         let op_build = ops::registry(active);
 
         // Surface skipped ops up-front so the operator sees the
@@ -83,7 +88,23 @@ impl Health {
 }
 
 async fn sync_all(ctx: &HealthContext, report: &mut result::Report) {
-    for client in ctx.all_clients() {
+    let clients = match ctx.all_clients() {
+        Ok(cs) => cs,
+        Err(e) => {
+            record_result(
+                report,
+                result::OpResult {
+                    op_name: "Sync",
+                    target: None,
+                    status: result::Status::Fail,
+                    duration: std::time::Duration::ZERO,
+                    error: Some(e),
+                },
+            );
+            return;
+        }
+    };
+    for client in &clients {
         let start = Instant::now();
         let outcome = client.sync_all_welcomes_and_groups(None).await;
         let (status, error) = match outcome {

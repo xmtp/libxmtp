@@ -9,34 +9,33 @@ use crate::{
 
 pub struct Inspect {
     db: Arc<redb::ReadOnlyDatabase>,
-    opts: args::Inspect,
-    network: args::BackendOpts,
+    opts: &'static args::Inspect,
 }
 
 impl Inspect {
-    pub fn new(opts: args::Inspect, network: args::BackendOpts) -> Result<Self> {
+    pub fn new(opts: &'static args::Inspect) -> Result<Self> {
         let db = App::readonly_db()?;
-        Ok(Self { opts, network, db })
+        Ok(Self { opts, db })
     }
 
     pub async fn run(self) -> Result<()> {
         use args::InspectionKind::*;
-        let Inspect { db, opts, network } = self;
+        let Inspect { db, opts } = self;
 
         let identity_store: IdentityStore = db.clone().into();
 
         let args::Inspect { kind, inbox_id } = opts;
-        let identity = identity_store.find_by_inbox(u64::from(&network), *inbox_id)?;
+        let identity = identity_store.find_by_inbox(**inbox_id)?;
         if identity.is_none() {
             bail!("No local identity with inbox_id=[{}]", inbox_id);
         }
-        let client = app::client_from_identity(&identity.expect("checked for none"), &network)?;
+        let client = app::client_from_identity(&identity.expect("checked for none"))?;
         let conn = client.context.store().db();
         match kind {
             Associations => {
                 let state = client
                     .identity_updates()
-                    .get_latest_association_state(&conn, &hex::encode(*inbox_id))
+                    .get_latest_association_state(&conn, &hex::encode(**inbox_id))
                     .await?;
 
                 let idents: Vec<_> = state

@@ -1,5 +1,6 @@
 use crate::{app::types::*, constants::STORAGE_PREFIX};
 use color_eyre::eyre::Result;
+use itertools::Itertools;
 use redb::TableDefinition;
 use std::sync::Arc;
 
@@ -22,19 +23,16 @@ pub type IdentityStore<'a> = super::KeyValueStore<'a, IdentityStorage>;
 
 impl From<Arc<redb::Database>> for IdentityStore<'_> {
     fn from(value: Arc<redb::Database>) -> Self {
-        IdentityStore {
-            db: super::DatabaseOrTransaction::Db(value),
-            store: IdentityStorage,
-        }
+        IdentityStore::new(IdentityStorage, super::DatabaseOrTransaction::Db(value))
     }
 }
 
 impl From<Arc<redb::ReadOnlyDatabase>> for IdentityStore<'_> {
     fn from(value: Arc<redb::ReadOnlyDatabase>) -> Self {
-        IdentityStore {
-            db: super::DatabaseOrTransaction::ReadOnly(value),
-            store: IdentityStorage,
-        }
+        IdentityStore::new(
+            IdentityStorage,
+            super::DatabaseOrTransaction::ReadOnly(value),
+        )
     }
 }
 
@@ -45,9 +43,9 @@ impl IdentityStore<'_> {
     /// `xdbg inspect`). Strict-mode point lookups should construct the
     /// `IdentityKey` directly with `App::current_version_hash()` and call
     /// `Database::get` instead.
-    pub fn find_by_inbox(&self, network: u64, inbox: [u8; 32]) -> Result<Option<Identity>> {
+    pub fn find_by_inbox(&self, inbox: [u8; 32]) -> Result<Option<Identity>> {
         use super::Database;
-        let Some(iter) = self.load(network)? else {
+        let Some(iter) = self.load()? else {
             return Ok(None);
         };
         for guard in iter {
@@ -64,13 +62,12 @@ impl IdentityStore<'_> {
     /// every version on the network; this filtered variant backs
     /// `--strict-versioning`.
     pub fn load_for_version(
-        &'_ self,
-        network: impl Into<u64>,
+        &self,
         version_hash: u64,
     ) -> Result<Option<impl Iterator<Item = redb::AccessGuard<'_, Identity>>>> {
         use super::TableProvider;
-        let network: u64 = network.into();
-        self.apply_read(|r| {
+        let net = self.network_hash();
+        self.apply_read(move |r| {
             let Some(table) = super::open_table_optional(
                 r,
                 <Self as TableProvider<IdentityKey, Identity>>::table(),
@@ -78,9 +75,34 @@ impl IdentityStore<'_> {
             else {
                 return Ok(None);
             };
-            let start = IdentityKey::low_one_version(network, version_hash);
-            let end = IdentityKey::high_one_version(network, version_hash);
+            let start = IdentityKey::low_one_version(net, version_hash);
+            let end = IdentityKey::high_one_version(net, version_hash);
             let rows: Vec<_> = table.range(start..=end)?.collect::<Result<_, _>>()?;
+            Ok(Some(rows.into_iter().map(|(_, v)| v)))
+        })
+    }
+
+    /// the inverse of the above. load every identity except for identities of version `version_hash`.
+    pub fn load_for_other_versions(
+        &self,
+        version_hash: u64,
+    ) -> Result<Option<impl Iterator<Item = redb::AccessGuard<'_, Identity>>>> {
+        use super::TableProvider;
+        let net = self.network_hash();
+        self.apply_read(move |r| {
+            let Some(table) = super::open_table_optional(
+                r,
+                <Self as TableProvider<IdentityKey, Identity>>::table(),
+            )?
+            else {
+                return Ok(None);
+            };
+
+            let start = IdentityKey::low_one_version(net, version_hash);
+            let end = IdentityKey::high_one_version(net, version_hash);
+            let before = table.range(..start)?;
+            let after = table.range(end..)?;
+            let rows: Vec<_> = before.chain(after).try_collect()?;
             Ok(Some(rows.into_iter().map(|(_, v)| v)))
         })
     }
@@ -95,7 +117,6 @@ impl IdentityStore<'_> {
     /// over-sample and filter the result.
     pub fn sample_n(
         &self,
-        network: impl Into<u64> + Copy,
         rng: &mut impl rand::Rng,
         n: usize,
         strict: bool,
@@ -104,13 +125,12 @@ impl IdentityStore<'_> {
         if !strict {
             use super::RandomDatabase;
             return Ok(self
-                .random_n_capped(network, rng, n)?
+                .random_n_capped(rng, n)?
                 .iter()
                 .map(|g| g.value())
                 .collect());
         }
-        let Some(iter) = self.load_for_version(network, crate::app::App::current_version_hash())?
-        else {
+        let Some(iter) = self.load_for_version(crate::app::App::current_version_hash())? else {
             return Ok(Vec::new());
         };
         Ok(iter.map(|g| g.value()).sample(rng, n))
@@ -118,22 +138,14 @@ impl IdentityStore<'_> {
 }
 
 impl super::DeriveKey<IdentityKey> for Identity {
-    fn key(&self, network: u64) -> IdentityKey {
-        IdentityKey {
-            network,
-            version_hash: self.version_hash,
-            inbox: self.inbox_id,
-        }
+    fn key(&self) -> IdentityKey {
+        IdentityKey::new(self.version_hash, self.inbox_id)
     }
 }
 
 impl super::DeriveKey<IdentityKey> for &Identity {
-    fn key(&self, network: u64) -> IdentityKey {
-        IdentityKey {
-            network,
-            version_hash: self.version_hash,
-            inbox: self.inbox_id,
-        }
+    fn key(&self) -> IdentityKey {
+        IdentityKey::new(self.version_hash, self.inbox_id)
     }
 }
 
@@ -147,27 +159,17 @@ impl<'a> super::TableProvider<'a, IdentityKey, Identity> for IdentityStorage {
 }
 
 impl super::TrackMetadata for IdentityStorage {
-    fn increment<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
-        let store: MetadataStore = store.into();
-        store.modify(crate::meta_key!(network), |meta| {
+    fn increment(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
+        store.modify(crate::meta_key!(), |meta| {
             meta.identities += n;
         })?;
         Ok(())
     }
 
-    fn decrement<'a>(
-        &self,
-        store: impl Into<MetadataStore<'a>>,
-        network: u64,
-        n: u32,
-    ) -> Result<()> {
-        let store: MetadataStore = store.into();
-        store.modify(crate::meta_key!(network), |meta| {
+    fn decrement(&self, tx: &redb::WriteTransaction, network: u64, n: u32) -> Result<()> {
+        let store = MetadataStore::from_write_tx(tx, network);
+        store.modify(crate::meta_key!(), |meta| {
             meta.identities -= n;
         })?;
         Ok(())
