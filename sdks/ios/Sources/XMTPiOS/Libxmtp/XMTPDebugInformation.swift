@@ -8,11 +8,9 @@
 import Foundation
 
 public class XMTPDebugInformation {
-	private let client: Client
 	private let ffiClient: FfiXmtpClient
 
-	public init(client: Client, ffiClient: FfiXmtpClient) {
-		self.client = client
+	public init(ffiClient: FfiXmtpClient) {
 		self.ffiClient = ffiClient
 	}
 

@@ -1,43 +1,45 @@
 import Foundation
 
 extension FfiConversation {
-	func groupFromFFI(client: Client) -> Group {
-		Group(ffiGroup: self, client: client)
+	func groupFromFFI(clientInboxId: InboxId) -> Group {
+		Group(ffiGroup: self, clientInboxId: clientInboxId)
 	}
 
-	func dmFromFFI(client: Client) -> Dm {
-		Dm(ffiConversation: self, client: client)
+	func dmFromFFI(clientInboxId: InboxId) -> Dm {
+		Dm(ffiConversation: self, clientInboxId: clientInboxId)
 	}
 
-	func toConversation(client: Client) async throws -> Conversation {
+	func toConversation(clientInboxId: InboxId) async throws -> Conversation {
 		if conversationType() == .dm {
-			Conversation.dm(dmFromFFI(client: client))
+			Conversation.dm(dmFromFFI(clientInboxId: clientInboxId))
 		} else {
-			Conversation.group(groupFromFFI(client: client))
+			Conversation.group(groupFromFFI(clientInboxId: clientInboxId))
 		}
 	}
 }
 
 extension FfiConversationListItem {
-	func groupFromFFI(client: Client) -> Group {
+	func groupFromFFI(clientInboxId: InboxId) -> Group {
 		Group(
 			ffiGroup: conversation(), ffiLastMessage: lastMessage(),
-			ffiCommitLogForkStatus: isCommitLogForked(), client: client
+			ffiCommitLogForkStatus: isCommitLogForked(),
+			clientInboxId: clientInboxId
 		)
 	}
 
-	func dmFromFFI(client: Client) -> Dm {
+	func dmFromFFI(clientInboxId: InboxId) -> Dm {
 		Dm(
 			ffiConversation: conversation(), ffiLastMessage: lastMessage(),
-			ffiCommitLogForkStatus: isCommitLogForked(), client: client
+			ffiCommitLogForkStatus: isCommitLogForked(),
+			clientInboxId: clientInboxId
 		)
 	}
 
-	func toConversation(client: Client) async throws -> Conversation {
+	func toConversation(clientInboxId: InboxId) async throws -> Conversation {
 		if conversation().conversationType() == .dm {
-			Conversation.dm(dmFromFFI(client: client))
+			Conversation.dm(dmFromFFI(clientInboxId: clientInboxId))
 		} else {
-			Conversation.group(groupFromFFI(client: client))
+			Conversation.group(groupFromFFI(clientInboxId: clientInboxId))
 		}
 	}
 }

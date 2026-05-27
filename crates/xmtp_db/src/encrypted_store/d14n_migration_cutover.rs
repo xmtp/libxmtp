@@ -63,13 +63,12 @@ impl<T: QueryMigrationCutover> QueryMigrationCutover for &T {
 
 impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
     fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
-        let result =
-            self.raw_query_read(|conn| dsl::d14n_migration_cutover.first(conn).optional())?;
+        let result = self.raw_query(|conn| dsl::d14n_migration_cutover.first(conn).optional())?;
         Ok(result.unwrap_or_default())
     }
 
     fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::cutover_ns.eq(cutover_ns))
                 .execute(conn)
@@ -83,7 +82,7 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
     }
 
     fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::last_checked_ns.eq(last_checked_ns))
                 .execute(conn)
@@ -92,7 +91,7 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
     }
 
     fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::has_migrated.eq(has_migrated))
                 .execute(conn)

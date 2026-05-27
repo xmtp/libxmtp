@@ -1,10 +1,10 @@
 use super::*;
 use crate::{Store, group::tests::generate_group, prelude::*, test_utils::with_connection};
-use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
+use xmtp_common::{Generate, assert_err, assert_ok, rand_time, rand_vec};
 
 pub(crate) fn generate_message(
     kind: Option<GroupMessageKind>,
-    group_id: Option<&[u8]>,
+    group_id: Option<&GroupId>,
     sent_at_ns: Option<i64>,
     content_type: Option<ContentType>,
     expire_at_ns: Option<i64>,
@@ -12,7 +12,7 @@ pub(crate) fn generate_message(
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec::<24>()),
+        group_id: group_id.copied().unwrap_or_else(GroupId::generate),
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
         sender_installation_id: rand_vec::<24>(),
@@ -158,7 +158,7 @@ fn it_gets_many_messages() {
         }
 
         let count: i64 = conn
-            .raw_query_read(|raw_conn| {
+            .raw_query(|raw_conn| {
                 dsl::group_messages
                     .select(diesel::dsl::count_star())
                     .first(raw_conn)
@@ -573,14 +573,14 @@ fn it_dedupes_group_updated_messages_from_dm_by_default() {
 
 pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
     conn: &DbConnection<C>,
-    group_id: &[u8],
+    group_id: &GroupId,
     sent_at_ns: i64,
     content_type: ContentType,
     reference_id: Option<Vec<u8>>,
 ) -> StoredGroupMessage {
     let message = StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.to_vec(),
+        group_id: *group_id,
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns,
         sender_installation_id: rand_vec::<24>(),
@@ -1459,7 +1459,7 @@ fn test_get_latest_message_times_by_sender_single_sender() {
 
         // Test getting latest message times
         let latest_times = conn
-            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times.len(), 1);
@@ -1528,7 +1528,7 @@ fn test_get_latest_message_times_by_sender_multiple_senders() {
 
         // Test getting latest message times
         let latest_times = conn
-            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times.len(), 3);
@@ -1546,7 +1546,7 @@ fn test_get_latest_message_times_by_sender_empty_results() {
 
         // Test with no messages
         let latest_times = conn
-            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times.len(), 0);
@@ -1566,7 +1566,7 @@ fn test_get_latest_message_times_by_sender_empty_results() {
 
         // Filter by content type that doesn't match
         let latest_times = conn
-            .get_latest_message_times_by_sender(&group.id, &[ContentType::Attachment])
+            .get_latest_message_times_by_sender(group.id, &[ContentType::Attachment])
             .unwrap();
 
         assert_eq!(latest_times.len(), 0);
@@ -1656,7 +1656,7 @@ fn test_get_latest_message_times_by_sender_dm_group() {
         // Test getting latest message times for any of the groups with the shared dm_id
         // The query should find messages from all groups that share the same dm_id
         let latest_times = conn
-            .get_latest_message_times_by_sender(&group1.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group1.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times.len(), 1);
@@ -1667,14 +1667,14 @@ fn test_get_latest_message_times_by_sender_dm_group() {
 
         // Test that querying any of the groups returns the same result
         let latest_times_group2 = conn
-            .get_latest_message_times_by_sender(&group2.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group2.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times_group2.len(), 1);
         assert_eq!(latest_times_group2.get(&sender_id).unwrap(), &6000);
 
         let latest_times_group3 = conn
-            .get_latest_message_times_by_sender(&group3.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group3.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times_group3.len(), 1);
@@ -1927,7 +1927,7 @@ fn test_count_group_messages_dm_vs_regular_groups() {
         regular_group.store(conn).unwrap();
 
         // Create identical message sets for both groups
-        let create_messages = |group_id: &Vec<u8>| {
+        let create_messages = |group_id: &GroupId| {
             vec![
                 generate_message(
                     Some(GroupMessageKind::Application),
@@ -2133,7 +2133,7 @@ fn test_get_latest_message_times_by_sender_mixed_content_types() {
 
         // Test filtering by text only - should get both senders
         let latest_times_text = conn
-            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
+            .get_latest_message_times_by_sender(group.id, &[ContentType::Text])
             .unwrap();
 
         assert_eq!(latest_times_text.len(), 2);
@@ -2142,7 +2142,7 @@ fn test_get_latest_message_times_by_sender_mixed_content_types() {
 
         // Test filtering by attachment only - should get only sender1
         let latest_times_attachment = conn
-            .get_latest_message_times_by_sender(&group.id, &[ContentType::Attachment])
+            .get_latest_message_times_by_sender(group.id, &[ContentType::Attachment])
             .unwrap();
 
         assert_eq!(latest_times_attachment.len(), 1);
@@ -2151,7 +2151,7 @@ fn test_get_latest_message_times_by_sender_mixed_content_types() {
         // Test filtering by both - should get both senders with their latest overall times
         let latest_times_both = conn
             .get_latest_message_times_by_sender(
-                &group.id,
+                group.id,
                 &[ContentType::Text, ContentType::Attachment],
             )
             .unwrap();
@@ -2606,7 +2606,7 @@ fn test_inserted_at_populated_in_all_queries() {
 
         // Test get_group_message_by_timestamp
         let by_timestamp = conn
-            .get_group_message_by_timestamp(&group.id, 1000)
+            .get_group_message_by_timestamp(group.id, 1000)
             .unwrap()
             .unwrap();
         assert!(by_timestamp.inserted_at_ns > 0);

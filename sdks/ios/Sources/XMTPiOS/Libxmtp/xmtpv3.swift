@@ -707,9 +707,8 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiAuthCallback] = [UniffiVTableCallbackInterfaceFfiAuthCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiAuthCallback = UniffiVTableCallbackInterfaceFfiAuthCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiAuthCallback.handleMap.remove(handle: uniffiHandle)
@@ -765,11 +764,19 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
                 droppedCallback: uniffiOutDroppedCallback
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiAuthCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiAuthCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiAuthCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffiauthcallback(UniffiCallbackInterfaceFfiAuthCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffiauthcallback(UniffiCallbackInterfaceFfiAuthCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -1071,9 +1078,8 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiConsentCallback] = [UniffiVTableCallbackInterfaceFfiConsentCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiConsentCallback = UniffiVTableCallbackInterfaceFfiConsentCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiConsentCallback.handleMap.remove(handle: uniffiHandle)
@@ -1158,11 +1164,19 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiConsentCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiConsentCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiConsentCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_fficonsentcallback(UniffiCallbackInterfaceFfiConsentCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_fficonsentcallback(UniffiCallbackInterfaceFfiConsentCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -1259,6 +1273,29 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     func deleteMessage(messageId: Data) throws  -> Data
     
     func dmPeerInboxId()  -> String?
+    
+    /**
+     * Enable AppData-proposal-based metadata updates on this group.
+     *
+     * Builds and stages the bootstrap commit that migrates this
+     * group's per-field metadata, admin lists, permissions, and
+     * membership from the legacy `GroupContextExtensions` shape into
+     * the unified OpenMLS `AppDataDictionary`. After it returns
+     * successfully, all subsequent metadata updates flow as
+     * `AppDataUpdate` proposals rather than GCE proposals.
+     *
+     * **Requires**: every existing member's latest key package must
+     * advertise `ProposalType::AppDataUpdate`. Hosts should ramp
+     * adoption with the migration code shipped before flipping any
+     * group; the call hard-fails with `ProposalsNotSupported` if
+     * any member lags. (The error currently surfaces a static
+     * message; structured per-inbox lag info is a future
+     * enhancement.)
+     *
+     * **One-way**: a migrated group cannot return to the legacy
+     * path. Operationally treated as a flag day per group.
+     */
+    func enableProposals(options: FfiEnableProposalsOptions) async throws 
     
     func findDuplicateDms() async throws  -> [FfiConversation]
     
@@ -1579,6 +1616,44 @@ open func dmPeerInboxId() -> String?  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * Enable AppData-proposal-based metadata updates on this group.
+     *
+     * Builds and stages the bootstrap commit that migrates this
+     * group's per-field metadata, admin lists, permissions, and
+     * membership from the legacy `GroupContextExtensions` shape into
+     * the unified OpenMLS `AppDataDictionary`. After it returns
+     * successfully, all subsequent metadata updates flow as
+     * `AppDataUpdate` proposals rather than GCE proposals.
+     *
+     * **Requires**: every existing member's latest key package must
+     * advertise `ProposalType::AppDataUpdate`. Hosts should ramp
+     * adoption with the migration code shipped before flipping any
+     * group; the call hard-fails with `ProposalsNotSupported` if
+     * any member lags. (The error currently surfaces a static
+     * message; structured per-inbox lag info is a future
+     * enhancement.)
+     *
+     * **One-way**: a migrated group cannot return to the legacy
+     * path. Operationally treated as a flag day per group.
+     */
+open func enableProposals(options: FfiEnableProposalsOptions)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_fficonversation_enable_proposals(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeFfiEnableProposalsOptions_lower(options)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
 }
     
 open func findDuplicateDms()async throws  -> [FfiConversation]  {
@@ -2293,9 +2368,8 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiConversationCallback] = [UniffiVTableCallbackInterfaceFfiConversationCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiConversationCallback = UniffiVTableCallbackInterfaceFfiConversationCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiConversationCallback.handleMap.remove(handle: uniffiHandle)
@@ -2380,11 +2454,19 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiConversationCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiConversationCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiConversationCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_fficonversationcallback(UniffiCallbackInterfaceFfiConversationCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_fficonversationcallback(UniffiCallbackInterfaceFfiConversationCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -3707,9 +3789,8 @@ fileprivate struct UniffiCallbackInterfaceFfiInboxOwner {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiInboxOwner] = [UniffiVTableCallbackInterfaceFfiInboxOwner(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiInboxOwner = UniffiVTableCallbackInterfaceFfiInboxOwner(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiInboxOwner.handleMap.remove(handle: uniffiHandle)
@@ -3772,11 +3853,19 @@ fileprivate struct UniffiCallbackInterfaceFfiInboxOwner {
                 lowerError: FfiConverterTypeSigningError_lower
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiInboxOwner> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiInboxOwner>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiInboxOwner() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffiinboxowner(UniffiCallbackInterfaceFfiInboxOwner.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffiinboxowner(UniffiCallbackInterfaceFfiInboxOwner.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -3936,9 +4025,8 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiMessageCallback] = [UniffiVTableCallbackInterfaceFfiMessageCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiMessageCallback = UniffiVTableCallbackInterfaceFfiMessageCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiMessageCallback.handleMap.remove(handle: uniffiHandle)
@@ -4023,11 +4111,19 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiMessageCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiMessageCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiMessageCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagecallback(UniffiCallbackInterfaceFfiMessageCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagecallback(UniffiCallbackInterfaceFfiMessageCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -4168,9 +4264,8 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback] = [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiMessageDeletionCallback = UniffiVTableCallbackInterfaceFfiMessageDeletionCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiMessageDeletionCallback.handleMap.remove(handle: uniffiHandle)
@@ -4209,11 +4304,19 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiMessageDeletionCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiMessageDeletionCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiMessageDeletionCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagedeletioncallback(UniffiCallbackInterfaceFfiMessageDeletionCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagedeletioncallback(UniffiCallbackInterfaceFfiMessageDeletionCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -4373,9 +4476,8 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiPreferenceCallback] = [UniffiVTableCallbackInterfaceFfiPreferenceCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiPreferenceCallback = UniffiVTableCallbackInterfaceFfiPreferenceCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiPreferenceCallback.handleMap.remove(handle: uniffiHandle)
@@ -4460,11 +4562,19 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiPreferenceCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiPreferenceCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiPreferenceCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffipreferencecallback(UniffiCallbackInterfaceFfiPreferenceCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffipreferencecallback(UniffiCallbackInterfaceFfiPreferenceCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -7318,6 +7428,82 @@ public func FfiConverterTypeFfiDeletedMessage_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeFfiDeletedMessage_lower(_ value: FfiDeletedMessage) -> RustBuffer {
     return FfiConverterTypeFfiDeletedMessage.lower(value)
+}
+
+
+/**
+ * Options for [`FfiConversation::enable_proposals`]. Mirrors
+ * [`xmtp_mls::groups::EnableProposalsOptions`].
+ */
+public struct FfiEnableProposalsOptions: Equatable, Hashable {
+    /**
+     * Skip the pre-flight key-package capability check. Post-d14n
+     * every client supports proposals by version floor alone; set
+     * `true` to bypass the per-member scan in that environment.
+     */
+    public var force: Bool?
+    /**
+     * Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+     * defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+     */
+    public var minVersion: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Skip the pre-flight key-package capability check. Post-d14n
+         * every client supports proposals by version floor alone; set
+         * `true` to bypass the per-member scan in that environment.
+         */force: Bool?, 
+        /**
+         * Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+         * defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+         */minVersion: String?) {
+        self.force = force
+        self.minVersion = minVersion
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiEnableProposalsOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiEnableProposalsOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiEnableProposalsOptions {
+        return
+            try FfiEnableProposalsOptions(
+                force: FfiConverterOptionBool.read(from: &buf), 
+                minVersion: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiEnableProposalsOptions, into buf: inout [UInt8]) {
+        FfiConverterOptionBool.write(value.force, into: &buf)
+        FfiConverterOptionString.write(value.minVersion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiEnableProposalsOptions_lift(_ buf: RustBuffer) throws -> FfiEnableProposalsOptions {
+    return try FfiConverterTypeFfiEnableProposalsOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiEnableProposalsOptions_lower(_ value: FfiEnableProposalsOptions) -> RustBuffer {
+    return FfiConverterTypeFfiEnableProposalsOptions.lower(value)
 }
 
 
@@ -14969,6 +15155,17 @@ public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfi
 }
 }
 /**
+ * Updates the log level of the native log layer (oslog on iOS, logcat on Android).
+ * Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
+ * activity in Console.app / Instruments. No-op on non-mobile builds.
+ */
+public func setNativeLogLevel(logLevel: FfiLogLevel)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_set_native_log_level(
+        FfiConverterTypeFfiLogLevel_lower(logLevel),$0
+    )
+}
+}
+/**
  * * Static apply a signature request
  */
 public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSignatureRequest)async throws   {
@@ -15359,6 +15556,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 22580) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_set_native_log_level() != 64849) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 41574) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -15576,6 +15776,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 40008) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 57431) {

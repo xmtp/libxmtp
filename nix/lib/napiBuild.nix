@@ -4,8 +4,10 @@
 {
   napi-rs-cli,
   cargo-zigbuild,
+  removeReferencesTo,
   stdenv,
   mkCargoDerivation,
+  vendorCargoDeps,
   lib,
 }:
 
@@ -29,6 +31,11 @@ let
   napiJsArgs = if napiGenerateJs then "--esm" else "--no-js";
   useZigBuild = if zigBuild then "-x" else "";
   hostTarget = stdenv.hostPlatform.rust.rustcTarget;
+  # Compute the vendored cargo deps derivation so we can strip its store path
+  # from the output binary. Rust embeds source file paths (for panics etc.)
+  # which include /nix/store vendor paths, causing Nix to treat the entire
+  # ~1.4GB vendor tree as a runtime dependency.
+  cargoVendorDir = vendorCargoDeps origArgs;
 in
 mkCargoDerivation (
   args
@@ -69,6 +76,9 @@ mkCargoDerivation (
             mv "$f" "$stripped"
           fi
         done
+        # Remove /nix/store vendor paths embedded in the binary (panic locations, file!(), etc.)
+        # Without this, Nix treats the entire vendor tree as a runtime dependency.
+        remove-references-to -t ${cargoVendorDir} $out/dist/*.node
       '';
 
     installPhaseCommand = args.installPhaseCommand or "true";
@@ -78,6 +88,7 @@ mkCargoDerivation (
       (args.nativeBuildInputs or [ ])
       ++ [
         napi-rs-cli
+        removeReferencesTo
       ]
       ++ lib.optionals zigBuild [ cargo-zigbuild ];
   }

@@ -7,10 +7,7 @@ use async_trait::async_trait;
 use bollard::{
     Docker,
     container::NetworkingConfig,
-    models::{
-        ContainerCreateBody, EndpointSettings, HostConfig, Mount, MountTypeEnum,
-        NetworkConnectRequest,
-    },
+    models::{ContainerCreateBody, EndpointSettings, HostConfig, Mount, MountTypeEnum},
     query_parameters::CreateContainerOptionsBuilder,
 };
 use bon::Builder;
@@ -24,12 +21,17 @@ use crate::{
     config::NodeToml,
     constants::{MAX_XMTPD_NODES, Traefik as TraefikConst, Xmtpd as XmtpdConst},
     network::XNET_NETWORK_NAME,
-    services::{ManagedContainer, Service, ToxiProxy, TraefikConfig, expose, expose_127},
+    services::{ManagedContainer, Service, ToxiProxy, expose, expose_127},
 };
 
-/// Traefik static configuration (traefik.yml)
-/// Listens on both port 80 and 443 since gRPC clients may default to 443
-const TRAEFIK_STATIC_CONFIG: &str = r#"# Traefik static configuration
+/// Generate Traefik static configuration (traefik.yml).
+///
+/// Traefik listens on:
+/// - Port 80 (HTTP) for external traffic (CDN terminates TLS upstream)
+/// - Port 443 (HTTPS) for internal gRPC traffic between xmtpd nodes
+///   Uses Traefik's default self-signed cert for internal TLS termination.
+fn traefik_static_config() -> String {
+    r#"# Traefik static configuration
 entryPoints:
   http:
     address: ":80"
@@ -61,7 +63,9 @@ log:
   level: INFO
 
 accessLog: {}
-"#;
+"#
+    .to_string()
+}
 
 /// Manages a Traefik Docker container for reverse proxy routing.
 #[derive(Builder)]
@@ -108,7 +112,7 @@ impl Traefik {
         fs::create_dir_all(config_dir)?;
 
         // Write static config
-        fs::write(&self.static_config_path, TRAEFIK_STATIC_CONFIG)?;
+        fs::write(&self.static_config_path, traefik_static_config())?;
         info!(
             "Created Traefik static config at {}",
             self.static_config_path
@@ -121,7 +125,7 @@ impl Traefik {
 
         let options = CreateContainerOptionsBuilder::default().name(TraefikConst::CONTAINER_NAME);
 
-        // Map host ports - expose 80 and 443 for HTTP/gRPC traffic
+        // Map host ports - expose 80 (HTTP) and 443 (HTTPS, self-signed cert for Cloudflare "Full" mode)
         let port_bindings = hash_map! {
             "80/tcp".to_string() => expose(self.http_port),
             "443/tcp".to_string() => expose(443),
@@ -161,22 +165,26 @@ impl Traefik {
             host_config: Some(HostConfig {
                 network_mode: Some(XNET_NETWORK_NAME.to_string()),
                 port_bindings: Some(port_bindings),
-                mounts: Some(vec![
-                    Mount {
-                        target: Some("/etc/traefik/traefik.yml".to_string()),
-                        source: Some(self.static_config_path.clone()),
-                        typ: Some(MountTypeEnum::BIND),
-                        read_only: Some(true),
-                        ..Default::default()
-                    },
-                    Mount {
-                        target: Some("/etc/traefik/dynamic.yml".to_string()),
-                        source: Some(self.dynamic_config_path.clone()),
-                        typ: Some(MountTypeEnum::BIND),
-                        read_only: Some(false),
-                        ..Default::default()
-                    },
-                ]),
+                extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+                mounts: Some({
+                    let mounts = vec![
+                        Mount {
+                            target: Some("/etc/traefik/traefik.yml".to_string()),
+                            source: Some(self.static_config_path.clone()),
+                            typ: Some(MountTypeEnum::BIND),
+                            read_only: Some(true),
+                            ..Default::default()
+                        },
+                        Mount {
+                            target: Some("/etc/traefik/dynamic.yml".to_string()),
+                            source: Some(self.dynamic_config_path.clone()),
+                            typ: Some(MountTypeEnum::BIND),
+                            read_only: Some(false),
+                            ..Default::default()
+                        },
+                    ];
+                    mounts
+                }),
                 ..Default::default()
             }),
             networking_config: Some(NetworkingConfig { endpoints_config }.into()),

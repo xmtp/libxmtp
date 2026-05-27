@@ -54,8 +54,8 @@ let
   d14nTestArgs = if d14n then "--features d14n" else "";
   wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types";
 
-  cargoArtifacts = rust.buildDepsOnly (
-    commonArgs
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+    (removeAttrs commonArgs [ "src" ])
     // {
       buildPhaseCargoCommand = "cargo nextest run --locked --cargo-profile $CARGO_PROFILE --no-run ${wasmPackages}";
     }
@@ -84,6 +84,7 @@ rust.cargoNextest (
       ++ lib.optionals stdenv.isLinux [ chromium ];
 
     pname = if d14n then "wasm-d14n" else "wasm-v3";
+    doInstallCargoArtifacts = false;
     partitions = 1;
     partitionType = "count";
     cargoNextestPartitionsExtraArgs = "--no-tests=pass";

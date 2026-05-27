@@ -18,7 +18,7 @@ impl<C: ConnectionExt> Delete<StoredKeyStoreEntry> for DbConnection<C> {
     type Key = Vec<u8>;
     fn delete(&self, key: Vec<u8>) -> Result<usize, StorageError> where {
         use super::schema::openmls_key_store::dsl::*;
-        Ok(self.raw_query_write(|conn| {
+        Ok(self.raw_query(|conn| {
             diesel::delete(openmls_key_store.filter(key_bytes.eq(key))).execute(conn)
         })?)
     }
@@ -57,7 +57,7 @@ impl<C: ConnectionExt> QueryKeyStoreEntry for DbConnection<C> {
             value_bytes: value,
         };
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::replace_into(openmls_key_store)
                 .values(entry)
                 .execute(conn)

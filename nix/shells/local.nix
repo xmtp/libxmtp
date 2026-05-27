@@ -100,9 +100,14 @@ mkShell (
         jdk17
         kotlin-language-server
 
+        # Swift
+        swiftformat
+
         # Misc dev
         mktemp
         diesel-cli
+        xmtp.cross-version-test
+        xmtp.cross-talk-test
       ]
       # Wasm, cargo, CI, proto, lint tools
       ++ shellCommon.wasmTools
@@ -120,7 +125,6 @@ mkShell (
       # Darwin-specific
       ++ lib.optionals isDarwin [
         darwin.cctools
-        swiftformat
         swiftlint
       ];
 

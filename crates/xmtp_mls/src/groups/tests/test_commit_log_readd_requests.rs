@@ -5,6 +5,7 @@ use crate::{
 };
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
 
+use xmtp_proto::types::GroupId;
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
 async fn test_request_readd() {
@@ -345,8 +346,9 @@ async fn test_request_readd_with_allowlisted_groups() {
         .await
         .unwrap();
 
-    let group_id = group.group_id.clone();
-    let group_id_hex = hex::encode(&group_id);
+    let group_id = group.group_id;
+    let group_id_typed: GroupId = group_id;
+    let group_id_hex = hex::encode(group_id);
     let unnormalized_group_id = "0x".to_owned() + &group_id_hex.to_uppercase();
 
     // Step 2: Create Alix with that group ID in the allowlist
@@ -386,12 +388,12 @@ async fn test_request_readd_with_allowlisted_groups() {
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
@@ -404,19 +406,19 @@ async fn test_request_readd_with_allowlisted_groups() {
     // Alix should have recorded a readd request since the group is allowlisted
     assert!(
         a_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     // Bo is a superadmin so should have recorded the request
     assert!(
         b_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     // Caro is not a superadmin so should not have received the request
     assert!(
         !c_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 }

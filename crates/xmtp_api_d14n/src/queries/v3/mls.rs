@@ -63,7 +63,7 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
-        let topic = &TopicKind::GroupMessagesV1.create(&group_id);
+        let topic = &TopicKind::GroupMessagesV1.create(group_id);
         let cursor = self
             .cursor_store
             .latest(
@@ -75,7 +75,7 @@ where
             )?
             .max();
         let endpoint = QueryGroupMessages::builder()
-            .group_id(group_id.to_vec())
+            .group_id(group_id)
             .paging_info(PagingInfo {
                 limit: MAX_PAGE_SIZE,
                 direction: SortDirection::Ascending as i32,
@@ -102,7 +102,7 @@ where
         group_id: GroupId,
     ) -> Result<Option<xmtp_proto::types::GroupMessage>, Self::Error> {
         let endpoint = QueryGroupMessages::builder()
-            .group_id(group_id.to_vec())
+            .group_id(group_id)
             .paging_info(PagingInfo {
                 limit: 1,
                 direction: SortDirection::Descending as i32,

@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "jsonc-parser": "^3.3.1",
     "semver": "^7.7.0",
     "smol-toml": "^1.6.0",
     "yargs": "^18.0.0"

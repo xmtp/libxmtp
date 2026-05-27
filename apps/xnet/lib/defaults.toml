@@ -2,9 +2,21 @@
 # Commented configuration is an example
 [xnet]
 use_standard_ports = true
-toxiproxy_port = 8474
 paused = false
-# traefik_port = 80
+enable_v3 = true
+enable_d14n = true
+enable_monitoring = true
+
+[traefik]
+image = "traefik"
+version = "v3.2"
+port = 80
+https_port = 443
+
+[toxiproxy]
+image = "ghcr.io/shopify/toxiproxy"
+version = "2.12.0"
+port = 8474
 
 [migration]
 enable = false
@@ -35,9 +47,13 @@ version = "main"
 image = "ghcr.io/xmtp/message-history-server"
 version = "main"
 
-[toxiproxy]
-image = "ghcr.io/shopify/toxiproxy"
-version = "2.12.0"
+[prometheus]
+image = "prom/prometheus"
+version = "latest"
+
+[grafana]
+image = "ghcr.io/xmtp/grafana-xmtpd"
+version = "latest"
 
 # [[xmtpd.nodes]]
 # enable = true

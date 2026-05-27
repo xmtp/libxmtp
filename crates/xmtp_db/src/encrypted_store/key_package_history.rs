@@ -115,7 +115,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        let result = self.raw_query_read(|conn| {
+        let result = self.raw_query(|conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::key_package_hash_ref.eq(hash_ref))
                 .first::<StoredKeyPackageHistoryEntry>(conn)
@@ -128,7 +128,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
-        let result = self.raw_query_read(|conn| {
+        let result = self.raw_query(|conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::id.lt(id))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
@@ -140,7 +140,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
         use crate::schema::key_package_history::dsl;
         let delete_at_24_hrs_ns = now_ns() + KEYS_EXPIRATION_INTERVAL_NS;
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(
                 dsl::key_package_history
                     .filter(dsl::id.lt(id))
@@ -155,7 +155,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
 
     fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
         use crate::schema::key_package_history::dsl;
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::key_package_history
                 .filter(dsl::delete_at_ns.le(now_ns()))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
@@ -164,7 +164,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     }
 
     fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.le(id)),
@@ -176,7 +176,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     }
 
     fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.eq(id)),

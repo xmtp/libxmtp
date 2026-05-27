@@ -9,7 +9,7 @@ use super::{
     sql_key_store::{self, SqlKeyStoreError},
 };
 use xmtp_common::{BoxDynError, RetryableError, retryable};
-use xmtp_proto::types::{Cursor, InstallationId};
+use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
 pub struct Mls;
 
@@ -135,13 +135,13 @@ pub enum NotFound {
     /// Group with ID not found.
     ///
     /// Group does not exist in local DB. Retryable.
-    #[error("group with id {id} not found", id = hex::encode(_0))]
-    GroupById(Vec<u8>),
+    #[error("group with id {0} not found")]
+    GroupById(GroupId),
     /// Installation time for group not found.
     ///
     /// Missing installation timestamp. Retryable.
-    #[error("installation time for group {id}", id = hex::encode(_0))]
-    InstallationTimeForGroup(Vec<u8>),
+    #[error("installation time for group {0}")]
+    InstallationTimeForGroup(GroupId),
     /// Inbox ID for address not found.
     ///
     /// Address has no associated inbox. Retryable.
@@ -200,8 +200,8 @@ pub enum NotFound {
     /// MLS group not found.
     ///
     /// OpenMLS group not in local state. Retryable.
-    #[error("MLS Group Not Found")]
-    MlsGroup,
+    #[error("MLS Group {0} Not Found")]
+    MlsGroup(GroupId),
     /// Post-quantum private key not found.
     ///
     /// PQ key pair not in store. Retryable.

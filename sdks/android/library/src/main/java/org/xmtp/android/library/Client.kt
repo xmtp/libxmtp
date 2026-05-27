@@ -43,6 +43,7 @@ import uniffi.xmtpv3.inboxStateFromInboxIds
 import uniffi.xmtpv3.isConnected
 import uniffi.xmtpv3.revokeInstallations
 import java.io.File
+import uniffi.xmtpv3.setNativeLogLevel as ffiSetNativeLogLevel
 
 typealias PreEventCallback = suspend () -> Unit
 typealias ProcessType = FfiProcessType
@@ -56,8 +57,7 @@ data class ClientOptions(
     val dbDirectory: String? = null,
     val deviceSyncEnabled: Boolean = true,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
-    val maxDbPoolSize: UInt? = null,
-    val minDbPoolSize: UInt? = null,
+    val dbPoolOptions: DbPoolOptions? = null,
     val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
 ) {
     data class Api(
@@ -111,6 +111,11 @@ data class VisibilityConfirmationOptions(
         )
 }
 
+data class DbPoolOptions(
+    val maxPoolSize: UInt? = null,
+    val minPoolSize: UInt? = null,
+)
+
 typealias InboxId = String
 
 class Client(
@@ -134,8 +139,23 @@ class Client(
     val libXMTPVersion: String = getVersionInfo()
     private val ffiClient: FfiXmtpClient = libXMTPClient
 
+    /**
+     * `true` when this client is backed by an in-memory database. In that case
+     * [deleteLocalDatabase], [dropLocalDatabaseConnection] and
+     * [reconnectLocalDatabase] are no-ops and the underlying state is
+     * discarded when the client is garbage collected.
+     */
+    val isInMemory: Boolean
+        get() = dbPath == IN_MEMORY_DB_PATH
+
     companion object {
         private const val TAG = "Client"
+
+        /**
+         * Sentinel value assigned to [Client.dbPath] when the client was created
+         * via [createInMemory]. No file exists at this path.
+         */
+        const val IN_MEMORY_DB_PATH: String = ":memory:"
 
         var codecRegistry =
             run {
@@ -175,6 +195,15 @@ class Client(
 
         fun deactivatePersistentLibXMTPLogWriter() {
             exitDebugWriter()
+        }
+
+        /**
+         * Sets the log level for the native log layer (logcat on Android). Use
+         * `FfiLogLevel.TRACE` to capture span/activity events. Independent of the
+         * persistent file log writer.
+         */
+        fun setLibXMTPNativeLogLevel(logLevel: FfiLogLevel) {
+            ffiSetNativeLogLevel(logLevel)
         }
 
         fun getXMTPLogFilePaths(appContext: Context): List<String> {
@@ -415,6 +444,7 @@ class Client(
             signingKey: SigningKey? = null,
             inboxId: InboxId? = null,
             buildOffline: Boolean = false,
+            inMemory: Boolean = false,
         ): Client =
             withContext(Dispatchers.IO) {
                 val recoveredInboxId =
@@ -427,6 +457,7 @@ class Client(
                         clientOptions,
                         clientOptions.appContext,
                         buildOffline,
+                        inMemory,
                     )
                 clientOptions.preAuthenticateToInboxCallback?.let {
                     runBlocking {
@@ -480,6 +511,41 @@ class Client(
                 }
             }
 
+        /**
+         * Creates a Client backed by an in-memory SQLCipher database.
+         *
+         * Bypasses all on-disk database management — no `.db3` file is created
+         * and no directory is touched. The returned client has [Client.dbPath]
+         * equal to [IN_MEMORY_DB_PATH] (`":memory:"`) and [Client.isInMemory]
+         * returns `true`.
+         *
+         * On in-memory clients, [Client.deleteLocalDatabase],
+         * [Client.dropLocalDatabaseConnection] and
+         * [Client.reconnectLocalDatabase] are no-ops — state lives only in the
+         * FFI pool and is discarded when the client is garbage collected.
+         *
+         * Intended for tests and other ephemeral flows where a real client is
+         * needed but persistence is not. [ClientOptions.dbDirectory] and
+         * [ClientOptions.dbEncryptionKey] are ignored — libxmtp manages the
+         * in-memory store itself.
+         */
+        suspend fun createInMemory(
+            account: SigningKey,
+            options: ClientOptions,
+        ): Client =
+            withContext(Dispatchers.IO) {
+                try {
+                    initializeV3Client(
+                        account.publicIdentity,
+                        options,
+                        account,
+                        inMemory = true,
+                    )
+                } catch (e: Exception) {
+                    throw XMTPException("Error creating in-memory V3 client: ${e.message}", e)
+                }
+            }
+
         // Function to build a client from a address
         suspend fun build(
             publicIdentity: PublicIdentity,
@@ -505,8 +571,37 @@ class Client(
             options: ClientOptions,
             appContext: Context,
             buildOffline: Boolean = false,
+            inMemory: Boolean = false,
         ): Pair<FfiXmtpClient, String> =
             withContext(Dispatchers.IO) {
+                if (inMemory) {
+                    val ffiClient =
+                        createClient(
+                            api = connectToApiBackend(options.api),
+                            syncApi = connectToSyncApiBackend(options.api),
+                            db =
+                                DbOptions(
+                                    db = null,
+                                    encryptionKey = null,
+                                    maxDbPoolSize = options.dbPoolOptions?.maxPoolSize,
+                                    minDbPoolSize = options.dbPoolOptions?.minPoolSize,
+                                ),
+                            accountIdentifier = publicIdentity.ffiPrivate,
+                            inboxId = inboxId,
+                            nonce = 0.toULong(),
+                            legacySignedPrivateKeyProto = null,
+                            deviceSyncMode =
+                                if (!options.deviceSyncEnabled) {
+                                    FfiDeviceSyncMode.DISABLED
+                                } else {
+                                    FfiDeviceSyncMode.ENABLED
+                                },
+                            allowOffline = buildOffline,
+                            forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
+                        )
+                    return@withContext Pair(ffiClient, IN_MEMORY_DB_PATH)
+                }
+
                 val alias = "xmtp-${options.api.env}-$inboxId"
 
                 val mlsDbDirectory = options.dbDirectory
@@ -533,8 +628,8 @@ class Client(
                             DbOptions(
                                 db = dbPath,
                                 encryptionKey = options.dbEncryptionKey,
-                                maxDbPoolSize = options.maxDbPoolSize,
-                                minDbPoolSize = options.minDbPoolSize,
+                                maxDbPoolSize = options.dbPoolOptions?.maxPoolSize,
+                                minDbPoolSize = options.dbPoolOptions?.minPoolSize,
                             ),
                         accountIdentifier = publicIdentity.ffiPrivate,
                         inboxId = inboxId,
@@ -685,6 +780,8 @@ class Client(
 
     suspend fun deleteLocalDatabase() =
         withContext(Dispatchers.IO) {
+            // In-memory clients have no on-disk file; nothing to drop or remove.
+            if (isInMemory) return@withContext
             dropLocalDatabaseConnection()
             File(dbPath).delete()
         }
@@ -694,11 +791,15 @@ class Client(
     )
     suspend fun dropLocalDatabaseConnection() =
         withContext(Dispatchers.IO) {
+            // In-memory clients hold their state in the FFI pool; releasing the
+            // connection would discard data that cannot be restored on reconnect.
+            if (isInMemory) return@withContext
             ffiClient.releaseDbConnection()
         }
 
     suspend fun reconnectLocalDatabase() =
         withContext(Dispatchers.IO) {
+            if (isInMemory) return@withContext
             ffiClient.dbReconnect()
         }
 

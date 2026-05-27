@@ -2,6 +2,8 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["../../dev/nix-shell"]
 
+nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
+
 # Install JS dependencies
 install:
     yarn
@@ -38,8 +40,8 @@ test: install (_prepare-dist "--features test-utils")
 # tests using built with nix. closer to ci but no local incremental compilation.
 test-ci:
     rm -rf dist
-    nix build -L .#node-bindings-test
-    cp -r result/dist dist
+    nix run github:Mic92/nix-fast-build -- --no-nom --flake .#packages.{{ nix_system }}.node-bindings-test
+    cp -r result-/dist dist
     yarn vitest run
 
 # Build Node.js NAPI bindings (alias)

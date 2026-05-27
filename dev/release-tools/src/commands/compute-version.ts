@@ -17,7 +17,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
     .option("releaseType", {
       type: "string",
       demandOption: true,
-      choices: ["dev", "rc", "final"] as const,
+      choices: ["dev", "rc", "final", "nightly"] as const,
       describe: "Release type",
     })
     .option("rcNumber", {
@@ -37,11 +37,17 @@ export function handler(
 
   const config = getSdkConfig(argv.sdk);
   const baseVersion = config.manifest.readVersion(argv.repoRoot);
-  const shortSha =
-    argv.releaseType === "dev" ? getShortSha(argv.repoRoot) : undefined;
+  const needsSha =
+    argv.releaseType === "dev" || argv.releaseType === "nightly";
+  const shortSha = needsSha ? getShortSha(argv.repoRoot) : undefined;
+  const nightlyDate =
+    argv.releaseType === "nightly"
+      ? new Date().toISOString().slice(0, 10).replace(/-/g, "")
+      : undefined;
   const version = computeVersionFn(baseVersion, argv.releaseType, {
     rcNumber: argv.rcNumber,
     shortSha,
+    nightlyDate,
   });
   console.log(version);
 }

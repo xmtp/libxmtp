@@ -86,7 +86,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}  # manual only
     strategy:
       matrix:
-        environment: [ dev, production, testnet-staging, testnet-dev, testnet ]
+        environment: [ dev, production, testnet ]
     steps:
       - name: Checkout
         uses: actions/checkout@v6

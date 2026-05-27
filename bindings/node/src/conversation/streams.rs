@@ -17,7 +17,7 @@ impl Conversation {
     let group = self.create_mls_group();
     let stream_closer = MlsGroup::stream_with_callback(
       group.context.clone(),
-      group.group_id.clone(),
+      group.group_id,
       move |message| {
         let status = callback.call(
           message

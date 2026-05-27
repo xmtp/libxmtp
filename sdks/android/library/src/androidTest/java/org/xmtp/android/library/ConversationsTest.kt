@@ -512,6 +512,10 @@ class ConversationsTest : BaseInstrumentedTest() {
                         alixGroup.send(message)
                         alixGroup2.send(message)
                         println("Alix sent: $message")
+                        // 50ms yield between sends so a single sender's MLS
+                        // ratchet doesn't outrun OpenMLS's 5-generation
+                        // out-of-order tolerance under concurrent load (#3512).
+                        delay(50)
                     }
                 }
 
@@ -523,6 +527,7 @@ class ConversationsTest : BaseInstrumentedTest() {
                         boGroup.send(message)
                         boGroup2.send(message)
                         println("Bo sent: $message")
+                        delay(50) // #3512
                     }
                 }
 
@@ -534,6 +539,7 @@ class ConversationsTest : BaseInstrumentedTest() {
                         val group = davonClient.conversations.newGroup(listOf(caroClient.inboxId))
                         group.send(spamMessage)
                         println("Davon spam: $spamMessage")
+                        delay(50) // #3512
                     }
                 }
 
@@ -545,6 +551,7 @@ class ConversationsTest : BaseInstrumentedTest() {
                         caroGroup.send(message)
                         caroGroup2.send(message)
                         println("Caro sent: $message")
+                        delay(50) // #3512
                     }
                 }
 

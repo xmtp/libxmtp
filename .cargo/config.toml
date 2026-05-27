@@ -37,16 +37,12 @@ rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
 build-override = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
 # Build all non-local dependencies in release mode
 package."*" = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
-# It uses debug_assertions internally to decide whether to choose where to use `max_level_*` or `release_max_level_*`
-package.tracing = { opt-level = 3, debug = false, debug-assertions = true, overflow-checks = false, incremental = false }
 
 [profile.test]
 # build scripts don't need extra assertions
 build-override = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
 # Build all non-local dependencies in release mode
 package."*" = { opt-level = 3, debug = false, debug-assertions = false, overflow-checks = false, incremental = false }
-# It uses debug_assertions internally to decide whether to choose where to use `max_level_*` or `release_max_level_*`
-package.tracing = { opt-level = 3, debug = false, debug-assertions = true, overflow-checks = false, incremental = false }
 
 # Optimized test profile for WASM — debug builds produce huge binaries that are expensive to parse in Chrome
 [profile.wasm-test]

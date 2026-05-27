@@ -26,7 +26,7 @@ export interface SdkConfig {
   manifest: ManifestProvider;
 }
 
-export type ReleaseType = "dev" | "rc" | "final";
+export type ReleaseType = "dev" | "rc" | "final" | "nightly";
 
 export type BumpType = "major" | "minor" | "patch";
 

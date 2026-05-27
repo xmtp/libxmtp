@@ -1427,4 +1427,32 @@ class ClientTests: XCTestCase {
 		))
 		XCTAssertNotEqual(key22.stringValue, key23.stringValue, "Cache keys should differ when only gatewayHost differs")
 	}
+
+	func testClientOptionsDefaultsDbPoolOptionsToNil() {
+		let key = Data(repeating: 0, count: 32)
+		let options = ClientOptions(dbEncryptionKey: key)
+		XCTAssertNil(options.dbPoolOptions)
+	}
+
+	func testClientOptionsCarriesDbPoolOptions() {
+		let key = Data(repeating: 0, count: 32)
+		let pool = DbPoolOptions(maxPoolSize: 10, minPoolSize: 2)
+		let options = ClientOptions(
+			dbEncryptionKey: key,
+			dbPoolOptions: pool
+		)
+		XCTAssertEqual(options.dbPoolOptions?.maxPoolSize, 10)
+		XCTAssertEqual(options.dbPoolOptions?.minPoolSize, 2)
+	}
+
+	func testClientOptionsDbPoolOptionsPartialFields() {
+		let key = Data(repeating: 0, count: 32)
+		let pool = DbPoolOptions(maxPoolSize: 7)
+		let options = ClientOptions(
+			dbEncryptionKey: key,
+			dbPoolOptions: pool
+		)
+		XCTAssertEqual(options.dbPoolOptions?.maxPoolSize, 7)
+		XCTAssertNil(options.dbPoolOptions?.minPoolSize)
+	}
 }

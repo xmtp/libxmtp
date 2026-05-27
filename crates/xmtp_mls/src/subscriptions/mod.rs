@@ -5,7 +5,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
 use xmtp_api_d14n::stream;
-use xmtp_proto::types::WelcomeMessage;
+use xmtp_proto::types::{GroupId, WelcomeMessage};
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -22,6 +22,7 @@ mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
 
+use crate::messages::enrichment::EnrichMessageError;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
@@ -61,10 +62,10 @@ impl RetryableError for LocalEventError {
 #[derive(Debug, Clone)]
 pub enum LocalEvents {
     // a new group was created
-    NewGroup(Vec<u8>),
+    NewGroup(GroupId),
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
-    MessageDeleted(Box<DecodedMessage>),
+    MsgsDeleted(Vec<StoredGroupMessage>),
 }
 
 #[derive(Clone)]
@@ -93,7 +94,7 @@ impl std::fmt::Debug for SyncWorkerEvent {
 }
 
 impl LocalEvents {
-    fn group_filter(self) -> Option<Vec<u8>> {
+    fn group_filter(self) -> Option<GroupId> {
         use LocalEvents::*;
         // this is just to protect against any future variants
         match self {
@@ -126,9 +127,9 @@ impl LocalEvents {
         }
     }
 
-    fn message_deletion_filter(self) -> Option<Box<DecodedMessage>> {
+    fn message_deletion_filter(self) -> Option<Vec<StoredGroupMessage>> {
         match self {
-            Self::MessageDeleted(message) => Some(message),
+            Self::MsgsDeleted(msgs) => Some(msgs),
             _ => None,
         }
     }
@@ -137,7 +138,7 @@ impl LocalEvents {
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -160,12 +161,17 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::message_deletion_filter)
-                .map(Result::Ok)
-        })
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>> {
+        BroadcastStream::new(self)
+            .filter_map(|event| async {
+                xmtp_common::optify!(event, "Missed message due to event queue lag")
+                    .and_then(LocalEvents::message_deletion_filter)
+                    .map(futures::stream::iter)
+            })
+            .flatten()
+            // let caller handle any potential decode failures
+            // this should be rare since the message already in db
+            .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
     }
 }
 
@@ -237,6 +243,9 @@ pub enum SubscribeError {
     /// Decentralized API envelope error. May be retryable.
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+    /// Enriched Message Error.
+    #[error("error occured during subscription {0}")]
+    Enriched(#[from] EnrichMessageError),
 }
 
 impl SubscribeError {
@@ -274,6 +283,7 @@ impl RetryableError for SubscribeError {
             Db(c) => retryable!(c),
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
+            Enriched(c) => retryable!(c),
         }
     }
 }
@@ -290,7 +300,7 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?);
         let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let welcomes: Vec<_> = match welcome {
             V3OrD14n::D14n(envelope) => {
@@ -348,7 +358,7 @@ where
         Ok(out)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
@@ -367,7 +377,7 @@ where
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
@@ -402,6 +412,7 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let stream = match client
                 .stream_conversations(conversation_type, include_duplicate_dms)
                 .await
@@ -415,8 +426,14 @@ where
             };
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(convo) = stream.next().await {
-                convo_callback(convo)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(convo) => convo_callback(convo),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
             on_close();
@@ -424,7 +441,7 @@ where
         })
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
@@ -440,7 +457,7 @@ where
         StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages_owned(
         &self,
         conversation_type: Option<ConversationType>,
@@ -467,6 +484,7 @@ where
 
         xmtp_common::spawn(Some(rx), async move {
             tracing::debug!("stream all messages with callback");
+            let cancel = context.cancellation_token().clone();
             let stream =
                 match StreamAllMessages::new(&context, conversation_type, consent_state).await {
                     Ok(stream) => stream,
@@ -480,8 +498,14 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
 
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
             on_close();
@@ -497,13 +521,20 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_consent_updates();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_consent` stream ended, dropping stream");
             on_close();
@@ -519,13 +550,20 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_preference_updates();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message)
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_preferences` stream ended, dropping stream");
             on_close();
@@ -536,19 +574,28 @@ where
     pub fn stream_message_deletions_with_callback(
         client: Arc<Client<Context>>,
         mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
+            let cancel = client.context.cancellation_token().clone();
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_message_deletions();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message) = stream.next().await {
-                callback(message.map(|boxed| *boxed))
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    next = stream.next() => match next {
+                        Some(message) => callback(message),
+                        None => break,
+                    }
+                }
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }

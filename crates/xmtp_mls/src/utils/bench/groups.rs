@@ -13,6 +13,7 @@ use xmtp_db::encrypted_store::group_message::{MsgQueryArgs, SortDirection};
 use xmtp_db::group::{ConversationType, GroupMembershipState, StoredGroup};
 use xmtp_id::associations::Identifier;
 use xmtp_mls_common::group_metadata::DmMembers;
+use xmtp_proto::types::GroupId;
 
 use super::{BenchClient, Identity};
 
@@ -109,10 +110,10 @@ pub async fn create_dm_with_consent(
         }
         .to_string();
 
-        let group_id = xmtp_common::rand_vec::<20>();
-        let consent_entity = hex::encode(&group_id);
+        let group_id = xmtp_common::rand_array::<16>();
+        let consent_entity = hex::encode(group_id);
         let group = StoredGroup {
-            id: group_id,
+            id: GroupId::from(group_id),
             dm_id: Some(dm_id.clone()),
             added_by_inbox_id: client.inbox_id().to_string(),
             created_at_ns: now_ns(),

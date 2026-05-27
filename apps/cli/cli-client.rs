@@ -420,9 +420,10 @@ async fn main() -> color_eyre::eyre::Result<()> {
             );
         }
         Commands::GroupInfo { group_id } => {
-            let group = &client
-                .group(&hex::decode(group_id).expect("bad group id"))
-                .expect("group not found");
+            let gid_bytes = hex::decode(group_id).expect("bad group id");
+            let gid: xmtp_proto::types::GroupId =
+                gid_bytes.try_into().expect("group id must be 16 bytes");
+            let group = &client.group(&gid).expect("group not found");
             group.sync().await.unwrap();
             let serializable = SerializableGroup::from(group).await;
             info!(
@@ -530,6 +531,9 @@ where
 
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<RustMlsGroup, CliError> {
     client.sync_welcomes().await?;
+    let group_id: xmtp_proto::types::GroupId = group_id
+        .try_into()
+        .map_err(|e: xmtp_proto::ConversionError| CliError::Generic(e.to_string()))?;
     let group = client.group(&group_id)?;
     group
         .sync()

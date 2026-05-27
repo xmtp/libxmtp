@@ -48,7 +48,7 @@ async fn test_dm_welcome_with_preexisting_consent() {
     let cr = StoredConsentRecord::new(
         ConsentType::ConversationId,
         ConsentState::Allowed,
-        hex::encode(&a_group.group_id),
+        hex::encode(a_group.group_id),
     );
     bo2.context.db().insert_newer_consent_record(cr)?;
     // Now bo2 processes the welcome

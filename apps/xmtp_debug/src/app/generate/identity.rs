@@ -1,9 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
-use crate::app::register_client;
 use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
-use crate::args;
+use crate::app::{App, register_client};
 use crate::metrics::{
     csv_metric, push_metrics, record_latency, record_phase_metric, record_throughput,
 };
@@ -23,15 +22,11 @@ use xmtp_proto::xmtp::xmtpv4::message_api::subscribe_topics_response::Response a
 /// Identity Generation
 pub struct GenerateIdentity {
     identity_store: IdentityStore<'static>,
-    network: args::BackendOpts,
 }
 
 impl GenerateIdentity {
-    pub fn new(identity_store: IdentityStore<'static>, network: args::BackendOpts) -> Self {
-        Self {
-            identity_store,
-            network,
-        }
+    pub fn new(identity_store: IdentityStore<'static>) -> Self {
+        Self { identity_store }
     }
 
     pub async fn create_identities(
@@ -61,7 +56,6 @@ impl GenerateIdentity {
                 }
             }
         });
-        let network = &self.network;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
         let s = Arc::new(Mutex::new(TopicCursor::default()));
@@ -72,13 +66,12 @@ impl GenerateIdentity {
                 tokio::spawn({
                     let sem = semaphore.clone();
                     let s = s.clone();
-                    let network = network.clone();
                     let bar_pointer = bar.clone();
                     async move {
                         let _permit = sem.acquire().await?;
                         let wallet = crate::app::generate_wallet();
                         let t_init = Instant::now();
-                        let c = app::new_unregistered_client(&network, Some(&wallet)).await?;
+                        let c = app::new_unregistered_client(Some(&wallet)).await?;
                         let init_secs = t_init.elapsed().as_secs_f64();
 
                         record_phase_metric(
@@ -117,14 +110,15 @@ impl GenerateIdentity {
         // try to read a key package for each installation id we created
         // only for D14n
         let (tx, rx) = tokio::sync::oneshot::channel();
+        let network = App::network();
         let read_writes = if network.d14n && ryow {
-            let n = network.clone();
             let mut needed_installations = clients
                 .clone()
                 .iter()
                 .map(|(c, _)| c.context.installation_id())
                 .collect::<HashSet<_>>();
             tokio::spawn(async move {
+                let n = App::network();
                 let api = n.xmtpd()?;
                 let mut s = SubscribeTopics::builder().topics(topic_cursor).build()?;
                 let s = s.subscribe(&api).await?;
@@ -211,26 +205,23 @@ impl GenerateIdentity {
             .try_collect::<Vec<Identity>>()
             .await?;
 
-        self.identity_store
-            .set_all(identities.as_slice(), &self.network)?;
+        self.identity_store.set_all(identities.as_slice())?;
 
         //TODO: this can be removed once we're d14n-only
-        let tmp = Arc::new(app::temp_client(network, None).await?);
+        let tmp = Arc::new(app::temp_client(None).await?);
         let states = stream::iter(identities.iter().copied().map(Ok))
             .map_ok(|identity| {
                 let tmp = tmp.clone();
                 tokio::spawn({
                     let sem = semaphore.clone();
-                    let network_clone = network.clone();
                     async move {
                         let _permit = sem.acquire().await?;
                         let inbox_id_hex = hex::encode(identity.inbox_id);
                         trace!(inbox_id = inbox_id_hex, "getting association state");
 
-                        poll_association_readiness(&network_clone, &inbox_id_hex).await?;
+                        poll_association_readiness(&inbox_id_hex).await?;
 
-                        measure_sync_and_lookup(&network_clone, &identity, &tmp, &inbox_id_hex)
-                            .await?;
+                        measure_sync_and_lookup(&identity, &tmp, &inbox_id_hex).await?;
 
                         // -- XDBG_LOOP_PAUSE --
                         if let Some(secs) = loop_pause_secs {
@@ -263,7 +254,7 @@ impl GenerateIdentity {
         }
 
         // -- verify all identities are readable from a fresh temp client --
-        verify_identities_readable(network, &identities).await?;
+        verify_identities_readable(&identities).await?;
 
         read_writes.await?;
         Ok(identities)
@@ -271,8 +262,8 @@ impl GenerateIdentity {
 }
 
 /// Poll until the identity's association state has members, or timeout after 30s.
-async fn poll_association_readiness(network: &args::BackendOpts, inbox_id_hex: &str) -> Result<()> {
-    let reader = Arc::new(app::temp_client(network, None).await?);
+async fn poll_association_readiness(inbox_id_hex: &str) -> Result<()> {
+    let reader = Arc::new(app::temp_client(None).await?);
     let conn = Arc::new(reader.context.store().db());
 
     let assoc_start = Instant::now();
@@ -318,7 +309,6 @@ async fn poll_association_readiness(network: &args::BackendOpts, inbox_id_hex: &
 
 /// Measure welcome-sync latency and identity-lookup latency for a registered identity.
 async fn measure_sync_and_lookup(
-    network: &args::BackendOpts,
     identity: &Identity,
     tmp: &crate::DbgClient,
     inbox_id_hex: &str,
@@ -327,7 +317,7 @@ async fn measure_sync_and_lookup(
 
     // -- welcome sync latency --
     let t_sync = Instant::now();
-    let c = app::client_from_identity(identity, network)?;
+    let c = app::client_from_identity(identity)?;
     c.sync_welcomes().await?;
     let sync_secs = t_sync.elapsed().as_secs_f64();
 
@@ -359,11 +349,8 @@ async fn measure_sync_and_lookup(
 }
 
 /// Verify all identities are readable from a fresh temp client.
-async fn verify_identities_readable(
-    network: &args::BackendOpts,
-    identities: &[Identity],
-) -> Result<()> {
-    let verify_client = Arc::new(app::temp_client(network, None).await?);
+async fn verify_identities_readable(identities: &[Identity]) -> Result<()> {
+    let verify_client = Arc::new(app::temp_client(None).await?);
     let verify_conn = Arc::new(verify_client.context.store().db());
     for identity in identities {
         let inbox_id_hex = hex::encode(identity.inbox_id);

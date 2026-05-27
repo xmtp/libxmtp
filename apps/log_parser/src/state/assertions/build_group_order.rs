@@ -15,7 +15,7 @@ impl LogAssertion for BuildGroupOrder {
                 continue;
             };
 
-            order.insert(event.time(), group_id.clone());
+            order.insert(event.time(), *group_id);
         }
 
         *state.group_order.lock() = order;

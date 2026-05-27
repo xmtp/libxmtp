@@ -2,7 +2,7 @@ use crate::protocol::{Envelope, EnvelopeError};
 use chrono::Utc;
 use std::collections::HashSet;
 use std::sync::LazyLock;
-use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope, Topic, TopicKind};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, OrphanedEnvelope, Topic, TopicKind};
 use xmtp_proto::xmtp::xmtpv4;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
@@ -150,7 +150,7 @@ impl Envelope<'_> for TestEnvelope {
             .cursor(self.cursor())
             .depends_on(self.depends_on())
             .payload(buf)
-            .group_id(vec![0, 1, 2])
+            .group_id(GroupId::ZERO)
             .build()?)
     }
 }

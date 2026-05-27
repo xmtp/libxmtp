@@ -70,7 +70,9 @@ jobs:
       - name: Determine NPM tag
         id: npm-tag
         run: |
-          if [[ "${{ inputs.version }}" == *"dev"* || "${{ inputs.version }}" == *"rc"* ]]; then
+          if [[ "${{ inputs.version }}" == *"nightly"* ]]; then
+            echo "tag=nightly" >> $GITHUB_OUTPUT
+          elif [[ "${{ inputs.version }}" == *"dev"* || "${{ inputs.version }}" == *"rc"* ]]; then
             echo "tag=prerelease" >> $GITHUB_OUTPUT
           else
             echo "tag=latest" >> $GITHUB_OUTPUT

@@ -33,6 +33,7 @@
             config.entrypoint = [
               "${self'.packages.mls-validation-service-x86_64-unknown-linux-musl}/bin/mls-validation-service"
             ];
+            contents = [ pkgs.cacert ];
             architecture = "amd64";
           }
         );
@@ -41,6 +42,7 @@
             config.entrypoint = [
               "${self'.packages.mls-validation-service-aarch64-unknown-linux-musl}/bin/mls-validation-service"
             ];
+            contents = [ pkgs.cacert ];
           }
         );
       }

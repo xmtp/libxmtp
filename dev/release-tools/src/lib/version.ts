@@ -47,6 +47,7 @@ export function filterAndSortTags(
 export interface ComputeVersionOptions {
   rcNumber?: number;
   shortSha?: string;
+  nightlyDate?: string;
 }
 
 /**
@@ -72,6 +73,15 @@ export function computeVersion(
         throw new Error("shortSha is required for dev releases");
       }
       return `${normalized}-dev.${options.shortSha}`;
+    }
+    case "nightly": {
+      if (!options.nightlyDate) {
+        throw new Error("nightlyDate is required for nightly releases");
+      }
+      if (!options.shortSha) {
+        throw new Error("shortSha is required for nightly releases");
+      }
+      return `${normalized}-nightly.${options.nightlyDate}.${options.shortSha}`;
     }
   }
 }

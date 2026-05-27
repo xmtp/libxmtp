@@ -1,5 +1,7 @@
 //! PostgreSQL (ReplicationDb) container management for D14n.
 
+use std::collections::HashMap;
+
 use crate::types::XmtpdNode;
 use async_trait::async_trait;
 use bollard::{
@@ -42,8 +44,21 @@ impl ReplicationDb {
         let name = self.name();
         let options = CreateContainerOptionsBuilder::default().name(&name);
 
+        let mut labels = HashMap::new();
+        labels.insert("xnet.pgadmin".to_string(), "true".to_string());
+        labels.insert(
+            "xnet.pgadmin.name".to_string(),
+            format!("{} (Replication)", name),
+        );
+        labels.insert("xnet.pgadmin.host".to_string(), name.clone());
+        labels.insert(
+            "xnet.pgadmin.port".to_string(),
+            ReplicationDbConst::PORT.to_string(),
+        );
+
         let config = ContainerCreateBody {
             image: Some(self.image.clone()),
+            labels: Some(labels),
             env: Some(vec![
                 format!("POSTGRES_PASSWORD={}", ReplicationDbConst::PASSWORD),
                 format!("PGPORT={}", ReplicationDbConst::PORT),

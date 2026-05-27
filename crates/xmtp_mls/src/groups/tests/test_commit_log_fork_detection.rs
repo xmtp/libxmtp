@@ -13,11 +13,11 @@ use xmtp_proto::types::Cursor;
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id;
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -30,7 +30,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -48,7 +48,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     // Insert matching remote commit log entries (no fork)
     let remote_entry_1 = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1,
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -57,7 +57,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
 
     let remote_entry_2 = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2,
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
@@ -78,7 +78,12 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(*fork_status, Some(false), "Should detect no fork");
     Ok(())
 }
@@ -88,11 +93,11 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id;
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 200,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -105,7 +110,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 201,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -123,7 +128,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     // Insert matching remote commit log entries (no fork)
     let remote_entry_1 = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 200,
         commit_result: CommitResult::Invalid, // For some reason remote marked this commit invalid
         applied_epoch_number: 1,
@@ -132,7 +137,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 
     let remote_entry_2 = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 200,
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -152,7 +157,12 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(*fork_status, Some(true), "Should detect a fork");
 
     Ok(())
@@ -163,11 +173,11 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id;
 
     // Insert local commit log entry
     let local_entry = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -184,7 +194,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Insert matching remote commit log entry with same authenticator (should update cursors)
     let remote_entry = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1, // Same commit_sequence_id
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -195,12 +205,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     // Get initial cursor values (should be 0)
     let initial_local_cursor = alix.context.db().get_last_cursor_for_originator(
-        &group_id,
+        group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
         Originators::REMOTE_COMMIT_LOG,
     )?;
     let initial_remote_cursor = alix.context.db().get_last_cursor_for_originator(
-        &group_id,
+        group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
         Originators::REMOTE_COMMIT_LOG,
     )?;
@@ -219,7 +229,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(
         *fork_status,
         Some(false),
@@ -228,12 +243,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     // Verify cursors were updated
     let updated_local_cursor = alix.context.db().get_last_cursor_for_originator(
-        &group_id,
+        group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
         Originators::REMOTE_COMMIT_LOG,
     )?;
     let updated_remote_cursor = alix.context.db().get_last_cursor_for_originator(
-        &group_id,
+        group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
         Originators::REMOTE_COMMIT_LOG,
     )?;
@@ -250,7 +265,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     // Insert local commit log entry
     let local_entry = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -267,7 +282,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Insert matching remote commit log entry with same authenticator (should update cursors)
     let remote_entry = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2, // Same commit_sequence_id
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
@@ -287,7 +302,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(
         *fork_status,
         Some(true),
@@ -296,12 +316,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     // Verify cursors were updated
     let updated_two_local_cursor = alix.context.db().get_last_cursor_for_originator(
-        &group_id,
+        group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
         Originators::REMOTE_COMMIT_LOG,
     )?;
     let updated_two_remote_cursor = alix.context.db().get_last_cursor_for_originator(
-        &group_id,
+        group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
         Originators::REMOTE_COMMIT_LOG,
     )?;
@@ -333,11 +353,11 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id;
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -350,7 +370,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -368,7 +388,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     // Insert remote commit log entries with different commit_sequence_ids (no match for latest local)
     let remote_entry = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1, // Only matches first local entry
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -389,7 +409,12 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(
         *fork_status, None,
         "Should return None when latest local commit has no matching remote entry"
@@ -404,11 +429,11 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id;
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -421,7 +446,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -439,7 +464,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     // Insert matching remote commit log entries (no fork)
     let remote_entry_1 = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 1,
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -448,7 +473,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 
     let remote_entry_2 = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id,
         commit_sequence_id: 2,
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
@@ -469,7 +494,12 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(*fork_status, Some(false), "Should initially detect no fork");
 
     // Verify the status is persisted in the database
@@ -498,7 +528,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(&group_id)
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status_second,
@@ -532,7 +562,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(&group_id)
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status_third,

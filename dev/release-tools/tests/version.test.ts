@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import semver from "semver";
 import {
   computeVersion,
   filterAndSortTags,
@@ -50,6 +51,7 @@ describe("normalizeVersion", () => {
     ["4.9.0-rc1", "4.9.0"],
     ["4.9.0+build.123", "4.9.0"],
     ["4.9.0-rc1+build.123", "4.9.0"],
+    ["4.9.0-nightly.20260428.cc66682", "4.9.0"],
   ])("normalizeVersion(%s) => %s", (input, expected) => {
     expect(normalizeVersion(input)).toBe(expected);
   });
@@ -80,5 +82,59 @@ describe("computeVersion", () => {
 
   it("throws if dev release has no shortSha", () => {
     expect(() => computeVersion("4.10.0", "dev")).toThrow();
+  });
+
+  it("appends nightly suffix with date and short sha", () => {
+    expect(
+      computeVersion("4.10.0", "nightly", {
+        nightlyDate: "20260428",
+        shortSha: "cc66682",
+      }),
+    ).toBe("4.10.0-nightly.20260428.cc66682");
+  });
+
+  it("throws if nightly release has no nightlyDate", () => {
+    expect(() =>
+      computeVersion("4.10.0", "nightly", { shortSha: "cc66682" }),
+    ).toThrow(/nightlyDate/);
+  });
+
+  it("throws if nightly release has no shortSha", () => {
+    expect(() =>
+      computeVersion("4.10.0", "nightly", { nightlyDate: "20260428" }),
+    ).toThrow(/shortSha/);
+  });
+
+  it("nightly versions sort lexicographically by date", () => {
+    const versions = [
+      computeVersion("4.10.0", "nightly", {
+        nightlyDate: "20260429",
+        shortSha: "bbbbbbb",
+      }),
+      computeVersion("4.10.0", "nightly", {
+        nightlyDate: "20260427",
+        shortSha: "aaaaaaa",
+      }),
+      computeVersion("4.10.0", "nightly", {
+        nightlyDate: "20260428",
+        shortSha: "ccccccc",
+      }),
+    ];
+    const lexSorted = [...versions].sort();
+    const semverSorted = [...versions].sort(semver.compare);
+    expect(lexSorted).toEqual([
+      "4.10.0-nightly.20260427.aaaaaaa",
+      "4.10.0-nightly.20260428.ccccccc",
+      "4.10.0-nightly.20260429.bbbbbbb",
+    ]);
+    expect(lexSorted).toEqual(semverSorted);
+  });
+
+  it("nightly is a valid semver prerelease", () => {
+    const v = computeVersion("4.10.0", "nightly", {
+      nightlyDate: "20260428",
+      shortSha: "cc66682",
+    });
+    expect(semver.parse(v)).not.toBeNull();
   });
 });

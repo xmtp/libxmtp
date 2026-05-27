@@ -345,12 +345,12 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public var client: Client {
+	public var clientInboxId: InboxId {
 		switch self {
 		case let .group(group):
-			group.client
+			group.clientInboxId
 		case let .dm(dm):
-			dm.client
+			dm.clientInboxId
 		}
 	}
 

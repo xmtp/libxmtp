@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**29 error types** across **9 crates** with **327 total error codes**.
+**30 error types** across **10 crates** with **342 total error codes**.
 
 ## mobile
 
@@ -22,6 +22,25 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `GenericError::ReloadLog` | Reload log error. Failed to reload log subscriber. Not retryable. |
 | `GenericError::Log` | Log error. Error initializing debug log file. Not retryable. |
 | `GenericError::Expired` | Timer expired. Operation timed out. Retryable. |
+
+## wasm
+
+### ContentTypeError <sub>enum</sub>
+
+<small>`bindings/wasm/src/content_types/mod.rs`</small>
+
+Error type for content type conversion failures in WASM bindings.
+
+Provides structured error codes via `ErrorCode` derive, ensuring
+all content type errors are prefixed with `[ContentTypeError::Variant]`
+when surfaced to JavaScript.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `ContentTypeError::InvalidData` | Invalid data. Content type data failed validation. Not retryable. |
+| `ContentTypeError::TimestampOutOfRange` | Timestamp out of range. Timestamp value is outside the representable range. Not retryable. |
+| `ContentTypeError::Codec` | Codec error. Content type codec encoding or decoding failed. Not retryable. |
+| `ContentTypeError::Crypto` | Crypto error. Cryptographic operation for content type failed. Not retryable. |
 
 ## xmtp_api
 
@@ -43,7 +62,8 @@ This document lists all error codes defined in LibXMTP, the core library underly
 
 | Error Code | Description |
 |:-----------|:------------|
-| `MessageBackendBuilderError::MissingV3Host` | Missing V3 host. V3 host URL not set on builder. Not retryable. |
+| `MessageBackendBuilderError::MissingXmtpdHost` | Missing XMTPD host. XMTPD host was not set on the builder. Not retryable. |
+| `MessageBackendBuilderError::MissingV3Host` | Missing V3 host. V3 host was not set on the builder. Not retryable. |
 | `MessageBackendBuilderError::GrpcBuilder` | gRPC builder error. gRPC client builder failed. Not retryable. |
 | `MessageBackendBuilderError::MultiNode` | Multi-node error. Multi-node client builder failed. Not retryable. |
 | `MessageBackendBuilderError::Scw` | SCW verifier error. Smart contract wallet verifier error. Not retryable. |
@@ -51,7 +71,8 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `MessageBackendBuilderError::UninitializedField` | Read/write client builder error. Read/write client builder failed. Not retryable. |
 | `MessageBackendBuilderError::ReadonlyBuilder` | Readonly builder error. Readonly client builder failed. Not retryable. |
 | `MessageBackendBuilderError::Builder` | Builder error. Uninitialized field in builder. Not retryable. |
-| `MessageBackendBuilderError::UnsupportedClient` | Unsupported client. Client kind is not supported. Not retryable. |
+| `MessageBackendBuilderError::MissingGatewayHost` | Missing XMTP Gateway host. XMTP Gateway host was not set on the builder. Not retryable. |
+| `MessageBackendBuilderError::InvalidUrl` | Invalid host URL given Url is not valid. Not retryable. |
 
 ## xmtp_api_grpc
 
@@ -246,6 +267,16 @@ General error type for Mls Storage Trait
 | `DeserializationError::Ed25519` | Ed25519 key error. Failed to create public key from bytes. Not retryable. |
 | `DeserializationError::Bincode` | Unable to deserialize. Bincode deserialization failed. Not retryable. |
 
+### KeyPackageVerificationError <sub>enum</sub>
+
+<small>`crates/xmtp_id/src/key_package/verified_key_package_v2.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `KeyPackageVerificationError::TlsError` | TLS codec error. MLS TLS encoding/decoding failed. Not retryable. |
+| `KeyPackageVerificationError::MlsValidation` | MLS validation error. Key package verification failed. Not retryable. |
+| `KeyPackageVerificationError::WrongCredentialType` | Wrong credential type. Unexpected MLS credential type. Not retryable. |
+
 ### SignatureError <sub>enum</sub>
 
 <small>`crates/xmtp_id/src/associations/signature.rs`</small>
@@ -286,7 +317,7 @@ General error type for Mls Storage Trait
 | `VerifierError::Io` | I/O error. I/O operation failed. May be retryable. |
 | `VerifierError::Serde` | Serialization error. JSON serialization/deserialization failed. Not retryable. |
 | `VerifierError::MalformedEipUrl` | Malformed chain ID. Chain ID string lacks expected eip155: prefix. Not retryable. |
-| `VerifierError::NoVerifier` | No verifier. Verifier not configured. Retryable. |
+| `VerifierError::NoVerifier` | No verifier. Verifier not configured for the given chain ID. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
 
@@ -330,10 +361,13 @@ General error type for Mls Storage Trait
 | `ClientError::Generic` | Generic error. Unclassified error. May be retryable. |
 | `ClientError::MlsStore` | MLS store error. OpenMLS key store operation failed. Not retryable. |
 | `ClientError::EnrichMessage` | Message enrichment error. Failed to enrich message content. Not retryable. |
+| `ClientError::Conversion` | Conversion Error Data type failed to convert. Not retryable. |
+| `ClientError::RegistrationNotVisible` | Registration not visible. Registration was not visible on the required number of nodes within the timeout. Not retryable. |
+| `ClientError::EnvelopesNotYetVisible` | Envelopes not yet visible. Registration envelopes haven't propagated to the node yet. Retryable. |
 
 ### DeviceSyncError <sub>enum</sub>
 
-<small>`crates/xmtp_mls/src/groups/device_sync/mod.rs`</small>
+<small>`crates/xmtp_mls/src/worker/device_sync/mod.rs`</small>
 
 | Error Code | Description |
 |:-----------|:------------|
@@ -402,6 +436,12 @@ General error type for Mls Storage Trait
 | `GroupError::ConversionError` | Conversion error. Proto conversion failed. Not retryable. |
 | `GroupError::CryptoError` | Crypto error. Cryptographic operation failed. Not retryable. |
 | `GroupError::CreateGroupContextExtProposalError` | Group context proposal error. Failed to create group context extension proposal. May be retryable. |
+| `GroupError::ProposeAddMember` | Propose add member error. Failed to create an add-member proposal. May be retryable. |
+| `GroupError::ProposeRemoveMember` | Propose remove member error. Failed to create a remove-member proposal. May be retryable. |
+| `GroupError::Proposal` | Proposal error. Generic MLS proposal creation/handling failure. May be retryable. |
+| `GroupError::CommitToPendingProposals` | Commit to pending proposals error. Failed to commit pending proposals into an MLS commit. May be retryable. |
+| `GroupError::MergePendingCommit` | Merge pending commit error. Failed to merge a pending commit into local state. May be retryable. |
+| `GroupError::ProposalsNotSupported` | Proposals not supported. Encountered a proposal when our client does not support proposals. Not retryable. |
 | `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
 | `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
 | `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |
@@ -475,16 +515,6 @@ Errors that can occur when working with GroupMutablePermissions.
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
 | `IdentityError::Bincode` | Bincode serialization error. Binary serialization failed. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
-
-### KeyPackageVerificationError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/verified_key_package_v2.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `KeyPackageVerificationError::TlsError` | TLS codec error. MLS TLS encoding/decoding failed. Not retryable. |
-| `KeyPackageVerificationError::MlsValidation` | MLS validation error. Key package verification failed. Not retryable. |
-| `KeyPackageVerificationError::WrongCredentialType` | Wrong credential type. Unexpected MLS credential type. Not retryable. |
 
 ### SubscribeError <sub>enum</sub>
 

@@ -4,6 +4,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::{
+    ConnectionExt,
     consent_record::ConsentState,
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
@@ -315,7 +316,7 @@ async fn test_only_added_to_correct_groups() {
     old_group
         .send_message(b"hi there", SendMessageOpts::default())
         .await?;
-    alix1.context.db().raw_query_write(|conn| {
+    alix1.context.db().raw_query(|conn| {
         diesel::update(dsl::groups.find(&old_group.group_id))
             .set((dsl::last_message_ns.eq(0), dsl::created_at_ns.eq(0)))
             .execute(conn)
@@ -395,7 +396,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     }
 
     // alix1 should have it's own created sync group and alix2's sync group
-    let alix1_sync_groups: Vec<StoredGroup> = alix1.context.db().raw_query_read(|conn| {
+    let alix1_sync_groups: Vec<StoredGroup> = alix1.context.db().raw_query(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .load(conn)
@@ -405,7 +406,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     // alix2 should not be added to alix1's old sync group
 
     alix2.sync_welcomes().await?;
-    let alix2_sync_groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
+    let alix2_sync_groups: Vec<StoredGroup> = alix2.context.db().raw_query(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .load(conn)

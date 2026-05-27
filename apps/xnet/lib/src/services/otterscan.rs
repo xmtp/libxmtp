@@ -104,8 +104,10 @@ impl Otterscan {
 
     /// URL for external access (direct port binding).
     pub fn external_url(&self) -> Url {
+        let host = "localhost";
         Url::parse(&format!(
-            "http://localhost:{}",
+            "http://{}:{}",
+            host,
             OtterscanConst::EXTERNAL_PORT
         ))
         .expect("valid URL")

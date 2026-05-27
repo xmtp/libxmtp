@@ -7,16 +7,16 @@
 ///
 /// Attempts to resolve a test hostname and returns `Ok(())` if it resolves
 /// to 127.0.0.1, or an error describing the failure.
-/// In remote mode, this check is skipped (sslip.io handles DNS resolution).
+/// In remote domain mode, this check is skipped (external DNS handles resolution).
 pub async fn check_dns_configured() -> color_eyre::eyre::Result<()> {
     use color_eyre::eyre::eyre;
 
-    // In remote mode, skip DNS check — sslip.io handles resolution externally
+    // In remote domain mode, skip DNS check — external DNS handles resolution
     if crate::Config::load()
         .map(|c| c.address_mode.is_remote())
         .unwrap_or(false)
     {
-        tracing::info!("Remote mode: skipping local DNS check (sslip.io handles resolution)");
+        tracing::info!("Remote domain mode: skipping local DNS check");
         return Ok(());
     }
 

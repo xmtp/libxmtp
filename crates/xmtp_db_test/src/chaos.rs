@@ -252,33 +252,26 @@ impl<C> ConnectionExt for ChaosConnection<C>
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
+        // Hook registration APIs (pre_read_hook / pre_write_hook / etc.) are kept
+        // for backward compatibility, but after the raw_query consolidation all
+        // registered hooks fire on every query.
         self.run_static_hooks(STATIC_PRE_READ_HOOK)?;
+        self.run_static_hooks(STATIC_PRE_WRITE_HOOK)?;
         self.run_hook(PRE_READ_HOOK)?;
+        self.run_hook(PRE_WRITE_HOOK)?;
         self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.raw_query_read(fun)?;
+        let result = self.db.raw_query(fun)?;
         // TODO: we could potentially pass T into the POST hook,
         // and then the test could do some (probably unsafe) casting to
         // get a specific type out. Unsure if useful?
         self.run_hook(POST_READ_HOOK)?;
-        self.run_static_hooks(STATIC_POST_READ_HOOK)?;
-        Ok(result)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        self.run_static_hooks(STATIC_PRE_WRITE_HOOK)?;
-        self.run_hook(PRE_WRITE_HOOK)?;
-        self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.raw_query_write(fun)?;
         self.run_hook(POST_WRITE_HOOK)?;
+        self.run_static_hooks(STATIC_POST_READ_HOOK)?;
         self.run_static_hooks(STATIC_POST_WRITE_HOOK)?;
         Ok(result)
     }

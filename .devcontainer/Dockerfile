@@ -1,4 +1,10 @@
-FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+# Pinned by digest (not just tag) so the devcontainer manifest digest stays
+# stable across rebuilds. Microsoft rebuilds the `ubuntu-24.04` tag
+# periodically (for security patches), and an unpinned tag would silently
+# pull new layers and break `.devcontainer/devcontainer.json`'s digest check.
+# Bump this digest (and re-run the `set-devcontainer-image` flow) to pick up
+# upstream security updates.
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae
 
 # Ensure vscode user exists (base image should have it, but some runtimes need it explicit)
 RUN if ! id vscode 2>/dev/null; then \

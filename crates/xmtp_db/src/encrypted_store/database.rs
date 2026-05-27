@@ -44,25 +44,14 @@ where
     P: ConnectionExt,
     M: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         match self {
-            Self::Persistent(p) => p.raw_query_read(fun),
-            Self::Mem(m) => m.raw_query_read(fun),
-        }
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        match self {
-            Self::Persistent(p) => p.raw_query_write(fun),
-            Self::Mem(m) => m.raw_query_write(fun),
+            Self::Persistent(p) => p.raw_query(fun),
+            Self::Mem(m) => m.raw_query(fun),
         }
     }
 

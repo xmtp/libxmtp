@@ -61,7 +61,7 @@ pub use wasm::*;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm {
     use super::*;
-    use crate::{PersistentOrMem, StorageOption, WasmDbConnection};
+    use crate::{ConnectionExt, PersistentOrMem, StorageOption, WasmDbConnection};
     use futures::FutureExt;
     use std::sync::Arc;
 
@@ -83,7 +83,7 @@ mod wasm {
             let store = EncryptedMessageStore::new_uninit(db).unwrap();
             store
                 .db()
-                .raw_query_write(|conn| conn.deserialize_database_from_buffer(snapshot))
+                .raw_query(|conn| conn.deserialize_database_from_buffer(snapshot))
                 .unwrap();
 
             store
@@ -192,7 +192,7 @@ mod native {
                     .build_unencrypted()
                     .unwrap();
                 let store = EncryptedMessageStore::new_uninit(db).unwrap();
-                let result = store.db().raw_query_write(|conn| {
+                let result = store.db().raw_query(|conn| {
                     conn.deserialize_database_from_buffer(snapshot)?;
                     conn.batch_execute("PRAGMA journal_mode = DELETE")?;
                     Ok(())
@@ -223,7 +223,7 @@ mod native {
 
             store
                 .conn()
-                .raw_query_write(|c| {
+                .raw_query(|c| {
                     c.run_pending_migrations(MIGRATIONS).unwrap();
                     Ok(())
                 })

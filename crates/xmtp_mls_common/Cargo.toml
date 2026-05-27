@@ -11,8 +11,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+bon.workspace = true
 hex.workspace = true
 openmls.workspace = true
+parking_lot.workspace = true
 prost.workspace = true
 serde.workspace = true
 thiserror.workspace = true

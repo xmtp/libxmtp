@@ -9,7 +9,7 @@
       treefmt = {
         flakeFormatter = true;
         flakeCheck = true;
-        projectRootFile = ".git/config";
+        projectRootFile = "flake.nix";
         programs = {
           nixfmt.enable = true;
           rustfmt = {
@@ -20,6 +20,10 @@
               "crates/xmtp-workspace-hack/*"
             ];
           };
+          ruff-format.enable = true;
+          ruff-check.enable = true;
+          # Rule set lives in /.editorconfig so spotless and treefmt agree.
+          ktlint.enable = true;
           taplo.enable = true;
           shellcheck = {
             enable = true;
@@ -49,6 +53,13 @@
             "-e"
             "SC2181"
           ];
+          # nicklockwood/swiftformat — not bundled in treefmt-nix's program
+          # list (only apple/swift-format is, and that one is broken).
+          # Settings live in .swiftformat at repo root.
+          swiftformat = {
+            command = "${pkgs.swiftformat}/bin/swiftformat";
+            includes = [ "*.swift" ];
+          };
         };
       };
     };

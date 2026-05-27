@@ -3,6 +3,28 @@ use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata as XmtpGroupMetadata;
 
+/// Options for [`Conversation::enableProposals`]. Mirrors
+/// [`xmtp_mls::groups::EnableProposalsOptions`].
+#[napi(object)]
+pub struct EnableProposalsOptions {
+  /// Skip the pre-flight key-package capability check. Post-d14n
+  /// every client supports proposals by version floor alone; set
+  /// `true` to bypass the per-member scan in that environment.
+  pub force: Option<bool>,
+  /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+  /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+  pub min_version: Option<String>,
+}
+
+impl From<EnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
+  fn from(opts: EnableProposalsOptions) -> Self {
+    xmtp_mls::groups::EnableProposalsOptions {
+      force: opts.force.unwrap_or(false),
+      min_version: opts.min_version,
+    }
+  }
+}
+
 #[napi]
 pub struct GroupMetadata {
   metadata: XmtpGroupMetadata,
@@ -53,6 +75,22 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
 
     Ok(())
+  }
+
+  /// Enable AppData-proposal-based metadata updates on this group.
+  ///
+  /// Stages the bootstrap commit that migrates the group's metadata
+  /// from the legacy GroupContextExtensions shape into the OpenMLS
+  /// AppData dictionary. Hard-fails if any member's latest key
+  /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
+  /// way: migrated groups cannot return to the legacy path.
+  #[napi]
+  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<()> {
+    let group = self.create_mls_group();
+    group
+      .enable_proposals(options.into())
+      .await
+      .map_err(|e| ErrorWrapper::from(e).into())
   }
 
   #[napi]

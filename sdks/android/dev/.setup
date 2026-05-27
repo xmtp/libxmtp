@@ -4,7 +4,16 @@
 
 set -eou pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
+# Resolve repo root. Prefer git, fall back to jj for non-colocated jj
+# workspaces (e.g. workspaces created via `jj workspace add`).
+if ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    :
+elif ROOT="$(jj root 2>/dev/null)"; then
+    :
+else
+    echo "error: not in a git or jj working tree" >&2
+    exit 1
+fi
 SDK_ROOT="${ROOT}/sdks/android"
 
 # Re-exec in the android Nix shell if not already there.

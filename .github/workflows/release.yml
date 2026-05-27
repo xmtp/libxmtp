@@ -44,13 +44,51 @@ on:
         required: false
         type: boolean
         default: false
+  schedule:
+    # Nightly: 06:00 UTC daily (~11pm PT / 02am ET). Schedule-only, never manual.
+    - cron: "0 6 * * *"
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    outputs:
+      release-type: ${{ steps.resolve.outputs.release-type }}
+      ref: ${{ steps.resolve.outputs.ref }}
+      ios: ${{ steps.resolve.outputs.ios }}
+      android: ${{ steps.resolve.outputs.android }}
+      node: ${{ steps.resolve.outputs.node }}
+      wasm: ${{ steps.resolve.outputs.wasm }}
+      skip: ${{ steps.skip-check.outputs.skip }}
     steps:
+      - name: Resolve release parameters
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_TYPE: ${{ inputs.release-type }}
+          INPUT_REF: ${{ inputs.ref }}
+          GITHUB_REF: ${{ github.ref }}
+          INPUT_IOS: ${{ inputs.ios }}
+          INPUT_ANDROID: ${{ inputs.android }}
+          INPUT_NODE: ${{ inputs.node }}
+          INPUT_WASM: ${{ inputs.wasm }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            echo "release-type=nightly" >> "$GITHUB_OUTPUT"
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+            echo "android=true" >> "$GITHUB_OUTPUT"
+            echo "node=true" >> "$GITHUB_OUTPUT"
+            echo "wasm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release-type=$INPUT_RELEASE_TYPE" >> "$GITHUB_OUTPUT"
+            echo "ref=${INPUT_REF:-$GITHUB_REF}" >> "$GITHUB_OUTPUT"
+            echo "ios=$INPUT_IOS" >> "$GITHUB_OUTPUT"
+            echo "android=$INPUT_ANDROID" >> "$GITHUB_OUTPUT"
+            echo "node=$INPUT_NODE" >> "$GITHUB_OUTPUT"
+            echo "wasm=$INPUT_WASM" >> "$GITHUB_OUTPUT"
+          fi
       - name: Validate dev release
-        if: inputs.release-type == 'dev'
+        if: steps.resolve.outputs.release-type == 'dev'
         env:
           RC_NUMBER: ${{ inputs.rc-number }}
         run: |
@@ -59,9 +97,9 @@ jobs:
             exit 1
           fi
       - name: Validate release branch
-        if: inputs.release-type != 'dev'
+        if: steps.resolve.outputs.release-type == 'rc' || steps.resolve.outputs.release-type == 'final'
         env:
-          REF: ${{ inputs.ref || github.ref }}
+          REF: ${{ steps.resolve.outputs.ref }}
         run: |
           BRANCH="${REF#refs/heads/}"
           if [[ ! "$BRANCH" =~ ^release/ ]]; then
@@ -69,7 +107,7 @@ jobs:
             exit 1
           fi
       - name: Validate RC number
-        if: inputs.release-type == 'rc'
+        if: steps.resolve.outputs.release-type == 'rc'
         env:
           RC_NUMBER: ${{ inputs.rc-number }}
         run: |
@@ -77,50 +115,71 @@ jobs:
             echo "::error::RC releases require rc-number to be set to a value greater than 0"
             exit 1
           fi
+      - name: Skip-if-no-new-commits (nightly only)
+        id: skip-check
+        if: steps.resolve.outputs.release-type == 'nightly'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ steps.resolve.outputs.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA=$(gh api "repos/${REPO}/commits/${REF}" --jq '.sha[0:7]')
+          LAST_TAG=$(gh api "repos/${REPO}/git/matching-refs/tags/ios-" \
+            --jq '[.[] | .ref | sub("refs/tags/"; "")] | map(select(test("-nightly\\."))) | sort | last // ""')
+          if [ -n "$LAST_TAG" ]; then
+            LAST_SHA=$(echo "$LAST_TAG" | grep -oE '[0-9a-f]{7}$' || true)
+            if [ "$LAST_SHA" = "$HEAD_SHA" ]; then
+              echo "::notice::No new commits since last nightly ($LAST_TAG); skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
   release-ios:
     needs: [validate]
-    if: inputs.ios
+    if: needs.validate.outputs.ios == 'true' && needs.validate.outputs.skip != 'true'
     uses: ./.github/workflows/release-ios.yml
     with:
-      release-type: ${{ inputs.release-type }}
+      release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ needs.validate.outputs.ref }}
     secrets: inherit
 
   release-android:
     needs: [validate]
-    if: inputs.android
+    if: needs.validate.outputs.android == 'true' && needs.validate.outputs.skip != 'true'
     uses: ./.github/workflows/release-android.yml
     with:
-      release-type: ${{ inputs.release-type }}
+      release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ needs.validate.outputs.ref }}
     secrets: inherit
 
   release-node:
     needs: [validate]
-    if: inputs.node
+    if: needs.validate.outputs.node == 'true' && needs.validate.outputs.skip != 'true'
     uses: ./.github/workflows/release-node.yml
     with:
-      release-type: ${{ inputs.release-type }}
+      release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ needs.validate.outputs.ref }}
     secrets: inherit
 
   release-wasm:
     needs: [validate]
-    if: inputs.wasm
+    if: needs.validate.outputs.wasm == 'true' && needs.validate.outputs.skip != 'true'
     uses: ./.github/workflows/release-wasm.yml
     with:
-      release-type: ${{ inputs.release-type }}
+      release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ needs.validate.outputs.ref }}
     secrets: inherit
 
   merge-pr:
-    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure')
-    needs: [release-ios, release-android, release-node, release-wasm]
+    if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure')
+    needs: [validate, release-ios, release-android, release-node, release-wasm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -132,7 +191,7 @@ jobs:
       - name: Merge release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_BRANCH: ${{ inputs.ref || github.ref }}
+          RELEASE_BRANCH: ${{ needs.validate.outputs.ref }}
         run: |
           BRANCH="${RELEASE_BRANCH#refs/heads/}"
           PR_NUMBER=$(gh pr list --head "$BRANCH" --base main --json number --jq '.[0].number')
@@ -143,8 +202,8 @@ jobs:
           gh pr merge "$PR_NUMBER" --merge --delete-branch
 
   notify:
-    needs: [release-ios, release-android, release-node, release-wasm, merge-pr]
-    if: always()
+    needs: [validate, release-ios, release-android, release-node, release-wasm, merge-pr]
+    if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -158,7 +217,7 @@ jobs:
           NODE_VERSION: ${{ needs.release-node.outputs.version }}
           WASM_RESULT: ${{ needs.release-wasm.result }}
           WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
-          RELEASE_TYPE: ${{ inputs.release-type }}
+          RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
           if [ -n "$IOS_VERSION" ] || [ "$IOS_RESULT" != "skipped" ]; then

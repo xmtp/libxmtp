@@ -25,43 +25,16 @@ impl<C: ConnectionExt> crate::IntoConnection for DbConnection<C> {
     }
 }
 
-impl<C> DbConnection<C>
-where
-    C: ConnectionExt,
-{
-    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-    {
-        <Self as ConnectionExt>::raw_query_read::<_, _>(self, fun)
-    }
-
-    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-    {
-        <Self as ConnectionExt>::raw_query_write::<_, _>(self, fun)
-    }
-}
-
 impl<C> ConnectionExt for DbConnection<C>
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        self.conn.raw_query_read(fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        self.conn.raw_query_write(fun)
+        self.conn.raw_query(fun)
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {

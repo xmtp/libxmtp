@@ -13,7 +13,7 @@ impl LogAssertion for EpochContinuityAssertion {
         for (group_id, group) in &*groups {
             // Group the events into epochs
             let mut all_group_epochs = state.grouped_epochs.lock();
-            let group_epochs = all_group_epochs.entry(group_id.clone()).or_default();
+            let group_epochs = all_group_epochs.entry(*group_id).or_default();
 
             // Massage the epoch # and auth forward through group states.
 

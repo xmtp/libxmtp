@@ -452,6 +452,7 @@ impl Conversations {
     #[wasm_bindgen(js_name = groupId)] group_id: String,
   ) -> Result<Conversation, JsError> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::js)?;
+    let group_id = xmtp_proto::types::GroupId::try_from(group_id).map_err(ErrorWrapper::js)?;
 
     let group = self
       .inner_client
@@ -578,7 +579,7 @@ impl Conversations {
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in conversations {
-      let id = hex::encode(&conversation.group_id);
+      let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
         .map_err(ErrorWrapper::js)?
@@ -688,6 +689,7 @@ impl Conversations {
     &self,
     callback: StreamCallback,
   ) -> Result<StreamCloser, JsError> {
+    let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
       self.inner_client.clone(),
       move |message| match message {
@@ -697,6 +699,7 @@ impl Conversations {
         },
         Err(e) => callback.on_error(JsError::from(e)),
       },
+      move || on_close_cb.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }

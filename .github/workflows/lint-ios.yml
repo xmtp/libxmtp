@@ -6,7 +6,7 @@ env:
 jobs:
   lint:
     name: Lint (iOS)
-    runs-on: macos-15
+    runs-on: warp-macos-15-arm64-6x
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix

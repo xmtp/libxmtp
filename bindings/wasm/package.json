@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "1.10.0-dev",
+  "version": "1.11.0-dev",
   "description": "WASM bindings for the libXMTP rust library",
   "keywords": [
     "xmtp",
@@ -72,8 +72,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "viem": "^2.31.3",
-    "vitest": "^4.0.8",
-    "wasm-pack": "^0.14.0"
+    "vitest": "^4.0.8"
   },
   "packageManager": "yarn@4.11.0",
   "engines": {

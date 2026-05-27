@@ -11,7 +11,6 @@ use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
 };
 use xmtp_proto::types::GlobalCursor;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessage;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
@@ -35,6 +34,7 @@ use xmtp_proto::{
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
 };
 
+use xmtp_proto::types::GroupId;
 #[derive(Clone)]
 pub struct ApiDebugWrapper<A> {
     inner: A,

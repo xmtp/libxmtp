@@ -18,9 +18,7 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
-use xmtp_proto::types::GlobalCursor;
-use xmtp_proto::types::GroupId;
-use xmtp_proto::types::GroupMessageMetadata;
+use xmtp_proto::types::{GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
 pub struct GroupSyncSummary {
@@ -209,12 +207,13 @@ where
         let db = self.context.db();
         let api = self.context.api();
 
-        let group_ids: Vec<&[u8]> = groups.iter().map(|group| group.group_id.as_ref()).collect();
+        let group_ids: Vec<GroupId> = groups.iter().map(|group| group.group_id).collect();
+        let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
         let last_synced_cursors = db.get_last_cursor_for_ids(
-            &group_ids,
+            &id_slices,
             &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
         )?;
-        let latest_message_metadata = api.get_newest_message_metadata(group_ids).await?;
+        let latest_message_metadata = api.get_newest_message_metadata(&group_ids).await?;
 
         let group_ids_needing_sync =
             filter_groups_with_new_messages(last_synced_cursors, latest_message_metadata);
@@ -247,6 +246,71 @@ where
         Ok(self.sync_all_groups(groups).await?)
     }
 
+    /// Sweep every paused group and clear the pause flag for any
+    /// whose `paused_for_version` is now satisfied by the client's
+    /// `pkg_version`. Pure local-state operation — no network calls.
+    ///
+    /// Returns the count of groups unstuck. Safe to call on any
+    /// installation regardless of whether any groups are paused
+    /// (a no-op on installations with none).
+    ///
+    /// This is the recovery path for the "user upgrades but didn't
+    /// touch a paused group" scenario: without this sweep a paused
+    /// group could stay paused indefinitely after the upgrade, since
+    /// `handle_group_paused` (which is the per-group re-evaluator)
+    /// only fires when the group is actively synced — and
+    /// `sync_all_welcomes_and_groups` filters out groups with no
+    /// new messages on the server.
+    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
+        use crate::groups::validated_commit::LibXMTPVersion;
+
+        let paused = self.context.db().get_paused_groups_with_versions()?;
+        if paused.is_empty() {
+            return Ok(0);
+        }
+        // Parse current version once; reuse across every paused group.
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v = LibXMTPVersion::parse(&own_version_str)?;
+
+        let mut unstuck = 0usize;
+        for (group_id, required_str) in paused {
+            // Lenient on malformed stored bytes — log and skip rather
+            // than fail the whole sweep (one corrupted row shouldn't
+            // brick recovery for all the others).
+            let Ok(required_v) = LibXMTPVersion::parse(&required_str) else {
+                tracing::warn!(
+                    group_id = hex::encode(group_id.as_ref()),
+                    required = %required_str,
+                    "skipping unparseable paused_for_version while sweeping"
+                );
+                continue;
+            };
+            if required_v <= own_v {
+                // Same leniency as the parse-error branch above: a
+                // transient DB failure on one row shouldn't abort the
+                // sweep for the others. The next sync sweep will pick
+                // this row up again.
+                if let Err(err) = self.context.db().unpause_group(&group_id) {
+                    tracing::warn!(
+                        group_id = hex::encode(group_id.as_ref()),
+                        required = %required_str,
+                        error = %err,
+                        "failed to unpause group during sweep; will retry on next sync"
+                    );
+                    continue;
+                }
+                tracing::info!(
+                    group_id = hex::encode(group_id.as_ref()),
+                    required = %required_str,
+                    own = %own_version_str,
+                    "unstuck previously paused group: client version now satisfies floor"
+                );
+                unstuck += 1;
+            }
+        }
+        Ok(unstuck)
+    }
+
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
     /// Returns number of active groups successfully synced.
     pub async fn sync_all_welcomes_and_groups(
@@ -254,6 +318,15 @@ where
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<GroupSyncSummary, GroupError> {
         let db = self.context.db();
+
+        // Recover any paused groups whose floor the current pkg_version
+        // now satisfies. Runs ahead of the activity filter (groups with
+        // no new server messages get filtered out below, so the per-
+        // group re-evaluation in `handle_group_paused` wouldn't fire
+        // for a quiet paused group).
+        if let Err(err) = self.unstick_paused_groups().await {
+            tracing::warn!(?err, "unstick_paused_groups failed, continuing with sync");
+        }
 
         if let Err(err) = self.sync_welcomes().await {
             tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
@@ -349,7 +422,7 @@ where
 fn filter_groups_with_new_messages(
     last_synced_cursors: HashMap<Vec<u8>, GlobalCursor>,
     latest_messages: HashMap<GroupId, GroupMessageMetadata>,
-) -> HashSet<Vec<u8>> {
+) -> HashSet<GroupId> {
     let mut groups_with_unread_messages = HashSet::new();
     for (group_id, latest_message_metadata) in latest_messages {
         match last_synced_cursors.get(group_id.as_ref()) {
@@ -359,12 +432,12 @@ fn filter_groups_with_new_messages(
                 if cursor.get(&latest_message_metadata.cursor.originator_id)
                     < latest_message_metadata.cursor.sequence_id
                 {
-                    groups_with_unread_messages.insert(group_id.to_vec());
+                    groups_with_unread_messages.insert(group_id);
                 }
             }
             None => {
                 // No cursor found. Must have never been synced before.
-                groups_with_unread_messages.insert(group_id.to_vec());
+                groups_with_unread_messages.insert(group_id);
             }
         }
     }
@@ -391,7 +464,9 @@ mod tests {
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_proto::mls_v1::WelcomeMetadata;
-    use xmtp_proto::types::{Cursor, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1};
+    use xmtp_proto::types::{
+        Cursor, GroupId, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
+    };
 
     fn generate_welcome(
         id: u64,
@@ -759,7 +834,7 @@ mod tests {
     }
 
     fn make_message_metadata(
-        group_id: Vec<u8>,
+        group_id: GroupId,
         originator_id: u32,
         sequence_id: u64,
     ) -> GroupMessageMetadata {
@@ -774,22 +849,22 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_with_new_messages_basic_behavior() {
-        let group_id_1 = vec![1, 2, 3];
-        let group_id_2 = vec![4, 5, 6];
+        let group_id_1 = GroupId::from([0x01u8; 16]);
+        let group_id_2 = GroupId::from([0x02u8; 16]);
         let originator = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_id_1.clone(), make_cursor(originator, 5));
-        last_synced.insert(group_id_2.clone(), make_cursor(originator, 10));
+        last_synced.insert(group_id_1.to_vec(), make_cursor(originator, 5));
+        last_synced.insert(group_id_2.to_vec(), make_cursor(originator, 10));
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id_1.clone().into(),
-            make_message_metadata(group_id_1.clone(), originator, 10), // New: 10 > 5
+            group_id_1,
+            make_message_metadata(group_id_1, originator, 10), // New: 10 > 5
         );
         latest.insert(
-            group_id_2.clone().into(),
-            make_message_metadata(group_id_2.clone(), originator, 8), // No new: 8 < 10
+            group_id_2,
+            make_message_metadata(group_id_2, originator, 8), // No new: 8 < 10
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -800,22 +875,22 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_includes_never_synced_and_excludes_up_to_date() {
-        let group_synced = vec![1, 2, 3];
-        let group_never_synced = vec![4, 5, 6];
+        let group_synced = GroupId::from([0x01u8; 16]);
+        let group_never_synced = GroupId::from([0x02u8; 16]);
         let originator = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_synced.clone(), make_cursor(originator, 5));
+        last_synced.insert(group_synced.to_vec(), make_cursor(originator, 5));
         // group_never_synced has no entry
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_synced.clone().into(),
-            make_message_metadata(group_synced.clone(), originator, 3), // Already synced
+            group_synced,
+            make_message_metadata(group_synced, originator, 3), // Already synced
         );
         latest.insert(
-            group_never_synced.clone().into(),
-            make_message_metadata(group_never_synced.clone(), originator, 1),
+            group_never_synced,
+            make_message_metadata(group_never_synced, originator, 1),
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -826,7 +901,7 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_handles_multiple_originators() {
-        let group_id = vec![1, 2, 3];
+        let group_id = GroupId::from([0x01u8; 16]);
         let orig_1 = 100;
         let orig_2 = 200;
 
@@ -834,12 +909,12 @@ mod tests {
         let mut cursor_map = GlobalCursor::default();
         cursor_map.insert(orig_1, 10);
         cursor_map.insert(orig_2, 20);
-        last_synced.insert(group_id.clone(), cursor_map);
+        last_synced.insert(group_id.to_vec(), cursor_map);
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id.clone().into(),
-            make_message_metadata(group_id.clone(), orig_2, 25), // New from orig_2
+            group_id,
+            make_message_metadata(group_id, orig_2, 25), // New from orig_2
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -850,15 +925,15 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_treats_unknown_originator_as_new() {
-        let group_id = vec![1, 2, 3];
+        let group_id = GroupId::from([0x01u8; 16]);
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_id.clone(), make_cursor(100, 10));
+        last_synced.insert(group_id.to_vec(), make_cursor(100, 10));
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id.clone().into(),
-            make_message_metadata(group_id.clone(), 200, 5), // Unknown originator defaults to 0
+            group_id,
+            make_message_metadata(group_id, 200, 5), // Unknown originator defaults to 0
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -873,11 +948,12 @@ mod tests {
     #[case(HashMap::new(), HashMap::new())] // Empty inputs
     #[case({
         let mut m = HashMap::new();
-        m.insert(vec![1], make_cursor(100, 10));
+        m.insert(GroupId::from([0x01u8; 16]).to_vec(), make_cursor(100, 10));
         m
     }, {
         let mut m = HashMap::new();
-        m.insert(vec![1].into(), make_message_metadata(vec![1], 100, 10));
+        let gid = GroupId::from([0x01u8; 16]);
+        m.insert(gid, make_message_metadata(gid, 100, 10));
         m
     })] // Equal cursors
     #[xmtp_common::test]
@@ -891,35 +967,23 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_comprehensive_mixed_states() {
-        let g1 = vec![1];
-        let g2 = vec![2];
-        let g3 = vec![3];
-        let g4 = vec![4];
+        let g1 = GroupId::from([0x01u8; 16]);
+        let g2 = GroupId::from([0x02u8; 16]);
+        let g3 = GroupId::from([0x03u8; 16]);
+        let g4 = GroupId::from([0x04u8; 16]);
         let orig = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(g1.clone(), make_cursor(orig, 5)); // Will have new
-        last_synced.insert(g2.clone(), make_cursor(orig, 15)); // Already synced
-        last_synced.insert(g3.clone(), make_cursor(orig, 10)); // Equal
+        last_synced.insert(g1.to_vec(), make_cursor(orig, 5)); // Will have new
+        last_synced.insert(g2.to_vec(), make_cursor(orig, 15)); // Already synced
+        last_synced.insert(g3.to_vec(), make_cursor(orig, 10)); // Equal
         // g4 never synced
 
         let mut latest = HashMap::new();
-        latest.insert(
-            g1.clone().into(),
-            make_message_metadata(g1.clone(), orig, 10),
-        );
-        latest.insert(
-            g2.clone().into(),
-            make_message_metadata(g2.clone(), orig, 12),
-        );
-        latest.insert(
-            g3.clone().into(),
-            make_message_metadata(g3.clone(), orig, 10),
-        );
-        latest.insert(
-            g4.clone().into(),
-            make_message_metadata(g4.clone(), orig, 1),
-        );
+        latest.insert(g1, make_message_metadata(g1, orig, 10));
+        latest.insert(g2, make_message_metadata(g2, orig, 12));
+        latest.insert(g3, make_message_metadata(g3, orig, 10));
+        latest.insert(g4, make_message_metadata(g4, orig, 1));
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 

@@ -142,7 +142,7 @@ mod tests {
 
         // Helper to check if column exists using raw SQL
         fn check_column_exists(conn: &impl xmtp_db::ConnectionExt) -> anyhow::Result<bool> {
-            Ok(conn.raw_query_read(|c| {
+            Ok(conn.raw_query(|c| {
                 use xmtp_db::diesel::connection::SimpleConnection;
                 // Try to select the column - if it fails, the column doesn't exist
                 let result = c.batch_execute("SELECT inserted_at_ns FROM group_messages LIMIT 0");

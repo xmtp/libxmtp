@@ -27,6 +27,11 @@ pub struct MessageBackendBuilder {
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum MessageBackendBuilderError {
+    /// Missing XMTPD host.
+    ///
+    /// XMTPD host was not set on the builder. Not retryable.
+    #[error("Xmtpd Host is Required")]
+    MissingXmtpdHost,
     /// Missing V3 host.
     ///
     /// V3 host was not set on the builder. Not retryable.
@@ -84,7 +89,7 @@ pub enum MessageBackendBuilderError {
 }
 
 impl MessageBackendBuilderError {
-    pub fn invalid_url(e: url::ParseError, url: String) -> Self {
+    pub fn bad_url(e: url::ParseError, url: String) -> Self {
         MessageBackendBuilderError::InvalidUrl { url, source: e }
     }
 }
@@ -115,12 +120,19 @@ impl MessageBackendBuilder {
     }
 
     /// Specify the node host as an Option<T>
-    /// for d14n this is the replication node
     /// for v3 this is xmtp-node-go
     ///
     /// Required for V3 mode; optional when gateway_host is provided (D14n mode).
     pub fn maybe_v3_host<S: Into<String>>(&mut self, host: Option<S>) -> &mut Self {
         self.client_bundle.maybe_v3_host(host);
+        self
+    }
+
+    /// Specify the node host as an Option<T>
+    ///
+    /// Required for xmtpd single-node mode
+    pub fn maybe_xmtpd_host<S: Into<String>>(&mut self, host: Option<S>) -> &mut Self {
+        self.client_bundle.maybe_xmtpd_host(host);
         self
     }
 

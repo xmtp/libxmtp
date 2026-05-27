@@ -32,10 +32,9 @@ use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
-    BROADCAST_PROPOSAL_SUPPORT, CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION,
-    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
-    KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX, MUTABLE_METADATA_EXTENSION_ID,
-    PROPOSAL_SUPPORT_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
+    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
@@ -778,7 +777,14 @@ impl Identity {
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     pub static ENABLE_WELCOME_POINTERS: bool;
-    pub static ENABLE_PROPOSAL_SUPPORT: bool;
+    /// Test-only opt-out from advertising `AppDataDictionary` in the
+    /// key package's leaf-node capabilities. Tests that simulate an
+    /// "old client without AppData support" set this to `false` for
+    /// the scope of one client build, and the resulting KP omits the
+    /// extension type from its `Capabilities`. Production has no
+    /// equivalent gate — `AppDataDictionary` is broadcast
+    /// unconditionally.
+    pub static ENABLE_APP_DATA_DICTIONARY_BROADCAST: bool;
 }
 
 #[derive(Builder, Debug)]
@@ -837,30 +843,47 @@ impl XmtpKeyPackageBuilder {
             ExtensionType::LastResort,
             ExtensionType::ApplicationId,
             ExtensionType::ImmutableMetadata,
+            // Advertise AppDataDictionary so the bootstrap commit
+            // (and later AppDataUpdate proposals) are accepted —
+            // OpenMLS rejects commits whose new extension set isn't
+            // covered by every leaf's capabilities. Advertising
+            // unconditionally is the simplest path: required-vs-
+            // supported is enforced by RequiredCapabilities, not by
+            // this leaf-node list. This advertisement also doubles
+            // as the migration-eligibility signal that
+            // `all_members_support_proposals` reads.
+            ExtensionType::AppDataDictionary,
             ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
             ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
             ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
             ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
             ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
         ];
-        if BROADCAST_PROPOSAL_SUPPORT {
-            capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
-        }
+        // Test-only opt-out: tests that simulate an "old client
+        // without AppData support" drop the advertisement so the
+        // member-support check fails for that installation.
         #[cfg(any(test, feature = "test-utils"))]
         {
-            const {
-                assert!(BROADCAST_PROPOSAL_SUPPORT);
-            }
-            if !ENABLE_PROPOSAL_SUPPORT.try_with(|v| *v).unwrap_or(true) {
-                capability_extensions
-                    .retain(|e| *e != ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+            if !ENABLE_APP_DATA_DICTIONARY_BROADCAST
+                .try_with(|v| *v)
+                .unwrap_or(true)
+            {
+                capability_extensions.retain(|e| *e != ExtensionType::AppDataDictionary);
             }
         }
+        // Advertise both `GroupContextExtensions` (required by all groups)
+        // and `AppDataUpdate` (used by the new app-data path) so this client
+        // can join groups that commit AppDataUpdate proposals. Required-vs-
+        // supported is enforced by the group's RequiredCapabilities, not by
+        // this leaf-node list, so advertising more is always safe.
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
             Some(&capability_extensions),
-            Some(&[ProposalType::GroupContextExtensions]),
+            Some(&[
+                ProposalType::GroupContextExtensions,
+                ProposalType::AppDataUpdate,
+            ]),
             None,
         );
 
@@ -1175,6 +1198,39 @@ mod tests {
         let key_package_from_db: Option<KeyPackageBundle> =
             provider.storage().key_package(&pq_hash_ref_inner).unwrap();
         assert!(key_package_from_db.is_none());
+    }
+
+    /// Companion to `test_app_data_update_advertised_but_not_required` in
+    /// `groups/tests/test_proposals.rs`, which covers the group-creator side.
+    ///
+    /// The joiner side: a key package built by `XmtpKeyPackageBuilder` must
+    /// advertise `AppDataUpdate` on its leaf node so this installation can be
+    /// added to groups whose commits inline AppDataUpdate proposals. If this
+    /// regresses, new clients would fail RequiredCapabilities on join into any
+    /// group created by a peer that later requires the capability.
+    #[xmtp_common::test]
+    async fn test_app_data_update_capability_advertised_on_key_package() {
+        use openmls::messages::proposals::ProposalType;
+
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let storage = client.context.mls_storage();
+        let provider = XmtpOpenMlsProviderRef::new(storage);
+
+        let kp = client
+            .identity()
+            .new_key_package(&provider, false)
+            .unwrap()
+            .key_package;
+        let proposals = kp.leaf_node().capabilities().proposals();
+
+        assert!(
+            proposals.contains(&ProposalType::AppDataUpdate),
+            "key package must advertise AppDataUpdate, got: {proposals:?}",
+        );
+        assert!(
+            proposals.contains(&ProposalType::GroupContextExtensions),
+            "key package must still advertise GroupContextExtensions, got: {proposals:?}",
+        );
     }
 
     #[test]

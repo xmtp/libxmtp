@@ -4,6 +4,7 @@ use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_dele
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use xmtp_proto::types::GroupId;
 #[derive(
     Debug,
     Clone,
@@ -23,7 +24,7 @@ pub struct StoredMessageDeletion {
     /// The ID of the DeleteMessage in the group_messages table
     pub id: Vec<u8>,
     /// The group this deletion belongs to
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     /// The ID of the original message being deleted
     pub deleted_message_id: Vec<u8>,
     /// The inbox_id of who sent the delete message
@@ -60,7 +61,7 @@ pub trait QueryMessageDeletion {
     /// Get all deletions in a group
     fn get_group_deletions(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Check if a message has been deleted
@@ -94,7 +95,7 @@ where
 
     fn get_group_deletions(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
         (**self).get_group_deletions(group_id)
     }
@@ -109,7 +110,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::id.eq(id))
                 .first(conn)
@@ -121,7 +122,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::deleted_message_id.eq(deleted_message_id))
                 .first(conn)
@@ -137,7 +138,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
             return Ok(vec![]);
         }
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::deleted_message_id.eq_any(message_ids))
                 .load(conn)
@@ -146,9 +147,9 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
 
     fn get_group_deletions(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::group_id.eq(group_id))
                 .load(conn)
@@ -156,7 +157,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     }
 
     fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             diesel::dsl::select(diesel::dsl::exists(
                 dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),
             ))
@@ -174,7 +175,7 @@ mod tests {
     };
     use crate::{Store, with_connection};
 
-    fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: Vec<u8>) {
+    fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: GroupId) {
         StoredGroup {
             id: group_id,
             created_at_ns: 0,
@@ -204,7 +205,7 @@ mod tests {
     fn create_test_message(
         conn: &DbConnection<impl ConnectionExt>,
         id: Vec<u8>,
-        group_id: Vec<u8>,
+        group_id: GroupId,
     ) {
         StoredGroupMessage {
             id,
@@ -233,17 +234,17 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_store_and_get_deletion() {
         with_connection(|conn| {
-            let group_id = vec![1, 2, 3];
+            let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
 
-            create_test_group(conn, group_id.clone());
-            create_test_message(conn, message_id.clone(), group_id.clone());
-            create_test_message(conn, delete_message_id.clone(), group_id.clone());
+            create_test_group(conn, group_id);
+            create_test_message(conn, message_id.clone(), group_id);
+            create_test_message(conn, delete_message_id.clone(), group_id);
 
             let deletion = StoredMessageDeletion {
                 id: delete_message_id.clone(),
-                group_id: group_id.clone(),
+                group_id,
                 deleted_message_id: message_id.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -267,13 +268,13 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_is_message_deleted() {
         with_connection(|conn| {
-            let group_id = vec![1, 2, 3];
+            let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
 
-            create_test_group(conn, group_id.clone());
-            create_test_message(conn, message_id.clone(), group_id.clone());
-            create_test_message(conn, delete_message_id.clone(), group_id.clone());
+            create_test_group(conn, group_id);
+            create_test_message(conn, message_id.clone(), group_id);
+            create_test_message(conn, delete_message_id.clone(), group_id);
 
             // Initially not deleted
             assert!(!conn.is_message_deleted(&message_id)?);
@@ -281,7 +282,7 @@ mod tests {
             // Store deletion
             StoredMessageDeletion {
                 id: delete_message_id.clone(),
-                group_id: group_id.clone(),
+                group_id,
                 deleted_message_id: message_id.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -297,24 +298,24 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_get_deletions_for_messages() {
         with_connection(|conn| {
-            let group_id = vec![1, 2, 3];
+            let group_id = GroupId::ONE;
             let msg1 = vec![4, 5, 6];
             let msg2 = vec![7, 8, 9];
             let msg3 = vec![10, 11, 12];
             let del1 = vec![13, 14, 15];
             let del2 = vec![16, 17, 18];
 
-            create_test_group(conn, group_id.clone());
-            create_test_message(conn, msg1.clone(), group_id.clone());
-            create_test_message(conn, msg2.clone(), group_id.clone());
-            create_test_message(conn, msg3.clone(), group_id.clone());
-            create_test_message(conn, del1.clone(), group_id.clone());
-            create_test_message(conn, del2.clone(), group_id.clone());
+            create_test_group(conn, group_id);
+            create_test_message(conn, msg1.clone(), group_id);
+            create_test_message(conn, msg2.clone(), group_id);
+            create_test_message(conn, msg3.clone(), group_id);
+            create_test_message(conn, del1.clone(), group_id);
+            create_test_message(conn, del2.clone(), group_id);
 
             // Delete msg1 and msg2
             StoredMessageDeletion {
                 id: del1.clone(),
-                group_id: group_id.clone(),
+                group_id,
                 deleted_message_id: msg1.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -324,7 +325,7 @@ mod tests {
 
             StoredMessageDeletion {
                 id: del2.clone(),
-                group_id: group_id.clone(),
+                group_id,
                 deleted_message_id: msg2.clone(),
                 deleted_by_inbox_id: "admin".to_string(),
                 is_super_admin_deletion: true,
@@ -345,23 +346,23 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_get_group_deletions() {
         with_connection(|conn| {
-            let group1 = vec![1, 2, 3];
-            let group2 = vec![4, 5, 6];
+            let group1 = GroupId::ONE;
+            let group2 = GroupId::TWO;
             let msg1 = vec![7, 8, 9];
             let msg2 = vec![10, 11, 12];
             let del1 = vec![13, 14, 15];
             let del2 = vec![16, 17, 18];
 
-            create_test_group(conn, group1.clone());
-            create_test_group(conn, group2.clone());
-            create_test_message(conn, msg1.clone(), group1.clone());
-            create_test_message(conn, msg2.clone(), group2.clone());
-            create_test_message(conn, del1.clone(), group1.clone());
-            create_test_message(conn, del2.clone(), group2.clone());
+            create_test_group(conn, group1);
+            create_test_group(conn, group2);
+            create_test_message(conn, msg1.clone(), group1);
+            create_test_message(conn, msg2.clone(), group2);
+            create_test_message(conn, del1.clone(), group1);
+            create_test_message(conn, del2.clone(), group2);
 
             StoredMessageDeletion {
                 id: del1.clone(),
-                group_id: group1.clone(),
+                group_id: group1,
                 deleted_message_id: msg1.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -371,7 +372,7 @@ mod tests {
 
             StoredMessageDeletion {
                 id: del2.clone(),
-                group_id: group2.clone(),
+                group_id: group2,
                 deleted_message_id: msg2.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,

@@ -192,15 +192,8 @@ impl RetryableError for ConnectionError {
 }
 
 pub trait ConnectionExt: MaybeSend + MaybeSync {
-    /// in order to track transaction context
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized;
-
-    /// Run a scoped write-only query
-    /// in order to track transaction context
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    /// Run a scoped query against the underlying SQLite connection.
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized;
@@ -213,20 +206,12 @@ impl<C> ConnectionExt for &C
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        <C as ConnectionExt>::raw_query_read(self, fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        <C as ConnectionExt>::raw_query_write(self, fun)
+        <C as ConnectionExt>::raw_query(self, fun)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -242,20 +227,12 @@ impl<C> ConnectionExt for &mut C
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        <C as ConnectionExt>::raw_query_read(self, fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        <C as ConnectionExt>::raw_query_write(self, fun)
+        <C as ConnectionExt>::raw_query(self, fun)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -271,20 +248,12 @@ impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        <C as ConnectionExt>::raw_query_read(self, fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        <C as ConnectionExt>::raw_query_write(self, fun)
+        <C as ConnectionExt>::raw_query(self, fun)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -311,7 +280,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
     type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
     fn init(&self) -> Result<(), ConnectionError> {
-        self.conn().raw_query_write(|conn| {
+        self.conn().raw_query(|conn| {
             self.validate(conn).map_err(|e| {
                 diesel::result::Error::DatabaseError(
                     DatabaseErrorKind::Unknown,
@@ -374,7 +343,7 @@ macro_rules! impl_fetch {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read(|conn| $table.first(conn).optional())
+                self.raw_query(|conn| $table.first(conn).optional())
                     .map_err(Into::into)
             }
         }
@@ -388,7 +357,7 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read::<_, _>(|conn| $table.find(key.clone()).first(conn).optional())
+                self.raw_query::<_, _>(|conn| $table.find(key.clone()).first(conn).optional())
                     .map_err(Into::into)
             }
         }
@@ -404,7 +373,7 @@ macro_rules! impl_fetch_list {
         {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read(|conn| $table.load::<$model>(conn))
+                self.raw_query(|conn| $table.load::<$model>(conn))
                     .map_err(Into::into)
             }
         }
@@ -421,7 +390,7 @@ macro_rules! impl_store {
         {
             type Output = ();
             fn store(&self, into: &C) -> Result<(), $crate::StorageError> {
-                into.raw_query_write::<_, _>(|conn| {
+                into.raw_query::<_, _>(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -445,7 +414,7 @@ macro_rules! impl_store_or_ignore {
             type Output = ();
 
             fn store_or_ignore(&self, into: &C) -> Result<(), $crate::StorageError> {
-                into.raw_query_write(|conn| {
+                into.raw_query(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)

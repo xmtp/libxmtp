@@ -57,8 +57,8 @@ nix-test: nix-test-v3 nix-test-d14n
 
 # CI version of wasm tests (no local incremental compilation, but uses cachix)
 test-ci:
-    nix build -L .#nextest.{{ nix_system }}.wasm-v3
-    nix build -L .#nextest.{{ nix_system }}.wasm-d14n
+    nix run github:Mic92/nix-fast-build -- --no-nom --skip-cached --flake .#nextest.{{ nix_system }}.wasm-v3 --option sandbox relaxed
+    nix run github:Mic92/nix-fast-build -- --no-nom --skip-cached --flake .#nextest.{{ nix_system }}.wasm-d14n --option sandbox relaxed
 
 # WASM JS integration tests
 [script("bash")]
