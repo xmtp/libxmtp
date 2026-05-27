@@ -64,7 +64,16 @@ pub enum Commands {
 /// Runs every user-visible protocol op against the local xdbg state,
 /// validates that all clients converge, and exits non-zero on any failure.
 #[derive(Args, Debug)]
-pub struct HealthcheckOpts {}
+pub struct HealthcheckOpts {
+    /// Skip mutating ops (Create/Add/Update/Remove/Leave). Only run
+    /// reads, message sends, and validators. Used by cross-talk-test's
+    /// rev-leg sweep to verify older clients can still operate on
+    /// groups newer clients wrote to, without trying to author new
+    /// admin/membership commits that would require super-admin state
+    /// the rev primary doesn't have.
+    #[arg(long)]
+    pub read_only: bool,
+}
 
 /// Walk identities loaded from redb, run `sync_welcomes` + per-group
 /// `sync` on each, and reconcile redb's `GroupStore` / `MessageStore`

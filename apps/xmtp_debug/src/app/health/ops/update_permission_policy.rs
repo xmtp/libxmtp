@@ -72,6 +72,6 @@ inventory::submit! {
         op_name: "UpdatePermissionPolicy",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(UpdatePermissionPolicy),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

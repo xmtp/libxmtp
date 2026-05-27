@@ -11,7 +11,7 @@ use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::{Duration, Instant};
-use xmtp_mls::groups::UpdateAdminListType;
+use xmtp_mls::groups::UpdateAdminListType::*;
 
 pub struct AddMembersToNewGroup;
 
@@ -111,51 +111,29 @@ impl HealthOp for AddPrimaryToExistingGroups {
                         gid.as_slice().len()
                     )
                 })?;
-                // Prefer the persisted creator (super-admin) so we can also
-                // promote primary below. Fall back to any active member if
-                // the creator isn't available locally — the add will still
-                // succeed but the promote will be skipped.
-                let creator = ctx.persisted_creator(id_bytes);
-                let adder = creator
-                    .and_then(|c| ctx.existing_clients.get(&c))
-                    .and_then(|c| c.group(&gid.to_vec()).ok())
-                    .filter(|g| g.is_active().unwrap_or(false));
-                let group = if let Some(g) = adder {
-                    g
-                } else {
-                    let mut fallback = None;
-                    for client in ctx.existing_clients.values() {
-                        let Ok(g) = client.group(&gid.to_vec()) else {
-                            continue;
-                        };
-                        if g.is_active().map_err(|e| eyre!("{e}"))? {
-                            fallback = Some(g);
-                            break;
-                        }
-                    }
-                    fallback.ok_or_else(|| eyre!("no active member found for group"))?
-                };
+                // Prefer super-admin adder so AddSuper promote below
+                // succeeds; fall back to any active member.
+                let candidates: Vec<_> = ctx
+                    .existing_clients
+                    .values()
+                    .filter_map(|c| c.group(&gid.to_vec()).ok().map(|g| (c, g)))
+                    .filter(|(_, g)| g.is_active().unwrap_or(false))
+                    .collect();
+                let group = candidates
+                    .iter()
+                    .find(|(c, g)| {
+                        g.is_super_admin(c.inbox_id().to_string()).unwrap_or(false)
+                    })
+                    .or_else(|| candidates.first())
+                    .map(|(_, g)| g.clone())
+                    .ok_or_else(|| eyre!("no active member found for group"))?;
                 group
                     .add_members(std::slice::from_ref(&primary_inbox))
                     .await
                     .map_err(|e| eyre!("{e}"))?;
-                // Promote primary to super-admin so downstream metadata ops
-                // (UpdateAdminList, UpdateMessageDisappearing,
-                // UpdatePermissionPolicy) can run on this prior-version
-                // group. Best-effort: if the adder isn't super-admin, this
-                // fails and we log but don't abort the run.
-                if let Err(e) = group
-                    .update_admin_list(UpdateAdminListType::AddSuper, primary_inbox.clone())
-                    .await
-                {
-                    tracing::warn!(
-                        target: "healthcheck",
-                        group = %gid,
-                        error = %e,
-                        "failed to promote primary to super-admin on existing group; \
-                         metadata ops requiring admin will fail on this group",
-                    );
-                }
+                // Adder was picked as super-admin; propagate failure so
+                // super-admin-only downstream ops don't false-pass.
+                group.update_admin_list(AddSuper, primary_inbox.clone()).await.map_err(|e| eyre!("{e}"))?;
                 let mut members = ctx.persisted_members(id_bytes);
                 let primary_bytes = inbox_id_to_bytes(&primary_inbox);
                 if !members.contains(&primary_bytes) {
@@ -208,7 +186,7 @@ inventory::submit! {
         op_name: "AddMembersToNewGroup",
         depends_on: &["CreateGroup"],
         make: || Box::new(AddMembersToNewGroup),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }
 
@@ -217,6 +195,6 @@ inventory::submit! {
         op_name: "AddPrimaryToExistingGroups",
         depends_on: &["CreateIdentity"],
         make: || Box::new(AddPrimaryToExistingGroups),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

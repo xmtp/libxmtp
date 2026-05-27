@@ -73,6 +73,6 @@ inventory::submit! {
         op_name: "CreateGroup",
         depends_on: &["CreateIdentity"],
         make: || Box::new(CreateGroup),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

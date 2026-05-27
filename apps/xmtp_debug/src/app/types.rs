@@ -336,8 +336,6 @@ pub struct Message {
     /// its internal envelope timestamp at `send_message` return, so this
     /// is best-effort for diagnostics. Not used by the validator.
     pub sent_at_ns: i64,
-    /// UUID of the healthcheck run that sent this message.
-    pub op_run_id: [u8; 16],
     /// `crate::get_version()` output of the sending xdbg binary.
     pub xdbg_version: String,
 }

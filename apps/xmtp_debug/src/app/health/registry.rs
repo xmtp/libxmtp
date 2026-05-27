@@ -82,30 +82,22 @@ fn partition_by_conditions<E: RegistryEntry>(
     })
 }
 
-/// Panic if any runnable entry depends on a name that either doesn't
-/// exist or was filtered out as skipped.
+/// Panic if any runnable entry depends on a name that doesn't exist
+/// in the registry at all. Deps on entries that *were* skipped by the
+/// active condition set are treated as advisory: the dep is honored
+/// when the upstream runs, dropped when it doesn't.
 fn validate_deps<E: RegistryEntry>(
     runnable: &BTreeMap<&'static str, &'static E>,
     skipped: &[SkippedEntry],
 ) {
+    let skipped_names: std::collections::BTreeSet<&str> =
+        skipped.iter().map(|s| s.name).collect();
     let bad = runnable
         .values()
         .flat_map(|e| e.depends_on().iter().map(move |d| (e, d)))
-        .find(|(_, dep)| !runnable.contains_key(*dep));
+        .find(|(_, dep)| !runnable.contains_key(*dep) && !skipped_names.contains(*dep));
 
     let Some((e, dep)) = bad else { return };
-    if let Some(sk) = skipped.iter().find(|s| s.name == *dep) {
-        panic!(
-            "{} '{}' depends on {} '{}' which was skipped (missing {:?}). \
-             Either gate '{}' on the same condition or drop the dependency.",
-            E::KIND,
-            e.name(),
-            E::KIND,
-            dep,
-            sk.missing,
-            e.name(),
-        );
-    }
     panic!(
         "{} '{}' depends on unknown {} '{}'",
         E::KIND,
@@ -120,9 +112,18 @@ fn validate_deps<E: RegistryEntry>(
 fn topo_order<E: RegistryEntry>(
     runnable: &BTreeMap<&'static str, &'static E>,
 ) -> Vec<&'static str> {
+    // Only count deps that are themselves in the runnable set; deps on
+    // skipped entries are advisory and don't gate ordering here.
     let mut in_degree: BTreeMap<&'static str, usize> = runnable
         .iter()
-        .map(|(n, e)| (*n, e.depends_on().len()))
+        .map(|(n, e)| {
+            let count = e
+                .depends_on()
+                .iter()
+                .filter(|d| runnable.contains_key(*d))
+                .count();
+            (*n, count)
+        })
         .collect();
     let mut ready: BTreeSet<&'static str> = in_degree
         .iter()

@@ -14,12 +14,6 @@ use xmtp_db::group_message::GroupMessageKind;
 use std::time::Instant;
 use tracing::warn;
 
-/// `op_run_id` stamped on messages discovered via sync (not sent by xdbg).
-/// All-zero UUID signals "this row was created by `xdbg sync`, not a
-/// healthcheck send op". The `NoMissingMessages` validator can use this
-/// to distinguish sender-recorded rows from sync-discovered rows.
-pub const ORPHAN_OP_RUN_ID: [u8; 16] = [0u8; 16];
-
 /// `xdbg_version` stamped on messages discovered via sync.
 pub const ORPHAN_XDBG_VERSION: &str = "sync";
 
@@ -232,7 +226,6 @@ impl Sync {
                     group_id: gid_bytes,
                     sender_inbox_id: [0u8; 32], // placeholder; key only uses group_id + id
                     sent_at_ns: 0,
-                    op_run_id: ORPHAN_OP_RUN_ID,
                     xdbg_version: ORPHAN_XDBG_VERSION.to_string(),
                 };
                 let msg_key = candidate.key(net_key);
@@ -245,7 +238,6 @@ impl Sync {
                             group_id: gid_bytes,
                             sender_inbox_id: sender_bytes,
                             sent_at_ns: m.sent_at_ns,
-                            op_run_id: ORPHAN_OP_RUN_ID,
                             xdbg_version: ORPHAN_XDBG_VERSION.to_string(),
                         },
                         net_key,

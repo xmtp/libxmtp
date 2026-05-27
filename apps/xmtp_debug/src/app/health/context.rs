@@ -5,7 +5,7 @@ use crate::app::store::{Database, GroupStore, IdentityStore, MessageStore};
 use crate::app::types::{Group, Identity, InboxId, Message};
 use crate::app::{self, App};
 use crate::args;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -42,13 +42,8 @@ pub struct HealthContext {
     /// so no synchronization is needed.
     pub new_groups: Vec<GroupId>,
 
-    /// Random 16-byte id generated at bootstrap. Stamped on every
-    /// recorded `Message` so cross-version tooling can attribute messages
-    /// to specific runs without scanning logs.
-    pub op_run_id: [u8; 16],
-
     /// `crate::get_version()` output of the running xdbg binary. Stamped
-    /// alongside `op_run_id` so a recovered redb row carries enough
+    /// on each recorded `Message` so a recovered redb row carries enough
     /// origin info for debugging.
     pub xdbg_version: String,
 
@@ -61,7 +56,16 @@ pub struct HealthContext {
 impl HealthContext {
     /// Build the full context: load existing state, bootstrap on fresh DB,
     /// create the primary identity. Hard-fails on infrastructure errors.
-    pub async fn bootstrap(network: args::BackendOpts, strict_versioning: bool) -> Result<Self> {
+    ///
+    /// `read_only`: skip primary-identity creation; pick an existing
+    /// client as primary instead. Used by cross-talk-test rev-leg so
+    /// no new on-network identity is registered when we're just
+    /// verifying older clients can still read/send after newer writes.
+    pub async fn bootstrap(
+        network: args::BackendOpts,
+        strict_versioning: bool,
+        read_only: bool,
+    ) -> Result<Self> {
         let redb = App::db()?;
         let id_store: IdentityStore<'static> = redb.clone().into();
         let group_store: GroupStore<'static> = redb.into();
@@ -117,24 +121,85 @@ impl HealthContext {
             }
         }
 
-        // 2. Primary new identity. Also persisted to redb so subsequent
-        //    healthcheck runs see it as an existing identity.
-        let primary_wallet = app::generate_wallet();
-        let primary_client = app::new_unregistered_client(&network, Some(&primary_wallet)).await?;
-        let primary_identity =
-            Identity::from_libxmtp(primary_client.identity(), primary_wallet.clone())?;
-        app::register_client(&primary_client, primary_wallet.into_alloy()).await?;
-        id_store.set(primary_identity, net_key)?;
-        let primary = Arc::new(primary_client);
+        // 2. Primary identity. Default: register a fresh wallet and
+        //    persist to redb. read_only: reuse an existing client so
+        //    we don't pollute the network with a throwaway identity
+        //    that won't be promoted/admin'd on any existing group.
+        let primary = if read_only {
+            existing_clients
+                .values()
+                .next()
+                .cloned()
+                .ok_or_else(|| eyre!("read_only healthcheck requires at least one existing client"))?
+        } else {
+            let primary_wallet = app::generate_wallet();
+            let primary_client =
+                app::new_unregistered_client(&network, Some(&primary_wallet)).await?;
+            let primary_identity =
+                Identity::from_libxmtp(primary_client.identity(), primary_wallet.clone())?;
+            app::register_client(&primary_client, primary_wallet.into_alloy()).await?;
+            id_store.set(primary_identity, net_key)?;
+            Arc::new(primary_client)
+        };
 
-        // 3. Existing groups from redb.
-        let existing_groups = group_store
+        // 3. Drain pending welcomes BEFORE filtering existing_groups.
+        // A prior cross-version run (e.g. v1.9 healthcheck's
+        // AddMembersToNewGroup) may have welcomed one of our existing
+        // inboxes into a new group via that binary's libxmtp; the
+        // welcome is on the server but our local sqlite has no record
+        // until we sync. If we filtered first, those groups would be
+        // dropped (no local membership yet) and `AddPrimaryToExistingGroups`
+        // would never run on them — leaving this run's primary out of
+        // groups it should join, which downstream rev-leg runs then
+        // trip on.
+        {
+            let mut clients: Vec<Arc<DbgClient>> = Vec::new();
+            clients.push(primary.clone());
+            for c in existing_clients.values() {
+                clients.push(c.clone());
+            }
+            let syncs = clients.iter().map(|c| async move {
+                if let Err(e) = c.sync_welcomes().await {
+                    tracing::warn!(
+                        target: "healthcheck",
+                        inbox = c.inbox_id(),
+                        error = %e,
+                        "sync_welcomes pre-filter fanout failed",
+                    );
+                }
+            });
+            futures::future::join_all(syncs).await;
+        }
+
+        // 4. Existing groups from redb. Filter out DMs: rev-leg's fresh
+        // primary isn't a DM member, so DM-typed entries would fail every
+        // op. Probe conversation_type via any existing_client that has
+        // the group locally; if none does, drop it (rev primary couldn't
+        // operate on it anyway).
+        let raw_group_ids: Vec<GroupId> = group_store
             .load(net_key)?
             .map(|iter| {
                 iter.map(|g| GroupId::from(g.value().id.as_slice()))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let mut existing_groups = Vec::with_capacity(raw_group_ids.len());
+        for gid in raw_group_ids {
+            let mut keep = false;
+            for client in existing_clients.values() {
+                let Ok(group) = client.group(&gid.to_vec()) else {
+                    continue;
+                };
+                let Ok(md) = group.metadata().await else {
+                    continue;
+                };
+                keep = matches!(md.conversation_type, xmtp_db::group::ConversationType::Group);
+                break;
+            }
+            if keep {
+                existing_groups.push(gid);
+            }
+        }
 
         tracing::info!(
             target: "healthcheck",
@@ -145,7 +210,7 @@ impl HealthContext {
             "health context bootstrapped"
         );
 
-        Ok(Self {
+        let ctx = Self {
             network,
             primary,
             bootstrap_clients,
@@ -153,10 +218,10 @@ impl HealthContext {
             other_identities,
             existing_groups,
             new_groups: Vec::new(),
-            op_run_id: rand::random(),
             xdbg_version: crate::get_version(),
             network_key: net_key,
-        })
+        };
+        Ok(ctx)
     }
 
     /// Persist a newly-created group to redb's `GroupStore` so subsequent
@@ -284,8 +349,8 @@ impl HealthContext {
     }
 
     /// Record a successfully-sent message to redb's `MessageStore`. The
-    /// `op_run_id` and `xdbg_version` fields are sourced from `self` so
-    /// every row carries this run's identity. Panics on redb failure.
+    /// `xdbg_version` field is sourced from `self` so every row carries
+    /// this run's identity. Panics on redb failure.
     pub fn record_message(
         &self,
         group_id: [u8; 16],
@@ -302,7 +367,6 @@ impl HealthContext {
             group_id,
             sender_inbox_id,
             sent_at_ns,
-            op_run_id: self.op_run_id,
             xdbg_version: self.xdbg_version.clone(),
         };
         store
