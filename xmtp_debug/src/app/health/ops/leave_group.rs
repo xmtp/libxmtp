@@ -97,6 +97,6 @@ inventory::submit! {
             "GetMutableMetadata",
         ],
         make: || Box::new(LeaveGroup),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

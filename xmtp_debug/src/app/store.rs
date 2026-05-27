@@ -791,6 +791,11 @@ pub struct Metadata {
     pub identities: u32,
     pub groups: u32,
     pub messages: u32,
+    /// Schema-parity field with HEAD's `Metadata`. v1.9 doesn't write
+    /// to it (no separate DM store); kept so the on-disk row width
+    /// matches HEAD's 16-byte layout and cross-talk-test can share a
+    /// single `xdbg.redb` across versions.
+    pub dms: u32,
 }
 
 impl redb::Value for Metadata {

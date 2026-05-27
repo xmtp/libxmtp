@@ -52,6 +52,6 @@ inventory::submit! {
         op_name: "UploadKeyPackage",
         depends_on: &[],
         make: || Box::new(UploadKeyPackage),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

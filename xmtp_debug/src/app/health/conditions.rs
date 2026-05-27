@@ -17,6 +17,11 @@ bitflags! {
         /// assertions). Without strict, `existing_clients` conflates
         /// versions and those assertions are vacuous.
         const STRICT_VERSIONING = 1 << 0;
+        /// Mutating ops are allowed. Cleared by `--read-only`; ops
+        /// that create groups, add members, update admin lists, etc.
+        /// declare this requirement so they're skipped on rev-leg
+        /// healthcheck runs that only want reads + validators.
+        const WRITES = 1 << 1;
     }
 }
 
@@ -29,11 +34,15 @@ impl Conditions {
 
     /// Read the active condition set from runtime flags. v1.10's
     /// `App` doesn't expose a global strict-versioning accessor, so
-    /// the runner threads the flag in explicitly.
-    pub fn active(strict_versioning: bool) -> Self {
+    /// the runner threads the flag in explicitly. `read_only`
+    /// inverts to drop the `WRITES` bit so mutating ops are skipped.
+    pub fn active(strict_versioning: bool, read_only: bool) -> Self {
         let mut c = Conditions::empty();
         if strict_versioning {
             c |= Conditions::STRICT_VERSIONING;
+        }
+        if !read_only {
+            c |= Conditions::WRITES;
         }
         c
     }

@@ -186,7 +186,7 @@ inventory::submit! {
         op_name: "AddMembersToNewGroup",
         depends_on: &["CreateGroup"],
         make: || Box::new(AddMembersToNewGroup),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }
 
@@ -195,6 +195,6 @@ inventory::submit! {
         op_name: "AddPrimaryToExistingGroups",
         depends_on: &["CreateIdentity"],
         make: || Box::new(AddPrimaryToExistingGroups),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

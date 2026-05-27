@@ -70,6 +70,6 @@ inventory::submit! {
         op_name: "UpdateGroupImageUrlSquare",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(UpdateGroupImageUrlSquare),
-        requires: crate::app::health::conditions::Conditions::ALWAYS,
+        requires: crate::app::health::conditions::Conditions::WRITES,
     }
 }

@@ -158,6 +158,7 @@ inventory::submit! {
         op_name: "EnsurePerVersionMembership",
         depends_on: &["AddMembersToNewGroup"],
         make: || Box::new(EnsurePerVersionMembership),
-        requires: crate::app::health::conditions::Conditions::STRICT_VERSIONING,
+        requires: crate::app::health::conditions::Conditions::STRICT_VERSIONING
+            .union(crate::app::health::conditions::Conditions::WRITES),
     }
 }

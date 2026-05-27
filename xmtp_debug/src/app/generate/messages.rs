@@ -17,20 +17,11 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::SliceRandom};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::summary::SyncSummary;
-
-/// Per-process `op_run_id` for generate runs. Stamped on every recorded
-/// `Message` so cross-tool inspection can attribute rows to specific
-/// generator invocations.
-fn generate_op_run_id() -> [u8; 16] {
-    static ID: OnceLock<[u8; 16]> = OnceLock::new();
-    *ID.get_or_init(rand::random)
-}
 
 /// Mirror a successfully-sent message to redb's `MessageStore`. Soft
 /// errors only — generate is best-effort, so logged-and-skipped rather
@@ -67,7 +58,6 @@ fn record_generated_message(
         group_id: group_id_bytes,
         sender_inbox_id,
         sent_at_ns,
-        op_run_id: generate_op_run_id(),
         xdbg_version: crate::get_version(),
     };
     if let Err(e) = store.set(msg, u64::from(network)) {
