@@ -5261,6 +5261,21 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     func setConsentStates(records: [FfiConsent]) async throws 
     
     /**
+     * Cleanly shut down this client: cancel in-flight workers and detached
+     * streams, then release the DB connection. Idempotent — a second call
+     * resolves to `Ok`.
+     *
+     * `await` this before deleting the SQLite file or dropping the client
+     * reference to avoid late log spew from detached workers/streams firing
+     * against a dead DB.
+     *
+     * Named `shutdown` rather than `close` because uniffi reserves `close`
+     * on every exported object for the Kotlin `Disposable` handle-disposal
+     * method, which would conflict with this one.
+     */
+    func shutdown() async throws 
+    
+    /**
      * A utility function to sign a piece of text with this installation's private key.
      */
     func signWithInstallationKey(text: String) throws  -> Data
@@ -5819,6 +5834,36 @@ open func setConsentStates(records: [FfiConsent])async throws   {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_states(
                     self.uniffiCloneHandle(),
                     FfiConverterSequenceTypeFfiConsent.lower(records)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Cleanly shut down this client: cancel in-flight workers and detached
+     * streams, then release the DB connection. Idempotent — a second call
+     * resolves to `Ok`.
+     *
+     * `await` this before deleting the SQLite file or dropping the client
+     * reference to avoid late log spew from detached workers/streams firing
+     * against a dead DB.
+     *
+     * Named `shutdown` rather than `close` because uniffi reserves `close`
+     * on every exported object for the Kotlin `Disposable` handle-disposal
+     * method, which would conflict with this one.
+     */
+open func shutdown()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_shutdown(
+                    self.uniffiCloneHandle()
+                    
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_void,
@@ -16145,6 +16190,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 26184) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_shutdown() != 44429) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 9313) {
