@@ -248,6 +248,7 @@ hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28
 hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
 hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
 hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
+tracing-oslog = { git = "https://github.com/insipx/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
 
 [patch.crates-io.xmtp-workspace-hack]
 path = "crates/xmtp-workspace-hack"
