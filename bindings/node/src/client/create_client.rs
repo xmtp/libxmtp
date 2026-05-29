@@ -147,8 +147,6 @@ async fn create_client_inner(
     .api_clients(api_client, sync_api_client)
     .enable_api_stats()
     .map_err(ErrorWrapper::from)?
-    .enable_api_debug_wrapper()
-    .map_err(ErrorWrapper::from)?
     .with_remote_verifier()
     .map_err(ErrorWrapper::from)?
     .with_allow_offline(allow_offline)

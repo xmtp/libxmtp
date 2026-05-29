@@ -132,7 +132,7 @@ where
 
     pub(crate) fn increment_metric(&self, metric: Metric) {
         self.info(metric).increment();
-        tracing::info!("[{}] firing {metric:?}", hex::encode(self.installation_id));
+        tracing::trace!("[{}] firing {metric:?}", hex::encode(self.installation_id));
         self.info(metric).fire();
     }
 

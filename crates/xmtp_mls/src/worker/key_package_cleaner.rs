@@ -174,9 +174,11 @@ where
                 }
                 tracing::info!("Key package deletion successful");
             }
-            Ok(_) => {
-                tracing::trace!("No expired key packages to delete");
-            }
+            // No expired key packages: nothing happened, so emit nothing.
+            Ok(_) => {}
+            // A pool outage is reported once by the worker supervisor; don't re-log it
+            // on every 5s poll here.
+            Err(e) if e.db_needs_connection() => {}
             Err(e) => {
                 tracing::error!("Failed to fetch expired key packages: {:?}", e);
             }

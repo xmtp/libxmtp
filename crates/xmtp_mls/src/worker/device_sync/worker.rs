@@ -135,15 +135,11 @@ where
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
         while let Ok(event) = self.receiver.recv().await {
-            if matches!(event, SyncWorkerEvent::Tick) {
-                tracing::trace!(
-                    "[{}] New event: {event:?}",
-                    self.client.context.installation_id()
-                );
-            } else {
+            // Tick is the internal timer heartbeat (every 20s); only log real events.
+            if !matches!(event, SyncWorkerEvent::Tick) {
                 tracing::info!(
-                    "[{}] New event: {event:?}",
-                    self.client.context.installation_id()
+                    installation_id = %self.client.context.installation_id(),
+                    "new sync worker event: {event:?}",
                 );
             }
 
