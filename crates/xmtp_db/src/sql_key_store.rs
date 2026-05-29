@@ -1004,7 +1004,6 @@ where
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
-        tracing::trace!("own_leaf_nodes");
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
 
         self.read_list(OWN_LEAF_NODES_LABEL, &key)
