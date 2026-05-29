@@ -161,7 +161,7 @@ where
     async fn publish_commit_log(
         &self,
         request: BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         (**self).publish_commit_log(request).await
     }
 
@@ -239,7 +239,7 @@ where
     async fn publish_commit_log(
         &self,
         request: BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         (**self).publish_commit_log(request).await
     }
 

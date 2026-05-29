@@ -150,12 +150,13 @@ where
     async fn publish_commit_log(
         &self,
         request: mls_v1::BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         PublishCommitLog::builder()
             .commit_log_entries(request.requests)
             .build()?
             .query(&self.client)
-            .await
+            .await?;
+        Ok(true)
     }
 
     async fn query_commit_log(

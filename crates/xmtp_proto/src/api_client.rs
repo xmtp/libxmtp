@@ -129,10 +129,11 @@ pub trait XmtpMlsClient: MaybeSend + MaybeSync {
         &self,
         installation_key: InstallationId,
     ) -> Result<Vec<WelcomeMessage>, Self::Error>;
+    /// Returns `true` if data was actually published, `false` if commit log is disabled/no-op.
     async fn publish_commit_log(
         &self,
         request: BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<bool, Self::Error>;
     async fn query_commit_log(
         &self,
         request: BatchQueryCommitLogRequest,
