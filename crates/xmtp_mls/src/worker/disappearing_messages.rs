@@ -14,12 +14,14 @@ pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
 pub enum DisappearingMessagesCleanerError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("failed to delete expired messages: {0}")]
+    DeleteExpired(StorageError),
 }
 
 impl NeedsDbReconnect for DisappearingMessagesCleanerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            Self::Storage(s) => s.db_needs_connection(),
+            Self::Storage(s) | Self::DeleteExpired(s) => s.db_needs_connection(),
         }
     }
 }
@@ -100,14 +102,10 @@ where
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let db = self.context.db();
-        // ensure we propagate the error so that the worker harness can properly handle
-        // `PoolDisconnected`
+        // Propagated to the supervisor, which is the sole logger for worker errors.
         let deleted_messages = db
             .delete_expired_messages()
-            .inspect_err(|e| {
-                tracing::error!("Failed to delete expired messages, error: {:?}", e);
-            })
-            .map_err(StorageError::from)?;
+            .map_err(|e| DisappearingMessagesCleanerError::DeleteExpired(e.into()))?;
 
         if !deleted_messages.is_empty() {
             tracing::info!(

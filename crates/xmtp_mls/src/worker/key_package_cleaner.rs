@@ -52,6 +52,10 @@ pub enum KeyPackagesCleanerError {
     Identity(#[from] IdentityError),
     #[error("metadata error: {0}")]
     Metadata(StorageError),
+    #[error("failed to fetch expired key packages: {0}")]
+    Fetch(StorageError),
+    #[error("failed to delete key package: {0}")]
+    DeleteKeyPackage(IdentityError),
     #[error("deletion error: {0}")]
     Deletion(StorageError),
     #[error("rotation error: {0}")]
@@ -64,6 +68,8 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Identity(s) => s.needs_db_reconnect(),
             Self::Metadata(s) => s.db_needs_connection(),
+            Self::Fetch(s) => s.db_needs_connection(),
+            Self::DeleteKeyPackage(s) => s.needs_db_reconnect(),
             Self::Deletion(s) => s.db_needs_connection(),
             Self::Rotation(s) => s.needs_db_reconnect(),
         }
@@ -145,43 +151,34 @@ where
     fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let conn = self.context.db();
 
-        match conn.get_expired_key_packages() {
-            Ok(expired_kps) if !expired_kps.is_empty() => {
-                tracing::info!("Deleting {} expired key packages", expired_kps.len());
-                // Delete from local db
-                for kp in &expired_kps {
-                    if let Err(err) = self.delete_key_package(
-                        kp.key_package_hash_ref.clone(),
-                        kp.post_quantum_public_key.clone(),
-                    ) {
-                        tracing::info!(
-                            "Couldn't delete KeyPackage {:?}: {:?}",
-                            hex::encode(&kp.key_package_hash_ref),
-                            err
-                        );
-                    }
-                }
+        // Propagate (don't swallow): a swallowed fetch error never triggered the supervisor's
+        // reconnect path, so a pool outage retried silently every 5s.
+        let expired_kps = conn
+            .get_expired_key_packages()
+            .map_err(KeyPackagesCleanerError::Fetch)?;
+        if expired_kps.is_empty() {
+            return Ok(());
+        }
 
-                // Delete from database using the max expired ID
-                if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
-                    conn.delete_key_package_history_up_to_id(max_id)
-                        .map_err(KeyPackagesCleanerError::Deletion)?;
-                    tracing::info!(
-                        "Deleted {} expired key packages (up to ID {}) from local DB and state",
-                        expired_kps.len(),
-                        max_id
-                    );
-                }
-                tracing::info!("Key package deletion successful");
-            }
-            // No expired key packages: nothing happened, so emit nothing.
-            Ok(_) => {}
-            // A pool outage is reported once by the worker supervisor; don't re-log it
-            // on every 5s poll here.
-            Err(e) if e.db_needs_connection() => {}
-            Err(e) => {
-                tracing::error!("Failed to fetch expired key packages: {:?}", e);
-            }
+        tracing::info!("Deleting {} expired key packages", expired_kps.len());
+        // Delete from local db
+        for kp in &expired_kps {
+            self.delete_key_package(
+                kp.key_package_hash_ref.clone(),
+                kp.post_quantum_public_key.clone(),
+            )
+            .map_err(KeyPackagesCleanerError::DeleteKeyPackage)?;
+        }
+
+        // Delete from database using the max expired ID
+        if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
+            conn.delete_key_package_history_up_to_id(max_id)
+                .map_err(KeyPackagesCleanerError::Deletion)?;
+            tracing::info!(
+                "Deleted {} expired key packages (up to ID {}) from local DB and state",
+                expired_kps.len(),
+                max_id
+            );
         }
 
         Ok(())

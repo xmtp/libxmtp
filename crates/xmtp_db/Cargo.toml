@@ -96,4 +96,5 @@ test-utils = [
   "dep:ascii_table",
   "xmtp_configuration/test-utils",
   "xmtp_cryptography/test-utils",
+  "xmtp_proto/test-utils",
 ]

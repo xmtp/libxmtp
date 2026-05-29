@@ -113,12 +113,15 @@ impl StorageError {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn db_needs_connection(&self) -> bool {
+        use crate::PlatformStorageError::{Pool, PoolNeedsConnection};
         use StorageError::*;
+        // A pool-acquisition failure (`Pool`) is treated like `PoolNeedsConnection`: the
+        // worker drops and restarts on reconnect instead of logging on every poll.
         matches!(
             self,
-            Platform(crate::PlatformStorageError::PoolNeedsConnection)
+            Platform(PoolNeedsConnection | Pool(_))
                 | Connection(crate::ConnectionError::Platform(
-                    crate::PlatformStorageError::PoolNeedsConnection,
+                    PoolNeedsConnection | Pool(_),
                 ))
         )
     }

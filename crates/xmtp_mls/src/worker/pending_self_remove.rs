@@ -1,6 +1,6 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::{GroupError, MlsGroup};
-use crate::mls_store::MlsStore;
+use crate::mls_store::{MlsStore, MlsStoreError};
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
@@ -16,6 +16,10 @@ pub const INTERVAL_DURATION: Duration = Duration::from_secs(2);
 pub enum PendingSelfRemoveWorkerError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("failed to get groups with pending leave requests: {0}")]
+    GetPendingLeaveGroups(StorageError),
+    #[error("failed to load MLS group from store: {0}")]
+    LoadGroup(#[from] MlsStoreError),
     #[error("group error: {0}")]
     GroupError(#[from] GroupError),
 }
@@ -23,7 +27,8 @@ pub enum PendingSelfRemoveWorkerError {
 impl NeedsDbReconnect for PendingSelfRemoveWorkerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            Self::Storage(s) => s.db_needs_connection(),
+            Self::Storage(s) | Self::GetPendingLeaveGroups(s) => s.db_needs_connection(),
+            Self::LoadGroup(s) => s.needs_db_reconnect(),
             Self::GroupError(_) => false,
         }
     }
@@ -104,60 +109,36 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(
+        skip_all,
+        fields(group_id = %mls_group.group_id),
+        name = "process_pending_leave_requests"
+    )]
     async fn react_to_group_has_pending_leave_request(
         &mut self,
         mls_group: &MlsGroup<Context>,
     ) -> Result<(), PendingSelfRemoveWorkerError> {
-        tracing::info!(
-            group_id = %mls_group.group_id,
-            "Processing pending leave requests for group"
-        );
         mls_group.remove_members_pending_removal().await?;
         mls_group.cleanup_pending_removal_list().await?;
-        tracing::info!("Completed processing pending leave requests for group");
         Ok(())
     }
 
     /// Iterate on the list of groups and delete expired messages
     async fn remove_pending_remove_users(&mut self) -> Result<(), PendingSelfRemoveWorkerError> {
         let db = self.context.db();
-        match db.get_groups_have_pending_leave_request() {
-            Ok(groups) => {
-                for group_id in groups {
-                    let Ok(group_id) = GroupId::try_from(group_id) else {
-                        tracing::warn!("skipping malformed group_id in pending leave request list");
-                        continue;
-                    };
-                    match self.mls_store.group(&group_id) {
-                        Ok(mls_group) => {
-                            if let Err(e) = self
-                                .react_to_group_has_pending_leave_request(&mls_group)
-                                .await
-                            {
-                                tracing::error!(
-                                    group_id = %group_id,
-                                    error = %e,
-                                    "Failed to process pending leave request for group"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                group_id = %group_id,
-                                error = %e,
-                                "Failed to load MLS group from store"
-                            );
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to get groups with pending leave requests, error: {:?}",
-                    e
-                );
-                return Err(PendingSelfRemoveWorkerError::Storage(e.into()));
-            }
+        // Errors propagate to the supervisor (the sole logger); the worker restarts and
+        // retries the pending removals on its next turn.
+        let groups = db
+            .get_groups_have_pending_leave_request()
+            .map_err(|e| PendingSelfRemoveWorkerError::GetPendingLeaveGroups(e.into()))?;
+        for group_id in groups {
+            let Ok(group_id) = GroupId::try_from(group_id) else {
+                tracing::warn!("skipping malformed group_id in pending leave request list");
+                continue;
+            };
+            let mls_group = self.mls_store.group(&group_id)?;
+            self.react_to_group_has_pending_leave_request(&mls_group)
+                .await?;
         }
         Ok(())
     }
