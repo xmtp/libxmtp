@@ -193,6 +193,7 @@ impl ClientError {
     pub fn db_needs_connection(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
             _ => false,
         }
     }

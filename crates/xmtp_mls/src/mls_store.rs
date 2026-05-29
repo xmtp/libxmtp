@@ -41,11 +41,13 @@ impl RetryableError for MlsStoreError {
 }
 
 impl crate::worker::NeedsDbReconnect for MlsStoreError {
+    /// Forwards a dropped-pool signal from the storage/connection variants so a
+    /// worker loading groups can stop on disconnect. `Api`/`NotFound` return `false`.
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            Self::Storage(e) => e.db_needs_connection(),
-            Self::Connection(e) => e.db_needs_connection(),
-            _ => false,
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Connection(c) => c.db_needs_connection(),
+            Self::Api(_) | Self::NotFound(_) => false,
         }
     }
 }

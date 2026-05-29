@@ -9,7 +9,8 @@ use crate::{
     groups::GroupError,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
+        WorkerKind, WorkerResult,
         device_sync::{AvailableArchive, archive::insert_importer},
         metrics::WorkerMetrics,
     },
@@ -295,6 +296,11 @@ where
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
+                // A failed message is non-fatal (log + bump attempt), but a
+                // dropped pool must stop the worker; bubble it.
+                if err.needs_db_reconnect() {
+                    return Err(err);
+                }
                 log_event!(
                     Event::DeviceSyncMessageProcessingError,
                     self.context.installation_id(),
