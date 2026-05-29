@@ -20,7 +20,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
-use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
+use xmtp_api::ApiClientWrapper;
 use xmtp_api_d14n::{
     TrackedStatsClient,
     protocol::{CursorStore, XmtpQuery},
@@ -578,40 +578,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         db.register_triggers();
         db.disable_memory_security();
         self
-    }
-
-    /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
-    /// Requires the api client to be set in the builder.
-    pub fn enable_api_debug_wrapper(
-        self,
-    ) -> Result<ClientBuilder<ApiDebugWrapper<ApiClient>, S, Db>, ClientBuilderError> {
-        if self.api_client.is_none() || self.sync_api_client.is_none() {
-            return Err(ClientBuilderError::MissingParameter {
-                parameter: "api_client",
-            });
-        }
-
-        Ok(ClientBuilder {
-            api_client: Some(ApiDebugWrapper::new(
-                self.api_client.expect("checked for none"),
-            )),
-            identity: self.identity,
-            identity_strategy: self.identity_strategy,
-            scw_verifier: self.scw_verifier,
-            store: self.store,
-
-            device_sync_worker_mode: self.device_sync_worker_mode,
-            fork_recovery_opts: self.fork_recovery_opts,
-            version_info: self.version_info,
-            allow_offline: self.allow_offline,
-            disable_commit_log_worker: self.disable_commit_log_worker,
-            mls_storage: self.mls_storage,
-            sync_api_client: Some(ApiDebugWrapper::new(
-                self.sync_api_client.expect("checked for none"),
-            )),
-            cursor_store: self.cursor_store,
-            disable_workers: self.disable_workers,
-        })
     }
 
     pub fn enable_api_stats(

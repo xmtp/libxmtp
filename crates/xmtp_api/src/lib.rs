@@ -6,9 +6,6 @@ pub mod scw_verifier;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-pub mod debug_wrapper;
-pub use debug_wrapper::*;
-
 use std::sync::Arc;
 
 use xmtp_common::{ErrorCode, ExponentialBackoff, Retry, RetryableError, retryable};

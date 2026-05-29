@@ -424,7 +424,6 @@ pub async fn create_client(
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_clients(api_client, sync_api_client)
         .enable_api_stats()?
-        .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .store(store);
