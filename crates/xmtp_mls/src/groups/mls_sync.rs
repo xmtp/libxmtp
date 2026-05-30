@@ -353,12 +353,12 @@ where
         let conn = self.context.db();
 
         let epoch = self.epoch().await?;
-        tracing::info!(
+        tracing::debug!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
             group_id = self.group_id.short_hex(),
-            "[{}] syncing group, epoch = {epoch}",
-            self.context.inbox_id(),
+            epoch,
+            "syncing group",
         );
 
         // Also sync the "stitched DMs", if any...

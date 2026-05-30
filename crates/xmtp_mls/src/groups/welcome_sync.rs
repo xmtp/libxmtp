@@ -325,11 +325,11 @@ where
         // group re-evaluation in `handle_group_paused` wouldn't fire
         // for a quiet paused group).
         if let Err(err) = self.unstick_paused_groups().await {
-            tracing::warn!(?err, "unstick_paused_groups failed, continuing with sync");
+            tracing::debug!(?err, "unstick_paused_groups failed, continuing with sync");
         }
 
         if let Err(err) = self.sync_welcomes().await {
-            tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
+            tracing::debug!(?err, "sync_welcomes failed, continuing with group sync");
         }
         let query_args = GroupQueryArgs {
             consent_states,
