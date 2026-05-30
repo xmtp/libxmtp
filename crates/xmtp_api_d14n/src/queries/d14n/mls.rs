@@ -76,7 +76,7 @@ where
             .build()?
             .query(&self.client)
             .await?;
-        tracing::info!("got {} envelopes", result.results.len());
+        tracing::debug!("got {} envelopes", result.results.len());
         let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
         let key_packages = extractor.get()?;
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
@@ -193,7 +193,7 @@ where
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
         let cursor = self.cursor_store.latest(&topic, None)?;
-        tracing::info!("querying welcomes @{:?}", cursor);
+        tracing::debug!("querying welcomes @{:?}", cursor);
         let response = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(cursor)

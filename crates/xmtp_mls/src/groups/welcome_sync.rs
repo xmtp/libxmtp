@@ -167,11 +167,7 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-                    tracing::info!(
-                        inbox_id = self.context.inbox_id(),
-                        "[{}] syncing group",
-                        self.context.inbox_id()
-                    );
+                    tracing::debug!(inbox_id = self.context.inbox_id(), "syncing group");
                     let is_active = group
                         .load_mls_group_with_lock_async(async |mls_group| {
                             Ok::<bool, GroupError>(mls_group.is_active())
@@ -299,7 +295,7 @@ where
                     );
                     continue;
                 }
-                tracing::info!(
+                tracing::debug!(
                     group_id = hex::encode(group_id.as_ref()),
                     required = %required_str,
                     own = %own_version_str,
@@ -379,7 +375,7 @@ where
                 let inbox_id = self.context.inbox_id();
 
                 async move {
-                    tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
+                    tracing::debug!(inbox_id, "syncing group");
 
                     let is_active_res = group
                         .load_mls_group_with_lock_async(async |mls_group| {

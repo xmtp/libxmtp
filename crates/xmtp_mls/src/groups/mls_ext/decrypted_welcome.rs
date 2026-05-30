@@ -55,7 +55,7 @@ impl DecryptedWelcome {
             data,
             welcome_metadata,
         } = welcome_v1;
-        tracing::info!(id = %welcome.cursor, "Trying to decrypt welcome");
+        tracing::debug!(id = %welcome.cursor, "Trying to decrypt welcome");
         let wrapper_ciphersuite = WrapperAlgorithm::try_from(*wrapper_algorithm)?;
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
@@ -282,7 +282,7 @@ pub(crate) fn decrypt_welcome_pointer(
     provider: &impl XmtpMlsStorageProvider,
     welcome_pointer: &WelcomePointer,
 ) -> Result<DecryptedWelcomePointer, GroupError> {
-    tracing::info!("Trying to decrypt welcome pointer");
+    tracing::debug!("Trying to decrypt welcome pointer");
     let hash_ref = find_key_package_hash_ref(provider, &welcome_pointer.hpke_public_key)?;
     let wrapper_algorithm = WrapperAlgorithm::try_from(welcome_pointer.wrapper_algorithm)?;
     let private_key = find_private_key(provider, &hash_ref, &wrapper_algorithm)?;

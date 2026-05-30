@@ -14,7 +14,7 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
 
     let decrypted_v1 = decrypted_welcome_pointer;
 
-    tracing::info!(
+    tracing::debug!(
         "Resolving welcome pointer for destination {}",
         decrypted_v1.destination
     );

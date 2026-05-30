@@ -440,7 +440,7 @@ where
             this.groups.set(next_msg.group_id, next_msg.cursor);
             return Poll::Ready(Some(Ok(stored)));
         }
-        tracing::info!(
+        tracing::debug!(
             "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
             next_msg.group_id,
             next_msg.cursor

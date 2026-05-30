@@ -144,7 +144,7 @@ where
                             .await;
                     }
                 }
-                tracing::info!(
+                tracing::debug!(
                     "could not find group for welcome {}, processing",
                     welcome.cursor
                 );
@@ -155,12 +155,12 @@ where
                         id: welcome.cursor,
                     }
                 } else {
-                    tracing::info!("Oneshot welcome message processed, skipping stream event.");
+                    tracing::debug!("Oneshot welcome message processed, skipping stream event.");
                     ProcessWelcomeResult::IgnoreId { id: welcome.cursor }
                 }
             }
             Group(ref id) => {
-                tracing::info!("stream got existing group, pulling from db.");
+                tracing::debug!("stream got existing group, pulling from db.");
                 let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
 
                 ProcessWelcomeResult::NewStored {

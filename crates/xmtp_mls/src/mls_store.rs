@@ -77,7 +77,7 @@ where
             .api()
             .query_welcome_messages(installation_id)
             .await?;
-        tracing::info!("returning {} welcomes", welcomes.len());
+        tracing::debug!("returning {} welcomes", welcomes.len());
         Ok(welcomes)
     }
 
