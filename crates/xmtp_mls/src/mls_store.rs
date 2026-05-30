@@ -40,6 +40,16 @@ impl RetryableError for MlsStoreError {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for MlsStoreError {
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(e) => e.db_needs_connection(),
+            Self::Connection(e) => e.db_needs_connection(),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MlsStore<Context> {
     context: Context,
