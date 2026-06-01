@@ -115,6 +115,11 @@ where
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))
             .await
+            // Streaming path (trust_message_order = false): any captured
+            // intent_error is intentionally discarded — intent-resolution
+            // reporting belongs to the query/sync path, not the stream. Surface
+            // only the identifier, matching prior behavior.
+            .map(|outcome| outcome.identifier)
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
     }
 

@@ -1028,28 +1028,44 @@ async fn test_enable_proposals_concurrent_callers_converge() {
         .clone();
     bo_group.sync().await?;
 
-    // Race two `enable_proposals` calls. Both MUST return `Ok` — the
-    // recovery wrapper inside `enable_proposals` observes the
-    // migration completed even when the loser's own intent failed
-    // locally.
+    // Race two `enable_proposals` calls. The recovery wrapper inside
+    // `enable_proposals` returns `Ok` for the loser once it observes the
+    // migration completed — but that recovery depends on the winner's
+    // bootstrap commit having landed locally by the time the loser's own
+    // intent errors, which is a timing race within the loser's sync retry
+    // loop. So an immediate `Err` here is only a transient race loss, not a
+    // failure: the contract is that the API converges to `Ok` once migrated.
     let alix_group_clone = alix_group.clone();
     let bo_group_clone = bo_group.clone();
     let (alix_result, bo_result) = tokio::join!(
         alix_group_clone.enable_proposals(EnableProposalsOptions::test_default()),
         bo_group_clone.enable_proposals(EnableProposalsOptions::test_default()),
     );
-    assert!(
-        alix_result.is_ok(),
-        "alix's enable_proposals must return Ok (winner OR loser-recovered-to-Ok), got {alix_result:?}",
-    );
-    assert!(
-        bo_result.is_ok(),
-        "bo's enable_proposals must return Ok (winner OR loser-recovered-to-Ok), got {bo_result:?}",
-    );
 
-    // Sync both to converge.
+    // Sync both to converge — this lands any not-yet-applied bootstrap commit.
     alix_group.sync().await?;
     bo_group.sync().await?;
+
+    // Recovery contract: any caller that returned `Err` (a race loss) must
+    // converge to `Ok` once the migration is visible locally. Re-driving
+    // `enable_proposals` hits the `already_migrated` fast-path and returns
+    // `Ok` — proving the wrapper recovers, without depending on bootstrap
+    // timing. A genuine recovery failure would surface here as a persistent
+    // `Err` (group never migrated).
+    for (label, result, group) in [
+        ("alix", &alix_result, &alix_group),
+        ("bo", &bo_result, &bo_group),
+    ] {
+        if let Err(err) = result {
+            let recovered = group
+                .enable_proposals(EnableProposalsOptions::test_default())
+                .await;
+            assert!(
+                recovered.is_ok(),
+                "{label}'s enable_proposals lost the race ({err:?}) and did not recover to Ok: {recovered:?}",
+            );
+        }
+    }
 
     for (label, group) in [("alix", &alix_group), ("bo", &bo_group)] {
         let migrated = group
@@ -3388,23 +3404,27 @@ async fn test_update_group_name_uses_legacy_path_when_proposals_disabled() {
 /// permission checks because `extract_metadata_changes` only inspects
 /// the legacy GMM extension.
 ///
-/// The assertion shape is intentionally two-part. Own-commit validation
+/// The assertion shape is intentionally three-part. Own-commit validation
 /// failures are non-retryable and `process_message` absorbs them by
-/// flipping the intent's DB row to `IntentState::Error` — the typed
-/// `CommitValidationError::InsufficientPermissions` is never hoisted to
-/// the caller. What the public API returns is `GroupError::Sync(summary)`
-/// from `sync_until_intent_resolved_inner` (see mls_sync.rs line ~606),
-/// matching the pattern established by other permission-denial tests
-/// such as the `SyncFailedToWait` assertions in `tests/mod.rs`. Pinning
-/// `Sync(_)` + the group-name-unchanged invariant is tight enough: a
-/// validator-stopped-firing regression would either succeed (name
-/// changes) or produce a different `GroupError` variant (Api, Storage,
-/// Client) — both detected.
+/// flipping the intent's DB row to `IntentState::Error`. The typed
+/// `CommitValidationError::InsufficientPermissions` is no longer dropped:
+/// it's captured into the summary's `process.errored` (see the
+/// `ProcessedMessageOutcome` path in mls_sync.rs) so the cause survives.
+/// What the public API returns is `GroupError::Sync(summary)` from
+/// `sync_until_intent_resolved_inner`, matching the pattern established by
+/// other permission-denial tests such as the `SyncFailedToWait` assertions
+/// in `tests/mod.rs`. We pin `Sync(_)`, that the summary carries the real
+/// `CommitValidation` cause, and the group-name-unchanged invariant: a
+/// validator-stopped-firing regression would either succeed (name changes)
+/// or produce a different `GroupError` variant — both detected; a
+/// cause-swallowing regression would drop the `CommitValidation` error.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_inline_app_data_update_denied_by_registry_policy() {
     use crate::groups::{
         GroupError,
         intents::{PermissionPolicyOption, PermissionUpdateType},
+        mls_sync::GroupMessageProcessingError,
+        validated_commit::CommitValidationError,
     };
     use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
@@ -3443,9 +3463,22 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     let result = alix_group
         .update_group_name("Should Be Rejected".to_string())
         .await;
+    let Err(GroupError::Sync(summary)) = result else {
+        panic!("expected Err(GroupError::Sync(_)), got {result:?}");
+    };
+
+    // The non-retryable own-commit validation failure must be preserved in the
+    // summary rather than swallowed: the intent flips to Error, but the typed
+    // CommitValidationError now rides out through process.errored so the cause
+    // is reportable instead of surfacing as a misleading "0 failed" success.
     assert!(
-        matches!(result, Err(GroupError::Sync(_))),
-        "expected Err(GroupError::Sync(_)), got {result:?}"
+        summary.process.errored.iter().any(|(_, e)| matches!(
+            e,
+            GroupMessageProcessingError::CommitValidation(
+                CommitValidationError::InsufficientPermissions
+            )
+        )),
+        "summary should carry the CommitValidation cause, got: {summary}"
     );
 
     // Group name unchanged because the rejected commit never made

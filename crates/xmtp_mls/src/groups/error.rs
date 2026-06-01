@@ -336,7 +336,7 @@ pub enum GroupError {
     /// Sync failed to wait.
     ///
     /// Waiting for intent sync failed. Retryable.
-    #[error("Sync failed to wait for intent")]
+    #[error("Sync failed to wait for intent: {}", _0)]
     SyncFailedToWait(Box<SyncSummary>),
     /// Missing pending commit.
     ///

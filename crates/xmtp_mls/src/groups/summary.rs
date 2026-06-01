@@ -67,7 +67,13 @@ impl SyncSummary {
         self.publish_errors.extend(other.publish_errors);
         self.process.extend(other.process);
         self.post_commit_errors.extend(other.post_commit_errors);
-        self.other = other.other;
+        // Preserve the first non-None cause. `extend` is called once per retry
+        // round in `sync_until_intent_resolved_inner`; overwriting here would let
+        // a later clean round clobber an earlier round's `other` error, losing
+        // the cause on the timeout (SyncFailedToWait) path.
+        if self.other.is_none() {
+            self.other = other.other;
+        }
     }
 
     /// Construct a sync which failed with an unrelated error.
@@ -412,5 +418,33 @@ impl std::fmt::Display for ProcessSummary {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod extend_tests {
+    use super::*;
+
+    // `extend` is called once per retry round in
+    // `sync_until_intent_resolved_inner`. A later clean round must not clobber an
+    // earlier round's `other` cause — otherwise the timeout (SyncFailedToWait)
+    // path loses the real failure.
+    #[xmtp_common::test]
+    fn extend_preserves_first_other_cause() {
+        let mut acc = SyncSummary::default();
+        acc.extend(SyncSummary::other(GroupError::GroupInactive)); // round 1: cause
+        acc.extend(SyncSummary::default()); // round 2: clean — must not clobber
+
+        let other = acc.other.as_ref().expect("first cause must survive");
+        assert_eq!(other.to_string(), GroupError::GroupInactive.to_string());
+    }
+
+    #[xmtp_common::test]
+    fn extend_takes_other_when_none_yet() {
+        let mut acc = SyncSummary::default();
+        acc.extend(SyncSummary::default()); // round 1: clean
+        acc.extend(SyncSummary::other(GroupError::GroupInactive)); // round 2: cause appears
+
+        assert!(acc.other.is_some(), "a later cause is still captured");
     }
 }
