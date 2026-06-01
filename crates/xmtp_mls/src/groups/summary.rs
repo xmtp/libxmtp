@@ -46,9 +46,19 @@ impl SyncSummary {
         self.process.new_messages.iter().find(|m| m.cursor == id)
     }
 
+    /// Whether the sync *operation* failed (publish, post-commit, or an
+    /// unrelated error). This is the single predicate that decides whether a
+    /// summary may sit in the `Err` position and which Display branch is used —
+    /// keep the two in lockstep.
+    ///
+    /// Note: per-message processing failures (`process.errored`) are
+    /// deliberately *not* counted here. A sync that decrypts some messages and
+    /// fails others is still a successful sync of the group as a whole; those
+    /// failures are reported inside the summary, not by flipping it to an error.
     pub fn is_errored(&self) -> bool {
         self.other.is_some()
-            || (!self.publish_errors.is_empty() && !self.post_commit_errors.is_empty())
+            || !self.publish_errors.is_empty()
+            || !self.post_commit_errors.is_empty()
     }
 
     pub fn add_publish_err(&mut self, e: GroupError) {
@@ -90,12 +100,24 @@ impl SyncSummary {
 }
 
 impl std::error::Error for SyncSummary {
+    /// Surface the first underlying cause so the error chain (e.g. the FFI
+    /// `Caused by:` walk) reaches the real failure instead of dead-ending at
+    /// the summary's flattened Display string. Prefer the sync-operation
+    /// errors, falling back to the first per-message processing error.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        self.source()
+        if let Some(other) = self.other.as_deref() {
+            return Some(other);
+        }
+        if let Some(err) = self.publish_errors.first() {
+            return Some(err);
+        }
+        if let Some(err) = self.post_commit_errors.first() {
+            return Some(err);
+        }
+        self.process
+            .errored
+            .first()
+            .map(|(_, e)| e as &dyn std::error::Error)
     }
 }
 
@@ -107,10 +129,7 @@ impl std::fmt::Debug for SyncSummary {
 
 impl std::fmt::Display for SyncSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.publish_errors.is_empty()
-            && self.post_commit_errors.is_empty()
-            && self.other.is_none()
-        {
+        if !self.is_errored() {
             let first_new = self
                 .process
                 .new_messages
@@ -446,5 +465,95 @@ mod extend_tests {
         acc.extend(SyncSummary::other(GroupError::GroupInactive)); // round 2: cause appears
 
         assert!(acc.other.is_some(), "a later cause is still captured");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::groups::mls_sync::GroupMessageProcessingError;
+    use std::error::Error;
+
+    // The Display "success" banner must fire iff is_errored() is false, and a
+    // summary may only be in the Err position when is_errored() is true. These
+    // two had drifted (Display used all-three-empty; is_errored() used && for
+    // publish/post_commit), so a publish-only failure printed the error banner
+    // while still reporting as not-errored. Lock the predicates together.
+    fn errored_banner(s: &SyncSummary) -> bool {
+        s.to_string().contains("Errors Occurred During Sync")
+    }
+
+    #[xmtp_common::test]
+    fn clean_summary_is_not_errored() {
+        let summary = SyncSummary::default();
+        assert!(!summary.is_errored());
+        assert!(!errored_banner(&summary));
+        assert!(summary.source().is_none());
+    }
+
+    #[xmtp_common::test]
+    fn publish_only_error_is_errored() {
+        let mut summary = SyncSummary::default();
+        summary.add_publish_err(GroupError::GroupInactive);
+        // Regression: with `&&` this returned false while Display showed the banner.
+        assert!(summary.is_errored());
+        assert!(errored_banner(&summary));
+    }
+
+    #[xmtp_common::test]
+    fn post_commit_only_error_is_errored() {
+        let mut summary = SyncSummary::default();
+        summary.add_post_commit_err(GroupError::GroupInactive);
+        assert!(summary.is_errored());
+        assert!(errored_banner(&summary));
+    }
+
+    #[xmtp_common::test]
+    fn other_error_is_errored_and_is_source() {
+        let mut summary = SyncSummary::default();
+        summary.add_other(GroupError::GroupInactive);
+        assert!(summary.is_errored());
+        // `other` is the highest-priority cause surfaced through the chain.
+        let source = summary.source().expect("source should be present");
+        assert_eq!(source.to_string(), GroupError::GroupInactive.to_string());
+    }
+
+    #[xmtp_common::test]
+    fn per_message_failures_do_not_flip_errored() {
+        // A sync that fails to process some messages is still a successful sync
+        // of the group as a whole — it stays Ok and prints the success line.
+        let mut process = ProcessSummary::default();
+        process.errored(
+            Cursor::new(7u64, 0u32),
+            GroupMessageProcessingError::InvalidPayload,
+        );
+        let mut summary = SyncSummary::default();
+        summary.add_process(process);
+
+        assert!(!summary.is_errored());
+        assert!(!errored_banner(&summary));
+        // ...but the failure is still reachable as the cause of last resort.
+        let source = summary
+            .source()
+            .expect("per-message error is the fallback source");
+        assert_eq!(
+            source.to_string(),
+            GroupMessageProcessingError::InvalidPayload.to_string()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn source_prefers_other_over_per_message_error() {
+        let mut process = ProcessSummary::default();
+        process.errored(
+            Cursor::new(7u64, 0u32),
+            GroupMessageProcessingError::InvalidPayload,
+        );
+        let mut summary = SyncSummary::default();
+        summary.add_process(process);
+        summary.add_publish_err(GroupError::GroupInactive);
+
+        let source = summary.source().expect("source should be present");
+        assert_eq!(source.to_string(), GroupError::GroupInactive.to_string());
     }
 }
