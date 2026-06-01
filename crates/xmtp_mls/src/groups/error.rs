@@ -641,3 +641,19 @@ impl RetryableError for GroupError {
         }
     }
 }
+
+impl crate::worker::NeedsDbReconnect for GroupError {
+    /// Forwards a dropped-pool signal from storage-bearing variants so a worker
+    /// catching `GroupError`s per item can stop on disconnect; else `false`.
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Client(c) => c.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
+            Self::MlsStore(s) => s.needs_db_reconnect(),
+            Self::Identity(i) => i.needs_db_reconnect(),
+            Self::DeviceSync(d) => d.needs_db_reconnect(),
+            _ => false,
+        }
+    }
+}

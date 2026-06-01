@@ -31,7 +31,6 @@ pub enum WorkerKind {
     DeviceSync,
     DisappearingMessages,
     KeyPackageCleaner,
-    Event,
     CommitLog,
     TaskRunner,
     PendingSelfRemove,
@@ -287,5 +286,139 @@ pub trait MetricsCasting {
 impl MetricsCasting for DynMetrics {
     fn as_sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.clone().downcast().ok()
+    }
+}
+
+// Native-only: `db_needs_connection` is always `false` on wasm, so the contract
+// these tests assert only has teeth on native targets.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod disconnect_propagation_tests {
+    //! Pins that a dropped-pool signal survives the wrapper error types each
+    //! worker surfaces from `run_tasks`, so `needs_db_reconnect()` stays `true`.
+    use super::NeedsDbReconnect;
+    use crate::groups::GroupError;
+    use crate::groups::commit_log::CommitLogError;
+    use crate::mls_store::MlsStoreError;
+    use crate::subscriptions::SubscribeError;
+    use crate::worker::device_sync::DeviceSyncError;
+    use crate::worker::key_package_cleaner::KeyPackagesCleanerError;
+    use crate::worker::pending_self_remove::PendingSelfRemoveWorkerError;
+    use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
+
+    /// A `StorageError` that signals the connection pool was dropped.
+    fn disconnect_storage() -> StorageError {
+        StorageError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A `ConnectionError` that signals the connection pool was dropped.
+    fn disconnect_connection() -> ConnectionError {
+        ConnectionError::Platform(PlatformStorageError::PoolNeedsConnection)
+    }
+
+    /// A storage error that is NOT a disconnect — must never trip the contract.
+    fn benign_storage() -> StorageError {
+        StorageError::InvalidHmacLength
+    }
+
+    #[xmtp_common::test]
+    fn group_error_forwards_disconnect() {
+        assert!(GroupError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(GroupError::Db(disconnect_connection()).needs_db_reconnect());
+        assert!(
+            GroupError::MlsStore(MlsStoreError::Connection(disconnect_connection()))
+                .needs_db_reconnect()
+        );
+        // A non-disconnect storage failure inside a GroupError must not stop the worker.
+        assert!(!GroupError::Storage(benign_storage()).needs_db_reconnect());
+        assert!(!GroupError::InvalidGroupMembership.needs_db_reconnect());
+    }
+
+    #[xmtp_common::test]
+    fn mls_store_error_forwards_disconnect() {
+        assert!(MlsStoreError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(MlsStoreError::Connection(disconnect_connection()).needs_db_reconnect());
+        assert!(!MlsStoreError::Storage(benign_storage()).needs_db_reconnect());
+    }
+
+    #[xmtp_common::test]
+    fn subscribe_error_forwards_disconnect() {
+        assert!(SubscribeError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(SubscribeError::Db(disconnect_connection()).needs_db_reconnect());
+        assert!(
+            SubscribeError::from(GroupError::Storage(disconnect_storage())).needs_db_reconnect()
+        );
+        assert!(!SubscribeError::Storage(benign_storage()).needs_db_reconnect());
+    }
+
+    // Per-worker `run_tasks` error types — what the supervisor actually inspects.
+
+    #[xmtp_common::test]
+    fn pending_self_remove_error_forwards_disconnect() {
+        // Group-load (MlsStoreError) and member-removal (GroupError) paths both
+        // reach the loop; the GroupError path previously mapped to `false`.
+        assert!(
+            PendingSelfRemoveWorkerError::LoadGroup(MlsStoreError::Connection(
+                disconnect_connection()
+            ))
+            .needs_db_reconnect()
+        );
+        assert!(
+            PendingSelfRemoveWorkerError::GroupError(GroupError::Storage(disconnect_storage()))
+                .needs_db_reconnect()
+        );
+        assert!(
+            !PendingSelfRemoveWorkerError::GroupError(GroupError::InvalidGroupMembership)
+                .needs_db_reconnect()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn commit_log_error_forwards_disconnect() {
+        assert!(CommitLogError::Connection(disconnect_connection()).needs_db_reconnect());
+        assert!(
+            CommitLogError::GroupError(GroupError::Storage(disconnect_storage()))
+                .needs_db_reconnect()
+        );
+        // A transient (non-disconnect) connection error must not stop the worker.
+        assert!(
+            !CommitLogError::Connection(ConnectionError::DisconnectInTransaction)
+                .needs_db_reconnect()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn device_sync_error_forwards_disconnect() {
+        assert!(DeviceSyncError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(DeviceSyncError::Db(disconnect_connection()).needs_db_reconnect());
+        assert!(
+            DeviceSyncError::Group(GroupError::Storage(disconnect_storage())).needs_db_reconnect()
+        );
+        assert!(
+            DeviceSyncError::MlsStore(MlsStoreError::Connection(disconnect_connection()))
+                .needs_db_reconnect()
+        );
+        assert!(
+            DeviceSyncError::Subscribe(SubscribeError::Db(disconnect_connection()))
+                .needs_db_reconnect()
+        );
+        assert!(!DeviceSyncError::Storage(benign_storage()).needs_db_reconnect());
+        assert!(!DeviceSyncError::InvalidPayload.needs_db_reconnect());
+    }
+
+    #[xmtp_common::test]
+    fn key_package_cleaner_error_forwards_disconnect() {
+        use crate::identity::IdentityError;
+        assert!(KeyPackagesCleanerError::Storage(disconnect_storage()).needs_db_reconnect());
+        // Per-key-package delete returns an IdentityError; a disconnect must
+        // bubble whether it arrives as a StorageError or a bare ConnectionError.
+        assert!(
+            KeyPackagesCleanerError::Identity(IdentityError::StorageError(disconnect_storage()))
+                .needs_db_reconnect()
+        );
+        assert!(
+            KeyPackagesCleanerError::Identity(IdentityError::Db(disconnect_connection()))
+                .needs_db_reconnect()
+        );
+        assert!(!KeyPackagesCleanerError::Storage(benign_storage()).needs_db_reconnect());
     }
 }

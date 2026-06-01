@@ -29,7 +29,8 @@ impl NeedsDbReconnect for PendingSelfRemoveWorkerError {
         match self {
             Self::Storage(s) | Self::GetPendingLeaveGroups(s) => s.db_needs_connection(),
             Self::LoadGroup(s) => s.needs_db_reconnect(),
-            Self::GroupError(_) => false,
+            // A dropped pool can hide in a GroupError (member-removal path); forward.
+            Self::GroupError(e) => e.needs_db_reconnect(),
         }
     }
 }

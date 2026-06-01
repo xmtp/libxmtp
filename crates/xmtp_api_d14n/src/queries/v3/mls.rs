@@ -151,22 +151,22 @@ where
         &self,
         request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
-        PublishCommitLog::builder()
+        let endpoint = PublishCommitLog::builder()
             .commit_log_entries(request.requests)
-            .build()?
-            .query(&self.client)
-            .await
+            .build()?;
+        let mut endpoint = api::retry(endpoint);
+        endpoint.query(&self.client).await
     }
 
     async fn query_commit_log(
         &self,
         request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        QueryCommitLog::builder()
+        let endpoint = QueryCommitLog::builder()
             .query_log_requests(request.requests)
-            .build()?
-            .query(&self.client)
-            .await
+            .build()?;
+        let mut endpoint = api::retry(endpoint);
+        endpoint.query(&self.client).await
     }
 
     async fn get_newest_group_message(

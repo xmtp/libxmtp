@@ -347,6 +347,7 @@ impl NeedsDbReconnect for IdentityError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::StorageError(s) => s.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
             _ => false,
         }
     }

@@ -205,6 +205,13 @@ impl NeedsDbReconnect for DeviceSyncError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Client(s) => s.db_needs_connection(),
+            Self::Storage(s) => s.db_needs_connection(),
+            // A dropped pool can hide in these wrapped errors; forward so the
+            // worker stops instead of hot-looping (was `_ => false`).
+            Self::Db(c) => c.db_needs_connection(),
+            Self::Group(e) => e.needs_db_reconnect(),
+            Self::MlsStore(e) => e.needs_db_reconnect(),
+            Self::Subscribe(e) => e.needs_db_reconnect(),
             _ => false,
         }
     }

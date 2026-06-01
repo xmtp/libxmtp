@@ -32,14 +32,13 @@ impl ImportContext {
 
         // We want to update the group timestamps to either be what they were before the import,
         // or what they are in the archive group field.
+        // Propagate update errors to the supervisor rather than swallowing them.
         for (group_id, timestamp) in &self.group_timestamps {
-            if let Err(err) = context.db().raw_query(|conn| {
+            context.db().raw_query(|conn| {
                 xmtp_db::diesel::update(dsl::groups.find(group_id))
                     .set(dsl::last_message_ns.eq(*timestamp))
                     .execute(conn)
-            }) {
-                tracing::warn!("Unable to update last_message_ns for group {group_id:?}: {err:?}");
-            }
+            })?;
         }
 
         Ok(())
@@ -54,9 +53,8 @@ pub async fn insert_importer(
 
     while let Some(element) = importer.next().await {
         let element = element?;
-        if let Err(err) = insert(element, context, &mut import_ctx) {
-            tracing::warn!("Unable to insert record: {err:?}");
-        };
+        // Propagate insert failures to the supervisor rather than skipping the record.
+        insert(element, context, &mut import_ctx)?;
     }
 
     import_ctx.post_import(context)?;
@@ -79,9 +77,11 @@ fn insert(
             context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(existing_group)) = context
+            // Propagate a lookup error (incl. a dropped pool); only a genuine
+            // "not found" falls through to restore the group.
+            if let Some(existing_group) = context
                 .db()
-                .find_group(&GroupId::try_from(save.id.as_slice())?)
+                .find_group(&GroupId::try_from(save.id.as_slice())?)?
             {
                 let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
                     (Some(e), Some(s)) => Some(e.max(s)),

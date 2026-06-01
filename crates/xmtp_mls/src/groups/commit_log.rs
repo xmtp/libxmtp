@@ -103,8 +103,15 @@ pub enum CommitLogError {
     GroupReaddValidationError(String),
     #[error("sync error: {0}")]
     SyncError(#[from] SyncSummary),
-    #[error("error: {0}")]
-    GenericError(String),
+    #[error("failed to send readd request for group {group_id}: {source}")]
+    FailedToSendReadd {
+        group_id: GroupId,
+        source: Box<CommitLogError>,
+    },
+    #[error("{count} readd request(s) failed: {errors:?}", count = errors.len())]
+    FailedReadds { errors: Vec<CommitLogError> },
+    #[error("no latest commit sequence id found for forked group {group_id}")]
+    MissingLatestCommitSequenceId { group_id: GroupId },
 }
 
 impl RetryableError for CommitLogError {
@@ -122,7 +129,9 @@ impl RetryableError for CommitLogError {
             Self::Conversion(_) => false,
             Self::GroupReaddValidationError(_group_readd_validation_error) => false,
             Self::SyncError(sync_error) => sync_error.is_retryable(),
-            Self::GenericError(_generic_error) => false,
+            Self::FailedToSendReadd { source, .. } => source.is_retryable(),
+            Self::FailedReadds { errors } => errors.iter().any(|e| e.is_retryable()),
+            Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
 }
@@ -131,18 +140,24 @@ impl NeedsDbReconnect for CommitLogError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
-            Self::Diesel(_diesel_error) => false,
-            Self::Api(_api_error) => false,
-            Self::Connection(_connection_error) => true, // TODO(cam): verify this is correct
-            Self::Prost(_prost_error) => false,
-            Self::KeystoreError(_keystore_error) => false, // TODO(rich): What does this method do?
-            Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
-            Self::CryptoError(_crypto_error) => false,
-            Self::TryFromSliceError(_try_from_slice_error) => false,
-            Self::Conversion(_) => false,
-            Self::GroupReaddValidationError(_group_readd_validation_error) => false,
-            Self::SyncError(_sync_error) => false,
-            Self::GenericError(_generic_error) => false,
+            // Only a `PoolNeedsConnection` connection error means the pool is gone.
+            Self::Connection(c) => c.db_needs_connection(),
+            // A dropped pool can be wrapped inside a GroupError; forward.
+            Self::GroupError(e) => e.needs_db_reconnect(),
+            // A readd send failure wraps an inner CommitLogError; forward.
+            Self::FailedToSendReadd { source, .. } => source.needs_db_reconnect(),
+            Self::FailedReadds { errors } => errors.iter().any(|e| e.needs_db_reconnect()),
+            // Remaining variants can't carry a dropped-pool signal.
+            Self::Diesel(_)
+            | Self::Api(_)
+            | Self::Prost(_)
+            | Self::KeystoreError(_)
+            | Self::CryptoError(_)
+            | Self::TryFromSliceError(_)
+            | Self::Conversion(_)
+            | Self::GroupReaddValidationError(_)
+            | Self::SyncError(_)
+            | Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }
 }
@@ -260,32 +275,22 @@ where
             all_entries.len()
         );
 
-        // Step 3 is to publish commit log entries to the API and update cursors
+        // Propagate a publish failure; cursors stay unadvanced so the restarted
+        // worker retries the same entries next turn.
         let api = self.context.api();
-        match api.publish_commit_log(all_entries).await {
-            Ok(_) => {
-                // Publishing was successful, let's update every group's cursor
-                for conversation_cursor_info in &conversation_cursor_info {
-                    tracing::debug!(
-                        "Updating publish cursor for conversation {}",
-                        hex::encode(&conversation_cursor_info.conversation_id)
-                    );
-                    conn.update_cursor(
-                        &conversation_cursor_info.conversation_id,
-                        xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                        Cursor::commit_log(
-                            conversation_cursor_info.last_entry_published_rowid as u64,
-                        ),
-                    )?;
-                }
-            }
-            Err(e) => {
-                // In this case we do not update the cursor, so next worker iteration will try again
-                tracing::error!(
-                    "Failed to publish commit log entries to remote commit log, error: {:?}",
-                    e
-                );
-            }
+        api.publish_commit_log(all_entries).await?;
+
+        // Publishing was successful, let's update every group's cursor
+        for conversation_cursor_info in &conversation_cursor_info {
+            tracing::debug!(
+                group_id = hex::encode(&conversation_cursor_info.conversation_id),
+                "Updating publish cursor",
+            );
+            conn.update_cursor(
+                &conversation_cursor_info.conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+                Cursor::commit_log(conversation_cursor_info.last_entry_published_rowid as u64),
+            )?;
         }
         Ok(conversation_cursor_info)
     }
@@ -301,18 +306,17 @@ where
         let mut all_entries = Vec::new();
         for conversation in conversation_keys {
             // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
+            // Propagate read errors (incl. a dropped pool) to the supervisor; a
+            // missing cursor legitimately defaults to 0.
             let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&conversation.id)
-                .ok()
-                .flatten()
+                .get_local_commit_log_cursor(&conversation.id)?
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
                 .get_last_cursor_for_originator(
                     conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                     Originators::REMOTE_COMMIT_LOG,
-                )
-                .unwrap_or_default()
+                )?
                 .sequence_id;
 
             if local_commit_log_cursor <= published_commit_log_cursor as i32 {
@@ -358,10 +362,7 @@ where
         plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
     ) -> Result<Vec<PublishCommitLogRequest>, CommitLogError> {
         let Some(private_key) = get_or_create_signing_key(&self.context, conversation)? else {
-            tracing::warn!(
-                "No signing key available for group {:?}",
-                hex::encode(conversation.id)
-            );
+            tracing::warn!(group_id = %conversation.id, "No signing key available for group");
             return Ok(vec![]);
         };
 
@@ -480,7 +481,7 @@ where
                     Ok(entry) => entry,
                     Err(error) => {
                         tracing::warn!(
-                            ?group_id,
+                            group_id = %group_id,
                             ?error,
                             "failed to decode commit-log entry, skipping"
                         );
@@ -564,9 +565,9 @@ where
             .is_err()
         {
             tracing::warn!(
-                "Invalid signature for commit log entry {} on group {}, skipping",
-                serialized_entry.sequence_id,
-                hex::encode(&entry.group_id),
+                group_id = hex::encode(group_id),
+                sequence_id = serialized_entry.sequence_id,
+                "Invalid signature for commit log entry, skipping",
             );
             return true;
         }
@@ -620,7 +621,7 @@ where
         let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         if stored_group.conversation_type == ConversationType::Dm {
             let Some(dm_id) = stored_group.dm_id.clone() else {
-                tracing::error!("DM group {} has no dm_id", hex::encode(group_id));
+                tracing::error!(group_id = %group_id, "DM group has no dm_id");
                 return Ok(vec![]);
             };
             let other_id = dm_id.other_inbox_id(self.context.inbox_id());
@@ -649,13 +650,9 @@ where
         tracing::debug!(group_id = %group_id, "Sending readd request");
 
         // Send oneshot message with readd request to super admins
-        let latest_commit_sequence_id =
-            group_info
-                .latest_commit_sequence_id
-                .ok_or(CommitLogError::GenericError(format!(
-                    "No latest commit sequence id found for forked group {}",
-                    hex::encode(group_id)
-                )))?;
+        let latest_commit_sequence_id = group_info
+            .latest_commit_sequence_id
+            .ok_or(CommitLogError::MissingLatestCommitSequenceId { group_id })?;
         let oneshot_message = OneshotMessage {
             message_type: Some(MessageType::ReaddRequest(ReaddRequest {
                 group_id: group_id.to_vec(),
@@ -676,7 +673,7 @@ where
         conn.update_requested_at_sequence_id(
             &group_id,
             self.context.installation_id().as_slice(),
-            latest_commit_sequence_id as i64,
+            latest_commit_sequence_id,
         )?;
 
         tracing::debug!(
@@ -711,29 +708,34 @@ where
                 "Forked groups: {:?}, allowlisted groups for sending recovery requests: {:?}",
                 forked_groups
                     .iter()
-                    .map(|group_info| hex::encode(group_info.group_id))
+                    .map(|group_info| group_info.group_id.to_string())
                     .collect::<Vec<String>>(),
                 groups_to_request_recovery
             );
             forked_groups.retain(|group_info| {
                 groups_to_request_recovery
-                    .contains(&hex::encode(group_info.group_id).normalize_hex())
+                    .contains(&group_info.group_id.to_string().normalize_hex())
             });
         }
 
+        // Process groups in order, collecting per-group failures so one transient
+        // error doesn't block the rest; a dropped pool still bubbles immediately.
+        let mut failures = Vec::new();
         for group_info in forked_groups {
             let group_id = group_info.group_id;
-
-            // Process the readd request and log any errors
-            if let Err(e) = self.request_readd(group_info).await {
-                tracing::error!(
-                    group_id = %group_id,
-                    error = ?e,
-                    "Failed to send readd request for group"
-                );
-                // Continue processing other groups even if one fails
-                continue;
+            if let Err(source) = self.request_readd(group_info).await {
+                if source.needs_db_reconnect() {
+                    return Err(source);
+                }
+                failures.push(CommitLogError::FailedToSendReadd {
+                    group_id,
+                    source: Box::new(source),
+                });
             }
+        }
+
+        if !failures.is_empty() {
+            return Err(CommitLogError::FailedReadds { errors: failures });
         }
 
         Ok(())
@@ -775,22 +777,20 @@ where
                         .await?;
                 }
                 Err(e) => {
+                    // Permanently-bad group: drop its readd statuses and move on.
+                    // Retryable failures (incl. a dropped pool) propagate instead.
+                    if e.is_retryable() {
+                        return Err(e);
+                    }
                     tracing::warn!(
                         group_id = %group.group_id,
-                        "Failed to validate readd requests for group: {}",
+                        "Deleting readd statuses for group because it failed validation: {}",
                         e
                     );
-                    if !e.is_retryable() {
-                        tracing::warn!(
-                            group_id = %group.group_id,
-                            "Deleting readd statuses for group because it failed validation: {}",
-                            e
-                        );
-                        conn.delete_other_readd_statuses(
-                            &group.group_id,
-                            self.context.installation_id().as_slice(),
-                        )?;
-                    }
+                    conn.delete_other_readd_statuses(
+                        &group.group_id,
+                        self.context.installation_id().as_slice(),
+                    )?;
                     continue;
                 }
             }
@@ -923,10 +923,10 @@ where
 
             if is_mismatched {
                 tracing::warn!(
-                    "Detected forked state for conversation_id: {:?}\n\
+                    group_id = %conversation_id,
+                    "Detected forked state\n\
                             Local log: {:?}\n\
                             Remote log: {:?}",
-                    conversation_id,
                     local_log,
                     matching_remote_log
                 );

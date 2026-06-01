@@ -288,6 +288,30 @@ impl RetryableError for SubscribeError {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for SubscribeError {
+    /// Forwards a dropped-pool signal so the device-sync worker stops on
+    /// disconnect. `BoxError` wraps an opaque error we can't introspect → `false`.
+    fn needs_db_reconnect(&self) -> bool {
+        use SubscribeError::*;
+        match self {
+            Group(e) => e.needs_db_reconnect(),
+            Storage(e) => e.db_needs_connection(),
+            Db(c) => c.db_needs_connection(),
+            GroupMessageNotFound
+            | ReceiveGroup(_)
+            | Decode(_)
+            | NotFound(_)
+            | MessageStream(_)
+            | ConversationStream(_)
+            | ApiClient(_)
+            | BoxError(_)
+            | Conversion(_)
+            | Envelope(_)
+            | Enriched(_) => false,
+        }
+    }
+}
+
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext + 'static,
