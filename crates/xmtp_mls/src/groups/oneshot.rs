@@ -99,7 +99,7 @@ impl Oneshot {
         sender_installation_id: Vec<u8>,
         metadata: GroupMetadata,
     ) -> Result<(), GroupError> {
-        tracing::info!("Processing oneshot welcome");
+        tracing::debug!("Processing oneshot welcome");
         if let Some(message) = metadata.oneshot_message {
             Self::process_message(provider, sender_inbox_id, sender_installation_id, message)?;
         } else {

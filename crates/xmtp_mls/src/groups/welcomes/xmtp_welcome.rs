@@ -250,7 +250,7 @@ where
         decrypted_welcome: DecryptedWelcome,
         events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
-        tracing::info!("attempting to commit welcome={}", &self.welcome.cursor);
+        tracing::debug!("attempting to commit welcome={}", &self.welcome.cursor);
         let commit_result = self.context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             // Savepoint transaction
@@ -311,7 +311,7 @@ where
             return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
         }
         if *cursor_increment {
-            tracing::info!("updating cursor to {}", welcome.cursor);
+            tracing::debug!("updating cursor to {}", welcome.cursor);
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
             db.update_cursor(
@@ -492,7 +492,7 @@ where
             }
         };
 
-        tracing::info!("storing group with welcome id {}", welcome.cursor);
+        tracing::debug!("storing group with welcome id {}", welcome.cursor);
 
         // If this is a re-add after leaving, update the existing group's membership state
         // before calling insert_or_replace_group
@@ -574,10 +574,7 @@ where
 
         added_msg.store_or_ignore(&db)?;
 
-        tracing::info!(
-            "[{}]: Created GroupUpdated message for welcome",
-            current_inbox_id
-        );
+        tracing::debug!("created GroupUpdated message for welcome, inbox_id={current_inbox_id}");
 
         let group = MlsGroup::new(
             context.clone(),
@@ -614,7 +611,7 @@ where
             cursor,
         )?;
 
-        tracing::info!(
+        tracing::debug!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
             group_id = %group.group_id,

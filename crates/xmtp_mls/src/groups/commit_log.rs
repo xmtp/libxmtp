@@ -266,7 +266,7 @@ where
             Ok(_) => {
                 // Publishing was successful, let's update every group's cursor
                 for conversation_cursor_info in &conversation_cursor_info {
-                    tracing::info!(
+                    tracing::debug!(
                         "Updating publish cursor for conversation {}",
                         hex::encode(&conversation_cursor_info.conversation_id)
                     );
@@ -422,7 +422,7 @@ where
 
         // Skip API call if there are no requests to make
         if query_log_requests.is_empty() {
-            tracing::info!("No commit log requests to query");
+            tracing::debug!("No commit log requests to query");
             return Ok(HashMap::new());
         }
 
@@ -646,7 +646,7 @@ where
             return Ok(());
         }
 
-        tracing::info!(group_id = %group_id, "Sending readd request");
+        tracing::debug!(group_id = %group_id, "Sending readd request");
 
         // Send oneshot message with readd request to super admins
         let latest_commit_sequence_id =
@@ -663,14 +663,14 @@ where
             })),
         };
         let readders = self.permitted_readders(&group_id).await?;
-        tracing::info!(
+        tracing::debug!(
             group_id = %group_id,
             "Sending readd request to {:?}",
             readders
         );
         Oneshot::send_message(self.context.clone(), readders, oneshot_message).await?;
 
-        tracing::info!(group_id = %group_id, "Sent readd request",);
+        tracing::debug!(group_id = %group_id, "Sent readd request",);
 
         // Mark readd as requested
         conn.update_requested_at_sequence_id(
@@ -679,7 +679,7 @@ where
             latest_commit_sequence_id as i64,
         )?;
 
-        tracing::info!(
+        tracing::debug!(
             group_id = %group_id,
             sequence_id = latest_commit_sequence_id,
             "Updated requested readd sequence id",
@@ -746,7 +746,11 @@ where
         let conn = self.context.db();
         let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
 
-        tracing::info!(
+        // Runs every worker tick (~2s); only speak when there's actually work.
+        if groups_for_readd.is_empty() {
+            return Ok(());
+        }
+        tracing::debug!(
             "Processing readd requests for {} groups",
             groups_for_readd.len()
         );
