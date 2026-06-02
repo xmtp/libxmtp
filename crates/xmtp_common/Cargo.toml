@@ -51,6 +51,12 @@ tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
+# OpenTelemetry (native only — OTLP/tonic is not wasm-compatible). Opt-in via `otel`.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 [dev-dependencies]
 once_cell.workspace = true
@@ -85,6 +91,15 @@ parking_lot.workspace = true
 
 [features]
 logging = ["dep:tracing-subscriber"]
+# OpenTelemetry traces + metrics export (native only). Provides telemetry::*.
+otel = [
+  "dep:tracing-subscriber",
+  "dep:opentelemetry",
+  "dep:opentelemetry_sdk",
+  "dep:opentelemetry-otlp",
+  "dep:opentelemetry-semantic-conventions",
+  "dep:tracing-opentelemetry",
+]
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",

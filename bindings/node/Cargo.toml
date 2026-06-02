@@ -64,6 +64,10 @@ toxiproxy_rust.workspace = true
 volumes = ["__LIB12_DEP=../"]
 
 [features]
+# OpenTelemetry traces + per-RPC metrics export. When built with this feature,
+# setting OTEL_EXPORTER_OTLP_ENDPOINT (or the `otelEndpoint` log option) installs
+# OTLP exporters; otherwise it is a no-op.
+otel = ["xmtp_common/otel"]
 test-utils = [
   "dep:xmtp_api_grpc",
   "xmtp_api_grpc/test-utils",

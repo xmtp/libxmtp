@@ -18,6 +18,45 @@ use xmtp_mls::identity::IdentityStrategy;
 
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
+// Keeps the OTel SDK providers alive for the process lifetime; dropping it would
+// stop trace/metric export. Only used when built with the `otel` feature.
+#[cfg(feature = "otel")]
+static OTEL_GUARD: std::sync::OnceLock<Option<xmtp_common::telemetry::TelemetryGuard>> =
+  std::sync::OnceLock::new();
+
+// Returns the OTel trace layer (and stores the guard) when the `otel` feature is
+// on AND an OTLP endpoint is configured. A no-op layer otherwise so the registry
+// type is uniform across feature states.
+fn otel_layer<S>() -> Option<impl tracing_subscriber::Layer<S>>
+where
+  S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+  #[cfg(feature = "otel")]
+  {
+    // Only initialize when an endpoint is configured, to avoid spawning
+    // exporters that log connection errors in environments without a collector.
+    let configured = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok()
+      || std::env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").is_ok();
+    if !configured {
+      return None;
+    }
+    match xmtp_common::telemetry::init() {
+      Ok((layer, guard)) => {
+        let _ = OTEL_GUARD.set(Some(guard));
+        return Some(layer);
+      }
+      Err(e) => {
+        tracing::warn!("failed to initialize OpenTelemetry export: {e}");
+        return None;
+      }
+    }
+  }
+  #[cfg(not(feature = "otel"))]
+  {
+    None::<tracing_subscriber::layer::Identity>
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
@@ -33,11 +72,16 @@ fn init_logging(options: LogOptions) -> Result<()> {
           .with_level(true)
           .with_target(true);
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+        tracing_subscriber::registry()
+          .with(filter)
+          .with(fmt)
+          .with(otel_layer())
+          .init();
       } else {
         tracing_subscriber::registry()
           .with(fmt::layer())
           .with(filter)
+          .with(otel_layer())
           .init();
       }
       Ok(())
