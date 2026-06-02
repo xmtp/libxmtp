@@ -1,5 +1,7 @@
 use crate::error::GrpcBuilderError;
 use http::Request;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::{body::Body, client::GrpcService};
@@ -76,10 +78,36 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
         .rate_limit(limit, Duration::from_secs(60))
 }
 
+/// Cache of fully-built TLS endpoints, keyed by `(host, rate_limit)`.
+///
+/// Building the endpoint runs `ClientTlsConfig::with_enabled_roots()`, which
+/// makes tonic call `rustls_native_certs::load_native_certs()` and parse the
+/// whole OS trust store into a rustls `ClientConfig` on *every* call. On macOS
+/// that read is serialized through Security.framework (~40ms each), so callers
+/// that create many clients (e.g. loading 100 identities, each building an
+/// api + sync channel) paid it hundreds of times.
+///
+/// The built `Endpoint` owns an `Arc<ClientConfig>` with the parsed roots, so
+/// caching it and calling `connect_lazy()` on a clone pays that cost once per
+/// host while still handing every client its own connection (`connect_lazy`
+/// builds a fresh `Channel`). The cache key includes `limit` because it feeds
+/// the endpoint's rate-limit option.
+static TLS_ENDPOINTS: LazyLock<Mutex<HashMap<(String, u64), Endpoint>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn create_tls_channel(address: String, limit: u64) -> Result<Channel, GrpcBuilderError> {
-    let channel = apply_channel_options(Channel::from_shared(address)?, limit)
-        .tls_config(ClientTlsConfig::new().with_enabled_roots())?
-        .connect_lazy();
-    Ok(channel)
+    // Hold the lock across the (one-time, per-key) build so concurrent callers
+    // for the same host load native certs exactly once instead of racing.
+    let mut endpoints = TLS_ENDPOINTS.lock().unwrap_or_else(|e| e.into_inner());
+    let endpoint = match endpoints.get(&(address.clone(), limit)) {
+        Some(endpoint) => endpoint.clone(),
+        None => {
+            let endpoint = apply_channel_options(Channel::from_shared(address.clone())?, limit)
+                .tls_config(ClientTlsConfig::new().with_enabled_roots())?;
+            endpoints.insert((address, limit), endpoint.clone());
+            endpoint
+        }
+    };
+    Ok(endpoint.connect_lazy())
 }

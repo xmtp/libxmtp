@@ -208,6 +208,50 @@ fn existing_client_inner_for(
     Ok(client)
 }
 
+/// Build clients for `identities` across many threads.
+///
+/// Each open is blocking SQLite + MLS work (no network — channels are
+/// lazy), so we heavily oversubscribe cores: `num_cpus * 10`. Identities
+/// are spread round-robin into per-thread buckets (moved, so we only need
+/// `Identity: Send`, not `Sync`, and need no shared lock). Each worker
+/// enters the current Tokio runtime context so `client_from_identity`
+/// behaves exactly as it did on the calling worker thread. Returns one
+/// `(inbox_id, result)` per identity in arbitrary order; callers decide
+/// whether to skip or propagate failures.
+fn load_clients_parallel(identities: Vec<Identity>) -> Vec<(InboxId, Result<crate::DbgClient>)> {
+    let n = identities.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let fanout = (num_cpus::get() * 10).clamp(1, n);
+    let handle = tokio::runtime::Handle::try_current().ok();
+
+    let mut buckets: Vec<Vec<Identity>> = (0..fanout).map(|_| Vec::new()).collect();
+    for (i, identity) in identities.into_iter().enumerate() {
+        buckets[i % fanout].push(identity);
+    }
+
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = buckets
+            .into_iter()
+            .map(|bucket| {
+                let handle = handle.clone();
+                scope.spawn(move || {
+                    let _guard = handle.as_ref().map(|h| h.enter());
+                    bucket
+                        .into_iter()
+                        .map(|identity| (identity.inbox_id, client_from_identity(&identity)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().expect("client load thread panicked"))
+            .collect()
+    })
+}
+
 /// Loads all identities. Honors `App::strict_versioning()`: when set,
 /// reads only this binary's version partition; otherwise reads every
 /// version on the network.
@@ -230,9 +274,8 @@ pub fn load_all_identities(
     let now = std::time::Instant::now();
     let mut clients = HashMap::new();
     let mut skipped = 0u32;
-    for identity in identities {
-        let inbox_id = identity.inbox_id;
-        match client_from_identity(&identity) {
+    for (inbox_id, result) in load_clients_parallel(identities) {
+        match result {
             Ok(client) => {
                 clients.insert(inbox_id, Mutex::new(client));
             }
@@ -292,14 +335,9 @@ pub fn load_n_identities(
         now.elapsed()
     );
     let now = std::time::Instant::now();
-    let clients = identities
+    let clients = load_clients_parallel(identities)
         .into_iter()
-        .map(|id| {
-            Ok::<_, eyre::Report>((
-                id.inbox_id,
-                Arc::new(Mutex::new(client_from_identity(&id)?)),
-            ))
-        })
+        .map(|(inbox_id, result)| Ok::<_, eyre::Report>((inbox_id, Arc::new(Mutex::new(result?)))))
         .collect::<Result<HashMap<_, _>, _>>()?;
     tracing::info!(
         "took {:?} to load {} xmtp clients",
