@@ -53,13 +53,17 @@ impl Drop for TelemetryGuard {
     }
 }
 
-/// Build the OTel resource (service.name etc.) attached to all telemetry.
-fn resource() -> Resource {
+/// Build the OTel resource (service.name + version + caller-supplied attrs)
+/// attached to all telemetry.
+fn resource(extra: Vec<(String, String)>) -> Resource {
     let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "libxmtp".to_string());
-    Resource::builder()
+    let mut builder = Resource::builder()
         .with_service_name(service_name)
-        .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
-        .build()
+        .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")));
+    for (k, v) in extra {
+        builder = builder.with_attribute(KeyValue::new(k, v));
+    }
+    builder.build()
 }
 
 /// Initialize OTLP traces + metrics export.
@@ -71,7 +75,9 @@ fn resource() -> Resource {
 /// Returns the tracing layer to register on the subscriber and a guard that must
 /// be kept alive for the process lifetime. Returns `Err` only if an exporter
 /// fails to build (e.g. a malformed endpoint).
-pub fn init<S>() -> Result<
+pub fn init<S>(
+    resource_attrs: Vec<(String, String)>,
+) -> Result<
     (
         tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
         TelemetryGuard,
@@ -81,7 +87,7 @@ pub fn init<S>() -> Result<
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
-    let resource = resource();
+    let resource = resource(resource_attrs);
 
     // ---- Traces ----
     let span_exporter = opentelemetry_otlp::SpanExporter::builder()

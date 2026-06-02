@@ -89,7 +89,7 @@ Two instruments, OTEL semantic-convention-aligned, **low cardinality**.
 histogram  xmtp.mls.operation.duration   unit = s
    buckets  [.01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30]
    attrs    operation     (bounded enum: sync | sync_with_conn | send_message | intent | sync_all_groups | …)
-            intent_kind   (only when operation = "intent"; from the IntentKind enum, ~10 variants)
+            intent_kind   (DEFERRED — not emitted in this slice; see note)
    → count = call rate, p50/p95/p99 = latency, per operation
 
 counter    xmtp.mls.operation.errors     monotonic
@@ -97,10 +97,16 @@ counter    xmtp.mls.operation.errors     monotonic
             error_kind    (the ErrorCode variant string, e.g. "GroupError::Sync"; bounded)
 ```
 
+> **intent_kind note:** the `MetricsLayer` supports an `intent_kind` attribute,
+> but the `sync_until_intent_resolved` chokepoint only has `intent_id` in scope —
+> fetching the kind would cost an extra DB query for a label. So this slice emits
+> `operation="intent"` **without** `intent_kind`; the breakdown is a follow-up
+> (record it at a site that already holds the kind, or derive from the store).
+
 ### Cardinality guardrails
 
 - Attributes are a **fixed bounded set**. `operation` is a hand-written set of
-  the chokepoints; `intent_kind` is the existing `IntentKind` enum; `error_kind`
+  the chokepoints; `intent_kind` (when present) is the existing `IntentKind` enum; `error_kind`
   is the existing `ErrorCode` variant string.
 - **Never** use `group_id`, `inbox_id`, cursor, request id, or a raw/formatted
   error message as an attribute.
