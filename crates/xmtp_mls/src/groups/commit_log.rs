@@ -232,11 +232,16 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), CommitLogError> {
-        let mut worker_interval = DEFAULT_INTERVAL_DURATION;
+        // Precedence: fork-recovery override (clamped to >=2s) > WorkerConfig >
+        // const default. Fork recovery wins because its cadence is tied to
+        // recovery-protocol timing, not general worker tuning.
+        let (mut worker_interval, jitter) = self
+            .context
+            .worker_interval(WorkerKind::CommitLog, DEFAULT_INTERVAL_DURATION);
         if let Some(interval) = self.context.fork_recovery_opts().worker_interval_ns {
             worker_interval = Duration::from_nanos(interval).max(Duration::from_secs(2));
         }
-        let mut intervals = xmtp_common::time::interval_stream(worker_interval);
+        let mut intervals = xmtp_common::time::jittered_interval_stream(worker_interval, jitter);
         while (intervals.next().await).is_some() {
             self.tick().await?;
         }

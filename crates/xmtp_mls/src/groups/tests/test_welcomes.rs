@@ -161,6 +161,7 @@ async fn test_spoofed_inbox_id() {
         scw_verifier: alix.context.scw_verifier.clone(),
         device_sync: alix.context.device_sync.clone(),
         fork_recovery_opts: alix.context.fork_recovery_opts.clone(),
+        worker_config: alix.context.worker_config.clone(),
         task_channels: alix.context.task_channels.clone(),
         worker_metrics: alix.context.worker_metrics.clone(),
         cancellation_token: alix.context.cancellation_token.clone(),

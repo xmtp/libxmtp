@@ -166,9 +166,17 @@ where
     }
 
     async fn tick(ctx: Context) {
-        loop {
-            xmtp_common::time::sleep(Duration::from_secs(20)).await;
-
+        use futures::StreamExt;
+        let (base, jitter) = ctx.worker_interval(
+            crate::worker::WorkerKind::DeviceSync,
+            Duration::from_secs(20),
+        );
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        // The interval stream yields immediately on its first poll; skip that
+        // so the first Tick is sent only after a full interval, preserving the
+        // original sleep-then-send cadence.
+        let _ = intervals.next().await;
+        while intervals.next().await.is_some() {
             // We don't need to worry about a mutex lock for device sync
             // to ensure that a sync payload is not being processed by two
             // threads at once because there should only ever be one sync worker

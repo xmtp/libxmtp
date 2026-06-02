@@ -108,6 +108,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
+    pub(crate) worker_config: crate::worker::WorkerConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,6 +168,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: None,
             cursor_store: None,
             disable_workers: false,
+            worker_config: crate::worker::WorkerConfig::default(),
         }
     }
 }
@@ -198,6 +200,7 @@ where
             sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
             disable_workers: false,
+            worker_config: client.context.worker_config.clone(),
         }
     }
 }
@@ -241,6 +244,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut sync_api_client,
             // cursor_store,
             disable_workers,
+            worker_config,
             ..
         } = self;
 
@@ -299,6 +303,24 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .await?;
         }
 
+        // Fold the legacy single-worker toggles into the unified enable map so
+        // there is one source of truth for "is worker X enabled". The old
+        // fields keep working; they just write here. `disable_workers` stays a
+        // separate global kill-switch checked at registration.
+        let mut worker_config = worker_config;
+        if matches!(device_sync_worker_mode, DeviceSyncMode::Disabled) {
+            worker_config
+                .enabled
+                .entry(crate::worker::WorkerKind::DeviceSync)
+                .or_insert(false);
+        }
+        if disable_commit_log_worker {
+            worker_config
+                .enabled
+                .entry(crate::worker::WorkerKind::CommitLog)
+                .or_insert(false);
+        }
+
         let (local_events, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
@@ -317,6 +339,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 mode: device_sync_worker_mode,
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
+            worker_config,
 
             sync_api_client,
             worker_metrics: workers.metrics().clone(),
@@ -327,33 +350,50 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // register workers
         if !disable_workers {
-            if context.device_sync_worker_enabled() {
+            use crate::worker::WorkerKind;
+            // One source of truth for enablement: the folded WorkerConfig map.
+            let enabled = |k| context.worker_config().worker_enabled(k);
+
+            // Keep the original `device_sync_worker_enabled()` AND-check to
+            // preserve the exact legacy semantics alongside the map gate.
+            if enabled(WorkerKind::DeviceSync) && context.device_sync_worker_enabled() {
                 workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
             }
-            workers
-                .register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
-            workers
-                .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
-            workers
-                .register_new_worker::<PendingSelfRemoveWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
+            if enabled(WorkerKind::KeyPackageCleaner) {
+                workers
+                    .register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
+                        context.clone(),
+                    );
+            }
+            if enabled(WorkerKind::DisappearingMessages) {
+                workers
+                    .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
+                        context.clone(),
+                    );
+            }
+            if enabled(WorkerKind::PendingSelfRemove) {
+                workers
+                    .register_new_worker::<PendingSelfRemoveWorker<ContextParts<ApiClient, S, Db>>, _>(
+                        context.clone(),
+                    );
+            }
             // Enable CommitLogWorker based on configuration
-            if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
+            if enabled(WorkerKind::CommitLog)
+                && xmtp_configuration::ENABLE_COMMIT_LOG
+                && !disable_commit_log_worker
+            {
                 workers.register_new_worker::<
                 crate::groups::commit_log::CommitLogWorker<ContextParts<ApiClient, S, Db>>,
                 _,
                 >(context.clone());
             }
-            workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
-                context.clone(),
-            );
+            if enabled(WorkerKind::TaskRunner) {
+                workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
+                    context.clone(),
+                );
+            }
         }
 
         let workers = Arc::new(workers);
@@ -415,6 +455,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -450,6 +491,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         })
     }
 
@@ -469,6 +511,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -498,6 +541,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    /// Configure background-worker intervals, jitter, and per-worker
+    /// enablement. See [`crate::worker::WorkerConfig`].
+    pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
+        self.worker_config = cfg;
+        self
+    }
+
     pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
         // let api_retry = Retry::builder().build();
         // let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
@@ -517,6 +567,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -609,6 +660,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         })
     }
 
@@ -632,6 +684,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -664,6 +717,31 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         })
+    }
+}
+
+#[cfg(test)]
+mod worker_registration_tests {
+    use crate::tester;
+    use crate::worker::{WorkerConfig, WorkerKind};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn disabled_worker_is_not_registered() {
+        let mut cfg = WorkerConfig::default();
+        cfg.enabled.insert(WorkerKind::DisappearingMessages, false);
+        tester!(alix, worker_config: cfg);
+
+        let kinds = alix.client.workers.registered_kinds();
+        assert!(
+            !kinds.contains(&WorkerKind::DisappearingMessages),
+            "disabled worker must not be registered, got {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&WorkerKind::KeyPackageCleaner),
+            "un-disabled worker must still be registered, got {kinds:?}"
+        );
     }
 }

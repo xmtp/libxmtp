@@ -103,7 +103,10 @@ where
 {
     async fn run(&mut self) -> Result<(), PendingSelfRemoveWorkerError> {
         tracing::info!("PendingSelfRemove worker started");
-        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        let (base, jitter) = self
+            .context
+            .worker_interval(WorkerKind::PendingSelfRemove, INTERVAL_DURATION);
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
         while (intervals.next().await).is_some() {
             self.remove_pending_remove_users().await?;
         }

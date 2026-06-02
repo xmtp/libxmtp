@@ -246,7 +246,8 @@ where
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .maybe_version(self.version.clone())
             .with_commit_log_worker(self.commit_log_worker)
-            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
+            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default())
+            .worker_config(self.worker_config.clone().unwrap_or_default());
 
         if self.in_memory_cursors {
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
@@ -455,6 +456,7 @@ where
     /// whether this builder represents a second installation
     pub installation: bool,
     pub disable_workers: bool,
+    pub worker_config: Option<crate::worker::WorkerConfig>,
 }
 
 #[derive(Clone)]
@@ -490,6 +492,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             snapshot: None,
             snapshot_path: None,
             disable_workers: false,
+            worker_config: None,
         }
     }
 }
@@ -521,6 +524,7 @@ where
             snapshot: self.snapshot,
             snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -584,6 +588,11 @@ where
 
     pub fn disable_workers(mut self) -> Self {
         self.disable_workers = true;
+        self
+    }
+
+    pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
+        self.worker_config = Some(cfg);
         self
     }
 

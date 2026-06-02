@@ -116,26 +116,45 @@ fn rand_offset(jitter: crate::time::Duration) -> crate::time::Duration {
 pub fn jittered_interval_stream(
     base: crate::time::Duration,
     jitter: crate::time::Duration,
-) -> impl futures::Stream<Item = crate::time::Instant> {
+) -> impl futures::Stream<Item = crate::time::Instant> + Unpin {
     use futures::StreamExt;
 
-    if jitter.is_zero() {
-        return interval_stream(base).left_stream();
-    }
-
-    let startup_offset = rand_offset(jitter);
-    // Sleep the startup offset once, then on every base-interval tick sleep an
-    // additional per-tick jitter before yielding the instant.
-    futures::stream::once(async move {
-        sleep(startup_offset).await;
-    })
-    .flat_map(move |_| {
-        interval_stream(base).then(move |instant| async move {
-            sleep(rand_offset(jitter)).await;
-            instant
+    // The jittered branch composes `then`/`flat_map` over per-tick sleep
+    // futures, which makes the stream `!Unpin`. Workers consume the stream by
+    // value in a `while let` loop (like `interval_stream`), so box it to keep
+    // the same `Unpin` ergonomics. Native must stay `Send` (workers spawn on a
+    // multi-thread runtime); wasm cannot require `Send`.
+    let jittered = move || {
+        let startup_offset = rand_offset(jitter);
+        // Sleep the startup offset once, then on every base-interval tick sleep
+        // an additional per-tick jitter before yielding the instant.
+        futures::stream::once(async move {
+            sleep(startup_offset).await;
         })
-    })
-    .right_stream()
+        .flat_map(move |_| {
+            interval_stream(base).then(move |instant| async move {
+                sleep(rand_offset(jitter)).await;
+                instant
+            })
+        })
+    };
+
+    wasm_or_native! {
+        wasm => {
+            if jitter.is_zero() {
+                interval_stream(base).boxed_local()
+            } else {
+                jittered().boxed_local()
+            }
+        },
+        native => {
+            if jitter.is_zero() {
+                interval_stream(base).boxed()
+            } else {
+                jittered().boxed()
+            }
+        },
+    }
 }
 
 #[cfg(test)]
