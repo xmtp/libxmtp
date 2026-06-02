@@ -73,6 +73,12 @@ struct Args {
     /// (No auth — the V3 backend doesn't gate subscribe.)
     #[arg(long)]
     subscribe_group: Option<String>,
+
+    /// SUBSCRIBE MODE: on disconnect, re-subscribe and keep going (logging every
+    /// disconnect with timestamp + reason). Turns a one-shot into a multi-day
+    /// trap that catches every black-hole event, not just the first per stream.
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    reconnect: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +100,8 @@ struct ConnResult {
     outcome: Outcome,
     /// Payloads received (subscribe mode only).
     received: u64,
+    /// Disconnect events survived via reconnect (subscribe mode only).
+    disconnects: u64,
 }
 
 #[tokio::main]
@@ -195,40 +203,48 @@ async fn run_connection(
         Some(group_hex) => run_subscribe(id, args, group_hex).await,
         None => establish_and_hold(args, host, port, tls)
             .await
-            .map(|(o, life)| (o, life, 0u64)),
+            .map(|(o, life)| (o, life, 0u64, 0u64)),
     };
     match result {
-        Ok((outcome, lifetime, received)) => ConnResult {
+        Ok((outcome, lifetime, received, disconnects)) => ConnResult {
             id,
             lifetime,
             outcome,
             received,
+            disconnects,
         },
         Err(e) => ConnResult {
             id,
             lifetime: start.elapsed(),
             outcome: Outcome::SetupError(format!("{e:#}")),
             received: 0,
+            disconnects: 0,
         },
     }
 }
 
-/// SUBSCRIBE MODE: open one `MlsApi/SubscribeGroupMessages` stream to `group_hex`
-/// using a tonic channel with the same configurable keepalive, hold it, log every
-/// payload (then drop it), and report when/why the stream disconnects.
-async fn run_subscribe(
+/// How one subscribe incarnation ended.
+enum SubEnd {
+    /// Run duration elapsed while the stream was healthy.
+    Cutoff,
+    /// Stream ended (server EOF or transport error) — reason for the log.
+    Ended(String),
+}
+
+/// One `MlsApi/SubscribeGroupMessages` incarnation: subscribe, hold up to
+/// `budget`, return how it ended + payloads received + how long it lived.
+async fn subscribe_once(
     id: usize,
     args: &Args,
-    group_hex: &str,
-) -> Result<(Outcome, Duration, u64)> {
+    group_id: Vec<u8>,
+    budget: Duration,
+) -> Result<(SubEnd, u64, Duration)> {
     use tonic::codegen::http::uri::PathAndQuery;
     use tonic::transport::{ClientTlsConfig, Endpoint};
     use tonic_prost::ProstCodec;
     use xmtp_proto::mls_v1::{
         GroupMessage, SubscribeGroupMessagesRequest, subscribe_group_messages_request::Filter,
     };
-
-    let group_id = hex::decode(group_hex.trim_start_matches("0x")).context("group id not hex")?;
 
     let mut ep = Endpoint::from_shared(args.endpoint.clone())
         .context("bad --endpoint")?
@@ -259,7 +275,7 @@ async fn run_subscribe(
         .await
         .context("subscribe call")?;
     let mut stream = resp.into_inner();
-    tracing::info!(id, "subscribed; holding stream");
+    tracing::debug!(id, "subscribed; holding stream");
 
     let connected = Instant::now();
     let mut received = 0u64;
@@ -279,16 +295,89 @@ async fn run_subscribe(
                         "payload received (dropped)"
                     );
                 }
-                Ok(None) => return Outcome::Closed, // server ended the stream
-                Err(status) => return Outcome::Died(status.to_string()),
+                Ok(None) => return SubEnd::Ended("server closed stream".into()),
+                Err(status) => return SubEnd::Ended(status.to_string()),
             }
         }
     };
-    let outcome = match tokio::time::timeout(args.duration, recv_loop).await {
-        Err(_) => Outcome::Survived,
-        Ok(o) => o,
+    let end = match tokio::time::timeout(budget, recv_loop).await {
+        Err(_) => SubEnd::Cutoff,
+        Ok(e) => e,
     };
-    Ok((outcome, connected.elapsed(), received))
+    Ok((end, received, connected.elapsed()))
+}
+
+/// SUBSCRIBE MODE: hold a stream to `group_hex` for the run duration. With
+/// `--reconnect` (default), every disconnect is logged with timestamp + reason
+/// and the stream is re-established — so a long run traps every black-hole event.
+/// Returns (final outcome, total runtime, payloads received, disconnect count).
+async fn run_subscribe(
+    id: usize,
+    args: &Args,
+    group_hex: &str,
+) -> Result<(Outcome, Duration, u64, u64)> {
+    let group_id = hex::decode(group_hex.trim_start_matches("0x")).context("group id not hex")?;
+    let overall = Instant::now();
+    let mut received_total = 0u64;
+    let mut disconnects = 0u64;
+    const BACKOFF: Duration = Duration::from_secs(1);
+
+    loop {
+        let budget = args.duration.saturating_sub(overall.elapsed());
+        if budget < Duration::from_secs(1) {
+            return Ok((
+                Outcome::Survived,
+                overall.elapsed(),
+                received_total,
+                disconnects,
+            ));
+        }
+        match subscribe_once(id, args, group_id.clone(), budget).await {
+            Ok((SubEnd::Cutoff, rx, _)) => {
+                received_total += rx;
+                return Ok((
+                    Outcome::Survived,
+                    overall.elapsed(),
+                    received_total,
+                    disconnects,
+                ));
+            }
+            Ok((SubEnd::Ended(reason), rx, life)) => {
+                received_total += rx;
+                disconnects += 1;
+                let lived = humantime::format_duration(round_secs(life));
+                tracing::warn!(id, %lived, n = disconnects, "DISCONNECTED: {reason}");
+                if !args.reconnect {
+                    return Ok((
+                        Outcome::Died(reason),
+                        overall.elapsed(),
+                        received_total,
+                        disconnects,
+                    ));
+                }
+                tokio::time::sleep(BACKOFF).await;
+            }
+            Err(e) => {
+                // First attempt failing is a genuine setup error — surface it.
+                if disconnects == 0 && received_total == 0 {
+                    return Err(e);
+                }
+                // A re-subscribe failed (server briefly unreachable): count it as a
+                // disconnect, back off, and keep trapping until the run ends.
+                disconnects += 1;
+                tracing::warn!(id, n = disconnects, "RECONNECT FAILED: {e:#}");
+                if !args.reconnect {
+                    return Ok((
+                        Outcome::Died(format!("{e:#}")),
+                        overall.elapsed(),
+                        received_total,
+                        disconnects,
+                    ));
+                }
+                tokio::time::sleep(BACKOFF).await;
+            }
+        }
+    }
 }
 
 /// Establish one TLS+H2 connection, hold it idle, and await its death (or the
@@ -345,10 +434,11 @@ async fn establish_and_hold(
 fn log_result(r: &ConnResult) {
     let life = humantime::format_duration(round_secs(r.lifetime));
     let rx = r.received;
+    let dc = r.disconnects;
     match &r.outcome {
-        Outcome::Died(e) => tracing::warn!(id = r.id, %life, rx, "DISCONNECTED: {e}"),
-        Outcome::Closed => tracing::info!(id = r.id, %life, rx, "closed (graceful)"),
-        Outcome::Survived => tracing::info!(id = r.id, %life, rx, "alive at cutoff"),
+        Outcome::Died(e) => tracing::warn!(id = r.id, %life, rx, dc, "DISCONNECTED: {e}"),
+        Outcome::Closed => tracing::info!(id = r.id, %life, rx, dc, "closed (graceful)"),
+        Outcome::Survived => tracing::info!(id = r.id, %life, rx, dc, "alive at cutoff"),
         Outcome::SetupError(e) => tracing::error!(id = r.id, %life, "setup error: {e}"),
     }
 }
@@ -379,8 +469,10 @@ fn summarize(results: &[ConnResult], requested: usize) {
     println!("  survived:  {survived}");
     println!("setup errors:{setup_err}");
     let total_rx: u64 = results.iter().map(|r| r.received).sum();
-    if total_rx > 0 {
+    let total_dc: u64 = results.iter().map(|r| r.disconnects).sum();
+    if total_rx > 0 || total_dc > 0 {
         println!("payloads received (subscribe mode): {total_rx}");
+        println!("disconnect events (reconnected):    {total_dc}");
     }
 
     if !died.is_empty() {
