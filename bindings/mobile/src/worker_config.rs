@@ -1,0 +1,42 @@
+use crate::worker::FfiWorkerKind;
+use xmtp_mls::worker::WorkerConfig;
+
+/// A single per-worker interval override.
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiWorkerIntervalOverride {
+    pub kind: FfiWorkerKind,
+    pub interval_ns: u64,
+}
+
+/// Tuning for the background worker scheduler. All fields optional; the empty
+/// record preserves default behavior (all workers enabled, const intervals,
+/// no jitter).
+#[derive(uniffi::Record, Debug, Clone, Default)]
+pub struct FfiWorkerConfig {
+    /// Global default interval for all workers, in nanoseconds.
+    pub default_interval_ns: Option<u64>,
+    /// Jitter added to de-synchronize fleets, in nanoseconds. 0/absent = none.
+    pub jitter_ns: Option<u64>,
+    /// Per-worker interval overrides (nanoseconds).
+    pub worker_intervals_ns: Vec<FfiWorkerIntervalOverride>,
+    /// Workers to disable. Anything not listed stays enabled.
+    pub disabled_workers: Vec<FfiWorkerKind>,
+}
+
+impl From<FfiWorkerConfig> for WorkerConfig {
+    fn from(o: FfiWorkerConfig) -> Self {
+        let mut cfg = WorkerConfig {
+            default_interval_ns: o.default_interval_ns,
+            jitter_ns: o.jitter_ns,
+            ..Default::default()
+        };
+        for ov in o.worker_intervals_ns {
+            cfg.interval_overrides
+                .insert(ov.kind.into(), ov.interval_ns);
+        }
+        for k in o.disabled_workers {
+            cfg.enabled.insert(k.into(), false);
+        }
+        cfg
+    }
+}

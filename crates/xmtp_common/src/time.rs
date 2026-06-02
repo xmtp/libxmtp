@@ -96,6 +96,67 @@ pub fn interval_stream(
     }
 }
 
+/// Draw a random delay in `[0, jitter]`. Mirrors the jitter draw in
+/// [`crate::retry`] so the same cross-platform `rand` path is exercised.
+fn rand_offset(jitter: crate::time::Duration) -> crate::time::Duration {
+    use rand::RngExt;
+    let distr = rand::distr::Uniform::new_inclusive(crate::time::Duration::ZERO, jitter).unwrap();
+    rand::rng().sample(distr)
+}
+
+/// Like [`interval_stream`], but de-synchronizes fleets of clients that boot
+/// together:
+/// - a one-time startup offset in `[0, jitter]` is awaited before the first
+///   tick, so clients booted at the same time don't tick in lockstep;
+/// - each subsequent tick adds a fresh random delay in `[0, jitter]`, so they
+///   don't re-converge over time.
+///
+/// `jitter == Duration::ZERO` degenerates to [`interval_stream`] and pulls no
+/// randomness — the zero-jitter path is byte-for-byte the old behavior.
+pub fn jittered_interval_stream(
+    base: crate::time::Duration,
+    jitter: crate::time::Duration,
+) -> impl futures::Stream<Item = crate::time::Instant> + Unpin {
+    use futures::StreamExt;
+
+    // The jittered branch composes `then`/`flat_map` over per-tick sleep
+    // futures, which makes the stream `!Unpin`. Workers consume the stream by
+    // value in a `while let` loop (like `interval_stream`), so box it to keep
+    // the same `Unpin` ergonomics. Native must stay `Send` (workers spawn on a
+    // multi-thread runtime); wasm cannot require `Send`.
+    let jittered = move || {
+        let startup_offset = rand_offset(jitter);
+        // Sleep the startup offset once, then on every base-interval tick sleep
+        // an additional per-tick jitter before yielding the instant.
+        futures::stream::once(async move {
+            sleep(startup_offset).await;
+        })
+        .flat_map(move |_| {
+            interval_stream(base).then(move |instant| async move {
+                sleep(rand_offset(jitter)).await;
+                instant
+            })
+        })
+    };
+
+    wasm_or_native! {
+        wasm => {
+            if jitter.is_zero() {
+                interval_stream(base).boxed_local()
+            } else {
+                jittered().boxed_local()
+            }
+        },
+        native => {
+            if jitter.is_zero() {
+                interval_stream(base).boxed()
+            } else {
+                jittered().boxed()
+            }
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +198,60 @@ mod tests {
     fn test_now_secs_returns_positive() {
         let secs = now_secs();
         assert!(secs > 0, "now_secs should return a positive value");
+    }
+
+    // Jitter tests rely on tokio's paused virtual clock, native-only.
+    #[cfg(not(target_arch = "wasm32"))]
+    mod jitter {
+        use super::super::jittered_interval_stream;
+        use crate::time::Duration;
+        use futures::StreamExt;
+
+        // Under `start_paused`, the runtime auto-advances the virtual clock to
+        // the next pending timer whenever all tasks are idle. So we measure how
+        // far the clock moved (`Instant::now` elapsed) rather than driving it by
+        // hand — that sidesteps ordering pitfalls between `advance` and when the
+        // stream's sleeps get armed.
+
+        #[tokio::test(start_paused = true)]
+        async fn zero_jitter_uses_base_period() {
+            let base = Duration::from_secs(10);
+            let start = tokio::time::Instant::now();
+            let mut s = Box::pin(jittered_interval_stream(base, Duration::ZERO));
+            // First tick is immediate (tokio interval fires at t=0, no offset).
+            s.next().await.unwrap();
+            assert_eq!(start.elapsed(), Duration::ZERO, "first tick is immediate");
+            // Second tick lands exactly `base` later — no jitter.
+            s.next().await.unwrap();
+            assert_eq!(start.elapsed(), base, "second tick after exactly base");
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn jitter_keeps_ticks_within_bounds() {
+            let base = Duration::from_secs(10);
+            let jitter = Duration::from_secs(5);
+            let start = tokio::time::Instant::now();
+            let mut s = Box::pin(jittered_interval_stream(base, jitter));
+            // First yield = startup_offset + first per-tick jitter, each in
+            // [0, jitter]; the base interval fires at t=0. So [0, 2*jitter].
+            s.next().await.unwrap();
+            let first = start.elapsed();
+            assert!(
+                first <= jitter * 2,
+                "first tick within 2*jitter, got {first:?}"
+            );
+            // The underlying tokio interval anchors tick N at N*base, so its own
+            // schedule self-corrects for prior per-tick jitter. Yield N lands at
+            // startup_offset + N*base + jitter_N. The gap between consecutive
+            // yields is therefore base + (jitter_next - jitter_prev), bounded by
+            // [base - jitter, base + jitter].
+            s.next().await.unwrap();
+            let gap = start.elapsed() - first;
+            assert!(
+                gap >= base.saturating_sub(jitter),
+                "gap >= base - jitter, got {gap:?}"
+            );
+            assert!(gap <= base + jitter, "gap <= base + jitter, got {gap:?}");
+        }
     }
 }

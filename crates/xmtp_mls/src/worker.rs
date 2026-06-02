@@ -36,6 +36,55 @@ pub enum WorkerKind {
     PendingSelfRemove,
 }
 
+/// Configuration for the cadence and enablement of background workers.
+///
+/// `Default` (all-`None`, empty maps) reproduces the historical behavior:
+/// every worker enabled, each using its own compiled-in interval const, no
+/// jitter. All fields are opt-in so existing callers are unaffected.
+///
+/// Durations are nanoseconds, matching [`crate::builder::ForkRecoveryOpts`].
+#[derive(Clone, Debug, Default)]
+pub struct WorkerConfig {
+    /// Global fallback interval (ns) for any worker without a per-kind
+    /// override. `None` => each worker uses its own const default.
+    pub default_interval_ns: Option<u64>,
+    /// Optional jitter (ns). `None` or `0` => deterministic intervals.
+    pub jitter_ns: Option<u64>,
+    /// Per-worker interval override (ns). Wins over `default_interval_ns`.
+    pub interval_overrides: HashMap<WorkerKind, u64>,
+    /// Per-worker enable flag. An absent entry means enabled.
+    pub enabled: HashMap<WorkerKind, bool>,
+}
+
+impl WorkerConfig {
+    /// Resolve `(base, jitter)` for a worker.
+    ///
+    /// Base precedence: per-kind override > global default > `const_default`.
+    /// A resolved base of `0` is clamped to `const_default` to avoid a
+    /// pathological busy-loop. Jitter is the global `jitter_ns` (0 if unset).
+    pub fn interval(&self, kind: WorkerKind, const_default: Duration) -> (Duration, Duration) {
+        let base_ns = self
+            .interval_overrides
+            .get(&kind)
+            .copied()
+            .or(self.default_interval_ns);
+        let base = match base_ns {
+            Some(0) | None => const_default,
+            Some(ns) => Duration::from_nanos(ns),
+        };
+        let jitter = self
+            .jitter_ns
+            .map(Duration::from_nanos)
+            .unwrap_or(Duration::ZERO);
+        (base, jitter)
+    }
+
+    /// `true` unless an explicit `false` entry exists for `kind`.
+    pub fn worker_enabled(&self, kind: WorkerKind) -> bool {
+        self.enabled.get(&kind).copied().unwrap_or(true)
+    }
+}
+
 pub struct WorkerRunner {
     // When this is cloned into the Context this is empty, so the Context and Client have different views
     factories: Vec<DynFactory>,
@@ -86,6 +135,13 @@ impl WorkerRunner {
     /// cheap liveness check.
     pub fn is_running(&self) -> bool {
         self.handle.lock().is_some()
+    }
+
+    /// The kinds of every registered worker factory. Used in tests to assert
+    /// which workers a builder configuration registered.
+    #[cfg(test)]
+    pub(crate) fn registered_kinds(&self) -> Vec<WorkerKind> {
+        self.factories.iter().map(|f| f.kind()).collect()
     }
 }
 
@@ -420,5 +476,74 @@ mod disconnect_propagation_tests {
                 .needs_db_reconnect()
         );
         assert!(!KeyPackagesCleanerError::Storage(benign_storage()).needs_db_reconnect());
+    }
+}
+
+#[cfg(test)]
+mod worker_config_tests {
+    use super::{WorkerConfig, WorkerKind};
+    use std::time::Duration;
+
+    #[xmtp_common::test]
+    fn default_is_all_enabled_no_overrides() {
+        let cfg = WorkerConfig::default();
+        assert!(cfg.worker_enabled(WorkerKind::DeviceSync));
+        assert!(cfg.worker_enabled(WorkerKind::CommitLog));
+        let (base, jitter) = cfg.interval(WorkerKind::DisappearingMessages, Duration::from_secs(7));
+        assert_eq!(base, Duration::from_secs(7), "falls back to const default");
+        assert_eq!(jitter, Duration::ZERO, "no jitter by default");
+    }
+
+    #[xmtp_common::test]
+    fn per_kind_override_beats_global_default() {
+        let mut cfg = WorkerConfig {
+            default_interval_ns: Some(Duration::from_secs(3).as_nanos() as u64),
+            ..Default::default()
+        };
+        cfg.interval_overrides.insert(
+            WorkerKind::KeyPackageCleaner,
+            Duration::from_secs(9).as_nanos() as u64,
+        );
+        let (base, _) = cfg.interval(WorkerKind::KeyPackageCleaner, Duration::from_secs(99));
+        assert_eq!(base, Duration::from_secs(9), "per-kind override wins");
+        let (other, _) = cfg.interval(WorkerKind::CommitLog, Duration::from_secs(99));
+        assert_eq!(
+            other,
+            Duration::from_secs(3),
+            "global default for un-overridden worker"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn zero_resolved_base_clamps_to_const() {
+        let mut cfg = WorkerConfig::default();
+        cfg.interval_overrides.insert(WorkerKind::CommitLog, 0);
+        let (base, _) = cfg.interval(WorkerKind::CommitLog, Duration::from_secs(60));
+        assert_eq!(
+            base,
+            Duration::from_secs(60),
+            "zero base clamps to const default"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn jitter_is_carried() {
+        let cfg = WorkerConfig {
+            jitter_ns: Some(Duration::from_secs(2).as_nanos() as u64),
+            ..Default::default()
+        };
+        let (_, jitter) = cfg.interval(WorkerKind::TaskRunner, Duration::from_secs(1));
+        assert_eq!(jitter, Duration::from_secs(2));
+    }
+
+    #[xmtp_common::test]
+    fn disabled_entry_reports_false() {
+        let mut cfg = WorkerConfig::default();
+        cfg.enabled.insert(WorkerKind::DeviceSync, false);
+        assert!(!cfg.worker_enabled(WorkerKind::DeviceSync));
+        assert!(
+            cfg.worker_enabled(WorkerKind::CommitLog),
+            "absent => enabled"
+        );
     }
 }

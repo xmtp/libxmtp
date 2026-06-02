@@ -90,6 +90,7 @@ impl Clone for NewMockContext {
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
+            worker_config: self.worker_config.clone(),
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
@@ -128,6 +129,10 @@ impl XmtpSharedContext for NewMockContext {
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         &self.fork_recovery_opts
+    }
+
+    fn worker_config(&self) -> &crate::worker::WorkerConfig {
+        &self.worker_config
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {

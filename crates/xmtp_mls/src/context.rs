@@ -6,7 +6,7 @@ use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::tasks::TaskWorkerChannels;
-use crate::worker::{DynMetrics, MetricsCasting, WorkerKind};
+use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
@@ -50,6 +50,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
+    pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
@@ -124,6 +125,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
+            worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
             cancellation_token: self.cancellation_token,
@@ -208,6 +210,18 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
 
+    fn worker_config(&self) -> &WorkerConfig;
+
+    /// Resolve `(base, jitter)` for a worker from the configured
+    /// [`WorkerConfig`], falling back to the worker's compiled-in const.
+    fn worker_interval(
+        &self,
+        kind: WorkerKind,
+        const_default: std::time::Duration,
+    ) -> (std::time::Duration, std::time::Duration) {
+        self.worker_config().interval(kind, const_default)
+    }
+
     /// Creates a new MLS Provider
     fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, Self::MlsStorage> {
         XmtpOpenMlsProviderRef::new(self.mls_storage())
@@ -288,6 +302,10 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         &self.fork_recovery_opts
+    }
+
+    fn worker_config(&self) -> &WorkerConfig {
+        &self.worker_config
     }
 
     /// a reference to the MLS Storage Type
@@ -383,6 +401,10 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         <T as XmtpSharedContext>::fork_recovery_opts(self)
+    }
+
+    fn worker_config(&self) -> &WorkerConfig {
+        <T as XmtpSharedContext>::worker_config(self)
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {

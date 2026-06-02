@@ -41,6 +41,7 @@ pub async fn create_local_toxic_client(
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    None,
     log_options,
     allow_offline,
     None,

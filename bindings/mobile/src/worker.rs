@@ -81,3 +81,41 @@ impl From<FfiDeviceSyncMode> for DeviceSyncMode {
         }
     }
 }
+
+use xmtp_mls::worker::WorkerKind;
+
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FfiWorkerKind {
+    DeviceSync,
+    DisappearingMessages,
+    KeyPackageCleaner,
+    CommitLog,
+    TaskRunner,
+    PendingSelfRemove,
+}
+
+impl From<FfiWorkerKind> for WorkerKind {
+    fn from(k: FfiWorkerKind) -> Self {
+        match k {
+            FfiWorkerKind::DeviceSync => Self::DeviceSync,
+            FfiWorkerKind::DisappearingMessages => Self::DisappearingMessages,
+            FfiWorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
+            FfiWorkerKind::CommitLog => Self::CommitLog,
+            FfiWorkerKind::TaskRunner => Self::TaskRunner,
+            FfiWorkerKind::PendingSelfRemove => Self::PendingSelfRemove,
+        }
+    }
+}
+
+impl From<WorkerKind> for FfiWorkerKind {
+    fn from(k: WorkerKind) -> Self {
+        match k {
+            WorkerKind::DeviceSync => Self::DeviceSync,
+            WorkerKind::DisappearingMessages => Self::DisappearingMessages,
+            WorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
+            WorkerKind::CommitLog => Self::CommitLog,
+            WorkerKind::TaskRunner => Self::TaskRunner,
+            WorkerKind::PendingSelfRemove => Self::PendingSelfRemove,
+        }
+    }
+}

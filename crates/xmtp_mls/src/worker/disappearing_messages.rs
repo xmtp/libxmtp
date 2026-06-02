@@ -92,7 +92,10 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        let (base, jitter) = self
+            .context
+            .worker_interval(WorkerKind::DisappearingMessages, INTERVAL_DURATION);
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
         while (intervals.next().await).is_some() {
             self.delete_expired_messages().await?;
         }
