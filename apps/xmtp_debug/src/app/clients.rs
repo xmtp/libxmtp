@@ -208,10 +208,36 @@ fn existing_client_inner_for(
     Ok(client)
 }
 
+/// Build clients for `identities` concurrently.
+///
+/// Each open is blocking SQLite + MLS work (no network — channels are
+/// lazy), so we hand every client to Tokio's blocking pool via
+/// `spawn_blocking` and await them together rather than parking a runtime
+/// worker. Returns one `(inbox_id, result)` per identity; callers decide
+/// whether to skip or propagate failures.
+async fn load_clients_parallel(
+    identities: Vec<Identity>,
+) -> Vec<(InboxId, Result<crate::DbgClient>)> {
+    let tasks: Vec<_> = identities
+        .into_iter()
+        .map(|identity| {
+            tokio::task::spawn_blocking(move || {
+                (identity.inbox_id, client_from_identity(&identity))
+            })
+        })
+        .collect();
+
+    let mut clients = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        clients.push(task.await.expect("client load task panicked"));
+    }
+    clients
+}
+
 /// Loads all identities. Honors `App::strict_versioning()`: when set,
 /// reads only this binary's version partition; otherwise reads every
 /// version on the network.
-pub fn load_all_identities(
+pub async fn load_all_identities(
     store: &IdentityStore<'static>,
 ) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
     let identities: Vec<Identity> = if crate::app::App::strict_versioning() {
@@ -230,9 +256,8 @@ pub fn load_all_identities(
     let now = std::time::Instant::now();
     let mut clients = HashMap::new();
     let mut skipped = 0u32;
-    for identity in identities {
-        let inbox_id = identity.inbox_id;
-        match client_from_identity(&identity) {
+    for (inbox_id, result) in load_clients_parallel(identities).await {
+        match result {
             Ok(client) => {
                 clients.insert(inbox_id, Mutex::new(client));
             }
@@ -259,7 +284,7 @@ pub fn load_all_identities(
     Ok(Arc::new(clients))
 }
 
-pub fn load_n_identities(
+pub async fn load_n_identities(
     store: &IdentityStore<'static>,
     n: usize,
 ) -> Result<Arc<HashMap<InboxId, Arc<Mutex<crate::DbgClient>>>>> {
@@ -292,14 +317,10 @@ pub fn load_n_identities(
         now.elapsed()
     );
     let now = std::time::Instant::now();
-    let clients = identities
+    let clients = load_clients_parallel(identities)
+        .await
         .into_iter()
-        .map(|id| {
-            Ok::<_, eyre::Report>((
-                id.inbox_id,
-                Arc::new(Mutex::new(client_from_identity(&id)?)),
-            ))
-        })
+        .map(|(inbox_id, result)| Ok::<_, eyre::Report>((inbox_id, Arc::new(Mutex::new(result?)))))
         .collect::<Result<HashMap<_, _>, _>>()?;
     tracing::info!(
         "took {:?} to load {} xmtp clients",

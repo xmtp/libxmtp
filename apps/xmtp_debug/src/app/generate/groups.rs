@@ -55,7 +55,7 @@ impl GenerateGroups {
         );
         let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
 
-        let clients = load_n_identities(&self.identity_store, n)?;
+        let clients = load_n_identities(&self.identity_store, n).await?;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
         let groups = stream::iter(clients.iter())
