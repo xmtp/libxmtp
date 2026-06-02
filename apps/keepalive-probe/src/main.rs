@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
 use http_body_util::Empty;
@@ -61,6 +61,18 @@ struct Args {
     /// Delay between starting successive connections (avoid a boot thundering-herd).
     #[arg(long, default_value = "0ms", value_parser = humantime::parse_duration)]
     stagger: Duration,
+
+    /// Pin the TCP connection to this IP (TLS SNI still uses --endpoint's host).
+    /// Use to force all connections at one NLB IP for a clean packet capture.
+    #[arg(long)]
+    connect_ip: Option<String>,
+
+    /// SUBSCRIBE MODE: hex group id to open a real `MlsApi/SubscribeGroupMessages`
+    /// stream against (xdbg-style). When set, each connection holds one live
+    /// stream and logs received payloads + disconnects, instead of an idle conn.
+    /// (No auth — the V3 backend doesn't gate subscribe.)
+    #[arg(long)]
+    subscribe_group: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +92,8 @@ struct ConnResult {
     /// Connection lifetime (from handshake to death/cutoff); setup time on SetupError.
     lifetime: Duration,
     outcome: Outcome,
+    /// Payloads received (subscribe mode only).
+    received: u64,
 }
 
 #[tokio::main]
@@ -93,9 +107,9 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .map_err(|_| anyhow!("failed to install rustls ring crypto provider"))?;
+    // Best-effort: ensure a process-default rustls provider exists. Errs only if
+    // one is already installed (e.g. by tonic's TLS), which is the state we want.
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     let url = Url::parse(&args.endpoint).context("parsing --endpoint")?;
     let host = url
@@ -110,6 +124,9 @@ async fn main() -> Result<()> {
         .with_root_certificates(roots)
         .with_no_client_auth();
     tls.alpn_protocols = vec![b"h2".to_vec()];
+    // Dump TLS session keys when SSLKEYLOGFILE is set, so a packet capture can
+    // be decrypted in Wireshark (no-op when the env var is unset).
+    tls.key_log = Arc::new(rustls::KeyLogFile::new());
     let tls = Arc::new(tls);
 
     tracing::info!(
@@ -173,18 +190,105 @@ async fn run_connection(
     tls: Arc<ClientConfig>,
 ) -> ConnResult {
     let start = Instant::now();
-    match establish_and_hold(args, host, port, tls).await {
-        Ok((outcome, lifetime)) => ConnResult {
+    // Subscribe mode (real V3 stream) vs idle mode (raw held connection).
+    let result = match &args.subscribe_group {
+        Some(group_hex) => run_subscribe(id, args, group_hex).await,
+        None => establish_and_hold(args, host, port, tls)
+            .await
+            .map(|(o, life)| (o, life, 0u64)),
+    };
+    match result {
+        Ok((outcome, lifetime, received)) => ConnResult {
             id,
             lifetime,
             outcome,
+            received,
         },
         Err(e) => ConnResult {
             id,
             lifetime: start.elapsed(),
             outcome: Outcome::SetupError(format!("{e:#}")),
+            received: 0,
         },
     }
+}
+
+/// SUBSCRIBE MODE: open one `MlsApi/SubscribeGroupMessages` stream to `group_hex`
+/// using a tonic channel with the same configurable keepalive, hold it, log every
+/// payload (then drop it), and report when/why the stream disconnects.
+async fn run_subscribe(
+    id: usize,
+    args: &Args,
+    group_hex: &str,
+) -> Result<(Outcome, Duration, u64)> {
+    use tonic::codegen::http::uri::PathAndQuery;
+    use tonic::transport::{ClientTlsConfig, Endpoint};
+    use tonic_prost::ProstCodec;
+    use xmtp_proto::mls_v1::{
+        GroupMessage, SubscribeGroupMessagesRequest, subscribe_group_messages_request::Filter,
+    };
+
+    let group_id = hex::decode(group_hex.trim_start_matches("0x")).context("group id not hex")?;
+
+    let mut ep = Endpoint::from_shared(args.endpoint.clone())
+        .context("bad --endpoint")?
+        .keep_alive_while_idle(args.ka_while_idle)
+        .http2_keep_alive_interval(args.ka_interval)
+        .keep_alive_timeout(args.ka_timeout)
+        .tcp_keepalive(Some(args.ka_interval))
+        .connect_timeout(args.connect_timeout);
+    if args.endpoint.starts_with("https://") {
+        ep = ep
+            .tls_config(ClientTlsConfig::new().with_enabled_roots())
+            .context("tls config")?;
+    }
+    let channel = ep.connect().await.context("connect")?;
+
+    let mut grpc = tonic::client::Grpc::new(channel);
+    grpc.ready().await.context("grpc not ready")?;
+    let codec: ProstCodec<SubscribeGroupMessagesRequest, GroupMessage> = ProstCodec::default();
+    let path = PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages");
+    let req = SubscribeGroupMessagesRequest {
+        filters: vec![Filter {
+            group_id,
+            id_cursor: 0,
+        }],
+    };
+    let resp = grpc
+        .server_streaming(tonic::Request::new(req), path, codec)
+        .await
+        .context("subscribe call")?;
+    let mut stream = resp.into_inner();
+    tracing::info!(id, "subscribed; holding stream");
+
+    let connected = Instant::now();
+    let mut received = 0u64;
+    let recv_loop = async {
+        loop {
+            match stream.message().await {
+                Ok(Some(msg)) => {
+                    received += 1;
+                    let mid = match msg.version {
+                        Some(xmtp_proto::mls_v1::group_message::Version::V1(v)) => v.id,
+                        None => 0,
+                    };
+                    tracing::info!(
+                        id,
+                        msg_id = mid,
+                        total = received,
+                        "payload received (dropped)"
+                    );
+                }
+                Ok(None) => return Outcome::Closed, // server ended the stream
+                Err(status) => return Outcome::Died(status.to_string()),
+            }
+        }
+    };
+    let outcome = match tokio::time::timeout(args.duration, recv_loop).await {
+        Err(_) => Outcome::Survived,
+        Ok(o) => o,
+    };
+    Ok((outcome, connected.elapsed(), received))
 }
 
 /// Establish one TLS+H2 connection, hold it idle, and await its death (or the
@@ -195,7 +299,9 @@ async fn establish_and_hold(
     port: u16,
     tls: Arc<ClientConfig>,
 ) -> Result<(Outcome, Duration)> {
-    let tcp = tokio::time::timeout(args.connect_timeout, TcpStream::connect((host, port)))
+    // Connect to --connect-ip if pinned, else resolve the endpoint host.
+    let dst = args.connect_ip.as_deref().unwrap_or(host);
+    let tcp = tokio::time::timeout(args.connect_timeout, TcpStream::connect((dst, port)))
         .await
         .context("tcp connect timed out")?
         .context("tcp connect")?;
@@ -238,10 +344,11 @@ async fn establish_and_hold(
 
 fn log_result(r: &ConnResult) {
     let life = humantime::format_duration(round_secs(r.lifetime));
+    let rx = r.received;
     match &r.outcome {
-        Outcome::Died(e) => tracing::warn!(id = r.id, %life, "DIED: {e}"),
-        Outcome::Closed => tracing::info!(id = r.id, %life, "closed (graceful)"),
-        Outcome::Survived => tracing::info!(id = r.id, %life, "alive at cutoff"),
+        Outcome::Died(e) => tracing::warn!(id = r.id, %life, rx, "DISCONNECTED: {e}"),
+        Outcome::Closed => tracing::info!(id = r.id, %life, rx, "closed (graceful)"),
+        Outcome::Survived => tracing::info!(id = r.id, %life, rx, "alive at cutoff"),
         Outcome::SetupError(e) => tracing::error!(id = r.id, %life, "setup error: {e}"),
     }
 }
@@ -271,6 +378,10 @@ fn summarize(results: &[ConnResult], requested: usize) {
     println!("  closed:    {closed}");
     println!("  survived:  {survived}");
     println!("setup errors:{setup_err}");
+    let total_rx: u64 = results.iter().map(|r| r.received).sum();
+    if total_rx > 0 {
+        println!("payloads received (subscribe mode): {total_rx}");
+    }
 
     if !died.is_empty() {
         let mut lifetimes: Vec<Duration> = died.iter().map(|r| r.lifetime).collect();

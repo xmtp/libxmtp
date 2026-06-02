@@ -40,6 +40,26 @@ cargo run -p keepalive-probe -- --count 200 --duration 1800s --ka-while-idle fal
 
 Stops at `--duration` or on Ctrl-C; either way it prints a summary. `RUST_LOG=debug` for more detail.
 
+## Subscribe mode (real V3 streams) — `--subscribe-group`
+
+Instead of an idle connection, hold a real `MlsApi/SubscribeGroupMessages` stream per connection and log every payload + every disconnect. This is the herald-shaped test (herald holds subscribe streams), and it discriminates a *one-directional black hole* (return path drops → stream disconnects, client-side, no server error) from an idle-transport issue. Subscribe is unauthenticated — the V3 backend doesn't gate it.
+
+**Local first** (point at a local node-go, make a group with `xdbg`):
+```sh
+# 1. run node-go locally (V3 gRPC on http://localhost:5556)
+# 2. make a group + grab its id (hex)
+cargo run -p xmtp_debug -- --backend local generate group   # then `inspect` to get the group id
+# 3. hold a few streams to it and watch for disconnects
+cargo run -p keepalive-probe -- \
+  --endpoint http://localhost:5556 --subscribe-group <hex-group-id> --count 4 --duration 1h
+# 4. send a message to the group with xdbg → probe logs "payload received"
+# 5. kill / pause the local node → probe logs "DISCONNECTED: ..." with the reason + lifetime
+```
+
+Against dev: `--endpoint https://grpc.dev.xmtp.network:443 --subscribe-group <id>`. `http://` = plaintext h2 (local), `https://` = TLS. The keepalive flags apply to the stream's channel just like idle mode.
+
+A `DISCONNECTED` line is the disconnect notice; `payloads received` in the summary confirms the streams were live.
+
 ## Output
 
 Per-connection lines as they die, then a summary: established / died / closed / survived / setup-errors, the lifetime distribution (min/p50/p95/max) of the connections that **died**, and a death-reason histogram (keepalive timeout / GOAWAY / reset / …).

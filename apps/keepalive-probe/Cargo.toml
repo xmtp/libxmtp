@@ -34,3 +34,8 @@ tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 url.workspace = true
 webpki-roots = "0.26"
 humantime = "2"
+hex = "0.4"
+# Subscribe mode (real V3 streams): tonic gRPC client + the MLS proto types.
+tonic = { workspace = true, features = ["default", "tls-webpki-roots", "tls-ring"] }
+tonic-prost = "0.14"
+xmtp_proto.workspace = true
