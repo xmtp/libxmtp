@@ -449,7 +449,8 @@ public final class Client {
 				legacySignedPrivateKeyProto: nil,
 				deviceSyncMode: deviceSyncMode,
 				allowOffline: buildOffline,
-				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
+				workerConfig: nil
 			)
 
 			return (ffiClient, Client.inMemoryDbPath)
@@ -515,7 +516,8 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
+			workerConfig: nil
 		)
 
 		return (ffiClient, dbURL)
@@ -734,7 +736,8 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
-			forkRecoveryOpts: nil
+			forkRecoveryOpts: nil,
+			workerConfig: nil
 		)
 	}
 

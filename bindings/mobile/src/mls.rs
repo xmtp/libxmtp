@@ -6,6 +6,7 @@ use crate::message::{
     FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
 };
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
+use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
@@ -359,6 +360,7 @@ pub async fn create_client(
     device_sync_mode: Option<FfiDeviceSyncMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    worker_config: Option<FfiWorkerConfig>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -434,6 +436,10 @@ pub async fn create_client(
 
     if let Some(fork_recovery_opts) = fork_recovery_opts {
         builder = builder.fork_recovery_opts(fork_recovery_opts.into());
+    }
+
+    if let Some(worker_config) = worker_config {
+        builder = builder.worker_config(worker_config.into());
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;

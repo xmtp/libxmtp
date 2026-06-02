@@ -8,6 +8,7 @@ pub mod logger;
 pub mod message;
 pub mod mls;
 pub mod worker;
+pub mod worker_config;
 
 #[cfg(test)]
 mod builder_test;
