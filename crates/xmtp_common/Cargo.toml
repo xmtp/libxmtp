@@ -55,7 +55,6 @@ ctor.workspace = true
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
-opentelemetry-semantic-conventions = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -91,13 +90,14 @@ parking_lot.workspace = true
 
 [features]
 logging = ["dep:tracing-subscriber"]
-# OpenTelemetry traces + metrics export (native only). Provides telemetry::*.
+# OpenTelemetry trace export (native only). Provides telemetry::*.
+# Metrics are derived downstream from spans by an OTel Collector — libxmtp emits
+# only traces (see crates/xmtp_common/src/telemetry.rs).
 otel = [
   "dep:tracing-subscriber",
   "dep:opentelemetry",
   "dep:opentelemetry_sdk",
   "dep:opentelemetry-otlp",
-  "dep:opentelemetry-semantic-conventions",
   "dep:tracing-opentelemetry",
 ]
 test-utils = [

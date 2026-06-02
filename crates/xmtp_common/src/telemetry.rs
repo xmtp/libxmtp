@@ -1,48 +1,47 @@
-//! OpenTelemetry traces + metrics export (native only, opt-in via the `otel`
-//! feature).
+//! OpenTelemetry trace export (native only, opt-in via the `otel` feature).
 //!
-//! [`init`] builds OTLP exporters from the standard `OTEL_EXPORTER_OTLP_*`
+//! [`init`] builds an OTLP span exporter from the standard `OTEL_EXPORTER_OTLP_*`
 //! environment variables and returns:
 //! - a [`tracing_opentelemetry`] layer to add to the tracing subscriber, so any
 //!   existing `#[tracing::instrument]` span is exported as a distributed trace;
-//! - a [`TelemetryGuard`] that owns the SDK providers and flushes/shuts them down
+//! - a [`TelemetryGuard`] that owns the tracer provider and flushes/shuts it down
 //!   on drop.
 //!
-//! Metric instruments (e.g. per-RPC duration) read the **global** meter provider
-//! that [`init`] installs, so call sites can record metrics via
-//! [`opentelemetry::global::meter`] without threading a handle through the API.
+//! **Metrics are intentionally not emitted here.** Duration / count / error
+//! metrics are derived downstream from the exported spans by an OpenTelemetry
+//! Collector's `spanmetrics` connector (rate/errors/duration from span
+//! name + duration + status + attributes). libxmtp's job is to emit
+//! well-attributed spans (`operation`, `worker`, … fields on the instrumented
+//! chokepoints); the Collector turns those into metrics. This keeps libxmtp
+//! free of metric instruments and keeps metric definitions (buckets,
+//! dimensions) in the Collector config. An in-process metrics layer can be
+//! re-added later if exact, sampling-independent counts are needed in-app.
 //!
-//! When the endpoint cannot be reached the exporters retry in the background;
+//! When the endpoint cannot be reached the exporter retries in the background;
 //! nothing here blocks the hot path. If you do not call [`init`], the global
-//! providers are the OTel no-op defaults and all instrument calls are cheap
-//! no-ops.
+//! tracer provider is the OTel no-op default and spans are not exported.
 
 use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 
 /// The OTel instrumentation scope / tracer name used for libxmtp spans.
 pub const SCOPE: &str = "libxmtp";
 
-/// Owns the OTel SDK providers. Drop (or call [`TelemetryGuard::shutdown`]) to
-/// flush pending spans/metrics before exit.
+/// Owns the OTel tracer provider. Drop (or call [`TelemetryGuard::shutdown`]) to
+/// flush pending spans before exit.
 pub struct TelemetryGuard {
     tracer_provider: SdkTracerProvider,
-    meter_provider: SdkMeterProvider,
 }
 
 impl TelemetryGuard {
-    /// Flush and shut down the exporters. Idempotent-safe to call once; the
+    /// Flush and shut down the span exporter. Idempotent-safe to call once; the
     /// `Drop` impl calls this if you don't.
     pub fn shutdown(&self) {
         // Best-effort flush; log rather than panic on exporter shutdown error.
         if let Err(e) = self.tracer_provider.shutdown() {
             tracing::debug!("otel tracer shutdown: {e}");
-        }
-        if let Err(e) = self.meter_provider.shutdown() {
-            tracing::debug!("otel meter shutdown: {e}");
         }
     }
 }
@@ -54,7 +53,7 @@ impl Drop for TelemetryGuard {
 }
 
 /// Build the OTel resource (service.name + version + caller-supplied attrs)
-/// attached to all telemetry.
+/// attached to all exported spans.
 fn resource(extra: Vec<(String, String)>) -> Resource {
     let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "libxmtp".to_string());
     let mut builder = Resource::builder()
@@ -66,16 +65,22 @@ fn resource(extra: Vec<(String, String)>) -> Resource {
     builder.build()
 }
 
-/// Initialize OTLP traces + metrics export.
+/// Initialize OTLP trace export.
 ///
-/// Honors the standard `OTEL_EXPORTER_OTLP_ENDPOINT` (and signal-specific
-/// `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `..._METRICS_ENDPOINT`) env vars; the
-/// underlying exporter defaults to `http://localhost:4317` (gRPC) when unset.
+/// `endpoint` sets the OTLP gRPC endpoint directly (e.g.
+/// `http://collector:4317`). When `None`, the exporter falls back to the
+/// standard `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+/// environment variables, then to `http://localhost:4317`. `resource_attrs` are
+/// merged into the OTel resource (e.g. `service.instance.id`,
+/// `deployment.environment`) and attached to every exported span — the standard
+/// way to attribute telemetry to its source.
 ///
 /// Returns the tracing layer to register on the subscriber and a guard that must
-/// be kept alive for the process lifetime. Returns `Err` only if an exporter
-/// fails to build (e.g. a malformed endpoint).
+/// be kept alive for the process lifetime (and shut down before exit to flush —
+/// see [`TelemetryGuard::shutdown`]). Returns `Err` only if the exporter fails to
+/// build (e.g. a malformed endpoint).
 pub fn init<S>(
+    endpoint: Option<String>,
     resource_attrs: Vec<(String, String)>,
 ) -> Result<
     (
@@ -87,36 +92,24 @@ pub fn init<S>(
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
+    use opentelemetry_otlp::WithExportConfig as _;
+
     let resource = resource(resource_attrs);
 
-    // ---- Traces ----
-    let span_exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()?;
+    let mut builder = opentelemetry_otlp::SpanExporter::builder().with_tonic();
+    if let Some(endpoint) = endpoint {
+        // Pass the endpoint straight to the exporter (no env-var round-trip).
+        builder = builder.with_endpoint(endpoint);
+    }
+    let span_exporter = builder.build()?;
     let tracer_provider = SdkTracerProvider::builder()
         .with_batch_exporter(span_exporter)
-        .with_resource(resource.clone())
+        .with_resource(resource)
         .build();
     let tracer = tracer_provider.tracer(SCOPE);
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
-    // ---- Metrics ----
-    let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_tonic()
-        .build()?;
-    let meter_provider = SdkMeterProvider::builder()
-        .with_periodic_exporter(metric_exporter)
-        .with_resource(resource)
-        .build();
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
-
     let layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    Ok((
-        layer,
-        TelemetryGuard {
-            tracer_provider,
-            meter_provider,
-        },
-    ))
+    Ok((layer, TelemetryGuard { tracer_provider }))
 }
