@@ -7,11 +7,11 @@ use crate::{
         d14n_compat::{V3OrD14n, decode_group_message},
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::StreamGroupMessages,
+        watchdog::spawn_watchdog_stream,
     },
 };
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
 use itertools::Itertools;
-use tokio::sync::oneshot;
 use xmtp_api_d14n::{
     protocol::{
         CursorStore, EnvelopeCollection, EnvelopeError, GroupMessageExtractor,
@@ -143,34 +143,29 @@ where
 pub(crate) fn stream_messages_with_callback<Context>(
     context: Context,
     active_conversations: impl Iterator<Item = GroupId> + MaybeSend + 'static,
-    mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+    callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
     on_close: impl FnOnce() + MaybeSend + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     Context: XmtpSharedContext + 'static,
     Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::Db: 'static,
 {
-    let (tx, rx) = oneshot::channel();
-
-    xmtp_common::spawn(Some(rx), async move {
-        let stream = match StreamGroupMessages::new(&context, active_conversations.collect()).await
-        {
-            Ok(stream) => stream,
-            Err(e) => {
-                tracing::warn!("Failed to create group message stream, closing: {}", e);
-                on_close();
-                return Ok::<_, SubscribeError>(());
-            }
-        };
-        futures::pin_mut!(stream);
-        let _ = tx.send(());
-        while let Some(message) = stream.next().await {
-            callback(message)
-        }
-        tracing::debug!("`stream_messages` stream ended, dropping stream");
-        on_close();
-        Ok::<_, SubscribeError>(())
-    })
+    let cancel = context.cancellation_token().clone();
+    let groups: Vec<GroupId> = active_conversations.collect();
+    // Each `new_owned` reads the last cursor per group, so a re-subscribe resumes where the
+    // dropped stream left off.
+    spawn_watchdog_stream(
+        cancel,
+        "stream_messages",
+        move || {
+            let context = context.clone();
+            let groups = groups.clone();
+            async move { StreamGroupMessages::new_owned(context, groups).await }
+        },
+        callback,
+        on_close,
+    )
 }
 
 #[cfg(test)]
