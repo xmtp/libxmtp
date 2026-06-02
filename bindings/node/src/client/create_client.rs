@@ -2,7 +2,7 @@ use crate::ErrorWrapper;
 use crate::client::Client;
 use crate::client::backend::Backend;
 use crate::client::gateway_auth::{AuthCallback, AuthHandle};
-use crate::client::options::{ClientMode, LogOptions, SyncWorkerMode};
+use crate::client::options::{ClientMode, LogOptions, SyncWorkerMode, WorkerConfigOptions};
 use crate::identity::Identifier;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
@@ -135,6 +135,7 @@ async fn create_client_inner(
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<SyncWorkerMode>,
+  worker_config: Option<WorkerConfigOptions>,
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
@@ -155,6 +156,10 @@ async fn create_client_inner(
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   };
+
+  if let Some(worker_config) = worker_config {
+    builder = builder.worker_config(worker_config.into());
+  }
 
   let xmtp_client = builder
     .default_mls_store()
@@ -186,6 +191,7 @@ pub async fn create_client(
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<SyncWorkerMode>,
+  worker_config: Option<WorkerConfigOptions>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   app_version: Option<String>,
@@ -227,6 +233,7 @@ pub async fn create_client(
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    worker_config,
     allow_offline,
     app_version,
     nonce,
@@ -246,6 +253,7 @@ pub async fn create_client_with_backend(
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<SyncWorkerMode>,
+  worker_config: Option<WorkerConfigOptions>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   nonce: Option<BigInt>,
@@ -273,6 +281,7 @@ pub async fn create_client_with_backend(
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    worker_config,
     allow_offline,
     Some(backend.app_version()),
     nonce,
