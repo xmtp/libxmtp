@@ -208,54 +208,36 @@ fn existing_client_inner_for(
     Ok(client)
 }
 
-/// Build clients for `identities` across many threads.
+/// Build clients for `identities` concurrently.
 ///
 /// Each open is blocking SQLite + MLS work (no network — channels are
-/// lazy), so we heavily oversubscribe cores: `num_cpus * 10`. Identities
-/// are spread round-robin into per-thread buckets (moved, so we only need
-/// `Identity: Send`, not `Sync`, and need no shared lock). Each worker
-/// enters the current Tokio runtime context so `client_from_identity`
-/// behaves exactly as it did on the calling worker thread. Returns one
-/// `(inbox_id, result)` per identity in arbitrary order; callers decide
+/// lazy), so we hand every client to Tokio's blocking pool via
+/// `spawn_blocking` and await them together rather than parking a runtime
+/// worker. Returns one `(inbox_id, result)` per identity; callers decide
 /// whether to skip or propagate failures.
-fn load_clients_parallel(identities: Vec<Identity>) -> Vec<(InboxId, Result<crate::DbgClient>)> {
-    let n = identities.len();
-    if n == 0 {
-        return Vec::new();
-    }
-    let fanout = (num_cpus::get() * 10).clamp(1, n);
-    let handle = tokio::runtime::Handle::try_current().ok();
-
-    let mut buckets: Vec<Vec<Identity>> = (0..fanout).map(|_| Vec::new()).collect();
-    for (i, identity) in identities.into_iter().enumerate() {
-        buckets[i % fanout].push(identity);
-    }
-
-    std::thread::scope(|scope| {
-        let workers: Vec<_> = buckets
-            .into_iter()
-            .map(|bucket| {
-                let handle = handle.clone();
-                scope.spawn(move || {
-                    let _guard = handle.as_ref().map(|h| h.enter());
-                    bucket
-                        .into_iter()
-                        .map(|identity| (identity.inbox_id, client_from_identity(&identity)))
-                        .collect::<Vec<_>>()
-                })
+async fn load_clients_parallel(
+    identities: Vec<Identity>,
+) -> Vec<(InboxId, Result<crate::DbgClient>)> {
+    let tasks: Vec<_> = identities
+        .into_iter()
+        .map(|identity| {
+            tokio::task::spawn_blocking(move || {
+                (identity.inbox_id, client_from_identity(&identity))
             })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().expect("client load thread panicked"))
-            .collect()
-    })
+        })
+        .collect();
+
+    let mut clients = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        clients.push(task.await.expect("client load task panicked"));
+    }
+    clients
 }
 
 /// Loads all identities. Honors `App::strict_versioning()`: when set,
 /// reads only this binary's version partition; otherwise reads every
 /// version on the network.
-pub fn load_all_identities(
+pub async fn load_all_identities(
     store: &IdentityStore<'static>,
 ) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
     let identities: Vec<Identity> = if crate::app::App::strict_versioning() {
@@ -274,7 +256,7 @@ pub fn load_all_identities(
     let now = std::time::Instant::now();
     let mut clients = HashMap::new();
     let mut skipped = 0u32;
-    for (inbox_id, result) in load_clients_parallel(identities) {
+    for (inbox_id, result) in load_clients_parallel(identities).await {
         match result {
             Ok(client) => {
                 clients.insert(inbox_id, Mutex::new(client));
@@ -302,7 +284,7 @@ pub fn load_all_identities(
     Ok(Arc::new(clients))
 }
 
-pub fn load_n_identities(
+pub async fn load_n_identities(
     store: &IdentityStore<'static>,
     n: usize,
 ) -> Result<Arc<HashMap<InboxId, Arc<Mutex<crate::DbgClient>>>>> {
@@ -336,6 +318,7 @@ pub fn load_n_identities(
     );
     let now = std::time::Instant::now();
     let clients = load_clients_parallel(identities)
+        .await
         .into_iter()
         .map(|(inbox_id, result)| Ok::<_, eyre::Report>((inbox_id, Arc::new(Mutex::new(result?)))))
         .collect::<Result<HashMap<_, _>, _>>()?;

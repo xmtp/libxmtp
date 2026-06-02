@@ -53,7 +53,7 @@ impl Generate {
                 Ok(())
             }
             Message => {
-                let generator = GenerateMessages::new(*message_opts, **concurrency)?;
+                let generator = GenerateMessages::new(*message_opts, **concurrency).await?;
                 let start = Instant::now();
                 let latencies = generator.run(*amount).await?;
                 let elapsed = start.elapsed();
