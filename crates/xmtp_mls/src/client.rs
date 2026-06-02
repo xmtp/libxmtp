@@ -1117,6 +1117,7 @@ where
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
+    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_groups"))]
     pub async fn sync_all_groups(
         &self,
         groups: Vec<MlsGroup<Context>>,
@@ -1129,6 +1130,7 @@ where
 
     /// Sync all unread welcome messages and then sync all groups.
     /// Returns the total number of active groups synced.
+    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_welcomes_and_groups"))]
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,

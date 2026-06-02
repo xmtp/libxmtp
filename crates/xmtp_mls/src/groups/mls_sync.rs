@@ -374,7 +374,7 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    #[tracing::instrument]
+    #[tracing::instrument(err, skip_all, fields(operation = "sync"))]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
         let conn = self.context.db();
 
@@ -449,8 +449,11 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(fields(who = %self.context.inbox_id())))]
-    #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, fields(who = %self.context.inbox_id(), operation = "sync_with_conn")))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(err, skip_all, fields(operation = "sync_with_conn"))
+    )]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -532,10 +535,10 @@ where
      *
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(who = %self.context.inbox_id(), operation = "intent"), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
+        tracing::instrument(err, level = "trace", skip(self), fields(operation = "intent"))
     )]
     pub(crate) async fn sync_until_intent_resolved(
         &self,
