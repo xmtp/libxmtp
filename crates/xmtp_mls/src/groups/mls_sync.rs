@@ -344,6 +344,32 @@ impl PublishIntentData {
     }
 }
 
+/// The result of processing a single synced/streamed message.
+///
+/// Carries the `MessageIdentifier` for the consumed message, plus any
+/// non-retryable intent-resolution error that moved an own-intent to a terminal
+/// `Error` state *without* aborting processing. That error is committed to the
+/// intent row, the cursor advances, and processing returns success — so it would
+/// otherwise be dropped. We surface it here so the sync summary can report the
+/// real cause instead of a misleading "0 failed". `None` for external messages
+/// and for intents that succeed or are merely re-queued.
+#[derive(Debug)]
+pub(crate) struct ProcessedMessageOutcome {
+    pub(crate) identifier: MessageIdentifier,
+    pub(crate) intent_error: Option<GroupMessageProcessingError>,
+}
+
+impl ProcessedMessageOutcome {
+    /// An outcome with no swallowed intent error (external messages, successes,
+    /// already-processed early returns).
+    fn new(identifier: MessageIdentifier) -> Self {
+        Self {
+            identifier,
+            intent_error: None,
+        }
+    }
+}
+
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
@@ -573,12 +599,12 @@ where
                 backoff = ?wait_for
             );
 
+            // Accumulate each attempt's outcome into `summary`. The terminal
+            // GroupSyncFinished event (in sync_until_intent_resolved) is the
+            // single place the summary is logged — no per-attempt logging here.
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
-                Err(s) => {
-                    tracing::error!("error syncing group {s}");
-                    summary.extend(s);
-                }
+                Err(s) => summary.extend(s),
             }
             match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id) {
                 Ok(Some(StoredGroupIntent {
@@ -602,12 +628,14 @@ where
                     kind,
                     ..
                 })) => {
+                    // The summary itself is logged once by GroupSyncFinished;
+                    // this event only marks which intent errored.
                     log_event!(
                         Event::GroupSyncIntentErrored,
                         self.context.installation_id(),
                         level = warn,
                         group_id = self.group_id, intent_id = intent_id,
-                        summary = ?summary, intent_kind = ?kind
+                        intent_kind = ?kind
                     );
                     return Err(GroupError::from(summary));
                 }
@@ -1958,7 +1986,7 @@ where
         &self,
         envelope: &GroupMessage,
         trust_message_order: bool,
-    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+    ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         if trust_message_order {
             let last_cursor = self.context.db().get_last_cursor_for_originator(
                 envelope.group_id,
@@ -1978,7 +2006,8 @@ where
                 // early return if the message is already processed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
-                return MessageIdentifierBuilder::from(envelope).build();
+                let identifier = MessageIdentifierBuilder::from(envelope).build()?;
+                return Ok(ProcessedMessageOutcome::new(identifier));
             }
         }
 
@@ -2011,7 +2040,7 @@ where
         mls_group: &mut OpenMlsGroup,
         envelope: &GroupMessage,
         trust_message_order: bool,
-    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+    ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let db = self.context.db();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
@@ -2033,9 +2062,10 @@ where
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
-            return MessageIdentifierBuilder::from(envelope)
+            let identifier = MessageIdentifierBuilder::from(envelope)
                 .previously_processed(true)
-                .build();
+                .build()?;
+            return Ok(ProcessedMessageOutcome::new(identifier));
         }
 
         tracing::info!(
@@ -2072,7 +2102,11 @@ where
                     .stage_and_validate_intent(mls_group, &intent, envelope)
                     .await;
 
-                self.context.mls_storage().transaction(|conn| {
+                // The non-retryable intent-resolution error, if one moved this
+                // intent to a terminal `Error` state. Captured here before it is
+                // folded into the intent row + dropped, so the caller can report
+                // the real cause in the sync summary.
+                let intent_error = self.context.mls_storage().transaction(|conn| {
                     let storage = conn.key_store();
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -2101,7 +2135,7 @@ where
                         // In some cases, we may want to roll back the cursor if we updated the
                         // cursor, but actually cannot process the message.
                         identifier.previously_processed(true);
-                        return Ok(());
+                        return Ok(None);
                     }
                     let result: Result<Option<Vec<u8>>, IntentResolutionError> = match validation_result {
                         Err(err) => Err(err),
@@ -2109,6 +2143,11 @@ where
                             self.process_own_message(mls_group, validated_intent, &intent, envelope, &storage)
                         }
                     };
+                    // The non-retryable cause for an `Error`-bound intent. Only
+                    // promoted to the returned `intent_error` once we confirm the
+                    // intent actually *transitions* to Error below — a re-delivered
+                    // message for an already-Error intent must not re-report it.
+                    let mut error_cause = None;
                     let (next_intent_state, internal_message_id) = match result {
                         Err(err) => {
                             if err.processing_error.is_retryable() {
@@ -2118,6 +2157,9 @@ where
                             if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
+                            if err.next_intent_state == IntentState::Error {
+                                error_cause = Some(err.processing_error);
+                            }
                             (err.next_intent_state, None)
                         }
                         Ok(internal_message_id) => (IntentState::Committed, internal_message_id)
@@ -2125,9 +2167,12 @@ where
                     identifier.internal_id(internal_message_id.clone());
 
                     if next_intent_state == intent.state {
+                        // No state transition (e.g. a re-delivered message for an
+                        // intent already in this state) — nothing new to report.
                         tracing::warn!("Intent [{}] is already in state [{:?}]", intent_id, next_intent_state);
-                        return Ok(());
+                        return Ok(None);
                     }
+                    let mut intent_error = None;
                     match next_intent_state {
                         IntentState::ToPublish => {
                             db.set_group_intent_to_publish(intent_id)?;
@@ -2142,15 +2187,23 @@ where
                         IntentState::Error => {
                             tracing::error!("Intent [{}] moved to error status", intent_id);
                             db.set_group_intent_error(intent_id)?;
+                            // The intent genuinely failed this round. Surface the
+                            // cause so the sync summary reports it instead of a
+                            // misleading success; the message was still consumed.
+                            intent_error = error_cause;
                         }
                         IntentState::Processed => {
                             tracing::debug!("Intent [{}] moved to Processed status", intent_id);
                             db.set_group_intent_processed(intent_id)?;
                         }
                     }
-                    Ok(())
+                    Ok(intent_error)
                 })?;
-                identifier.build()
+                let identifier = identifier.build()?;
+                Ok(ProcessedMessageOutcome {
+                    identifier,
+                    intent_error,
+                })
             }
             // No matching intent found. The message did not originate here.
             None => {
@@ -2170,7 +2223,7 @@ where
                         allow_cursor_increment,
                     )
                     .await?;
-                Ok(identifier)
+                Ok(ProcessedMessageOutcome::new(identifier))
             }
         }
     }
@@ -2239,9 +2292,9 @@ where
     async fn post_process_message(
         &self,
         mls_group: &OpenMlsGroup,
-        process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
+        process_result: Result<ProcessedMessageOutcome, GroupMessageProcessingError>,
         envelope: &xmtp_proto::types::GroupMessage,
-    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+    ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let message = match process_result {
             Ok(m) => {
                 self.context.db().prune_icebox()?;
@@ -2342,7 +2395,20 @@ where
             );
 
             match result {
-                Ok(m) => summary.add(m),
+                Ok(ProcessedMessageOutcome {
+                    identifier,
+                    intent_error,
+                }) => {
+                    // An own-intent that failed non-retryably advances the cursor and
+                    // is marked Error in its row, then returns success — so the message
+                    // is counted as processed. Record the swallowed cause here so the
+                    // summary (and its source()) report the real failure instead of a
+                    // misleading "0 failed".
+                    if let Some(e) = intent_error {
+                        summary.errored(message.cursor, e);
+                    }
+                    summary.add(identifier);
+                }
                 Err(GroupMessageProcessingError::GroupPaused) => {
                     tracing::info!(
                         "Group [{}] is paused, skip syncing remaining messages",

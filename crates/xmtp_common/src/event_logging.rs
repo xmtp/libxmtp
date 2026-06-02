@@ -85,7 +85,9 @@ pub enum Event {
     #[context(group_id, intent_id, intent_kind, state, icon = "🔁")]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
-    #[context(group_id, intent_id, intent_kind, summary, icon = "⚠️")]
+    /// The summary is logged once by `GroupSyncFinished`; this only marks
+    /// which intent errored.
+    #[context(group_id, intent_id, intent_kind, icon = "⚠️")]
     GroupSyncIntentErrored,
     /// Attempt to publish intent failed.
     #[context(group_id, intent_id, intent_kind, err, icon = "❌")]
