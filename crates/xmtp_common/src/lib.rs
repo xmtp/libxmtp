@@ -58,5 +58,7 @@ pub mod logging;
 #[cfg(feature = "logging")]
 pub use logging::*;
 
-#[cfg(all(feature = "otel", not(target_arch = "wasm32")))]
+// Always compiled on native (enabled at runtime); excluded on wasm where
+// opentelemetry-otlp/tonic does not build.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod telemetry;

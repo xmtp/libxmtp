@@ -1,25 +1,9 @@
-//! OpenTelemetry trace export (native only, opt-in via the `otel` feature).
+//! OpenTelemetry trace export (native only — OTLP/tonic is not wasm-compatible).
 //!
-//! [`init`] builds an OTLP span exporter from the standard `OTEL_EXPORTER_OTLP_*`
-//! environment variables and returns:
-//! - a [`tracing_opentelemetry`] layer to add to the tracing subscriber, so any
-//!   existing `#[tracing::instrument]` span is exported as a distributed trace;
-//! - a [`TelemetryGuard`] that owns the tracer provider and flushes/shuts it down
-//!   on drop.
-//!
-//! **Metrics are intentionally not emitted here.** Duration / count / error
-//! metrics are derived downstream from the exported spans by an OpenTelemetry
-//! Collector's `spanmetrics` connector (rate/errors/duration from span
-//! name + duration + status + attributes). libxmtp's job is to emit
-//! well-attributed spans (`operation`, `worker`, … fields on the instrumented
-//! chokepoints); the Collector turns those into metrics. This keeps libxmtp
-//! free of metric instruments and keeps metric definitions (buckets,
-//! dimensions) in the Collector config. An in-process metrics layer can be
-//! re-added later if exact, sampling-independent counts are needed in-app.
-//!
-//! When the endpoint cannot be reached the exporter retries in the background;
-//! nothing here blocks the hot path. If you do not call [`init`], the global
-//! tracer provider is the OTel no-op default and spans are not exported.
+//! [`init`] builds an OTLP span exporter and a [`tracing_opentelemetry`] layer;
+//! adding it to the subscriber exports `#[tracing::instrument]` spans as traces.
+//! Metrics are not emitted here — they are derived downstream from the spans by
+//! an OpenTelemetry Collector's `spanmetrics` connector.
 
 use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider as _;

@@ -51,11 +51,19 @@ tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
-# OpenTelemetry (native only — OTLP/tonic is not wasm-compatible). Opt-in via `otel`.
-opentelemetry = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
+# OpenTelemetry trace export — native-only and always compiled (no feature flag;
+# enabled at runtime via an OTLP endpoint). tracing-subscriber is needed by the
+# telemetry layer types, so it is non-optional on native.
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber = { workspace = true, features = [
+  "fmt",
+  "env-filter",
+  "ansi",
+  "json",
+] }
 
 [dev-dependencies]
 once_cell.workspace = true
@@ -90,16 +98,8 @@ parking_lot.workspace = true
 
 [features]
 logging = ["dep:tracing-subscriber"]
-# OpenTelemetry trace export (native only). Provides telemetry::*.
-# Metrics are derived downstream from spans by an OTel Collector — libxmtp emits
-# only traces (see crates/xmtp_common/src/telemetry.rs).
-otel = [
-  "dep:tracing-subscriber",
-  "dep:opentelemetry",
-  "dep:opentelemetry_sdk",
-  "dep:opentelemetry-otlp",
-  "dep:tracing-opentelemetry",
-]
+# NOTE: there is intentionally no `otel` feature — trace export is gated on
+# `cfg(not(target_arch = "wasm32"))`, not a feature, and enabled at runtime.
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",
