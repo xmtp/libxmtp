@@ -86,6 +86,84 @@ impl From<DeviceSyncMode> for XmtpDeviceSyncMode {
 }
 
 #[wasm_bindgen_numbered_enum]
+pub enum WorkerKind {
+  DeviceSync = 0,
+  DisappearingMessages = 1,
+  KeyPackageCleaner = 2,
+  CommitLog = 3,
+  TaskRunner = 4,
+  PendingSelfRemove = 5,
+}
+
+impl From<WorkerKind> for xmtp_mls::worker::WorkerKind {
+  fn from(k: WorkerKind) -> Self {
+    match k {
+      WorkerKind::DeviceSync => Self::DeviceSync,
+      WorkerKind::DisappearingMessages => Self::DisappearingMessages,
+      WorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
+      WorkerKind::CommitLog => Self::CommitLog,
+      WorkerKind::TaskRunner => Self::TaskRunner,
+      WorkerKind::PendingSelfRemove => Self::PendingSelfRemove,
+    }
+  }
+}
+
+/// A single per-worker interval override (nanoseconds).
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerIntervalOverride {
+  pub kind: WorkerKind,
+  pub interval_ns: u64,
+}
+
+/// Tuning for the background worker scheduler. All fields optional.
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerConfigOptions {
+  /// Global default interval for all workers, in nanoseconds.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub default_interval_ns: Option<u64>,
+  /// Jitter in nanoseconds. 0/absent = none.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub jitter_ns: Option<u64>,
+  /// Per-worker interval overrides (nanoseconds).
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub worker_intervals_ns: Option<Vec<WorkerIntervalOverride>>,
+  /// Workers to disable.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub disabled_workers: Option<Vec<WorkerKind>>,
+}
+
+impl From<WorkerConfigOptions> for xmtp_mls::worker::WorkerConfig {
+  fn from(o: WorkerConfigOptions) -> Self {
+    let mut cfg = xmtp_mls::worker::WorkerConfig {
+      default_interval_ns: o.default_interval_ns,
+      jitter_ns: o.jitter_ns,
+      ..Default::default()
+    };
+    if let Some(overrides) = o.worker_intervals_ns {
+      for ov in overrides {
+        cfg
+          .interval_overrides
+          .insert(ov.kind.into(), ov.interval_ns);
+      }
+    }
+    if let Some(disabled) = o.disabled_workers {
+      for k in disabled {
+        cfg.enabled.insert(k.into(), false);
+      }
+    }
+    cfg
+  }
+}
+
+#[wasm_bindgen_numbered_enum]
 #[derive(Default)]
 pub enum ClientMode {
   #[default]
@@ -291,6 +369,7 @@ pub(crate) async fn create_client_inner(
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<DeviceSyncMode>,
+  worker_config: Option<WorkerConfigOptions>,
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
@@ -311,6 +390,10 @@ pub(crate) async fn create_client_inner(
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+  }
+
+  if let Some(worker_config) = worker_config {
+    builder = builder.worker_config(worker_config.into());
   }
 
   let xmtp_client = builder
@@ -336,6 +419,7 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = dbPath)] db_path: Option<String>,
   #[wasm_bindgen(js_name = encryptionKey)] encryption_key: Option<Uint8Array>,
   #[wasm_bindgen(js_name = deviceSyncMode)] device_sync_worker_mode: Option<DeviceSyncMode>,
+  #[wasm_bindgen(js_name = workerConfig)] worker_config: Option<WorkerConfigOptions>,
   #[wasm_bindgen(js_name = logOptions)] log_options: Option<LogOptions>,
   #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
   #[wasm_bindgen(js_name = appVersion)] app_version: Option<String>,
@@ -379,6 +463,7 @@ pub async fn create_client(
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    worker_config,
     allow_offline,
     app_version,
     nonce.unwrap_or(1),
