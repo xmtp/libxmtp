@@ -45,14 +45,12 @@ pub enum TaskWorkerError {
 impl NeedsDbReconnect for TaskWorkerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
-            TaskWorkerError::Storage(s)
-            | TaskWorkerError::DeviceSync(DeviceSyncError::Storage(s)) => s.db_needs_connection(),
+            TaskWorkerError::Storage(s) => s.db_needs_connection(),
+            // Forward the full classification: a dropped pool can reach these as
+            // `Db`/`MlsStore`/`Sync`/... too, not only as `Storage`.
             TaskWorkerError::LoadGroup(e) => e.needs_db_reconnect(),
-            // Forward through GroupError's own classifier so a dropped pool hiding
-            // in a `Db`/`MlsStore` (not just `Storage`) variant still restarts the
-            // worker instead of being retried on a dead connection.
             TaskWorkerError::Group(e) => e.needs_db_reconnect(),
-            TaskWorkerError::DeviceSync(_) => false,
+            TaskWorkerError::DeviceSync(e) => e.needs_db_reconnect(),
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
             TaskWorkerError::ReceiverLocked => false,

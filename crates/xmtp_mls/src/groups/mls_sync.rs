@@ -273,6 +273,33 @@ impl RetryableError for GroupMessageProcessingError {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for GroupMessageProcessingError {
+    /// Forwards a dropped-pool signal from storage-bearing variants so a
+    /// per-message disconnect (landing in `SyncSummary::process.errored`) isn't lost.
+    fn needs_db_reconnect(&self) -> bool {
+        use super::app_data::ProcessMessageWithAppDataError;
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
+            Self::Identity(i) => i.needs_db_reconnect(),
+            Self::Client(c) => c.db_needs_connection(),
+            // OpenMLS state-I/O carries a pool drop as
+            // `StorageError(SqlKeyStoreError::Connection(_))`; forward it.
+            Self::ClearPendingCommit(e) => e.db_needs_connection(),
+            Self::OpenMlsProcessMessage(ProcessMessageError::StorageError(e)) => {
+                e.db_needs_connection()
+            }
+            Self::OpenMlsProcessMessageWithAppData(ProcessMessageWithAppDataError::OpenMls(
+                ProcessMessageError::StorageError(e),
+            )) => e.db_needs_connection(),
+            Self::MergeStagedCommit(openmls::group::MergeCommitError::StorageError(e)) => {
+                e.db_needs_connection()
+            }
+            _ => false,
+        }
+    }
+}
+
 impl GroupMessageProcessingError {
     pub(crate) fn commit_result(&self) -> CommitResult {
         use super::app_data::ProcessMessageWithAppDataError;
