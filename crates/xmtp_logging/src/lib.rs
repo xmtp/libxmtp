@@ -6,6 +6,7 @@
 
 mod config;
 mod filter;
+mod layers;
 pub use config::*;
 pub use filter::filter_directive;
 

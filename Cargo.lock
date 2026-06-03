@@ -14686,11 +14686,14 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "paranoid-android",
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
+ "tracing-oslog",
  "tracing-subscriber",
  "tracing-web",
+ "tracing_android_trace",
  "xmtp-workspace-hack",
 ]
 

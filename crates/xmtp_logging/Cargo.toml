@@ -28,5 +28,12 @@ tracing-appender.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tracing-web.workspace = true
 
+[target.'cfg(target_os = "android")'.dependencies]
+paranoid-android = "0.2"
+tracing_android_trace = "0.1"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tracing-oslog = "0.3"
+
 [features]
 test-utils = []
