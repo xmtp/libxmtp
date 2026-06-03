@@ -408,6 +408,33 @@ jobs:
             --pending-version "${{ needs.pending.outputs.version }}" \
             --pending-kind "${{ needs.pending.outputs.kind }}")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Install git-cliff
+        if: steps.guard.outputs.should-release == 'true'
+        run: |
+          set -euo pipefail
+          cargo binstall -y git-cliff || cargo install git-cliff
+          git cliff --version
+      # Per-nightly changelog: the delta since the PREVIOUS nightly tag (not
+      # since the last stable). Computed BEFORE tagging this run, so the newest
+      # existing v*-nightly.* tag is genuinely the prior nightly. First-ever
+      # nightly (no prior nightly tag) falls back to since-last-stable.
+      - name: Compute per-nightly changelog
+        id: nightly_changelog
+        if: steps.guard.outputs.should-release == 'true'
+        run: |
+          set -euo pipefail
+          PREV_NIGHTLY=$(git tag -l 'v*-nightly.*' --sort=-creatordate | head -1 || true)
+          if [ -n "$PREV_NIGHTLY" ]; then
+            echo "::notice::Changelog range ${PREV_NIGHTLY}..HEAD"
+            git cliff --config cliff.toml "${PREV_NIGHTLY}..HEAD" --strip header > /tmp/nightly-changelog.md 2>/dev/null || true
+          else
+            echo "::notice::No prior nightly tag; changelog falls back to since-last-stable."
+            git cliff --config cliff.toml --unreleased --strip header > /tmp/nightly-changelog.md 2>/dev/null || true
+          fi
+          # Collapse to empty if git-cliff produced only whitespace/heading noise.
+          if ! grep -qE '^- ' /tmp/nightly-changelog.md; then
+            : > /tmp/nightly-changelog.md
+          fi
       - name: Tag libxmtp hub
         if: steps.guard.outputs.should-release == 'true'
         run: xmtp-release tag-release --sdk libxmtp --version "${{ steps.hubver.outputs.version }}" --ignore-if-exists
@@ -437,6 +464,15 @@ jobs:
           See per-SDK release notes under \`docs/release-notes/\`.
           EOF
           )
+          # Append the per-nightly changelog (delta since the previous nightly),
+          # if git-cliff produced any entries.
+          if [ -s /tmp/nightly-changelog.md ]; then
+            BODY="${BODY}
+
+          ## Changes since the last nightly
+
+          $(cat /tmp/nightly-changelog.md)"
+          fi
           if gh release view "v${HUB_VERSION}" >/dev/null 2>&1; then
             gh release edit "v${HUB_VERSION}" \
               --title "libxmtp ${HUB_VERSION}" \

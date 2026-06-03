@@ -19,7 +19,7 @@ body = """
 ### {{ group | striptags | trim | upper_first }}
 {% for commit in commits %}
 - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
-{{ commit.message | upper_first }}\
+{{ commit.message | split(pat="\n") | first | trim | upper_first }}\
 {% endfor %}
 {% endfor %}\n
 """
@@ -56,4 +56,9 @@ commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
   { message = "^chore|^ci|^build", group = "<!-- 6 -->Miscellaneous" },
   { body = ".*security", group = "<!-- 7 -->Security" },
+  # Catch-all: non-conventional commits (no recognized type) go into one "Other"
+  # bucket instead of git-cliff inventing a fake per-scope group from a leading
+  # `word:`/`word/word:` prefix (which produced sections like "Xmtp_proto",
+  # "Bindings/mobile"). Sorts last via the high <!-- 8 --> prefix.
+  { message = ".*", group = "<!-- 8 -->Other" },
 ]
