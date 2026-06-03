@@ -23,7 +23,7 @@ pub fn filter_directive(level: &str) -> EnvFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[xmtp_common::test]
+    #[test]
     fn test_filter_correct() {
         filter_directive("OFF");
         filter_directive("ERROR");

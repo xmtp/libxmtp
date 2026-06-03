@@ -13,15 +13,27 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 /// The OTel instrumentation scope / tracer name used for libxmtp spans.
 pub const SCOPE: &str = "libxmtp";
 
-/// Owns the OTel tracer provider. Drop (or call [`TelemetryGuard::shutdown`]) to
-/// flush pending spans before exit.
+/// Owns the OTel tracer provider. Call [`TelemetryGuard::force_flush`] to push
+/// queued spans without tearing anything down, or drop (or call
+/// [`TelemetryGuard::shutdown`]) to flush-and-stop the exporter before exit.
 pub struct TelemetryGuard {
     tracer_provider: SdkTracerProvider,
 }
 
 impl TelemetryGuard {
-    /// Flush and shut down the span exporter. Idempotent-safe to call once; the
-    /// `Drop` impl calls this if you don't.
+    /// Push any queued spans to the exporter **without** shutting it down. The
+    /// provider stays live, so spans created after this still export. Best-effort:
+    /// logs rather than panics on error. Use this for periodic / pre-checkpoint
+    /// flushes; use [`Self::shutdown`] only when you're done exporting.
+    pub fn force_flush(&self) {
+        if let Err(e) = self.tracer_provider.force_flush() {
+            tracing::debug!("otel tracer force_flush: {e}");
+        }
+    }
+
+    /// Flush and **shut down** the span exporter. Terminal: the tracer provider
+    /// stops, so spans created afterwards are dropped. Idempotent-safe to call
+    /// once; the `Drop` impl calls this if you don't.
     pub fn shutdown(&self) {
         // Best-effort flush; log rather than panic on exporter shutdown error.
         if let Err(e) = self.tracer_provider.shutdown() {

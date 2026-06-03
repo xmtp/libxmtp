@@ -2,95 +2,91 @@ use crate::ErrorWrapper;
 use crate::client::Client;
 use crate::client::backend::Backend;
 use crate::client::gateway_auth::{AuthCallback, AuthHandle};
-use crate::client::options::{ClientMode, LogOptions, SyncWorkerMode, WorkerConfigOptions};
+use crate::client::options::{
+  ClientMode, LogLevel, LogOptions, SyncWorkerMode, WorkerConfigOptions,
+};
 use crate::identity::Identifier;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
+use xmtp_logging::{Level, LoggingConfig, TelemetryConfig, XmtpLoggingBuilder};
 use xmtp_mls::XmtpApiClient;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::identity::IdentityStrategy;
 
-static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
-
-// Keeps the tracer provider alive for the process so `flush_telemetry` can flush
-// spans before exit.
-static OTEL_GUARD: std::sync::OnceLock<Option<xmtp_common::telemetry::TelemetryGuard>> =
+// Holds the global logging handle for the process so `flush_telemetry` can flush
+// spans before exit. Installed exactly once on first `create_client` call.
+static LOGGING_HANDLE: std::sync::OnceLock<xmtp_logging::LoggingHandle> =
   std::sync::OnceLock::new();
 
-// Returns the OTel trace layer (storing the guard) when `otel_endpoint` is set,
-// else `None`.
-fn otel_layer<S>(options: &LogOptions) -> Option<impl tracing_subscriber::Layer<S>>
-where
-  S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-  // Skip init when no endpoint is set, so we don't spawn an exporter that just
-  // logs connection errors.
-  let endpoint = options.otel_endpoint.clone()?;
-  let attrs: Vec<(String, String)> = options
-    .resource_attributes
-    .clone()
-    .unwrap_or_default()
-    .into_iter()
-    .collect();
-  // Pass the endpoint straight to the exporter — no env-var round-trip.
-  match xmtp_common::telemetry::init(Some(endpoint), attrs) {
-    Ok((layer, guard)) => {
-      let _ = OTEL_GUARD.set(Some(guard));
-      Some(layer)
-    }
-    Err(e) => {
-      tracing::warn!("failed to initialize OpenTelemetry export: {e}");
-      None
-    }
+fn map_level(l: &LogLevel) -> Level {
+  match l {
+    LogLevel::Off => Level::Off,
+    LogLevel::Error => Level::Error,
+    LogLevel::Warn => Level::Warn,
+    LogLevel::Info => Level::Info,
+    LogLevel::Debug => Level::Debug,
+    LogLevel::Trace => Level::Trace,
   }
 }
 
 fn init_logging(options: LogOptions) -> Result<()> {
-  LOGGER_INIT
-    .get_or_init(|| {
-      let filter = if let Some(ref f) = options.level {
-        xmtp_common::filter_directive(&f.to_string())
-      } else {
-        EnvFilter::builder().parse_lossy("info")
-      };
-      if options.structured.unwrap_or_default() {
-        let fmt = tracing_subscriber::fmt::layer()
-          .json()
-          .flatten_event(true)
-          .with_level(true)
-          .with_target(true);
+  // Already installed (by us or another crate) — nothing to do.
+  if LOGGING_HANDLE.get().is_some() {
+    return Ok(());
+  }
 
-        tracing_subscriber::registry()
-          .with(filter)
-          .with(fmt)
-          .with(otel_layer(&options))
-          .init();
-      } else {
-        tracing_subscriber::registry()
-          .with(fmt::layer())
-          .with(filter)
-          .with(otel_layer(&options))
-          .init();
-      }
+  // Preserve the old default of "info" when no level is provided.
+  let level = options.level.as_ref().map(map_level).unwrap_or(Level::Info);
+
+  // Only configure telemetry when an endpoint is set, so we don't spawn an
+  // exporter that just logs connection errors.
+  let telemetry = options.otel_endpoint.clone().map(|endpoint| {
+    let resource_attributes: Vec<(String, String)> = options
+      .resource_attributes
+      .clone()
+      .unwrap_or_default()
+      .into_iter()
+      .collect();
+    TelemetryConfig {
+      endpoint: Some(endpoint),
+      resource_attributes,
+    }
+  });
+
+  let cfg = LoggingConfig {
+    level,
+    json: options.structured.unwrap_or_default(),
+    file: None,
+    telemetry,
+    native: false,
+    performance: false,
+  };
+
+  // `install()` installs a global subscriber and only succeeds once per process.
+  match XmtpLoggingBuilder::from_config(cfg).install() {
+    Ok(handle) => {
+      let _ = LOGGING_HANDLE.set(handle);
       Ok(())
-    })
-    .as_ref()
-    .map_err(|e| Error::from_reason(e.reason.clone()))?;
-  Ok(())
+    }
+    // Someone else installed first (e.g. another crate) — treat as success.
+    Err(xmtp_logging::Error::AlreadyInitialized) => Ok(()),
+    Err(e) => Err(Error::from_reason(format!(
+      "failed to initialize logging: {e}"
+    ))),
+  }
 }
 
 /// Flush buffered telemetry spans before process exit. Call once on graceful
 /// shutdown; no-op if telemetry was never enabled. Process-global (not per-client).
 #[napi]
 pub fn flush_telemetry() {
-  if let Some(Some(guard)) = OTEL_GUARD.get() {
-    guard.shutdown();
+  if let Some(h) = LOGGING_HANDLE.get() {
+    h.flush();
   }
 }
 

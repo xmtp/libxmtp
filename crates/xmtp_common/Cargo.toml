@@ -18,13 +18,12 @@ tokio.workspace = true
 tracing.workspace = true
 web-time.workspace = true
 
-# optional/test-utils/dev-deps
-once_cell = { workspace = true, optional = true }
-owo-colors = { workspace = true, optional = true }
+# optional/test-utils/dev-deps. tracing-subscriber survives here only for the
+# bench subscriber + the `traced_test` test helper; all production logging now
+# lives in xmtp_logging.
 parking_lot = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
-tracing-forest = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "fmt",
   "env-filter",
@@ -34,13 +33,15 @@ tracing-subscriber = { workspace = true, features = [
 wasm-bindgen-test = { workspace = true, optional = true }
 xmtp-workspace-hack.workspace = true
 xmtp_cryptography.workspace = true
+# Test subscriber lives in xmtp_logging now; `logger()` delegates to it. This is
+# a dev/test-only edge: xmtp_logging's production code does not depend on
+# xmtp_common, so there is no normal-build cycle.
+xmtp_logging = { workspace = true, features = ["test-utils"], optional = true }
 xmtp_macro.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
-tracing-wasm = { version = "0.2", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
 js-sys.workspace = true
 web-sys = { workspace = true, features = ["Window"] }
 wasm-bindgen-futures.workspace = true
@@ -51,23 +52,8 @@ tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
-# OpenTelemetry trace export — native-only and always compiled (no feature flag;
-# enabled at runtime via an OTLP endpoint). tracing-subscriber is needed by the
-# telemetry layer types, so it is non-optional on native.
-opentelemetry.workspace = true
-opentelemetry_sdk.workspace = true
-opentelemetry-otlp.workspace = true
-tracing-opentelemetry.workspace = true
-tracing-subscriber = { workspace = true, features = [
-  "fmt",
-  "env-filter",
-  "ansi",
-  "json",
-] }
 
 [dev-dependencies]
-once_cell.workspace = true
-owo-colors.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 toxiproxy_rust.workspace = true
@@ -84,7 +70,6 @@ xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true }
 wasm-bindgen-test.workspace = true
-tracing-wasm = { version = "0.2" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = [
@@ -92,32 +77,24 @@ tokio = { workspace = true, features = [
   "macros",
   "test-util",
 ] }
-tracing-forest.workspace = true
 ctor.workspace = true
 parking_lot.workspace = true
 
 [features]
-logging = ["dep:tracing-subscriber"]
-# NOTE: there is intentionally no `otel` feature — trace export is gated on
-# `cfg(not(target_arch = "wasm32"))`, not a feature, and enabled at runtime.
+# All production logging/telemetry now lives in xmtp_logging. The remaining
+# tracing-subscriber usage here is test/bench-only (traced_test helper + bench
+# subscriber), so it is pulled in by test-utils/bench rather than a `logging`
+# feature.
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",
-  "dep:tracing-wasm",
-  "dep:console_error_panic_hook",
-  "dep:tracing-forest",
-  "dep:once_cell",
   "dep:wasm-bindgen-test",
-  "dep:owo-colors",
   "dep:toxiproxy_rust",
+  # the test subscriber `logger()` delegates to, now owned by xmtp_logging
+  "dep:xmtp_logging",
   "xmtp_cryptography/test-utils",
 ]
-bench = [
-  "test-utils",
-  "dep:tracing-subscriber",
-  "dep:once_cell",
-  "dep:tracing-flame",
-]
+bench = ["test-utils", "dep:tracing-subscriber", "dep:tracing-flame"]
 
 [lints]
 workspace = true

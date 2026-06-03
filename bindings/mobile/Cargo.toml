@@ -35,12 +35,13 @@ uniffi = { version = "0.31.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
-xmtp_common = { workspace = true, features = ["logging"] }
+xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
+xmtp_logging.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 
@@ -87,6 +88,7 @@ xmtp_archive = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_macro.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }

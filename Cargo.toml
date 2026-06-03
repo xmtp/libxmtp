@@ -155,7 +155,6 @@ tower = { version = "0.5", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-appender = "0.2"
-tracing-forest = { version = "0.3", features = ["chrono"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 tracing-web = "0.1"
@@ -201,6 +200,7 @@ xmtp_cryptography = { path = "crates/xmtp_cryptography" }
 xmtp_db = { path = "crates/xmtp_db" }
 xmtp_db_test = { path = "crates/xmtp_db_test" }
 xmtp_id = { path = "crates/xmtp_id" }
+xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }

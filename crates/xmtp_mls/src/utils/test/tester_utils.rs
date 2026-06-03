@@ -53,7 +53,6 @@ use xmtp_api_d14n::{
 };
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
-use xmtp_common::TestLogReplace;
 use xmtp_configuration::DockerUrls;
 use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
@@ -110,9 +109,6 @@ where
     pub stream_handle:
         Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
     pub proxy: Option<ToxicProxies>,
-    /// Replacement names for this tester
-    /// Replacements are removed on drop
-    pub replace: TestLogReplace,
 }
 
 impl<Owner> Tester<Owner, FullXmtpClient>
@@ -185,14 +181,6 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
-        let mut replace = TestLogReplace::default();
-        if let Some(name) = &self.name
-            && !self.installation
-        {
-            let ident = self.owner.get_identifier().unwrap();
-            replace.add(&ident.to_string(), &format!("{name}_ident"));
-        }
-
         let strategy = match (&self.external_identity, &self.snapshot) {
             (Some(identity), _) => IdentityStrategy::ExternalIdentity(identity.clone()),
             (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
@@ -263,13 +251,6 @@ where
             register_client(&client, &self.owner).await;
         }
 
-        if let Some(name) = &self.name {
-            replace.add(
-                &client.installation_public_key().to_string(),
-                &format!("{name}_installation"),
-            );
-            replace.add(client.inbox_id(), name);
-        }
         let mut worker = None;
         if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
             while worker.is_none() {
@@ -283,7 +264,6 @@ where
             builder: self.clone(),
             client,
             worker,
-            replace,
             stream_handle: None,
             proxy,
         };

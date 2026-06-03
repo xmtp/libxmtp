@@ -296,7 +296,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
       console_error_panic_hook::set_once();
 
       let filter = if let Some(f) = options.level {
-        xmtp_common::filter_directive(f.to_str())
+        xmtp_logging::filter_directive(f.to_str())
       } else {
         EnvFilter::builder().parse_lossy("info")
       };

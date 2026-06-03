@@ -1839,7 +1839,6 @@ dependencies = [
  "tokio",
  "toxiproxy_rust",
  "tracing",
- "tracing-subscriber",
  "xmtp-workspace-hack",
  "xmtp_api",
  "xmtp_api_d14n",
@@ -1850,6 +1849,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_logging",
  "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
@@ -1894,6 +1894,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_logging",
  "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
@@ -12147,19 +12148,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-forest"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f09cb459317a3811f76644334473239d696cd8efc606963ae7d1c308cead3b74"
-dependencies = [
- "chrono",
- "smallvec",
- "thiserror 2.0.18",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "tracing-log"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12244,17 +12232,6 @@ dependencies = [
  "tracing-serde",
  "valuable",
  "valuable-serde",
-]
-
-[[package]]
-name = "tracing-wasm"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4575c663a174420fa2d78f4108ff68f65bf2fbb7dd89f33749b6e826b3626e07"
-dependencies = [
- "tracing",
- "tracing-subscriber",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -14140,6 +14117,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_logging",
  "xmtp_mls",
  "xmtp_mls_common",
  "xmtp_proto",
@@ -14232,6 +14210,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "const-hex",
+ "crossbeam-utils",
  "crypto-common 0.1.7",
  "derive_more",
  "diesel",
@@ -14301,13 +14280,13 @@ dependencies = [
  "syn 2.0.117",
  "sync_wrapper 1.0.2",
  "time",
+ "tokio-stream",
  "tokio-util",
  "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
  "tower",
  "tracing",
  "tracing-core",
- "tracing-log",
  "tracing-subscriber",
  "typenum",
  "url",
@@ -14483,7 +14462,6 @@ name = "xmtp_common"
 version = "1.11.0-dev"
 dependencies = [
  "async-trait",
- "console_error_panic_hook",
  "const-hex",
  "const_panic",
  "ctor 0.12.0",
@@ -14492,11 +14470,6 @@ dependencies = [
  "getrandom 0.4.2",
  "gloo-timers 0.4.0",
  "js-sys",
- "once_cell",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "owo-colors",
  "parking_lot",
  "rand 0.10.1",
  "thiserror 2.0.18",
@@ -14506,10 +14479,7 @@ dependencies = [
  "toxiproxy_rust",
  "tracing",
  "tracing-flame",
- "tracing-forest",
- "tracing-opentelemetry",
  "tracing-subscriber",
- "tracing-wasm",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -14518,6 +14488,7 @@ dependencies = [
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",
+ "xmtp_logging",
  "xmtp_macro",
 ]
 
@@ -14677,6 +14648,27 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_logging"
+version = "1.11.0-dev"
+dependencies = [
+ "console_error_panic_hook",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "paranoid-android",
+ "parking_lot",
+ "thiserror 2.0.18",
+ "tracing",
+ "tracing-appender",
+ "tracing-opentelemetry",
+ "tracing-oslog",
+ "tracing-subscriber",
+ "tracing-web",
+ "tracing_android_trace",
+ "xmtp-workspace-hack",
 ]
 
 [[package]]
@@ -14881,6 +14873,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_logging",
  "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
