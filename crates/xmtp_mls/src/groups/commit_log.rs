@@ -248,6 +248,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     pub async fn tick(&mut self) -> Result<(), CommitLogError> {
         self.save_remote_commit_log().await?;
         self.update_forked_state().await?;

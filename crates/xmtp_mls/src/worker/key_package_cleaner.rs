@@ -121,9 +121,15 @@ where
             .worker_interval(WorkerKind::KeyPackageCleaner, INTERVAL_DURATION);
         let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
         while (intervals.next().await).is_some() {
-            self.delete_expired_key_packages()?;
-            self.rotate_last_key_package_if_needed().await?;
+            self.tick().await?;
         }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
+    async fn tick(&mut self) -> Result<(), KeyPackagesCleanerError> {
+        self.delete_expired_key_packages()?;
+        self.rotate_last_key_package_if_needed().await?;
         Ok(())
     }
 

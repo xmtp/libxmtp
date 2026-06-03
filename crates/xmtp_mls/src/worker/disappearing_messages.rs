@@ -103,6 +103,7 @@ where
     }
 
     /// Iterate on the list of groups and delete expired messages
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let db = self.context.db();
         // Propagated to the supervisor, which is the sole logger for worker errors.

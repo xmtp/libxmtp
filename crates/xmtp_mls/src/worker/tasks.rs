@@ -167,6 +167,7 @@ where
             }
         }
     }
+    #[tracing::instrument(skip_all, fields(worker = "TaskRunner", operation = "worker_turn"))]
     async fn run_and_reschedule_task(
         task: DbTask,
         context: &Context,
