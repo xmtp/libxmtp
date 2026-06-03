@@ -1,7 +1,10 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import type { GlobalArgs, ReleaseType } from "../types";
 import { getSdkConfig } from "../lib/sdk-config";
-import { computeVersion as computeVersionFn } from "../lib/version";
+import {
+  computeVersion as computeVersionFn,
+  getNightlyDate,
+} from "../lib/version";
 import { getShortSha } from "../lib/git";
 
 export const command = "compute-version";
@@ -37,13 +40,10 @@ export function handler(
 
   const config = getSdkConfig(argv.sdk);
   const baseVersion = config.manifest.readVersion(argv.repoRoot);
-  const needsSha =
-    argv.releaseType === "dev" || argv.releaseType === "nightly";
+  const needsSha = argv.releaseType === "dev" || argv.releaseType === "nightly";
   const shortSha = needsSha ? getShortSha(argv.repoRoot) : undefined;
   const nightlyDate =
-    argv.releaseType === "nightly"
-      ? new Date().toISOString().slice(0, 10).replace(/-/g, "")
-      : undefined;
+    argv.releaseType === "nightly" ? getNightlyDate() : undefined;
   const version = computeVersionFn(baseVersion, argv.releaseType, {
     rcNumber: argv.rcNumber,
     shortSha,

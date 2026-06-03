@@ -1,7 +1,7 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import { readFileSync } from "node:fs";
 import type { GlobalArgs } from "../types";
 import { evaluateGate } from "../lib/cross-test-gate";
+import { readInput } from "../lib/io";
 
 export const command = "cross-test-gate";
 export const describe =
@@ -24,11 +24,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
 export function handler(
   argv: ArgumentsCamelCase<GlobalArgs & { input: string; sha: string }>,
 ) {
-  const json =
-    argv.input === "-"
-      ? readFileSync(0, "utf-8")
-      : readFileSync(argv.input, "utf-8");
-  const result = evaluateGate(JSON.parse(json), argv.sha);
+  const result = evaluateGate(JSON.parse(readInput(argv.input)), argv.sha);
   // Machine-readable for the workflow + human-readable on stderr.
   console.log(JSON.stringify(result));
   if (!result.pass) {

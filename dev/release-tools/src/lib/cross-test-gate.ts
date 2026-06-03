@@ -18,17 +18,10 @@ export interface GateResult {
  * EXACT release SHA that is completed AND concluded success. Fail-closed —
  * any ambiguity (no run, wrong SHA, not completed, not success) skips.
  *
- * Semantics, made explicit:
- * - SHA-exact: only runs whose `head_sha` equals the release SHA count, so a
- *   green run on *different* code can never unblock this commit (no stale-green
- *   across content).
- * - "any green for this SHA", not "latest run only": a later re-run that is
- *   pending/failed/`skipped` does NOT retract an earlier genuine success for the
- *   *same* commit — the code was proven green at least once. Conversely a single
- *   `success` is required; `conclusion` values other than "success" (incl.
- *   `null`, `failure`, `cancelled`, `skipped`, `timed_out`) never pass.
- * - Caller passes only `status=completed` runs from the GitHub API, but we
- *   re-filter on `status === "completed"` defensively in case that changes.
+ * Two non-obvious decisions:
+ * - SHA-exact: a green run on *different* code can't unblock this commit.
+ * - "any green for this SHA", not "latest run only": a later failed/`skipped`
+ *   re-run doesn't retract an earlier genuine success for the same commit.
  */
 export function evaluateGate(
   payload: CrossTestRunsPayload,
