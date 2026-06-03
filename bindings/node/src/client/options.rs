@@ -159,9 +159,9 @@ pub struct LogOptions {
   pub structured: Option<bool>,
   /// Filter logs by level
   pub level: Option<LogLevel>,
-  /// OTLP endpoint (e.g. "http://collector:4317"). When set (and the binary is
-  /// built with the `otel` feature), spans are exported via OTLP to this endpoint.
-  /// A downstream OpenTelemetry Collector derives metrics from the spans.
+  /// OTLP endpoint (e.g. "http://collector:4317"). When set, spans are exported
+  /// via OTLP to this endpoint. A downstream OpenTelemetry Collector derives
+  /// metrics from the spans.
   pub otel_endpoint: Option<String>,
   /// Resource attributes attached to all exported spans (e.g.
   /// { "service.instance.id": "herald-7", "deployment.environment": "prod" }).
