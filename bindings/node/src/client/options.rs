@@ -70,6 +70,13 @@ pub struct WorkerIntervalOverride {
   pub interval_ns: BigInt,
 }
 
+/// A single per-worker jitter override (nanoseconds).
+#[napi(object)]
+pub struct WorkerJitterOverride {
+  pub kind: WorkerKind,
+  pub jitter_ns: BigInt,
+}
+
 /// Tuning for the background worker scheduler. All fields optional; omitting
 /// the whole object preserves default behavior.
 #[napi(object)]
@@ -77,10 +84,10 @@ pub struct WorkerIntervalOverride {
 pub struct WorkerConfigOptions {
   /// Global default interval for all workers, in nanoseconds.
   pub default_interval_ns: Option<BigInt>,
-  /// Jitter added to de-synchronize fleets, in nanoseconds. 0/absent = none.
-  pub jitter_ns: Option<BigInt>,
   /// Per-worker interval overrides (nanoseconds).
   pub worker_intervals_ns: Option<Vec<WorkerIntervalOverride>>,
+  /// Per-worker jitter overrides (nanoseconds).
+  pub worker_jitters_ns: Option<Vec<WorkerJitterOverride>>,
   /// Workers to disable. Anything not listed stays enabled.
   pub disabled_workers: Option<Vec<WorkerKind>>,
 }
@@ -90,7 +97,6 @@ impl From<WorkerConfigOptions> for XmtpWorkerConfig {
     let to_u64 = |b: BigInt| -> u64 { b.get_u64().1 };
     let mut cfg = XmtpWorkerConfig {
       default_interval_ns: o.default_interval_ns.map(to_u64),
-      jitter_ns: o.jitter_ns.map(to_u64),
       ..Default::default()
     };
     if let Some(overrides) = o.worker_intervals_ns {
@@ -98,6 +104,13 @@ impl From<WorkerConfigOptions> for XmtpWorkerConfig {
         cfg
           .interval_overrides
           .insert(ov.kind.into(), to_u64(ov.interval_ns));
+      }
+    }
+    if let Some(jitters) = o.worker_jitters_ns {
+      for ov in jitters {
+        cfg
+          .jitter_overrides
+          .insert(ov.kind.into(), to_u64(ov.jitter_ns));
       }
     }
     if let Some(disabled) = o.disabled_workers {
