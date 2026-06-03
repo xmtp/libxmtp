@@ -48,10 +48,13 @@ pub struct WorkerConfig {
     /// Global fallback interval (ns) for any worker without a per-kind
     /// override. `None` => each worker uses its own const default.
     pub default_interval_ns: Option<u64>,
-    /// Optional jitter (ns). `None` or `0` => deterministic intervals.
-    pub jitter_ns: Option<u64>,
     /// Per-worker interval override (ns). Wins over `default_interval_ns`.
     pub interval_overrides: HashMap<WorkerKind, u64>,
+    /// Per-worker jitter (ns). An absent entry means `0` (deterministic).
+    /// Jitter de-synchronizes a fleet of clients; scoping it per-worker
+    /// avoids blanketing fast workers with a large jitter meant for a slow
+    /// one (e.g. the daily CommitLog worker).
+    pub jitter_overrides: HashMap<WorkerKind, u64>,
     /// Per-worker enable flag. An absent entry means enabled.
     pub enabled: HashMap<WorkerKind, bool>,
 }
@@ -61,7 +64,8 @@ impl WorkerConfig {
     ///
     /// Base precedence: per-kind override > global default > `const_default`.
     /// A resolved base of `0` is clamped to `const_default` to avoid a
-    /// pathological busy-loop. Jitter is the global `jitter_ns` (0 if unset).
+    /// pathological busy-loop. Jitter is the per-kind `jitter_overrides` entry
+    /// (0 if absent).
     pub fn interval(&self, kind: WorkerKind, const_default: Duration) -> (Duration, Duration) {
         let base_ns = self
             .interval_overrides
@@ -73,7 +77,9 @@ impl WorkerConfig {
             Some(ns) => Duration::from_nanos(ns),
         };
         let jitter = self
-            .jitter_ns
+            .jitter_overrides
+            .get(&kind)
+            .copied()
             .map(Duration::from_nanos)
             .unwrap_or(Duration::ZERO);
         (base, jitter)
@@ -535,13 +541,30 @@ mod worker_config_tests {
     }
 
     #[xmtp_common::test]
-    fn jitter_is_carried() {
-        let cfg = WorkerConfig {
-            jitter_ns: Some(Duration::from_secs(2).as_nanos() as u64),
-            ..Default::default()
-        };
+    fn per_kind_jitter_is_carried() {
+        let mut cfg = WorkerConfig::default();
+        cfg.jitter_overrides.insert(
+            WorkerKind::TaskRunner,
+            Duration::from_secs(2).as_nanos() as u64,
+        );
         let (_, jitter) = cfg.interval(WorkerKind::TaskRunner, Duration::from_secs(1));
         assert_eq!(jitter, Duration::from_secs(2));
+    }
+
+    #[xmtp_common::test]
+    fn jitter_is_scoped_per_worker() {
+        let mut cfg = WorkerConfig::default();
+        cfg.jitter_overrides.insert(
+            WorkerKind::CommitLog,
+            Duration::from_secs(6 * 3600).as_nanos() as u64,
+        );
+        // The jittered worker gets its jitter...
+        let (_, commit_log_jitter) = cfg.interval(WorkerKind::CommitLog, Duration::from_secs(300));
+        assert_eq!(commit_log_jitter, Duration::from_secs(6 * 3600));
+        // ...while an un-listed worker stays deterministic.
+        let (_, disappearing_jitter) =
+            cfg.interval(WorkerKind::DisappearingMessages, Duration::from_secs(1));
+        assert_eq!(disappearing_jitter, Duration::ZERO);
     }
 
     #[xmtp_common::test]
