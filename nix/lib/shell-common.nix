@@ -31,6 +31,7 @@
   gh,
   jq,
   curl,
+  git-cliff,
   graphite-cli,
   toxiproxy,
   rr,
@@ -155,6 +156,7 @@ in
     gh
     jq
     curl
+    git-cliff # changelog generation + print-only version oracle (release flow)
     graphite-cli
     toxiproxy
   ];
