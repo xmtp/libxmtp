@@ -14470,7 +14470,6 @@ dependencies = [
  "getrandom 0.4.2",
  "gloo-timers 0.4.0",
  "js-sys",
- "once_cell",
  "parking_lot",
  "rand 0.10.1",
  "thiserror 2.0.18",

@@ -21,7 +21,6 @@ web-time.workspace = true
 # optional/test-utils/dev-deps. tracing-subscriber survives here only for the
 # bench subscriber + the `traced_test` test helper; all production logging now
 # lives in xmtp_logging.
-once_cell = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
@@ -55,7 +54,6 @@ fdlimit.workspace = true
 ctor.workspace = true
 
 [dev-dependencies]
-once_cell.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 toxiproxy_rust.workspace = true
@@ -90,19 +88,13 @@ parking_lot.workspace = true
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",
-  "dep:once_cell",
   "dep:wasm-bindgen-test",
   "dep:toxiproxy_rust",
   # the test subscriber `logger()` delegates to, now owned by xmtp_logging
   "dep:xmtp_logging",
   "xmtp_cryptography/test-utils",
 ]
-bench = [
-  "test-utils",
-  "dep:tracing-subscriber",
-  "dep:once_cell",
-  "dep:tracing-flame",
-]
+bench = ["test-utils", "dep:tracing-subscriber", "dep:tracing-flame"]
 
 [lints]
 workspace = true

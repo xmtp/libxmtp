@@ -35,7 +35,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc = { workspace = true, optional = true }
-xmtp_common = { workspace = true }
+xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
