@@ -14687,6 +14687,8 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "paranoid-android",
+ "parking_lot",
+ "thiserror 2.0.18",
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
