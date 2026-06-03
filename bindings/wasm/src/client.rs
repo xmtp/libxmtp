@@ -117,6 +117,15 @@ pub struct WorkerIntervalOverride {
   pub interval_ns: u64,
 }
 
+/// A single per-worker jitter override (nanoseconds).
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerJitterOverride {
+  pub kind: WorkerKind,
+  pub jitter_ns: u64,
+}
+
 /// Tuning for the background worker scheduler. All fields optional.
 #[derive(Clone, Default, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -126,14 +135,14 @@ pub struct WorkerConfigOptions {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub default_interval_ns: Option<u64>,
-  /// Jitter in nanoseconds. 0/absent = none.
-  #[tsify(optional)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub jitter_ns: Option<u64>,
   /// Per-worker interval overrides (nanoseconds).
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub worker_intervals_ns: Option<Vec<WorkerIntervalOverride>>,
+  /// Per-worker jitter overrides (nanoseconds).
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub worker_jitters_ns: Option<Vec<WorkerJitterOverride>>,
   /// Workers to disable.
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,7 +153,6 @@ impl From<WorkerConfigOptions> for xmtp_mls::worker::WorkerConfig {
   fn from(o: WorkerConfigOptions) -> Self {
     let mut cfg = xmtp_mls::worker::WorkerConfig {
       default_interval_ns: o.default_interval_ns,
-      jitter_ns: o.jitter_ns,
       ..Default::default()
     };
     if let Some(overrides) = o.worker_intervals_ns {
@@ -152,6 +160,11 @@ impl From<WorkerConfigOptions> for xmtp_mls::worker::WorkerConfig {
         cfg
           .interval_overrides
           .insert(ov.kind.into(), ov.interval_ns);
+      }
+    }
+    if let Some(jitters) = o.worker_jitters_ns {
+      for ov in jitters {
+        cfg.jitter_overrides.insert(ov.kind.into(), ov.jitter_ns);
       }
     }
     if let Some(disabled) = o.disabled_workers {
