@@ -117,12 +117,14 @@ impl LoggingHandle {
         Ok(())
     }
 
-    /// Flush pending telemetry spans (best-effort). File writer lines flush as the
-    /// worker drains and on drop; this primarily forces the OTel exporter to push
-    /// queued spans, e.g. before process exit.
+    /// Flush pending telemetry spans (best-effort) **without** stopping the
+    /// exporter, so logging continues normally afterwards. File writer lines flush
+    /// as the worker drains and on drop; this primarily forces the OTel exporter
+    /// to push queued spans, e.g. at a checkpoint or before process exit. The
+    /// exporter is fully shut down (terminal) when the handle is dropped.
     pub fn flush(&self) {
         if let Some(t) = self.guards.lock().telemetry.as_ref() {
-            t.shutdown();
+            t.force_flush();
         }
     }
 }
