@@ -206,10 +206,12 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -220,10 +222,12 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -234,10 +238,12 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -250,10 +256,12 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -264,10 +272,12 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -280,10 +290,12 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.x86_64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -293,10 +305,12 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.x86_64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -308,9 +322,11 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 ### END HAKARI SECTION

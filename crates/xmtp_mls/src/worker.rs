@@ -289,17 +289,25 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
         let kind_str = format!("{:?}", self.kind());
         let fut = Box::pin(async move {
             let kind = self.kind();
+            let worker = format!("{:?}", kind);
             let run = async move {
                 loop {
-                    if let Err(err) = self.run_tasks().await {
+                    let outcome = async { self.run_tasks().await }
+                        .instrument(tracing::info_span!(
+                            "worker_run",
+                            operation = "worker_run",
+                            worker = %worker
+                        ))
+                        .await;
+                    if let Err(err) = outcome {
                         if err.needs_db_reconnect() {
                             // drop the worker
                             tracing::debug!("pool disconnected. task will restart on reconnect");
                             break;
                         } else {
-                            tracing::error!("{:?} worker error: {}", self.kind(), err);
+                            tracing::error!("{:?} worker error: {}", kind, err);
                             xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                            tracing::info!("Restarting {:?} worker...", self.kind());
+                            tracing::info!("Restarting {:?} worker...", kind);
                         }
                     }
                 }

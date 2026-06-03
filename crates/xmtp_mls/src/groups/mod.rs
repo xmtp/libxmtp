@@ -1126,7 +1126,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id()))]
+    #[tracing::instrument(level = "debug", err, skip_all, fields(who = self.context.inbox_id(), operation = "send_message"))]
     pub async fn send_message(
         &self,
         message: &[u8],

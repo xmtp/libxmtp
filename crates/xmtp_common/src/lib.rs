@@ -57,3 +57,8 @@ pub use xmtp_macro::timeout;
 pub mod logging;
 #[cfg(feature = "logging")]
 pub use logging::*;
+
+// Always compiled on native (enabled at runtime); excluded on wasm where
+// opentelemetry-otlp/tonic does not build.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod telemetry;

@@ -18,10 +18,43 @@ use xmtp_mls::identity::IdentityStrategy;
 
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
+// Keeps the tracer provider alive for the process so `flush_telemetry` can flush
+// spans before exit.
+static OTEL_GUARD: std::sync::OnceLock<Option<xmtp_common::telemetry::TelemetryGuard>> =
+  std::sync::OnceLock::new();
+
+// Returns the OTel trace layer (storing the guard) when `otel_endpoint` is set,
+// else `None`.
+fn otel_layer<S>(options: &LogOptions) -> Option<impl tracing_subscriber::Layer<S>>
+where
+  S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+  // Skip init when no endpoint is set, so we don't spawn an exporter that just
+  // logs connection errors.
+  let endpoint = options.otel_endpoint.clone()?;
+  let attrs: Vec<(String, String)> = options
+    .resource_attributes
+    .clone()
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
+  // Pass the endpoint straight to the exporter — no env-var round-trip.
+  match xmtp_common::telemetry::init(Some(endpoint), attrs) {
+    Ok((layer, guard)) => {
+      let _ = OTEL_GUARD.set(Some(guard));
+      Some(layer)
+    }
+    Err(e) => {
+      tracing::warn!("failed to initialize OpenTelemetry export: {e}");
+      None
+    }
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
-      let filter = if let Some(f) = options.level {
+      let filter = if let Some(ref f) = options.level {
         xmtp_common::filter_directive(&f.to_string())
       } else {
         EnvFilter::builder().parse_lossy("info")
@@ -33,11 +66,16 @@ fn init_logging(options: LogOptions) -> Result<()> {
           .with_level(true)
           .with_target(true);
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+        tracing_subscriber::registry()
+          .with(filter)
+          .with(fmt)
+          .with(otel_layer(&options))
+          .init();
       } else {
         tracing_subscriber::registry()
           .with(fmt::layer())
           .with(filter)
+          .with(otel_layer(&options))
           .init();
       }
       Ok(())
@@ -45,6 +83,15 @@ fn init_logging(options: LogOptions) -> Result<()> {
     .as_ref()
     .map_err(|e| Error::from_reason(e.reason.clone()))?;
   Ok(())
+}
+
+/// Flush buffered telemetry spans before process exit. Call once on graceful
+/// shutdown; no-op if telemetry was never enabled. Process-global (not per-client).
+#[napi]
+pub fn flush_telemetry() {
+  if let Some(Some(guard)) = OTEL_GUARD.get() {
+    guard.shutdown();
+  }
 }
 
 #[napi(object)]
