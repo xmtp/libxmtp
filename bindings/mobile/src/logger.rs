@@ -37,7 +37,7 @@ fn set_native_filter(level: &str) -> Result<(), FfiError> {
         .ok_or_else(|| crate::GenericError::Generic {
             err: "native logger not initialized".to_string(),
         })?;
-    let filter = xmtp_common::filter_directive(level);
+    let filter = xmtp_logging::filter_directive(level);
     handle.lock().reload(filter)?;
     Ok(())
 }
@@ -51,7 +51,7 @@ mod android {
 
     pub fn native_layer() -> impl Layer<Registry> {
         let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
-        let libxmtp_filter = xmtp_common::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
+        let libxmtp_filter = xmtp_logging::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
         let (reloadable_filter, handle) = reload::Layer::new(libxmtp_filter);
         // `native_layer` is invoked exactly once via the `LOGGER` LazyLock; if
         // somehow called again (e.g. a stray test re-init), keep the original
@@ -78,7 +78,7 @@ mod ios {
     use tracing_oslog::OsLogger;
 
     pub fn native_layer() -> impl Layer<Registry> {
-        let libxmtp_filter = xmtp_common::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
+        let libxmtp_filter = xmtp_logging::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
         let (reloadable_filter, handle) = reload::Layer::new(libxmtp_filter);
         // See android::native_layer for the rationale on ignoring the set result.
         let _ = LIBXMTP_FILTER_HANDLE.set(parking_lot::Mutex::new(handle));
@@ -350,7 +350,7 @@ fn enable_debug_file_inner(
     let handle = LOGGER.lock();
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
-        let filter = xmtp_common::filter_directive(log_level.to_str());
+        let filter = xmtp_logging::filter_directive(log_level.to_str());
         *l.filter_mut() = filter;
     })?;
     Ok(())

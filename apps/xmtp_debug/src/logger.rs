@@ -16,7 +16,7 @@ use tracing_subscriber::{
     fmt::{FmtContext, FormatEvent, FormatFields, format, format::Writer},
     registry::LookupSpan,
 };
-use xmtp_mls::common::filter_directive;
+use xmtp_logging::filter_directive;
 
 use crate::args::{LogFormat, LogOptions};
 

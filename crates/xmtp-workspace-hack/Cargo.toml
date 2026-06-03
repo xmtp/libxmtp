@@ -98,7 +98,7 @@ toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
-tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "json", "smallvec"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
@@ -192,7 +192,7 @@ toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
-tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "json", "smallvec"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
@@ -201,6 +201,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
@@ -210,12 +211,13 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -226,11 +228,12 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -242,12 +245,13 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
@@ -260,11 +264,12 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -276,12 +281,13 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.aarch64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
@@ -294,11 +300,12 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.x86_64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -309,12 +316,13 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 [target.x86_64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
@@ -326,7 +334,7 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking"] 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 
 ### END HAKARI SECTION
