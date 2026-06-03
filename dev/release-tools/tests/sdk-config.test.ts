@@ -139,4 +139,27 @@ describe("SDK configs", () => {
       expect(config.manifest.readVersion(tmpDir)).toBe("4.10.0-dev.abc1234");
     });
   });
+
+  it("declares a version track for every SDK", () => {
+    expect(getSdkConfig("node-bindings").versionTrack).toBe("follows-libxmtp");
+    expect(getSdkConfig("wasm-bindings").versionTrack).toBe("follows-libxmtp");
+    expect(getSdkConfig("ios").versionTrack).toBe("independent");
+    expect(getSdkConfig("android").versionTrack).toBe("independent");
+    expect(getSdkConfig("libxmtp").versionTrack).toBe("follows-libxmtp");
+  });
+
+  it("declares a release workflow and channels for shippable SDKs", () => {
+    const ios = getSdkConfig("ios");
+    expect(ios.releaseWorkflow).toBe("release-ios.yml");
+    expect(ios.channels).toContain("nightly");
+  });
+
+  it("declares notes globs for every SDK", () => {
+    for (const sdk of Object.values(Sdk)) {
+      const cfg = SDK_CONFIGS[sdk];
+      expect(Array.isArray(cfg.notesIncludeGlobs)).toBe(true);
+      expect(cfg.notesIncludeGlobs.length).toBeGreaterThan(0);
+      expect(Array.isArray(cfg.notesExcludeGlobs)).toBe(true);
+    }
+  });
 });
