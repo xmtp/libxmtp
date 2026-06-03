@@ -136,33 +136,37 @@ where
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
         while let Ok(event) = self.receiver.recv().await {
-            // Tick is the internal timer heartbeat (every 20s); only log real events.
-            if !matches!(event, SyncWorkerEvent::Tick) {
-                tracing::info!(
-                    installation_id = %self.client.context.installation_id(),
-                    "new sync worker event: {event:?}",
-                );
+            // Tick is the internal timer heartbeat (every 20s): no real work, so
+            // dispatch it directly without opening a worker_turn span.
+            if matches!(event, SyncWorkerEvent::Tick) {
+                self.evt_new_sync_group_msg(true).await?;
+                continue;
             }
 
-            match event {
-                SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                    self.evt_new_sync_group_from_welcome().await?;
-                }
-                SyncWorkerEvent::NewSyncGroupMsg => {
-                    self.evt_new_sync_group_msg(false).await?;
-                }
-                SyncWorkerEvent::Tick => {
-                    self.evt_new_sync_group_msg(true).await?;
-                }
-                SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                    self.evt_sync_preferences(preference_updates).await?;
-                }
-                SyncWorkerEvent::CycleHMAC => {
-                    self.evt_cycle_hmac().await?;
-                }
-            }
+            tracing::info!(
+                installation_id = %self.client.context.installation_id(),
+                "new sync worker event: {event:?}",
+            );
+            self.handle_event(event).await?;
         }
         Ok(())
+    }
+
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    async fn handle_event(&mut self, event: SyncWorkerEvent) -> Result<(), DeviceSyncError> {
+        match event {
+            SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                self.evt_new_sync_group_from_welcome().await
+            }
+            SyncWorkerEvent::NewSyncGroupMsg => self.evt_new_sync_group_msg(false).await,
+            SyncWorkerEvent::SyncPreferences(preference_updates) => {
+                self.evt_sync_preferences(preference_updates).await
+            }
+            SyncWorkerEvent::CycleHMAC => self.evt_cycle_hmac().await,
+            // Tick is intentionally filtered out in `run_internal` before reaching
+            // here, so it never opens a worker_turn span.
+            SyncWorkerEvent::Tick => unreachable!("Tick is handled before dispatch"),
+        }
     }
 
     async fn tick(ctx: Context) {
