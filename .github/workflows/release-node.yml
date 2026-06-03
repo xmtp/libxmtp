@@ -15,6 +15,12 @@ on:
         required: true
         type: string
         description: "Git ref to build from"
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
     outputs:
       version:
         description: "The published version string"
@@ -39,7 +45,18 @@ jobs:
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
             VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type dev)
           elif [ "${{ inputs.release-type }}" = "nightly" ]; then
-            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type nightly)
+            # Belt-and-suspenders: release.yml already skips this whole job when
+            # the gate isn't green or there are no conventional commits
+            # (nothing-pending), so pending-* are populated whenever we reach
+            # here. This guard only fires if that orchestration is bypassed.
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk node-bindings --release-type nightly \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
           else
             VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type final)
           fi
