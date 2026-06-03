@@ -9,14 +9,21 @@
 //!
 //! [`XmtpLoggingBuilder::install`] installs a *global* `tracing` subscriber, so
 //! it can only succeed once per process (subsequent calls return
-//! [`Error::AlreadyInitialized`]).
+//! [`crate::Error::AlreadyInitialized`]).
+//!
+//! The cross-platform builder surface lives here; the platform-specific bits —
+//! the `install()` body that wires up the registry, plus the native-only
+//! `with_telemetry` / `with_file` knobs — live in the `native` and `wasm`
+//! submodules so neither file is peppered with `#[cfg]`.
 
 use crate::config::{Level, LoggingConfig};
-use crate::error::Error;
-use crate::handle::LoggingHandle;
 
+// `install()` and the native-only fluent setters are defined in these platform
+// modules as additional `impl XmtpLoggingBuilder` blocks.
 #[cfg(not(target_arch = "wasm32"))]
-use crate::config::{FileConfig, TelemetryConfig};
+mod native;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 
 /// Entry point for the logging builder. Call [`XmtpLogging::builder`].
 pub struct XmtpLogging;
@@ -29,7 +36,8 @@ impl XmtpLogging {
 }
 
 /// Fluent builder for the logging pipeline. Construct via [`XmtpLogging::builder`]
-/// or [`XmtpLoggingBuilder::from_config`], tweak fields, then [`Self::install`].
+/// or [`XmtpLoggingBuilder::from_config`], tweak fields, then call `install`
+/// (defined per-platform in the `native` / `wasm` submodules).
 #[derive(Default)]
 pub struct XmtpLoggingBuilder {
     pub(crate) cfg: LoggingConfig,
@@ -53,20 +61,6 @@ impl XmtpLoggingBuilder {
         self
     }
 
-    /// Configure (or clear) OTLP telemetry export.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_telemetry(mut self, t: Option<TelemetryConfig>) -> Self {
-        self.cfg.telemetry = t;
-        self
-    }
-
-    /// Configure (or clear) rolling-file logging.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_file(mut self, f: Option<FileConfig>) -> Self {
-        self.cfg.file = f;
-        self
-    }
-
     /// Use the platform native logging layer (logcat/os_log/server-compact)
     /// instead of the plain stdout fmt layer.
     pub fn with_native(mut self, n: bool) -> Self {
@@ -78,112 +72,6 @@ impl XmtpLoggingBuilder {
     pub fn with_performance(mut self, p: bool) -> Self {
         self.cfg.performance = p;
         self
-    }
-
-    /// Install the global subscriber and return the runtime-control handle.
-    ///
-    /// Errors with [`Error::AlreadyInitialized`] if a global subscriber is
-    /// already installed for this process.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn install(self) -> Result<LoggingHandle, Error> {
-        use crate::filter::filter_directive;
-        use crate::handle::BoxLayer;
-        use crate::layers::fmt::stdout_layer;
-        use crate::layers::native::native_layer;
-        use tracing_subscriber::prelude::*;
-        use tracing_subscriber::{Registry, reload};
-
-        let cfg = self.cfg;
-
-        // Every reloadable slot is pinned to `S = Registry` so the reload handles
-        // have a concrete, storable type. A `Box<dyn Layer<Registry>>` only
-        // implements `Layer` over exactly `Registry`, so the slots cannot be
-        // chained with `.with(a).with(b)` (which would re-parameterize each
-        // layer's subscriber to a `Layered<..>` type). Instead all slots are
-        // collected into a single `Vec<BoxLayer>`, which itself implements
-        // `Layer<Registry>`, and added to the registry in one `.with(..)`.
-
-        // Slot 1: reloadable level filter. As a bare `EnvFilter` layer it filters
-        // every sibling layer in the registry — exactly what `set_level` drives.
-        let (filter_layer, filter_handle) =
-            reload::Layer::new(filter_directive(cfg.level.as_str()));
-
-        // Slot 2 (fixed): stdout/native fmt output — not reloadable.
-        let stdout: BoxLayer = if cfg.native {
-            native_layer::<Registry>()
-        } else {
-            stdout_layer::<Registry>(cfg.json)
-        };
-
-        // Slot 3: reloadable file layer (initially off).
-        let (file_layer, file_handle) = reload::Layer::new(None::<BoxLayer>);
-
-        // Slot 4: reloadable telemetry layer (initially off).
-        let (otel_layer, otel_handle) = reload::Layer::new(None::<BoxLayer>);
-
-        let layers: Vec<BoxLayer> = vec![
-            filter_layer.boxed(),
-            stdout,
-            file_layer.boxed(),
-            otel_layer.boxed(),
-        ];
-
-        tracing_subscriber::registry()
-            .with(layers)
-            .try_init()
-            .map_err(|_| Error::AlreadyInitialized)?;
-
-        let handle = LoggingHandle::new(filter_handle, file_handle, otel_handle);
-
-        // Apply the initial dynamic config. Telemetry is only enabled when an
-        // endpoint is set (otherwise the exporter would target localhost and
-        // spam connection errors when no collector is present).
-        if let Some(t) = cfg.telemetry
-            && t.endpoint.is_some()
-        {
-            handle.enable_telemetry(t)?;
-        }
-        if let Some(f) = cfg.file {
-            handle.enable_file(f)?;
-        }
-
-        Ok(handle)
-    }
-
-    /// Install the global subscriber (wasm). Only the level filter is reloadable;
-    /// file logging and telemetry are not available in the browser.
-    #[cfg(target_arch = "wasm32")]
-    pub fn install(self) -> Result<LoggingHandle, Error> {
-        use crate::filter::filter_directive;
-        use crate::layers::web::{console_layer, perf_layer};
-        use tracing_subscriber::prelude::*;
-        use tracing_subscriber::reload;
-
-        let cfg = self.cfg;
-
-        // Unlike native, the wasm layers are chained with `.with(..)` instead of
-        // collected into a `Vec<Box<dyn Layer>>`. The browser layers are not
-        // `Send + Sync`, and `tracing-subscriber` only implements `Layer` for
-        // `Box<dyn Layer + Send + Sync>` — so a boxed `Vec` of them has no `Layer`
-        // impl. Chaining the concrete (unboxed) layers sidesteps that entirely.
-        // Only the level filter is reloadable; `console`/`perf` are fixed, and the
-        // optional perf layer rides through as an `Option<impl Layer>` (which is
-        // itself a `Layer`). The layer type parameters are left to inference: each
-        // `.with(..)` re-parameterizes the subscriber, so the layers must bind to
-        // the accumulated `Layered<..>` type rather than to a pinned `Registry`.
-        let (filter_layer, filter_handle) =
-            reload::Layer::new(filter_directive(cfg.level.as_str()));
-
-        let perf = cfg.performance.then(|| perf_layer());
-
-        tracing_subscriber::registry()
-            .with(filter_layer)
-            .with(console_layer())
-            .with(perf)
-            .try_init()
-            .map_err(|_| Error::AlreadyInitialized)?;
-
-        Ok(LoggingHandle::new(filter_handle))
     }
 }
 
@@ -230,6 +118,8 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn install_then_set_level() {
+        use crate::error::Error;
+
         let handle = XmtpLogging::builder()
             .level(Level::Info)
             .install()
