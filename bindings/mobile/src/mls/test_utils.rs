@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use alloy::signers::local::PrivateKeySigner;
-use xmtp_common::{TestLogReplace, tmp_path};
+use xmtp_common::tmp_path;
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
 use xmtp_mls::{
@@ -32,16 +32,6 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
     // Will not panic on registering identity. Will still panic on just about everything else.
     async fn build_no_panic(&self) -> Result<Tester<PrivateKeySigner, FfiXmtpClient>, FfiError> {
         let client = create_raw_client(self).await;
-        let mut replace = TestLogReplace::default();
-        if let Some(name) = &self.name {
-            let ident = self.owner.get_identifier().unwrap();
-            replace.add(&ident.to_string(), &format!("{name}_ident"));
-            replace.add(
-                &client.inner_client.installation_public_key().to_string(),
-                &format!("{name}_installation"),
-            );
-            replace.add(client.inner_client.inbox_id(), name);
-        }
         let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
         let signature_request = client.signature_request().unwrap();
         signature_request
@@ -67,7 +57,6 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
             client,
             worker,
             stream_handle: None,
-            replace,
             proxy: None,
         })
     }
@@ -79,17 +68,6 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
     async fn build_no_panic(&self) -> Result<Tester<PasskeyUser, FfiXmtpClient>, FfiError> {
         let client = create_raw_client(self).await;
-        let mut replace = TestLogReplace::default();
-        if let Some(name) = &self.name {
-            let ident = self.owner.get_identifier().unwrap();
-            replace.add(&ident.to_string(), &format!("{name}_ident"));
-            replace.add(
-                &client.inner_client.installation_public_key().to_string(),
-                &format!("{name}_installation"),
-            );
-            replace.add(client.inner_client.inbox_id(), name);
-        }
-
         let signature_request = client.signature_request().unwrap();
         let text = signature_request.signature_text().await.unwrap();
         let UnverifiedSignature::Passkey(signature) = self.owner.sign(&text).unwrap() else {
@@ -121,7 +99,6 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             client,
             worker,
             stream_handle: None,
-            replace,
             proxy: None,
         })
     }

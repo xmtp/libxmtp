@@ -2,9 +2,8 @@
 use crate::time::Expired;
 use rand::distr::SampleString;
 use rand::{RngExt, distr::Alphanumeric, seq::IteratorRandom};
-use std::collections::HashMap;
+use std::future::Future;
 use std::sync::LazyLock;
-use std::{future::Future, sync::OnceLock};
 use tokio::sync;
 
 mod macros;
@@ -13,16 +12,9 @@ mod openmls;
 pub use openmls::*;
 
 crate::if_native! {
-    use parking_lot::Mutex;
     pub mod traced_test;
     pub use traced_test::TestWriter;
-    mod logger;
-
-    use once_cell::sync::Lazy;
-    static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 }
-
-static INIT: OnceLock<()> = OnceLock::new();
 
 use toxiproxy_rust::TOXIPROXY;
 
@@ -40,153 +32,12 @@ pub trait Generate {
     fn generate() -> Self;
 }
 
-/// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
-#[derive(Default)]
-pub struct TestLogReplace {
-    #[allow(unused)]
-    ids: HashMap<String, String>,
-}
-
-impl TestLogReplace {
-    pub fn add(&mut self, id: &str, name: &str) {
-        crate::wasm_or_native! {
-            wasm => { let _ = (id, name); },
-            native => {
-                self.ids.insert(id.to_string(), name.to_string());
-                let mut ids = REPLACE_IDS.lock();
-                ids.insert(id.to_string(), name.to_string());
-            },
-        }
-    }
-}
-
-// remove ids for replacement from map on drop
-impl Drop for TestLogReplace {
-    fn drop(&mut self) {
-        crate::wasm_or_native! {
-            wasm => {},
-            native => {
-                let mut ids = REPLACE_IDS.lock();
-                for id in self.ids.keys() {
-                    let _ = ids.remove(id.as_str());
-                }
-            },
-        }
-    }
-}
-
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub fn logger_layer<S>() -> impl tracing_subscriber::Layer<S>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-    use tracing_subscriber::{
-        EnvFilter, Layer,
-        fmt::{self, format},
-    };
-    let structured = std::env::var("STRUCTURED");
-    let contextual = std::env::var("CONTEXTUAL");
-    let show_spans = std::env::var("SHOW_SPAN_FIELDS");
-
-    let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
-    let is_contextual = matches!(contextual, Ok(c) if c == "true" || c == "1");
-    let show_spans = matches!(show_spans, Ok(c) if c == "true" || c == "1");
-    let filter = || {
-        EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-            .from_env()
-            .expect("invalid environment log filter")
-    };
-
-    vec![
-        is_structured
-            .then(|| {
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .with_filter(filter())
-            })
-            .boxed(),
-        is_contextual
-            .then(|| {
-                let processor =
-                    tracing_forest::printer::Printer::new().formatter(logger::Contextual);
-                tracing_forest::ForestLayer::new(processor, tracing_forest::tag::NoTag)
-                    .with_filter(filter())
-            })
-            .boxed(),
-        // default logger
-        (!is_structured && !is_contextual)
-            .then(|| {
-                fmt::layer()
-                    .compact()
-                    .with_ansi(true)
-                    .with_file(true)
-                    .with_line_number(true)
-                    .with_target(false)
-                    .with_test_writer()
-                    .fmt_fields({
-                        format::debug_fn(move |writer, field, value| {
-                            if show_spans && (field.name() != "message") {
-                                write!(writer, ", {}={:?}", field.name(), value)?;
-                            } else if field.name() == "message" {
-                                let mut message = format!("{value:?}");
-                                let ids = REPLACE_IDS.lock();
-                                for (id, name) in ids.iter() {
-                                    if message.contains(id) {
-                                        message = message.replace(id, name);
-                                    }
-                                    let truncate_hex = crate::fmt::truncate_hex(id);
-                                    if message.contains(&truncate_hex) {
-                                        message = message.replace(&truncate_hex, name);
-                                    }
-                                }
-                                write!(writer, "{message}")?;
-                            }
-                            Ok(())
-                        })
-                    })
-                    .with_filter(filter())
-            })
-            .boxed(),
-    ]
-}
-
-/// A simple test logger that defaults to the INFO level
+/// A simple test logger that defaults to the INFO level.
+///
+/// Delegates to [`xmtp_logging::logger`]; the test subscriber itself now lives
+/// in the `xmtp_logging` crate (under its `test-utils` feature).
 pub fn logger() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-    crate::wasm_or_native! {
-        wasm => {
-            use tracing_wasm::{ConsoleConfig, WASMLayerConfigBuilder, WASMLayer};
-            INIT.get_or_init(|| {
-                let filter = tracing_subscriber::EnvFilter::builder().parse("debug").unwrap();
-
-                // this makes error logs in CI a little easier to read
-                let config = if cfg!(feature = "test-utils") {
-                    WASMLayerConfigBuilder::new()
-                        .set_console_config(ConsoleConfig::ReportWithoutConsoleColor)
-                        .build()
-                } else {
-                    WASMLayerConfigBuilder::new()
-                        .set_console_config(ConsoleConfig::ReportWithConsoleColor)
-                        .build()
-                };
-                tracing_subscriber::registry()
-                    .with(WASMLayer::new(config))
-                    .with(filter)
-                    .init();
-
-                console_error_panic_hook::set_once();
-            });
-        },
-        native => {
-            INIT.get_or_init(|| {
-                let _ = tracing_subscriber::registry()
-                    .with(logger_layer())
-                    .try_init();
-            });
-        },
-    }
+    xmtp_logging::logger()
 }
 
 // Execute once before any tests are run
@@ -195,22 +46,6 @@ pub fn logger() {
 fn ctor_logging_setup() {
     crate::logger();
     let _ = fdlimit::raise_fd_limit();
-}
-
-// must be in an arc so we only ever have one subscriber
-crate::if_native! {
-    static SCOPED_SUBSCRIBER: LazyLock<std::sync::Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
-        LazyLock::new(|| {
-            use tracing_subscriber::layer::SubscriberExt;
-
-            std::sync::Arc::new(Box::new(
-                tracing_subscriber::registry().with(logger_layer()),
-            ))
-        });
-
-    pub fn subscriber() -> impl tracing::Subscriber {
-        (*SCOPED_SUBSCRIBER).clone()
-    }
 }
 
 pub fn rand_hexstring() -> String {

@@ -52,13 +52,3 @@ pub use xmtp_cryptography::rand::*;
 pub use xmtp_macro::log_event;
 pub use xmtp_macro::parser;
 pub use xmtp_macro::timeout;
-
-#[cfg(feature = "logging")]
-pub mod logging;
-#[cfg(feature = "logging")]
-pub use logging::*;
-
-// Always compiled on native (enabled at runtime); excluded on wasm where
-// opentelemetry-otlp/tonic does not build.
-#[cfg(not(target_arch = "wasm32"))]
-pub mod telemetry;

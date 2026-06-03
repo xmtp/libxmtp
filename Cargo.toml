@@ -155,7 +155,6 @@ tower = { version = "0.5", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-appender = "0.2"
-tracing-forest = { version = "0.3", features = ["chrono"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 tracing-web = "0.1"

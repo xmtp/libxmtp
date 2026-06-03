@@ -20,3 +20,10 @@ pub use handle::LoggingHandle;
 mod telemetry;
 #[cfg(not(target_arch = "wasm32"))]
 pub use telemetry::{SCOPE, TelemetryGuard, init};
+
+#[cfg(feature = "test-utils")]
+pub mod test_logging;
+#[cfg(feature = "test-utils")]
+pub use test_logging::logger;
+#[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
+pub use test_logging::logger_layer;

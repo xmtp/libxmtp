@@ -12147,19 +12147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-forest"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f09cb459317a3811f76644334473239d696cd8efc606963ae7d1c308cead3b74"
-dependencies = [
- "chrono",
- "smallvec",
- "thiserror 2.0.18",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "tracing-log"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14506,7 +14493,6 @@ dependencies = [
  "toxiproxy_rust",
  "tracing",
  "tracing-flame",
- "tracing-forest",
  "tracing-opentelemetry",
  "tracing-subscriber",
  "tracing-wasm",
@@ -14518,6 +14504,7 @@ dependencies = [
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",
+ "xmtp_logging",
  "xmtp_macro",
 ]
 
@@ -14683,6 +14670,7 @@ dependencies = [
 name = "xmtp_logging"
 version = "1.11.0-dev"
 dependencies = [
+ "console_error_panic_hook",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -14901,6 +14889,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_logging",
  "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",

@@ -403,7 +403,7 @@ mod test_logger {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        xmtp_common::logger_layer()
+        xmtp_logging::logger_layer()
     }
 
     // Test builds don't install a reloadable native filter; the FFI call is a no-op.
