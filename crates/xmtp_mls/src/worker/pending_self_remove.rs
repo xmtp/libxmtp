@@ -128,6 +128,7 @@ where
     }
 
     /// Iterate on the list of groups and delete expired messages
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn remove_pending_remove_users(&mut self) -> Result<(), PendingSelfRemoveWorkerError> {
         let db = self.context.db();
         // Errors propagate to the supervisor (the sole logger); the worker restarts and
