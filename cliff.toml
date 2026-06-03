@@ -1,0 +1,59 @@
+# git-cliff configuration — generates CHANGELOG.md from conventional commits.
+# It NEVER edits Cargo.toml / package.json; the workspace version is the
+# runtime MLS protocol identity and is owned solely by xmtp-release.
+# `git cliff --bumped-version` / `--context` serve as a read-only version
+# oracle for the nightly flow (see PR 1c).
+
+[changelog]
+header = """
+# Changelog\n
+All notable changes to this project are documented here.\n
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# Keep non-conventional commits in the changelog (don't silently drop them from
+# the aggregate "what changed" record). They fall through commit_parsers into the
+# Miscellaneous group rather than being filtered out. Set true if you'd rather a
+# stricter changelog that omits anything not matching conventional-commit syntax.
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+# Anchored to libxmtp STABLE tags only (vMAJOR.MINOR.PATCH). The repo carries
+# ~1500 tags with many prefixes (xnet-gui-v..., android-..., ios-...); an
+# unanchored pattern like "v[0-9].*" matches those (the `v1` substring) and
+# makes `git cliff --bumped-version` choke trying to semver-parse them. This
+# also excludes prerelease tags (v1.11.0-nightly.*) so the oracle's baseline
+# is the last STABLE libxmtp release, which is what we diff the bump-kind
+# against.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+topo_order = false
+sort_commits = "oldest"
+
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactor" },
+  { message = "^doc", group = "<!-- 4 -->Documentation" },
+  { message = "^test", group = "<!-- 5 -->Testing" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore|^ci|^build", group = "<!-- 6 -->Miscellaneous" },
+  { body = ".*security", group = "<!-- 7 -->Security" },
+]

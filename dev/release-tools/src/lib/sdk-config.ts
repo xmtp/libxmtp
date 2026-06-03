@@ -14,6 +14,15 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
     manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
+    versionTrack: "independent",
+    notesIncludeGlobs: ["crates/**", "bindings/mobile/**", "sdks/ios/**"],
+    notesExcludeGlobs: [
+      "bindings/wasm/**",
+      "bindings/node/**",
+      "sdks/android/**",
+    ],
+    releaseWorkflow: "release-ios.yml",
+    channels: ["nightly", "rc", "final"],
   },
   [Sdk.Android]: {
     name: "Android",
@@ -23,6 +32,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifest: createGradlePropertiesManifestProvider(
       "sdks/android/gradle.properties",
     ),
+    versionTrack: "independent",
+    notesIncludeGlobs: ["crates/**", "bindings/mobile/**", "sdks/android/**"],
+    notesExcludeGlobs: ["bindings/wasm/**", "bindings/node/**", "sdks/ios/**"],
+    releaseWorkflow: "release-android.yml",
+    channels: ["nightly", "rc", "final"],
   },
   [Sdk.NodeBindings]: {
     name: "Node",
@@ -30,6 +44,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "node-bindings-",
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("bindings/node/package.json"),
+    versionTrack: "follows-libxmtp",
+    notesIncludeGlobs: ["crates/**", "bindings/node/**"],
+    notesExcludeGlobs: ["bindings/wasm/**", "bindings/mobile/**"],
+    releaseWorkflow: "release-node.yml",
+    channels: ["nightly", "rc", "final"],
   },
   [Sdk.WasmBindings]: {
     name: "WASM",
@@ -37,6 +56,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "wasm-bindings-",
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("bindings/wasm/package.json"),
+    versionTrack: "follows-libxmtp",
+    notesIncludeGlobs: ["crates/**", "bindings/wasm/**"],
+    notesExcludeGlobs: ["bindings/node/**", "bindings/mobile/**"],
+    releaseWorkflow: "release-wasm.yml",
+    channels: ["nightly", "rc", "final"],
   },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",
@@ -44,6 +68,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "v",
     artifactTagSuffix: "",
     manifest: createCargoManifestProvider("Cargo.toml"),
+    versionTrack: "follows-libxmtp",
+    notesIncludeGlobs: ["crates/**", "bindings/**"],
+    notesExcludeGlobs: [],
+    releaseWorkflow: "",
+    channels: ["nightly", "rc", "final"],
   },
 };
 

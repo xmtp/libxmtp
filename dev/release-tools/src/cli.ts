@@ -9,6 +9,10 @@ import * as createReleaseBranch from "./commands/create-release-branch";
 import * as classifyNotes from "./commands/classify-notes";
 import * as tagRelease from "./commands/tag-release";
 import * as setDevcontainerImage from "./commands/set-devcontainer-image";
+import * as pendingVersion from "./commands/pending-version";
+import * as resolveSdkVersion from "./commands/resolve-sdk-version";
+import * as listSdks from "./commands/list-sdks";
+import * as crossTestGate from "./commands/cross-test-gate";
 import { getRepoRoot } from "./lib/git";
 
 yargs(hideBin(process.argv))
@@ -26,6 +30,10 @@ yargs(hideBin(process.argv))
   .command(classifyNotes)
   .command(tagRelease)
   .command(setDevcontainerImage)
+  .command(pendingVersion)
+  .command(resolveSdkVersion)
+  .command(listSdks)
+  .command(crossTestGate)
   .demandCommand(1, "You must specify a command")
   .version(false)
   .strict()
