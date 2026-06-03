@@ -38,6 +38,7 @@ let
       # Actual source for crates needed to compile mls-validation-service
       (commonCargoSources (root + /crates/xmtp-workspace-hack))
       (commonCargoSources (root + /crates/xmtp_common))
+      (commonCargoSources (root + /crates/xmtp_logging))
       (commonCargoSources (root + /crates/xmtp_configuration))
       (commonCargoSources (root + /crates/xmtp_cryptography))
       (commonCargoSources (root + /crates/xmtp_id))

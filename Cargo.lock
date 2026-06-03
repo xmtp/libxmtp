@@ -14680,6 +14680,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_logging"
+version = "1.11.0-dev"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "tracing",
+ "tracing-appender",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "tracing-web",
+ "xmtp-workspace-hack",
+]
+
+[[package]]
 name = "xmtp_macro"
 version = "1.11.0-dev"
 dependencies = [
