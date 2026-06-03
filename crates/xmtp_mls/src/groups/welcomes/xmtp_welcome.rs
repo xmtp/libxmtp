@@ -307,7 +307,12 @@ where
         let requires_processing =
             welcome.resuming() || welcome.sequence_id() > self.last_sequence_id(&db)? as u64;
         if !requires_processing {
-            tracing::error!("Skipping already processed welcome {}", welcome.cursor);
+            // Expected, non-retryable condition: a welcome we've already processed
+            // (duplicate delivery / resume past our cursor). Logging at error! here
+            // marks the enclosing worker span status:error and inflates the error
+            // rate, even though it's handled gracefully. warn! keeps it visible
+            // without poisoning the span.
+            tracing::warn!("Skipping already processed welcome {}", welcome.cursor);
             return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
         }
         if *cursor_increment {

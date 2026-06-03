@@ -104,6 +104,20 @@ where
                     return Err(GroupError::ProcessIntent(
                         ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor),
                     ));
+                } else if matches!(
+                    err,
+                    GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))
+                ) {
+                    // Expected, non-retryable condition: the welcome was already
+                    // processed (e.g. duplicate delivery for a group we are already
+                    // in). It is handled gracefully upstream (cursor incremented,
+                    // welcome skipped), so log at warn rather than error to avoid
+                    // marking the span as status:error and inflating the error rate.
+                    tracing::warn!(
+                        welcome_cursor = %welcome.cursor,
+                        "welcome already processed, skipping: {}",
+                        err
+                    );
                 } else {
                     tracing::error!(
                         "failed to create group from welcome={} created at {}: {}",
