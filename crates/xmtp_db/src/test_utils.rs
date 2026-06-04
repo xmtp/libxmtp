@@ -111,7 +111,9 @@ mod wasm {
     pub fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(
-            &crate::DbConnection<Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>>,
+            &crate::DbConnection<
+                Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>,
+            >,
         ) -> R,
     {
         // ephemeral db connections do not use async so should resolve immediately
@@ -128,7 +130,9 @@ mod wasm {
     pub async fn with_connection_async<F, T, R>(fun: F) -> R
     where
         F: FnOnce(
-            crate::DbConnection<Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>>,
+            crate::DbConnection<
+                Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>,
+            >,
         ) -> T,
         T: Future<Output = R>,
     {
@@ -164,7 +168,7 @@ mod native {
     use super::*;
     use crate::{
         ConnectionExt, EphemeralDbConnection, MIGRATIONS, NativeDb, NativeDbConnection,
-        PersistentOrMem,
+        PersistentOrMem, SingleDbConnection,
     };
     use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
     use diesel_migrations::MigrationHarness;
@@ -255,7 +259,15 @@ mod native {
     pub fn with_connection<F, R>(fun: F) -> R
     where
         F: FnOnce(
-            &crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,
+            &crate::DbConnection<
+                Arc<
+                    PersistentOrMem<
+                        NativeDbConnection,
+                        SingleDbConnection,
+                        EphemeralDbConnection,
+                    >,
+                >,
+            >,
         ) -> R,
     {
         let db = NativeDb::builder().ephemeral().build_unencrypted().unwrap();
@@ -268,7 +280,15 @@ mod native {
     pub async fn with_connection_async<F, T, R>(fun: F) -> R
     where
         F: FnOnce(
-            crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,
+            crate::DbConnection<
+                Arc<
+                    PersistentOrMem<
+                        NativeDbConnection,
+                        SingleDbConnection,
+                        EphemeralDbConnection,
+                    >,
+                >,
+            >,
         ) -> T,
         T: Future<Output = R>,
     {
