@@ -5261,6 +5261,21 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     func setConsentStates(records: [FfiConsent]) async throws 
     
     /**
+     * Cleanly shut down this client: cancel in-flight workers and detached
+     * streams, then release the DB connection. Idempotent — a second call
+     * resolves to `Ok`.
+     *
+     * `await` this before deleting the SQLite file or dropping the client
+     * reference to avoid late log spew from detached workers/streams firing
+     * against a dead DB.
+     *
+     * Named `shutdown` rather than `close` because uniffi reserves `close`
+     * on every exported object for the Kotlin `Disposable` handle-disposal
+     * method, which would conflict with this one.
+     */
+    func shutdown() async throws 
+    
+    /**
      * A utility function to sign a piece of text with this installation's private key.
      */
     func signWithInstallationKey(text: String) throws  -> Data
@@ -5819,6 +5834,36 @@ open func setConsentStates(records: [FfiConsent])async throws   {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_states(
                     self.uniffiCloneHandle(),
                     FfiConverterSequenceTypeFfiConsent.lower(records)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Cleanly shut down this client: cancel in-flight workers and detached
+     * streams, then release the DB connection. Idempotent — a second call
+     * resolves to `Ok`.
+     *
+     * `await` this before deleting the SQLite file or dropping the client
+     * reference to avoid late log spew from detached workers/streams firing
+     * against a dead DB.
+     *
+     * Named `shutdown` rather than `close` because uniffi reserves `close`
+     * on every exported object for the Kotlin `Disposable` handle-disposal
+     * method, which would conflict with this one.
+     */
+open func shutdown()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_shutdown(
+                    self.uniffiCloneHandle()
+                    
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_void,
@@ -9933,6 +9978,211 @@ public func FfiConverterTypeFfiWalletSendCalls_lower(_ value: FfiWalletSendCalls
     return FfiConverterTypeFfiWalletSendCalls.lower(value)
 }
 
+
+/**
+ * Tuning for the background worker scheduler. All fields optional; the empty
+ * record preserves default behavior (all workers enabled, const intervals,
+ * no jitter).
+ */
+public struct FfiWorkerConfig: Equatable, Hashable {
+    /**
+     * Global default interval for all workers, in nanoseconds.
+     */
+    public var defaultIntervalNs: UInt64?
+    /**
+     * Per-worker interval overrides (nanoseconds).
+     */
+    public var workerIntervalsNs: [FfiWorkerIntervalOverride]
+    /**
+     * Per-worker jitter overrides (nanoseconds).
+     */
+    public var workerJittersNs: [FfiWorkerJitterOverride]
+    /**
+     * Workers to disable. Anything not listed stays enabled.
+     */
+    public var disabledWorkers: [FfiWorkerKind]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Global default interval for all workers, in nanoseconds.
+         */defaultIntervalNs: UInt64?, 
+        /**
+         * Per-worker interval overrides (nanoseconds).
+         */workerIntervalsNs: [FfiWorkerIntervalOverride], 
+        /**
+         * Per-worker jitter overrides (nanoseconds).
+         */workerJittersNs: [FfiWorkerJitterOverride], 
+        /**
+         * Workers to disable. Anything not listed stays enabled.
+         */disabledWorkers: [FfiWorkerKind]) {
+        self.defaultIntervalNs = defaultIntervalNs
+        self.workerIntervalsNs = workerIntervalsNs
+        self.workerJittersNs = workerJittersNs
+        self.disabledWorkers = disabledWorkers
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiWorkerConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiWorkerConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiWorkerConfig {
+        return
+            try FfiWorkerConfig(
+                defaultIntervalNs: FfiConverterOptionUInt64.read(from: &buf), 
+                workerIntervalsNs: FfiConverterSequenceTypeFfiWorkerIntervalOverride.read(from: &buf), 
+                workerJittersNs: FfiConverterSequenceTypeFfiWorkerJitterOverride.read(from: &buf), 
+                disabledWorkers: FfiConverterSequenceTypeFfiWorkerKind.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiWorkerConfig, into buf: inout [UInt8]) {
+        FfiConverterOptionUInt64.write(value.defaultIntervalNs, into: &buf)
+        FfiConverterSequenceTypeFfiWorkerIntervalOverride.write(value.workerIntervalsNs, into: &buf)
+        FfiConverterSequenceTypeFfiWorkerJitterOverride.write(value.workerJittersNs, into: &buf)
+        FfiConverterSequenceTypeFfiWorkerKind.write(value.disabledWorkers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerConfig_lift(_ buf: RustBuffer) throws -> FfiWorkerConfig {
+    return try FfiConverterTypeFfiWorkerConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerConfig_lower(_ value: FfiWorkerConfig) -> RustBuffer {
+    return FfiConverterTypeFfiWorkerConfig.lower(value)
+}
+
+
+/**
+ * A single per-worker interval override.
+ */
+public struct FfiWorkerIntervalOverride: Equatable, Hashable {
+    public var kind: FfiWorkerKind
+    public var intervalNs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: FfiWorkerKind, intervalNs: UInt64) {
+        self.kind = kind
+        self.intervalNs = intervalNs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiWorkerIntervalOverride: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiWorkerIntervalOverride: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiWorkerIntervalOverride {
+        return
+            try FfiWorkerIntervalOverride(
+                kind: FfiConverterTypeFfiWorkerKind.read(from: &buf), 
+                intervalNs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiWorkerIntervalOverride, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiWorkerKind.write(value.kind, into: &buf)
+        FfiConverterUInt64.write(value.intervalNs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerIntervalOverride_lift(_ buf: RustBuffer) throws -> FfiWorkerIntervalOverride {
+    return try FfiConverterTypeFfiWorkerIntervalOverride.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerIntervalOverride_lower(_ value: FfiWorkerIntervalOverride) -> RustBuffer {
+    return FfiConverterTypeFfiWorkerIntervalOverride.lower(value)
+}
+
+
+/**
+ * A single per-worker jitter override (nanoseconds).
+ */
+public struct FfiWorkerJitterOverride: Equatable, Hashable {
+    public var kind: FfiWorkerKind
+    public var jitterNs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: FfiWorkerKind, jitterNs: UInt64) {
+        self.kind = kind
+        self.jitterNs = jitterNs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiWorkerJitterOverride: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiWorkerJitterOverride: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiWorkerJitterOverride {
+        return
+            try FfiWorkerJitterOverride(
+                kind: FfiConverterTypeFfiWorkerKind.read(from: &buf), 
+                jitterNs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiWorkerJitterOverride, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiWorkerKind.write(value.kind, into: &buf)
+        FfiConverterUInt64.write(value.jitterNs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerJitterOverride_lift(_ buf: RustBuffer) throws -> FfiWorkerJitterOverride {
+    return try FfiConverterTypeFfiWorkerJitterOverride.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerJitterOverride_lower(_ value: FfiWorkerJitterOverride) -> RustBuffer {
+    return FfiConverterTypeFfiWorkerJitterOverride.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -13023,6 +13273,101 @@ public func FfiConverterTypeFfiSyncMetric_lower(_ value: FfiSyncMetric) -> RustB
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum FfiWorkerKind: Equatable, Hashable {
+    
+    case deviceSync
+    case disappearingMessages
+    case keyPackageCleaner
+    case commitLog
+    case taskRunner
+    case pendingSelfRemove
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiWorkerKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiWorkerKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiWorkerKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .deviceSync
+        
+        case 2: return .disappearingMessages
+        
+        case 3: return .keyPackageCleaner
+        
+        case 4: return .commitLog
+        
+        case 5: return .taskRunner
+        
+        case 6: return .pendingSelfRemove
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiWorkerKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .deviceSync:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .disappearingMessages:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .keyPackageCleaner:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .commitLog:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .taskRunner:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .pendingSelfRemove:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerKind_lift(_ buf: RustBuffer) throws -> FfiWorkerKind {
+    return try FfiConverterTypeFfiWorkerKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWorkerKind_lower(_ value: FfiWorkerKind) -> RustBuffer {
+    return FfiConverterTypeFfiWorkerKind.lower(value)
+}
+
+
 
 public enum IdentityValidationError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -13714,6 +14059,30 @@ fileprivate struct FfiConverterOptionTypeFfiWalletCallMetadata: FfiConverterRust
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFfiWalletCallMetadata.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiWorkerConfig: FfiConverterRustBuffer {
+    typealias SwiftType = FfiWorkerConfig?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiWorkerConfig.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiWorkerConfig.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -14606,6 +14975,56 @@ fileprivate struct FfiConverterSequenceTypeFfiWalletCall: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiWorkerIntervalOverride: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiWorkerIntervalOverride]
+
+    public static func write(_ value: [FfiWorkerIntervalOverride], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiWorkerIntervalOverride.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiWorkerIntervalOverride] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiWorkerIntervalOverride]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiWorkerIntervalOverride.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiWorkerJitterOverride: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiWorkerJitterOverride]
+
+    public static func write(_ value: [FfiWorkerJitterOverride], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiWorkerJitterOverride.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiWorkerJitterOverride] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiWorkerJitterOverride]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiWorkerJitterOverride.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiBackupElementSelection: FfiConverterRustBuffer {
     typealias SwiftType = [FfiBackupElementSelection]
 
@@ -14698,6 +15117,31 @@ fileprivate struct FfiConverterSequenceTypeFfiPreferenceUpdate: FfiConverterRust
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiPreferenceUpdate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiWorkerKind: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiWorkerKind]
+
+    public static func write(_ value: [FfiWorkerKind], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiWorkerKind.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiWorkerKind] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiWorkerKind]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiWorkerKind.read(from: &buf))
         }
         return seq
     }
@@ -15223,11 +15667,11 @@ public func connectToBackend(v3Host: String, gatewayHost: String?, clientMode: F
  * xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
  * ```
  */
-public func createClient(api: XmtpApiClient, syncApi: XmtpApiClient, db: DbOptions, inboxId: String, accountIdentifier: FfiIdentifier, nonce: UInt64, legacySignedPrivateKeyProto: Data?, deviceSyncMode: FfiDeviceSyncMode?, allowOffline: Bool?, forkRecoveryOpts: FfiForkRecoveryOpts?)async throws  -> FfiXmtpClient  {
+public func createClient(api: XmtpApiClient, db: DbOptions, inboxId: String, accountIdentifier: FfiIdentifier, nonce: UInt64, legacySignedPrivateKeyProto: Data?, deviceSyncMode: FfiDeviceSyncMode?, allowOffline: Bool?, forkRecoveryOpts: FfiForkRecoveryOpts?, workerConfig: FfiWorkerConfig?)async throws  -> FfiXmtpClient  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_xmtpv3_fn_func_create_client(FfiConverterTypeXmtpApiClient_lower(api),FfiConverterTypeXmtpApiClient_lower(syncApi),FfiConverterTypeDbOptions_lower(db),FfiConverterString.lower(inboxId),FfiConverterTypeFfiIdentifier_lower(accountIdentifier),FfiConverterUInt64.lower(nonce),FfiConverterOptionData.lower(legacySignedPrivateKeyProto),FfiConverterOptionTypeFfiDeviceSyncMode.lower(deviceSyncMode),FfiConverterOptionBool.lower(allowOffline),FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts)
+                uniffi_xmtpv3_fn_func_create_client(FfiConverterTypeXmtpApiClient_lower(api),FfiConverterTypeDbOptions_lower(db),FfiConverterString.lower(inboxId),FfiConverterTypeFfiIdentifier_lower(accountIdentifier),FfiConverterUInt64.lower(nonce),FfiConverterOptionData.lower(legacySignedPrivateKeyProto),FfiConverterOptionTypeFfiDeviceSyncMode.lower(deviceSyncMode),FfiConverterOptionBool.lower(allowOffline),FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts),FfiConverterOptionTypeFfiWorkerConfig.lower(workerConfig)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_u64,
@@ -15565,7 +16009,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 18361) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_create_client() != 20159) {
+    if (uniffi_xmtpv3_checksum_func_create_client() != 52109) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_decode_actions() != 20603) {
@@ -16145,6 +16589,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 26184) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_shutdown() != 44429) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 9313) {
