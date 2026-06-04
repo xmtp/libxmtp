@@ -240,11 +240,13 @@ impl RetryableError for PlatformStorageError {
 #[derive(Clone, Debug)]
 pub struct NativeDb {
     customizer: Box<dyn XmtpConnection>,
-    conn: Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>,
+    conn: Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>,
     opts: StorageOption,
 }
 
-use native_db_builder::{Empty, IsComplete, IsSet, IsUnset, SetKey, SetOpts};
+use native_db_builder::{
+    Empty, IsComplete, IsSet, IsUnset, SetKey, SetOpts, SetSingleConnection,
+};
 
 impl NativeDb {
     pub fn builder() -> NativeDbBuilder<Empty> {
@@ -260,8 +262,14 @@ pub fn native_db(
     /// minimum amount of connections maintained at any time
     #[builder(default = MIN_DB_POOL_SIZE)]
     min_pool_size: u32,
+    /// When true, use a single `Mutex<SqliteConnection>` instead of a pool.
+    /// Costs one file descriptor per database. `max_pool_size`/`min_pool_size`
+    /// are ignored in this mode. Only meaningful for persistent databases.
+    #[builder(default = false, setters(vis = "", name = single_connection_internal))]
+    single_connection: bool,
 ) -> Result<NativeDb, StorageError> {
-    NativeDb::new_inner(&opts, key, max_pool_size, min_pool_size).map_err(Into::into)
+    NativeDb::new_inner(&opts, key, max_pool_size, min_pool_size, single_connection)
+        .map_err(Into::into)
 }
 
 impl<S: native_db_builder::State> NativeDbBuilder<S> {
@@ -284,6 +292,16 @@ impl<S: native_db_builder::State> NativeDbBuilder<S> {
         S::Key: IsUnset,
     {
         self.key_internal(Some(key.into()))
+    }
+
+    /// Use a single `Mutex<SqliteConnection>` instead of a connection pool.
+    /// Costs exactly one file descriptor. Only meaningful for persistent
+    /// databases; ignored for ephemeral ones.
+    pub fn single_connection(self) -> NativeDbBuilder<SetSingleConnection<S>>
+    where
+        S::SingleConnection: IsUnset,
+    {
+        self.single_connection_internal(true)
     }
 
     /// Explicitly build the db without encryption
@@ -312,6 +330,7 @@ impl NativeDb {
         enc_key: Option<EncryptionKey>,
         max_pool_size: u32,
         min_pool_size: u32,
+        single_connection: bool,
     ) -> Result<Self, PlatformStorageError> {
         let customizer = if let Some(key) = enc_key {
             let enc_connection = EncryptedConnection::new(key, opts)?;
@@ -326,12 +345,21 @@ impl NativeDb {
             Box::new(NopConnection::default()) as Box<dyn XmtpConnection>
         };
         let conn = if customizer.is_persistent() {
-            PersistentOrMem::Persistent(NativeDbConnection::new(
-                customizer.clone(),
-                max_pool_size,
-                min_pool_size,
-            )?)
+            if single_connection {
+                PersistentOrMem::Single(SingleDbConnection::new(customizer.clone())?)
+            } else {
+                PersistentOrMem::Persistent(NativeDbConnection::new(
+                    customizer.clone(),
+                    max_pool_size,
+                    min_pool_size,
+                )?)
+            }
         } else {
+            if single_connection {
+                tracing::info!(
+                    "single_connection requested for an ephemeral database; ignoring (ephemeral is already single-connection)"
+                );
+            }
             PersistentOrMem::Mem(EphemeralDbConnection::new()?)
         };
 
@@ -344,7 +372,7 @@ impl NativeDb {
 }
 
 impl XmtpDb for NativeDb {
-    type Connection = Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>;
+    type Connection = Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>;
     type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
@@ -674,6 +702,76 @@ mod tests {
             ),
             "Expected SqlCipherKeyIncorrect error, got {}",
             err
+        );
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    #[tokio::test]
+    async fn single_connection_roundtrip_and_reconnect() {
+        use crate::{Fetch, Store, identity::StoredIdentity};
+
+        let db_path = tmp_path();
+        {
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key([7u8; 32])
+                .single_connection()
+                .build()
+                .unwrap();
+            db.init().unwrap();
+
+            assert!(
+                matches!(&*db.conn(), PersistentOrMem::Single(_)),
+                "expected Single arm for single_connection() persistent db"
+            );
+
+            let conn = db.conn();
+            let inbox_id = "single_conn_inbox";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
+                .store(&conn)
+                .unwrap();
+
+            let fetched: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            assert_eq!(fetched.inbox_id, inbox_id);
+
+            conn.reconnect().unwrap();
+            let fetched2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            assert_eq!(fetched2.inbox_id, inbox_id);
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    #[tokio::test]
+    async fn single_connection_mismatched_key_fails() {
+        use crate::database::PlatformStorageError;
+
+        let db_path = tmp_path();
+        {
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key([1u8; 32])
+                .single_connection()
+                .build()
+                .unwrap();
+            db.init().unwrap();
+            StoredIdentity::new("addr".to_string(), rand_vec::<24>(), rand_vec::<24>())
+                .store(&db.conn())
+                .unwrap();
+        }
+        let mut bad = [1u8; 32];
+        bad[3] = 200;
+        let err = NativeDb::builder()
+            .persistent(db_path.clone())
+            .key(bad)
+            .single_connection()
+            .build()
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::StorageError::Platform(PlatformStorageError::SqlCipherKeyIncorrect)
+            ),
+            "expected SqlCipherKeyIncorrect, got {err}"
         );
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
