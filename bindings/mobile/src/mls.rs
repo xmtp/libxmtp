@@ -310,7 +310,9 @@ pub struct DbOptions {
     pub max_db_pool_size: Option<u32>,
     pub min_db_pool_size: Option<u32>,
     /// When true, use a single DB connection instead of a pool (one file
-    /// descriptor). Pool-size options are ignored.
+    /// descriptor). Pool-size options are ignored. Defaults to unset so existing
+    /// foreign callers that construct `DbOptions` without this field still compile.
+    #[uniffi(default = None)]
     pub use_single_connection: Option<bool>,
 }
 

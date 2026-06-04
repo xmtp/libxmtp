@@ -260,13 +260,7 @@ mod native {
     where
         F: FnOnce(
             &crate::DbConnection<
-                Arc<
-                    PersistentOrMem<
-                        NativeDbConnection,
-                        SingleDbConnection,
-                        EphemeralDbConnection,
-                    >,
-                >,
+                Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>,
             >,
         ) -> R,
     {
@@ -281,13 +275,7 @@ mod native {
     where
         F: FnOnce(
             crate::DbConnection<
-                Arc<
-                    PersistentOrMem<
-                        NativeDbConnection,
-                        SingleDbConnection,
-                        EphemeralDbConnection,
-                    >,
-                >,
+                Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>,
             >,
         ) -> T,
         T: Future<Output = R>,

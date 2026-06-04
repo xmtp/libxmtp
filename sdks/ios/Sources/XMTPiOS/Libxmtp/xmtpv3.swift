@@ -6282,14 +6282,16 @@ public struct DbOptions: Equatable, Hashable {
     public var encryptionKey: Data?
     public var maxDbPoolSize: UInt32?
     public var minDbPoolSize: UInt32?
+    public var useSingleConnection: Bool?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(db: String?, encryptionKey: Data?, maxDbPoolSize: UInt32?, minDbPoolSize: UInt32?) {
+    public init(db: String?, encryptionKey: Data?, maxDbPoolSize: UInt32?, minDbPoolSize: UInt32?, useSingleConnection: Bool? = nil) {
         self.db = db
         self.encryptionKey = encryptionKey
         self.maxDbPoolSize = maxDbPoolSize
         self.minDbPoolSize = minDbPoolSize
+        self.useSingleConnection = useSingleConnection
     }
 
     
@@ -6308,10 +6310,11 @@ public struct FfiConverterTypeDbOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DbOptions {
         return
             try DbOptions(
-                db: FfiConverterOptionString.read(from: &buf), 
-                encryptionKey: FfiConverterOptionData.read(from: &buf), 
-                maxDbPoolSize: FfiConverterOptionUInt32.read(from: &buf), 
-                minDbPoolSize: FfiConverterOptionUInt32.read(from: &buf)
+                db: FfiConverterOptionString.read(from: &buf),
+                encryptionKey: FfiConverterOptionData.read(from: &buf),
+                maxDbPoolSize: FfiConverterOptionUInt32.read(from: &buf),
+                minDbPoolSize: FfiConverterOptionUInt32.read(from: &buf),
+                useSingleConnection: FfiConverterOptionBool.read(from: &buf)
         )
     }
 
@@ -6320,6 +6323,7 @@ public struct FfiConverterTypeDbOptions: FfiConverterRustBuffer {
         FfiConverterOptionData.write(value.encryptionKey, into: &buf)
         FfiConverterOptionUInt32.write(value.maxDbPoolSize, into: &buf)
         FfiConverterOptionUInt32.write(value.minDbPoolSize, into: &buf)
+        FfiConverterOptionBool.write(value.useSingleConnection, into: &buf)
     }
 }
 

@@ -64,6 +64,7 @@ fn create_ffi_client(c: &mut Criterion) {
                         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
                         None,
                         None,
+                        None,
                     ),
                     &inbox_id,
                     ffi_ident,
@@ -108,6 +109,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                 Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
                 None,
                 None,
+                None,
             ),
             &inbox_id.clone(),
             ffi_ident,
@@ -144,6 +146,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                     DbOptions::new(
                         Some(path),
                         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+                        None,
                         None,
                         None,
                     ),

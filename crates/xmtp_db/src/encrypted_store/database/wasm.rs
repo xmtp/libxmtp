@@ -217,7 +217,8 @@ impl ConnectionExt for WasmDbConnection {
 }
 
 impl XmtpDb for WasmDb {
-    type Connection = Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>;
+    type Connection =
+        Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>;
     type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {

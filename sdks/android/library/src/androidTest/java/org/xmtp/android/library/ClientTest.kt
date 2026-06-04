@@ -1101,7 +1101,11 @@ class ClientTest : BaseInstrumentedTest() {
 
             val identityStats2 = alix.debugInformation.identityStatistics
             assertEquals(0, identityStats2.publishIdentityUpdate)
-            assertEquals(0, identityStats2.getIdentityUpdatesV2)
+            // Collapsing the two gRPC connections into one (#3721) routes the
+            // group-creation identity-update fetches through the single API
+            // client, so they're now counted here (was 0 under the
+            // two-connection setup).
+            assertEquals(2, identityStats2.getIdentityUpdatesV2)
             assertEquals(0, identityStats2.getInboxIds)
             assertEquals(0, identityStats2.verifySmartContractWalletSignature)
             job.cancel()

@@ -159,7 +159,8 @@ pub enum PlatformStorageError {
     Pool(#[from] diesel::r2d2::PoolError),
     /// DB connection error.
     ///
-    /// R2D2 connection manager error. Not retryable.
+    /// R2D2 connection manager error (e.g. a failed `on_acquire` while
+    /// establishing a connection). Transient — retryable.
     #[error("Error with connection to Sqlite {0}")]
     DbConnection(#[from] diesel::r2d2::Error),
     /// Pool needs connection.
@@ -223,6 +224,10 @@ impl RetryableError for PlatformStorageError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Pool(_) => true,
+            // An r2d2 connection-setup error (e.g. a failed `on_acquire` when
+            // establishing the single connection) is transient — retryable, in
+            // line with how the pooled checkout path classifies the same failure.
+            Self::DbConnection(_) => true,
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,
@@ -244,9 +249,7 @@ pub struct NativeDb {
     opts: StorageOption,
 }
 
-use native_db_builder::{
-    Empty, IsComplete, IsSet, IsUnset, SetKey, SetOpts, SetSingleConnection,
-};
+use native_db_builder::{Empty, IsComplete, IsSet, IsUnset, SetKey, SetOpts, SetSingleConnection};
 
 impl NativeDb {
     pub fn builder() -> NativeDbBuilder<Empty> {
@@ -372,7 +375,8 @@ impl NativeDb {
 }
 
 impl XmtpDb for NativeDb {
-    type Connection = Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>;
+    type Connection =
+        Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>;
     type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
@@ -464,18 +468,35 @@ impl ConnectionExt for EphemeralDbConnection {
 /// (where a per-client pool would exhaust the OS file-descriptor limit) and do
 /// serial work per client. There is no connection reentrancy in the codebase,
 /// so a non-reentrant `Mutex` is safe (see the design spec).
+///
+/// The connection is held in an `Option` so that [`disconnect`] can drop it and
+/// genuinely release the underlying file descriptor (SQLite closes the fd when
+/// the connection is dropped). After a disconnect, `raw_query` returns
+/// [`PlatformStorageError::PoolNeedsConnection`] — the same contract as the
+/// pooled [`NativeDbConnection`] — until [`reconnect`] re-establishes it.
+///
+/// [`disconnect`]: ConnectionExt::disconnect
+/// [`reconnect`]: ConnectionExt::reconnect
 pub struct SingleDbConnection {
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<Mutex<Option<SqliteConnection>>>,
     customizer: Box<dyn XmtpConnection>,
 }
 
 impl std::fmt::Debug for SingleDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Use `try_lock`: the mutex is non-reentrant, so formatting `{:?}` from
+        // within a `raw_query` callback (or panic/error logging that runs while
+        // the callback holds the lock) must not block — that would deadlock the
+        // thread. Report `connected=<locked>` when the lock is already held.
+        let connected = match self.conn.try_lock() {
+            Some(guard) => guard.is_some().to_string(),
+            None => "<locked>".to_string(),
+        };
         write!(
             f,
-            "SingleDbConnection {{ path: {}, is_locked={} }}",
+            "SingleDbConnection {{ path: {}, connected={} }}",
             self.customizer.options(),
-            self.conn.is_locked()
+            connected
         )
     }
 }
@@ -485,9 +506,9 @@ impl SingleDbConnection {
         let StorageOption::Persistent(path) = customizer.options() else {
             return Err(PlatformStorageError::PoolRequiresPath);
         };
-        let conn = Self::establish(path, &customizer)?;
+        let conn = Self::establish(path, &*customizer)?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            conn: Arc::new(Mutex::new(Some(conn))),
             customizer,
         })
     }
@@ -497,21 +518,32 @@ impl SingleDbConnection {
     /// then the one-time WAL/busy_timeout pragmas that `DbPool::new` runs.
     fn establish(
         path: &str,
-        customizer: &Box<dyn XmtpConnection>,
+        customizer: &dyn XmtpConnection,
     ) -> Result<SqliteConnection, PlatformStorageError> {
         let mut conn = SqliteConnection::establish(path)?;
         // Same per-connection setup the r2d2 customizer applies on checkout.
+        // Surface the `on_acquire` failure as `DbConnection` (its natural
+        // `From<diesel::r2d2::Error>` mapping) rather than boxing it, so a
+        // transient setup failure is classified as retryable — matching how the
+        // pooled path's checkout failures are retried. Boxing would mark these
+        // permanent and break reconnect/retry loops.
         customizer
             .on_acquire(&mut conn)
-            .map_err(|e| PlatformStorageError::Boxed(Box::new(e)))?;
+            .map_err(PlatformStorageError::DbConnection)?;
         // Same one-time pragmas DbPool::new applies on pool creation.
         conn.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?;
         conn.batch_execute("PRAGMA journal_mode = WAL;")?;
         Ok(conn)
     }
 
+    /// Drop the connection, releasing its file descriptor. This is the whole
+    /// point of single-connection mode for many-client processes: a disconnected
+    /// client holds zero fds. Subsequent `raw_query` calls fail with
+    /// `PoolNeedsConnection` until `reconnect` is called.
     fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
-        tracing::warn!("single-connection: disconnect is a no-op (connection stays open)");
+        tracing::warn!("single-connection: dropping sqlite connection (releasing file descriptor)");
+        // Dropping the `SqliteConnection` here closes the underlying fd.
+        *self.conn.lock() = None;
         Ok(())
     }
 
@@ -520,9 +552,15 @@ impl SingleDbConnection {
         let StorageOption::Persistent(path) = self.customizer.options() else {
             return Err(PlatformStorageError::PoolRequiresPath);
         };
-        let conn = Self::establish(path, &self.customizer)?;
-        let mut w = self.conn.lock();
-        *w = conn;
+        // Drop the existing connection (releasing its fd) BEFORE establishing the
+        // new one, so we never momentarily hold two fds for the same client.
+        // Under a tight `ulimit -n` with many clients reconnecting at once, the
+        // old establish-then-swap order could otherwise transiently double the
+        // fd count and hit EMFILE. We hold the lock across the whole operation so
+        // a concurrent `raw_query` can't observe a half-open state.
+        let mut guard = self.conn.lock();
+        *guard = None;
+        *guard = Some(Self::establish(path, &*self.customizer)?);
         Ok(())
     }
 }
@@ -533,8 +571,15 @@ impl ConnectionExt for SingleDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.lock();
-        fun(&mut conn).map_err(ConnectionError::from)
+        let mut guard = self.conn.lock();
+        match guard.as_mut() {
+            Some(conn) => fun(conn).map_err(ConnectionError::from),
+            // Connection was released by `disconnect`; mirror the pooled path's
+            // contract so retry/`db_needs_connection()` logic works identically.
+            None => Err(ConnectionError::from(
+                PlatformStorageError::PoolNeedsConnection,
+            )),
+        }
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {
@@ -741,6 +786,63 @@ mod tests {
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
+    /// `disconnect` must actually drop the connection and release the file
+    /// descriptor (the hard requirement for many-client processes). After
+    /// disconnect: the inner connection is `None`, a query fails with a
+    /// `db_needs_connection()` error (same contract as the pool), and a
+    /// reconnect restores service.
+    #[tokio::test]
+    async fn single_connection_disconnect_releases_then_reconnect() {
+        use crate::{Fetch, Store, identity::StoredIdentity};
+
+        let db_path = tmp_path();
+        {
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key([8u8; 32])
+                .single_connection()
+                .build()
+                .unwrap();
+            db.init().unwrap();
+
+            let conn = db.conn();
+            let inbox_id = "fd_release_inbox";
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
+                .store(&conn)
+                .unwrap();
+
+            // Healthy connection: query succeeds.
+            let ok: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            assert!(ok.is_ok());
+
+            // Disconnect drops the connection (releases the fd).
+            conn.disconnect().unwrap();
+            if let PersistentOrMem::Single(s) = &*db.conn() {
+                assert!(
+                    s.conn.lock().is_none(),
+                    "single connection should be dropped (fd released) after disconnect"
+                );
+            } else {
+                panic!("expected Single arm");
+            }
+
+            // A query against the released connection reports needs-connection,
+            // matching the pooled path's contract.
+            let res: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let err = res.expect_err("query against a disconnected single connection should fail");
+            assert!(
+                err.db_needs_connection(),
+                "expected db_needs_connection() after disconnect, got: {err:?}"
+            );
+
+            // Reconnect restores service; data persisted on disk.
+            conn.reconnect().unwrap();
+            let fetched: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            assert_eq!(fetched.inbox_id, inbox_id);
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
     #[tokio::test]
     async fn single_connection_mismatched_key_fails() {
         use crate::database::PlatformStorageError;
@@ -786,7 +888,7 @@ mod tests {
     #[tokio::test]
     async fn single_connection_nested_transaction_no_deadlock() {
         use crate::{
-            ConnectionExt, Store, StorageError, StoreOrIgnore, TransactionalKeyStore,
+            ConnectionExt, StorageError, Store, StoreOrIgnore, TransactionalKeyStore,
             XmtpMlsStorageProvider,
             refresh_state::{EntityKind, RefreshState},
             sql_key_store::SqlKeyStore,
@@ -816,8 +918,12 @@ mod tests {
                     // targets it; the nested savepoint writes to a multi-row
                     // table (`refresh_state`) to avoid a constraint collision.
                     let storage = conn.key_store();
-                    StoredIdentity::new("txn_outer".to_string(), rand_vec::<24>(), rand_vec::<24>())
-                        .store(&storage.db())?;
+                    StoredIdentity::new(
+                        "txn_outer".to_string(),
+                        rand_vec::<24>(),
+                        rand_vec::<24>(),
+                    )
+                    .store(&storage.db())?;
 
                     // Nested write inside a SQLite savepoint, re-deriving the
                     // key store from the savepoint's `&mut SqliteConnection`.
@@ -836,16 +942,29 @@ mod tests {
                 })
                 .unwrap();
 
-            // Reaching here means no deadlock. Confirm the outer write persisted.
-            let count: i64 = db
+            // Reaching here means no deadlock. Confirm BOTH writes persisted:
+            // the outer transaction's `identity` row and the nested savepoint's
+            // `refresh_state` row. Counting only the outer would let a silently
+            // rolled-back / skipped savepoint go undetected.
+            let (identity_count, refresh_count): (i64, i64) = db
                 .conn()
                 .raw_query(|c| {
                     use diesel::dsl::sql;
                     use diesel::sql_types::BigInt;
-                    diesel::select(sql::<BigInt>("(SELECT COUNT(*) FROM identity)")).get_result(c)
+                    let identity_count =
+                        diesel::select(sql::<BigInt>("(SELECT COUNT(*) FROM identity)"))
+                            .get_result(c)?;
+                    let refresh_count =
+                        diesel::select(sql::<BigInt>("(SELECT COUNT(*) FROM refresh_state)"))
+                            .get_result(c)?;
+                    Ok((identity_count, refresh_count))
                 })
                 .unwrap();
-            assert!(count >= 1, "expected at least the outer identity row");
+            assert!(identity_count >= 1, "expected the outer identity row");
+            assert!(
+                refresh_count >= 1,
+                "expected the nested savepoint's refresh_state row to persist"
+            );
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
