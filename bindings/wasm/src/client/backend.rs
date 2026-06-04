@@ -127,16 +127,11 @@ pub async fn create_client_with_backend(
   let mut mbb = xmtp_api_d14n::MessageBackendBuilder::default();
   mbb.cursor_store(cursor_store);
   let api_client = mbb
-    .clone()
-    .from_bundle(backend.bundle.clone())
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let sync_api_client = mbb
     .from_bundle(backend.bundle.clone())
     .map_err(|e| JsError::new(&e.to_string()))?;
 
   super::create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,
