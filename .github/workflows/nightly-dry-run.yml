@@ -1,0 +1,40 @@
+name: nightly-dry-run
+
+# Manual preview of the nightly version-computation plan (cross-test gate +
+# git-cliff oracle, capped at minor, with the not-major assertion). Calls the
+# same release-gate-plan reusable workflow the real nightly uses, so it
+# exercises identical logic. Has NO publish jobs — it structurally cannot
+# publish/tag anything. Use this to verify pipeline changes before they ship.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to compute the nightly plan for"
+        required: false
+        type: string
+        default: main
+
+jobs:
+  plan:
+    uses: ./.github/workflows/release-gate-plan.yml
+    with:
+      ref: ${{ inputs.ref || github.ref_name }}
+    secrets: inherit
+  summary:
+    needs: [plan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print plan result
+        run: |
+          {
+            echo "## Nightly dry-run plan"
+            echo ""
+            echo "- gate-skip: \`${{ needs.plan.outputs.gate-skip }}\`"
+            echo "- nothing-pending: \`${{ needs.plan.outputs.nothing-pending }}\`"
+            echo "- version: \`${{ needs.plan.outputs.version }}\`"
+            echo "- kind: \`${{ needs.plan.outputs.kind }}\`"
+            echo ""
+            echo "No publishes/tags occur in a dry-run."
+          } >> "$GITHUB_STEP_SUMMARY"
