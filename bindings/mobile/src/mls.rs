@@ -309,6 +309,9 @@ pub struct DbOptions {
     pub encryption_key: Option<Vec<u8>>,
     pub max_db_pool_size: Option<u32>,
     pub min_db_pool_size: Option<u32>,
+    /// When true, use a single DB connection instead of a pool (one file
+    /// descriptor). Pool-size options are ignored.
+    pub use_single_connection: Option<bool>,
 }
 
 impl DbOptions {
@@ -317,12 +320,14 @@ impl DbOptions {
         encryption_key: Option<Vec<u8>>,
         max_db_pool_size: Option<u32>,
         min_db_pool_size: Option<u32>,
+        use_single_connection: Option<bool>,
     ) -> Self {
         Self {
             db,
             encryption_key,
             max_db_pool_size,
             min_db_pool_size,
+            use_single_connection,
         }
     }
 }
@@ -369,6 +374,7 @@ pub async fn create_client(
         encryption_key,
         max_db_pool_size,
         min_db_pool_size,
+        use_single_connection,
     } = db;
 
     log::info!(
@@ -378,30 +384,39 @@ pub async fn create_client(
         encryption_key.as_ref().map(|k| k.len())
     );
 
-    let db = if let Some(path) = db {
+    let single = use_single_connection.unwrap_or(false);
+
+    let base = if let Some(path) = db {
         NativeDb::builder().persistent(path)
     } else {
         NativeDb::builder().ephemeral()
     };
-    let db = if let Some(max_size) = max_db_pool_size {
-        db.max_pool_size(max_size)
-    } else {
-        db.max_pool_size(MAX_DB_POOL_SIZE)
-    };
 
-    let db = if let Some(min_size) = min_db_pool_size {
-        db.min_pool_size(min_size)
+    let db = if single {
+        if max_db_pool_size.is_some() || min_db_pool_size.is_some() {
+            log::info!("use_single_connection is set; ignoring max/min db pool size options");
+        }
+        let b = base.single_connection();
+        if let Some(key) = encryption_key {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            b.key(key).build()
+        } else {
+            b.build_unencrypted()
+        }
     } else {
-        db.min_pool_size(MIN_DB_POOL_SIZE)
-    };
-
-    let db = if let Some(key) = encryption_key {
-        let key: EncryptionKey = key
-            .try_into()
-            .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-        db.key(key).build()
-    } else {
-        db.build_unencrypted()
+        let b = base
+            .max_pool_size(max_db_pool_size.unwrap_or(MAX_DB_POOL_SIZE))
+            .min_pool_size(min_db_pool_size.unwrap_or(MIN_DB_POOL_SIZE));
+        if let Some(key) = encryption_key {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            b.key(key).build()
+        } else {
+            b.build_unencrypted()
+        }
     }?;
 
     let store = EncryptedMessageStore::new(db)?;

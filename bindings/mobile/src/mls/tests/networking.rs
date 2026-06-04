@@ -66,7 +66,7 @@ async fn create_client_does_not_hit_network() {
     let connection = connect_to_backend_test().await;
     let client = create_client(
         connection.clone(),
-        DbOptions::new(Some(path.clone()), Some(key.clone()), None, None),
+        DbOptions::new(Some(path.clone()), Some(key.clone()), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -109,7 +109,7 @@ async fn create_client_does_not_hit_network() {
 
     let build = create_client(
         connection.clone(),
-        DbOptions::new(Some(path.clone()), Some(key.clone()), None, None),
+        DbOptions::new(Some(path.clone()), Some(key.clone()), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
