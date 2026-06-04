@@ -775,4 +775,78 @@ mod tests {
         );
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
+
+    // Exercises a transaction + nested savepoint on a single (non-reentrant
+    // Mutex) connection. The single-connection mode threads one `&mut
+    // SqliteConnection` down through the transaction closure, so re-deriving a
+    // transaction-scoped key store inside the closure (and again inside the
+    // savepoint) must NOT re-acquire the outer Mutex and deadlock. Reaching the
+    // assertion at all proves there is no deadlock; the COUNT proves the writes
+    // persisted.
+    #[tokio::test]
+    async fn single_connection_nested_transaction_no_deadlock() {
+        use crate::{
+            ConnectionExt, Store, StorageError, StoreOrIgnore, TransactionalKeyStore,
+            XmtpMlsStorageProvider,
+            refresh_state::{EntityKind, RefreshState},
+            sql_key_store::SqlKeyStore,
+        };
+        use diesel::prelude::*;
+
+        let db_path = tmp_path();
+        {
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key([9u8; 32])
+                .single_connection()
+                .build()
+                .unwrap();
+            db.init().unwrap();
+
+            // The storage provider wraps the single connection (an `Arc<PersistentOrMem<..>>`
+            // that implements `ConnectionExt`). `SqlKeyStore<C>` implements
+            // `XmtpMlsStorageProvider`, exposing `.transaction()`.
+            let provider = SqlKeyStore::new(db.conn());
+
+            provider
+                .transaction(|conn| {
+                    // `conn` is `&mut SqliteConnection`; `key_store()` (from
+                    // `TransactionalKeyStore`) gives a transaction-scoped provider.
+                    // `identity` is a singleton table, so only the outer write
+                    // targets it; the nested savepoint writes to a multi-row
+                    // table (`refresh_state`) to avoid a constraint collision.
+                    let storage = conn.key_store();
+                    StoredIdentity::new("txn_outer".to_string(), rand_vec::<24>(), rand_vec::<24>())
+                        .store(&storage.db())?;
+
+                    // Nested write inside a SQLite savepoint, re-deriving the
+                    // key store from the savepoint's `&mut SqliteConnection`.
+                    storage.savepoint(|sp_conn| {
+                        let inner = sp_conn.key_store();
+                        RefreshState {
+                            entity_id: rand_vec::<24>(),
+                            entity_kind: EntityKind::Welcome,
+                            sequence_id: 1,
+                            originator_id: 0,
+                        }
+                        .store_or_ignore(&inner.db())?;
+                        Ok::<_, StorageError>(())
+                    })?;
+                    Ok::<_, StorageError>(())
+                })
+                .unwrap();
+
+            // Reaching here means no deadlock. Confirm the outer write persisted.
+            let count: i64 = db
+                .conn()
+                .raw_query(|c| {
+                    use diesel::dsl::sql;
+                    use diesel::sql_types::BigInt;
+                    diesel::select(sql::<BigInt>("(SELECT COUNT(*) FROM identity)")).get_result(c)
+                })
+                .unwrap();
+            assert!(count >= 1, "expected at least the outer identity row");
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
 }
