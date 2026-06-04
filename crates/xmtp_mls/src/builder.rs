@@ -105,7 +105,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) allow_offline: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
-    pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
     pub(crate) worker_config: crate::worker::WorkerConfig,
@@ -165,7 +164,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: false,
             disable_commit_log_worker: false,
             mls_storage: None,
-            sync_api_client: None,
             cursor_store: None,
             disable_workers: false,
             worker_config: crate::worker::WorkerConfig::default(),
@@ -184,7 +182,6 @@ where
         client: Client<ContextParts<ApiClient, S, Db>>,
     ) -> ClientBuilder<ApiClient, S, Db> {
         let cloned_api: ApiClient = client.context.api_client.clone().api_client;
-        let cloned_sync_api: ApiClient = client.context.sync_api_client.clone().api_client;
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
@@ -197,7 +194,6 @@ where
             allow_offline: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
-            sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
             disable_workers: false,
             worker_config: client.context.worker_config.clone(),
@@ -241,7 +237,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline,
             disable_commit_log_worker,
             mut mls_storage,
-            mut sync_api_client,
             // cursor_store,
             disable_workers,
             worker_config,
@@ -253,13 +248,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
-
-        let sync_api_client =
-            sync_api_client
-                .take()
-                .ok_or(ClientBuilderError::MissingParameter {
-                    parameter: "sync_api_client",
-                })?;
 
         let scw_verifier = scw_verifier
             .take()
@@ -278,7 +266,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             })?;
 
         let api_client = ApiClientWrapper::new(api_client, Retry::default());
-        let sync_api_client = ApiClientWrapper::new(sync_api_client, Retry::default());
         let conn = store.db();
         let identity = if let Some(identity) = identity {
             identity
@@ -341,7 +328,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
             worker_config,
 
-            sync_api_client,
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
             cancellation_token: CancellationToken::new(),
@@ -452,7 +438,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -488,7 +473,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .db(),
             )),
             store: self.store,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -508,7 +492,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(mls_storage),
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -548,10 +531,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
-    pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
-        // let api_retry = Retry::builder().build();
-        // let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
-        // let sync_api_client = ApiClientWrapper::new(sync_api_client, api_retry.clone());
+    pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, S, Db> {
         ClientBuilder {
             api_client: Some(api_client),
             identity: self.identity,
@@ -564,7 +544,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -634,7 +613,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn enable_api_stats(
         self,
     ) -> Result<ClientBuilder<TrackedStatsClient<ApiClient>, S, Db>, ClientBuilderError> {
-        if self.api_client.is_none() || self.sync_api_client.is_none() {
+        if self.api_client.is_none() {
             return Err(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             });
@@ -655,9 +634,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: Some(TrackedStatsClient::new(
-                self.sync_api_client.expect("checked for none"),
-            )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -681,7 +657,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -714,7 +689,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
