@@ -129,6 +129,11 @@ mod tests {
         handle.set_level(Level::Debug).expect("set_level");
         handle.set_level(Level::Trace).expect("set_level");
 
+        // Non-mobile installs stdout, so the native filter is None → no-op Ok.
+        handle
+            .set_native_level(Level::Debug)
+            .expect("set_native_level no-op ok");
+
         // The file slot toggles off cleanly even when never enabled.
         handle.disable_file().expect("disable_file");
 

@@ -58,6 +58,9 @@ pub struct FileConfig {
     pub rotation: Rotation,
     pub max_files: u32,
     pub process_type: ProcessType,
+    /// Level filter for the file layer, ANDed with the global filter (can narrow
+    /// the file below the global level, not widen it).
+    pub level: Level,
 }
 
 /// OTLP trace export configuration (native only).
@@ -85,5 +88,17 @@ mod tests {
     fn level_strings() {
         assert_eq!(Level::Info.as_str(), "info");
         assert_eq!(Level::default(), Level::Info);
+    }
+
+    #[test]
+    fn file_config_carries_level() {
+        let cfg = FileConfig {
+            dir: "/tmp".into(),
+            rotation: Rotation::Daily,
+            max_files: 3,
+            process_type: ProcessType::Main,
+            level: Level::Trace,
+        };
+        assert_eq!(cfg.level, Level::Trace);
     }
 }

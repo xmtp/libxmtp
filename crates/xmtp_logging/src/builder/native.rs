@@ -25,35 +25,17 @@ impl XmtpLoggingBuilder {
     /// already installed for this process.
     pub fn install(self) -> Result<LoggingHandle, Error> {
         use crate::filter::filter_directive;
-        use crate::handle::{BoxLayer, Guards, build_file_layer, build_telemetry_layer};
+        use crate::handle::{BoxLayer, Guards, build_telemetry_layer, empty_file_layer};
         use crate::layers::fmt::stdout_layer;
-        use crate::layers::native::native_layer;
         use tracing_subscriber::prelude::*;
         use tracing_subscriber::{Registry, reload};
 
         let cfg = self.cfg;
 
-        // Build the fallible dynamic layers (file writer, OTLP exporter) FIRST,
-        // before installing the global subscriber. `try_init` calls
-        // `set_global_default`, which is irreversible — so if a bad file path or
-        // telemetry endpoint were validated only *after* init, a config error
-        // would leave the subscriber installed and the next `install()` would
-        // fail with `AlreadyInitialized`, with no way to retry. Constructing them
-        // up front means any such error returns here, before init, leaving the
-        // process free to retry with a fixed config.
-        //
-        // Telemetry is only built when an endpoint is set; otherwise the exporter
-        // would target localhost and spam connection errors when no collector is
-        // present.
+        // Build the fallible telemetry exporter before the irreversible `try_init`,
+        // so a bad endpoint errors here and leaves `install` retryable. Only built
+        // when an endpoint is set, to avoid an exporter spamming localhost.
         let mut guards = Guards::default();
-        let file_initial: Option<BoxLayer> = match cfg.file {
-            Some(f) => {
-                let (layer, guard) = build_file_layer(&f)?;
-                guards.file_worker = Some(guard);
-                Some(layer)
-            }
-            None => None,
-        };
         let otel_initial: Option<BoxLayer> = match cfg.telemetry {
             Some(t) if t.endpoint.is_some() => {
                 let (layer, guard) = build_telemetry_layer(t)?;
@@ -63,35 +45,32 @@ impl XmtpLoggingBuilder {
             _ => None,
         };
 
-        // Every reloadable slot is pinned to `S = Registry` so the reload handles
-        // have a concrete, storable type. A `Box<dyn Layer<Registry>>` only
-        // implements `Layer` over exactly `Registry`, so the slots cannot be
-        // chained with `.with(a).with(b)` (which would re-parameterize each
-        // layer's subscriber to a `Layered<..>` type). Instead all slots are
-        // collected into a single `Vec<BoxLayer>`, which itself implements
-        // `Layer<Registry>`, and added to the registry in one `.with(..)`.
+        // Slots are pinned to `S = Registry` and collected into one `Vec<BoxLayer>`
+        // (added in a single `.with`) rather than chained, which would re-parameterize
+        // each layer's subscriber type and break the storable reload handles.
 
-        // Slot 1: reloadable level filter. As a bare `EnvFilter` layer it filters
-        // every sibling layer in the registry — exactly what `set_level` drives.
+        // Slot 1: reloadable global level filter (driven by `set_level`).
         let (filter_layer, filter_handle) =
             reload::Layer::new(filter_directive(cfg.level.as_str()));
 
-        // Slot 2 (fixed): stdout/native fmt output — not reloadable.
-        let stdout: BoxLayer = if cfg.native {
-            native_layer::<Registry>()
+        // Slot 2: stdout, or the native layer (which carries its own reloadable
+        // filter handles on mobile; none on the server/stdout path).
+        let (primary_layer, native_filters): (BoxLayer, Vec<_>) = if cfg.native {
+            crate::layers::native::native_layer()
         } else {
-            stdout_layer::<Registry>(cfg.json)
+            (stdout_layer::<Registry>(cfg.json), Vec::new())
         };
 
-        // Slot 3: reloadable file layer (seeded with the pre-built layer, if any).
-        let (file_layer, file_handle) = reload::Layer::new(file_initial);
+        // Slot 3: the always-present file layer, seeded empty so its `FilterId` is
+        // allocated at build time; the writer + filter are swapped in via `enable_file`.
+        let (file_layer, file_handle) = reload::Layer::new(empty_file_layer());
 
         // Slot 4: reloadable telemetry layer (seeded with the pre-built exporter).
         let (otel_layer, otel_handle) = reload::Layer::new(otel_initial);
 
         let layers: Vec<BoxLayer> = vec![
             filter_layer.boxed(),
-            stdout,
+            primary_layer,
             file_layer.boxed(),
             otel_layer.boxed(),
         ];
@@ -102,11 +81,20 @@ impl XmtpLoggingBuilder {
             .try_init()
             .map_err(|_| Error::AlreadyInitialized)?;
 
-        Ok(LoggingHandle::new(
+        let handle = LoggingHandle::new(
             filter_handle,
+            native_filters,
             file_handle,
             otel_handle,
             guards,
-        ))
+        );
+
+        // Enable file logging post-init: the layer already exists, so `enable_file`
+        // only swaps its writer + filter in place.
+        if let Some(f) = cfg.file {
+            handle.enable_file(f)?;
+        }
+
+        Ok(handle)
     }
 }
