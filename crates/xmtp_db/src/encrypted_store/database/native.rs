@@ -430,6 +430,94 @@ impl ConnectionExt for EphemeralDbConnection {
     }
 }
 
+/// A native database backed by a single `Mutex<SqliteConnection>` instead of a
+/// pool. Costs exactly one file descriptor. Chosen via the `single_connection`
+/// builder flag — useful for services that run many clients in one process
+/// (where a per-client pool would exhaust the OS file-descriptor limit) and do
+/// serial work per client. There is no connection reentrancy in the codebase,
+/// so a non-reentrant `Mutex` is safe (see the design spec).
+pub struct SingleDbConnection {
+    conn: Arc<Mutex<SqliteConnection>>,
+    customizer: Box<dyn XmtpConnection>,
+}
+
+impl std::fmt::Debug for SingleDbConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SingleDbConnection {{ path: {}, is_locked={} }}",
+            self.customizer.options(),
+            self.conn.is_locked()
+        )
+    }
+}
+
+impl SingleDbConnection {
+    fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
+        let StorageOption::Persistent(path) = customizer.options() else {
+            return Err(PlatformStorageError::PoolRequiresPath);
+        };
+        let conn = Self::establish(path, &customizer)?;
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+            customizer,
+        })
+    }
+
+    /// Establish a fresh connection and apply the same setup the pool applies:
+    /// the customizer's `on_acquire` (sqlcipher key + `connection_pragmas`),
+    /// then the one-time WAL/busy_timeout pragmas that `DbPool::new` runs.
+    fn establish(
+        path: &str,
+        customizer: &Box<dyn XmtpConnection>,
+    ) -> Result<SqliteConnection, PlatformStorageError> {
+        let mut conn = SqliteConnection::establish(path)?;
+        // Same per-connection setup the r2d2 customizer applies on checkout.
+        customizer
+            .on_acquire(&mut conn)
+            .map_err(|e| PlatformStorageError::Boxed(Box::new(e)))?;
+        // Same one-time pragmas DbPool::new applies on pool creation.
+        conn.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+        Ok(conn)
+    }
+
+    fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
+        tracing::warn!("single-connection: disconnect is a no-op (connection stays open)");
+        Ok(())
+    }
+
+    fn db_reconnect(&self) -> Result<(), PlatformStorageError> {
+        tracing::info!("single-connection: reconnecting sqlite database connection");
+        let StorageOption::Persistent(path) = self.customizer.options() else {
+            return Err(PlatformStorageError::PoolRequiresPath);
+        };
+        let conn = Self::establish(path, &self.customizer)?;
+        let mut w = self.conn.lock();
+        *w = conn;
+        Ok(())
+    }
+}
+
+impl ConnectionExt for SingleDbConnection {
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        let mut conn = self.conn.lock();
+        fun(&mut conn).map_err(ConnectionError::from)
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(self.db_disconnect()?)
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(self.db_reconnect()?)
+    }
+}
+
 pub struct NativeDbConnection {
     pub(super) pool: ArcSwapOption<DbPool>,
     customizer: Box<dyn XmtpConnection>,
