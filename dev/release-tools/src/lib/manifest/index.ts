@@ -16,5 +16,6 @@ export {
 export {
   readPackageJsonVersion,
   writePackageJsonVersion,
+  setPackageJsonDependency,
   createPackageJsonManifestProvider,
 } from "./package-json";

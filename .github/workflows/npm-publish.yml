@@ -28,6 +28,16 @@ on:
         required: false
         type: boolean
         default: false
+      dep-name:
+        description: 'Dependency name to pin before publish (e.g. @xmtp/node-bindings)'
+        required: false
+        type: string
+        default: ''
+      dep-version:
+        description: 'Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)'
+        required: false
+        type: string
+        default: ''
     outputs:
       version:
         description: "The published version"
@@ -66,6 +76,10 @@ jobs:
 
       - name: Set version
         run: xmtp-release set-manifest-version --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}"
+
+      - name: Pin binding dependency version
+        if: ${{ inputs.dep-name != '' }}
+        run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name }}" --version "${{ inputs.dep-version }}"
 
       - name: Determine NPM tag
         id: npm-tag
