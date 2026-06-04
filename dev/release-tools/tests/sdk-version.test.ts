@@ -3,6 +3,7 @@ import {
   diffBumpKind,
   applyBumpKind,
   resolveSdkVersion,
+  capBumpKind,
 } from "../src/lib/sdk-version";
 
 describe("diffBumpKind", () => {
@@ -89,5 +90,34 @@ describe("resolveSdkVersion", () => {
         releaseType: "nightly",
       }),
     ).toThrow();
+  });
+});
+
+describe("capBumpKind", () => {
+  it("clamps a major bump down to the max kind and recomputes the version", () => {
+    expect(
+      capBumpKind({ version: "2.0.0", kind: "major" }, "1.10.0", "minor"),
+    ).toEqual({ version: "1.11.0", kind: "minor" });
+  });
+
+  it("leaves a bump at or below the cap unchanged", () => {
+    expect(
+      capBumpKind({ version: "1.11.0", kind: "minor" }, "1.10.0", "minor"),
+    ).toEqual({ version: "1.11.0", kind: "minor" });
+    expect(
+      capBumpKind({ version: "1.10.1", kind: "patch" }, "1.10.0", "minor"),
+    ).toEqual({ version: "1.10.1", kind: "patch" });
+  });
+
+  it("a cap above the computed kind is a no-op (never raises a bump)", () => {
+    expect(
+      capBumpKind({ version: "1.10.1", kind: "patch" }, "1.10.0", "major"),
+    ).toEqual({ version: "1.10.1", kind: "patch" });
+  });
+
+  it("clamps major down to patch when capped at patch", () => {
+    expect(
+      capBumpKind({ version: "2.0.0", kind: "major" }, "1.10.0", "patch"),
+    ).toEqual({ version: "1.10.1", kind: "patch" });
   });
 });

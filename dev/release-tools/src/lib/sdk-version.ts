@@ -32,6 +32,26 @@ export function applyBumpKind(base: string, kind: BumpType): string {
   return bumped;
 }
 
+/** Bump kinds ordered by magnitude (lowest first) for clamping. */
+const BUMP_ORDER: BumpType[] = ["patch", "minor", "major"];
+
+/**
+ * Clamp a pending release's bump kind to a maximum. If `pending.kind` exceeds
+ * `maxKind`, recompute the version by applying `maxKind` to `lastShipped` and
+ * return the clamped {version, kind}. Otherwise return `pending` unchanged.
+ * Never raises a bump — only lowers it. Used to enforce "nightly never majors".
+ */
+export function capBumpKind(
+  pending: PendingRelease,
+  lastShipped: string,
+  maxKind: BumpType,
+): PendingRelease {
+  if (BUMP_ORDER.indexOf(pending.kind) <= BUMP_ORDER.indexOf(maxKind)) {
+    return pending;
+  }
+  return { version: applyBumpKind(lastShipped, maxKind), kind: maxKind };
+}
+
 export interface ResolveSdkVersionArgs {
   track: VersionTrack;
   /** The SDK's own current base version (from its manifest). */
