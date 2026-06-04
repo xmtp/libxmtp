@@ -37,7 +37,6 @@ pub fn context() -> NewMockContext {
         fork_recovery_opts: Default::default(),
         worker_config: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
-        sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         task_channels: TaskWorkerChannels::default(),
         worker_metrics: Arc::default(),
         cancellation_token: tokio_util::sync::CancellationToken::new(),
