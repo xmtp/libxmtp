@@ -92,7 +92,6 @@ async fn new_client_inner(
     network: &crate::args::BackendOpts,
 ) -> Result<crate::DbgClient> {
     let api = network.client_bundle()?;
-    let sync_api = network.client_bundle()?;
     let ident = wallet.get_identifier()?;
     let inbox_id = ident.inbox_id(XDBG_ID_NONCE)?;
 
@@ -117,8 +116,7 @@ async fn new_client_inner(
     let cursor_store = Arc::new(SqliteCursorStore::new(db.db()));
     let mut backend = MessageBackendBuilder::default();
     backend.cursor_store(cursor_store);
-    let api = backend.clone().from_bundle(api)?;
-    let sync_api = backend.from_bundle(sync_api)?;
+    let api = backend.from_bundle(api)?;
 
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
@@ -126,7 +124,7 @@ async fn new_client_inner(
         XDBG_ID_NONCE,
         None,
     ))
-    .api_clients(api, sync_api)
+    .api_client(api)
     .store(db)
     .default_mls_store()?
     .with_remote_verifier()?
@@ -171,7 +169,6 @@ fn existing_client_inner_for(
     network: &crate::args::BackendOpts,
 ) -> Result<crate::DbgClient> {
     let api = network.client_bundle()?;
-    let sync_api = network.client_bundle()?;
     let path = db_path.clone().into_os_string().into_string().unwrap();
 
     let db = NativeDb::builder()
@@ -192,11 +189,10 @@ fn existing_client_inner_for(
     let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
     let mut backend = MessageBackendBuilder::default();
     backend.cursor_store(cursor_store);
-    let api = backend.clone().from_bundle(api)?;
-    let sync_api = backend.from_bundle(sync_api)?;
+    let api = backend.from_bundle(api)?;
 
     let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
-        .api_clients(api, sync_api)
+        .api_client(api)
         .with_remote_verifier()?
         .store(store)
         .default_mls_store()?

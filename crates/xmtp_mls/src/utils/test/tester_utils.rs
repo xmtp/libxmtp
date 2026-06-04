@@ -205,30 +205,22 @@ where
 
         let mut proxy = None;
         let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let (local_client, sync_api_client) = match (&self.api_endpoint, self.proxy) {
-            (ApiEndpoint::Local, false) => (
-                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
-                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
-            ),
-            (ApiEndpoint::Dev, false) => (
-                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
-                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
-            ),
+        let local_client = match (&self.api_endpoint, self.proxy) {
+            (ApiEndpoint::Local, false) => {
+                LocalOnlyTestClientCreator::with_cursor_store(store.clone())
+            }
+            (ApiEndpoint::Dev, false) => DevOnlyTestClientCreator::with_cursor_store(store.clone()),
             (ApiEndpoint::Local, true) => {
                 proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
-                (
-                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
-                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
-                )
+                ToxicOnlyTestClientCreator::with_cursor_store(store.clone())
             }
             (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
         };
 
         let api_client = local_client.build().unwrap();
-        let sync_api_client = sync_api_client.build().unwrap();
 
         let mut client = client
-            .api_clients(api_client, sync_api_client)
+            .api_client(api_client)
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))

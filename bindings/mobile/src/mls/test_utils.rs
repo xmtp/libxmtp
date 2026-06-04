@@ -152,7 +152,6 @@ where
 
     let client = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),

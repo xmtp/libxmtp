@@ -150,7 +150,6 @@ async fn test_spoofed_inbox_id() {
     let malicious_context = Arc::new(XmtpMlsLocalContext {
         identity: malicious_identity,
         api_client: alix.context.api_client.clone(),
-        sync_api_client: alix.context.sync_api_client.clone(),
         store: alix.context.store.clone(),
         mls_storage: alix.context.mls_storage.clone(),
         mutexes: alix.context.mutexes.clone(),

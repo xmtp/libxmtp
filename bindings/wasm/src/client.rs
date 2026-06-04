@@ -377,7 +377,6 @@ pub(crate) async fn build_store(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_client_inner(
   api_client: xmtp_mls::XmtpApiClient,
-  sync_api_client: xmtp_mls::XmtpApiClient,
   store: EncryptedMessageStore<WasmDb>,
   inbox_id: String,
   account_identifier: Identifier,
@@ -395,7 +394,7 @@ pub(crate) async fn create_client_inner(
   );
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_clients(api_client, sync_api_client)
+    .api_client(api_client)
     .enable_api_stats()?
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
@@ -460,18 +459,10 @@ pub async fn create_client(
 
   let cursor_store = SqliteCursorStore::new(store.db());
   backend.cursor_store(cursor_store);
-  let api_client = backend
-    .clone()
-    .build_optional_d14n()
-    .map_err(ErrorWrapper::js)?;
-  let sync_api_client = backend
-    .clone()
-    .build_optional_d14n()
-    .map_err(ErrorWrapper::js)?;
+  let api_client = backend.build_optional_d14n().map_err(ErrorWrapper::js)?;
 
   create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,

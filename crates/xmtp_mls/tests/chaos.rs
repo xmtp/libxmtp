@@ -27,10 +27,7 @@ async fn chaos_demo() {
     let (chaos, store) = ChaosDb::builder(store).error_frequency(0.0).build();
     let alix = Client::builder(new_identity(&owner))
         .store(store)
-        .api_clients(
-            DefaultTestClientCreator::create().build().unwrap(),
-            DefaultTestClientCreator::create().build().unwrap(),
-        )
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
         .default_mls_store()
         .unwrap()
         .with_remote_verifier()

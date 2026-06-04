@@ -170,9 +170,6 @@ class Client(
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
 
-        private val syncApiClientCache = mutableMapOf<String, XmtpApiClient>()
-        private val syncCacheLock = Mutex()
-
         fun activatePersistentLibXMTPLogWriter(
             appContext: Context,
             logLevel: FfiLogLevel,
@@ -265,30 +262,6 @@ class Client(
             }
         }
 
-        suspend fun connectToSyncApiBackend(api: ClientOptions.Api): XmtpApiClient {
-            val cacheKey = api.toCacheKey()
-            return syncCacheLock.withLock {
-                val cached = syncApiClientCache[cacheKey]
-
-                if (cached != null && isConnected(cached)) {
-                    return cached
-                }
-
-                // If not cached or not connected, create a fresh client
-                val newClient =
-                    connectToBackend(
-                        api.env.getUrl(),
-                        api.gatewayHost,
-                        FfiClientMode.DEFAULT,
-                        api.appVersion,
-                        null,
-                        null,
-                    )
-                syncApiClientCache[cacheKey] = newClient
-                return@withLock newClient
-            }
-        }
-
         suspend fun getOrCreateInboxId(
             api: ClientOptions.Api,
             publicIdentity: PublicIdentity,
@@ -367,7 +340,6 @@ class Client(
                 val ffiClient =
                     createClient(
                         api = connectToApiBackend(api),
-                        syncApi = connectToApiBackend(api),
                         db =
                             DbOptions(
                                 db = null,
@@ -579,7 +551,6 @@ class Client(
                     val ffiClient =
                         createClient(
                             api = connectToApiBackend(options.api),
-                            syncApi = connectToSyncApiBackend(options.api),
                             db =
                                 DbOptions(
                                     db = null,
@@ -625,7 +596,6 @@ class Client(
                 val ffiClient =
                     createClient(
                         api = connectToApiBackend(options.api),
-                        syncApi = connectToSyncApiBackend(options.api),
                         db =
                             DbOptions(
                                 db = dbPath,

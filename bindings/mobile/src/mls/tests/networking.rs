@@ -66,7 +66,6 @@ async fn create_client_does_not_hit_network() {
     let connection = connect_to_backend_test().await;
     let client = create_client(
         connection.clone(),
-        connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), Some(key.clone()), None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
@@ -98,7 +97,11 @@ async fn create_client_does_not_hit_network() {
 
     let identity_stats = client.api_identity_statistics();
     assert_eq!(identity_stats.publish_identity_update, 1);
-    assert_eq!(identity_stats.get_identity_updates_v2, 2);
+    // Was 2 before collapsing the two gRPC connections into one. With a single
+    // client, identity-update reads that previously landed on the separate
+    // (never-inspected) sync client's counter now all count on the one api
+    // client — so the observable total is 3. Same network calls, one bucket.
+    assert_eq!(identity_stats.get_identity_updates_v2, 3);
     assert_eq!(identity_stats.get_inbox_ids, 1);
     assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
 
@@ -106,7 +109,6 @@ async fn create_client_does_not_hit_network() {
 
     let build = create_client(
         connection.clone(),
-        connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), Some(key.clone()), None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),

@@ -45,10 +45,8 @@ fn create_ffi_client(c: &mut Criterion) {
                     let inbox_id = ident.inbox_id(nonce).unwrap();
                     let path = tmp_path();
                     let api = xmtpv3::test_utils::connect_to_backend_test().await;
-                    let sync_api = xmtpv3::test_utils::connect_to_backend_test().await;
                     (
                         api,
-                        sync_api,
                         inbox_id,
                         wallet.identifier(),
                         nonce,
@@ -57,11 +55,10 @@ fn create_ffi_client(c: &mut Criterion) {
                     )
                 })
             },
-            |(api, sync_api, inbox_id, ident, nonce, path, span)| async move {
+            |(api, inbox_id, ident, nonce, path, span)| async move {
                 let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api,
-                    sync_api,
                     DbOptions::new(
                         Some(path),
                         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -106,7 +103,6 @@ fn cached_create_ffi_client(c: &mut Criterion) {
         let api = xmtpv3::test_utils::connect_to_backend_test().await;
         xmtpv3::mls::create_client(
             api.clone(),
-            api.clone(),
             DbOptions::new(
                 Some(tmp_path()),
                 Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -145,7 +141,6 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                 let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api.clone(),
-                    api,
                     DbOptions::new(
                         Some(path),
                         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),

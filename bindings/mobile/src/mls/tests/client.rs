@@ -15,7 +15,6 @@ async fn test_create_client_with_storage() {
 
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
@@ -34,7 +33,6 @@ async fn test_create_client_with_storage() {
     drop(client_a);
 
     let client_b = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), None, None, None),
         &inbox_id,
@@ -71,7 +69,6 @@ async fn test_create_client_with_key() {
 
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), Some(key), None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
@@ -91,7 +88,6 @@ async fn test_create_client_with_key() {
     other_key[31] = 1;
 
     let result_errored = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), Some(other_key.to_vec()), None, None),
         &inbox_id,
@@ -122,7 +118,6 @@ async fn test_can_message() {
     let path = tmp_path();
 
     let client_amal = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), None, None, None),
         &amal_inbox_id,
@@ -163,7 +158,6 @@ async fn test_can_message() {
     );
 
     let client_bola = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(Some(path.clone()), None, None, None),
         &bola_inbox_id,

@@ -89,11 +89,7 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let messages = self
-            .context
-            .sync_api()
-            .query_group_messages(group_id)
-            .await?;
+        let messages = self.context.api().query_group_messages(group_id).await?;
 
         Ok(messages)
     }

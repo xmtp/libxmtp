@@ -468,7 +468,7 @@ async fn create_client<C: XmtpApi + Clone + XmtpQuery + 'static>(
 > {
     let msg_store = get_encrypted_store(&cli.db).await?;
     let builder = xmtp_mls::Client::builder(account).store(msg_store);
-    let builder = builder.api_clients(grpc.clone(), grpc);
+    let builder = builder.api_client(grpc);
 
     let client = builder
         .with_remote_verifier()?

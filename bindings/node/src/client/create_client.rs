@@ -173,7 +173,6 @@ fn parse_nonce(nonce: Option<BigInt>) -> Result<u64> {
 #[allow(clippy::too_many_arguments)]
 async fn create_client_inner(
   api_client: XmtpApiClient,
-  sync_api_client: XmtpApiClient,
   store: EncryptedMessageStore<NativeDb>,
   inbox_id: String,
   account_identifier: Identifier,
@@ -188,7 +187,7 @@ async fn create_client_inner(
   let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_clients(api_client, sync_api_client)
+    .api_client(api_client)
     .enable_api_stats()
     .map_err(ErrorWrapper::from)?
     .with_remote_verifier()
@@ -260,18 +259,10 @@ pub async fn create_client(
 
   let cursor_store = SqliteCursorStore::new(store.db());
   backend.cursor_store(cursor_store);
-  let api_client = backend
-    .clone()
-    .build_optional_d14n()
-    .map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend
-    .clone()
-    .build_optional_d14n()
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.build_optional_d14n().map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,
@@ -310,16 +301,11 @@ pub async fn create_client_with_backend(
   let mut mbb = MessageBackendBuilder::default();
   mbb.cursor_store(cursor_store);
   let api_client = mbb
-    .clone()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
-  let sync_api_client = mbb
     .from_bundle(backend.bundle.clone())
     .map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,
