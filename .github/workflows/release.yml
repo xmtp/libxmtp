@@ -211,9 +211,12 @@ jobs:
       - name: Install git-cliff
         run: |
           set -euo pipefail
-          cargo binstall -y git-cliff || cargo install git-cliff
-          # Fail loudly if neither install path produced a working binary, so a
-          # broken install can't fall through to an empty pending version.
+          # Pinned for reproducibility — an unpinned/floating git-cliff once
+          # computed a major bump in CI that didn't reproduce locally, which
+          # published a bogus version. Keep in sync with the devshell's nixpkgs
+          # git-cliff (nix/lib/shell-common.nix).
+          cargo binstall -y git-cliff --version 2.13.1 \
+            || cargo install git-cliff --version 2.13.1 --locked
           git cliff --version
       - name: Compute pending libxmtp release (git-cliff oracle)
         id: pending
@@ -236,7 +239,11 @@ jobs:
           # Default (no --require): emits {version:null,kind:null} on exit 0 when
           # there are no conventional commits since the last tag — a legitimate
           # no-op nightly we skip rather than fail.
-          PENDING=$(xmtp-release pending-version --input=/tmp/cliff-context.json --last-shipped "$LAST")
+          # --max-bump minor: a nightly must NEVER auto-major. A real major is a
+          # deliberate, manual stable decision. capBumpKind recomputes the
+          # version from $LAST when it clamps.
+          PENDING=$(xmtp-release pending-version \
+            --input=/tmp/cliff-context.json --last-shipped "$LAST" --max-bump minor)
           VERSION=$(printf '%s' "$PENDING" | jq -r '.version')
           KIND=$(printf '%s' "$PENDING" | jq -r '.kind')
           if [ "$VERSION" = "null" ] && [ "$KIND" = "null" ]; then
@@ -244,14 +251,28 @@ jobs:
             echo "::notice::No conventional commits since the last tag; skipping nightly (nothing to release)."
             exit 0
           fi
-          # Anything else empty/null is unexpected corruption, not a clean no-op.
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ] || [ -z "$KIND" ] || [ "$KIND" = "null" ]; then
             echo "::error::pending-version produced malformed version/kind: '$PENDING'"
+            exit 1
+          fi
+          # Defense-in-depth: the cap above should make this impossible. If a
+          # major still reaches here the cap regressed — fail BEFORE any publish
+          # (every release-*/hub job needs: [pending], so this blocks them all).
+          if [ "$KIND" = "major" ]; then
+            echo "::error::nightly computed a major bump ($VERSION) after cap — refusing to publish"
             exit 1
           fi
           echo "nothing-pending=false" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "kind=$KIND" >> "$GITHUB_OUTPUT"
+          # Human-readable release plan.
+          {
+            echo "## Nightly release plan"
+            echo ""
+            echo "- libxmtp: \`$VERSION\` (bump: $KIND, baseline: $LAST)"
+            echo ""
+            echo "Per-SDK versions are resolved in each release job from this pending bump."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release-ios:
     needs: [validate, gate, pending]
@@ -412,7 +433,8 @@ jobs:
         if: steps.guard.outputs.should-release == 'true'
         run: |
           set -euo pipefail
-          cargo binstall -y git-cliff || cargo install git-cliff
+          cargo binstall -y git-cliff --version 2.13.1 \
+            || cargo install git-cliff --version 2.13.1 --locked
           git cliff --version
       # Per-nightly changelog: the delta since the PREVIOUS nightly tag (not
       # since the last stable). Computed BEFORE tagging this run, so the newest
