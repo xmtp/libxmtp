@@ -19,6 +19,8 @@ jobs:
       workspace: ${{ steps.filter.outputs.workspace }}
       node: ${{ steps.filter.outputs.node }}
       wasm: ${{ steps.filter.outputs.wasm }}
+      node_sdk: ${{ steps.filter.outputs.node_sdk }}
+      browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
@@ -62,6 +64,36 @@ jobs:
               - 'flake.lock'
               - 'dev/docker/**'
               - '.github/workflows/test-wasm*'
+            node_sdk:
+              - 'sdks/js/node-sdk/**'
+              - 'sdks/js/package.json'
+              - 'sdks/js/yarn.lock'
+              - 'sdks/js/.yarnrc.yml'
+              - 'sdks/js/tsconfig.json'
+              - 'sdks/js/eslint.config.js'
+              - 'sdks/js/js.just'
+              - 'sdks/js/dev/**'
+              - 'bindings/node/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - '.github/workflows/test-node-sdk*'
+            browser_sdk:
+              - 'sdks/js/browser-sdk/**'
+              - 'sdks/js/package.json'
+              - 'sdks/js/yarn.lock'
+              - 'sdks/js/.yarnrc.yml'
+              - 'sdks/js/tsconfig.json'
+              - 'sdks/js/eslint.config.js'
+              - 'sdks/js/js.just'
+              - 'sdks/js/dev/**'
+              - 'bindings/wasm/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - '.github/workflows/test-browser-sdk*'
             ios:
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
@@ -130,6 +162,26 @@ jobs:
     uses: ./.github/workflows/test-wasm.yml
     secrets: inherit
 
+  # Gated on test-node: runs after the node-bindings test job so the
+  # node-bindings-test nix build is a cache hit. Proceeds when test-node
+  # succeeded OR was skipped (bindings unchanged); aborts only if it failed.
+  test-node-sdk:
+    needs: [detect-changes, test-node]
+    if: >-
+      !cancelled() && needs.test-node.result != 'failure'
+      && needs.detect-changes.outputs.node_sdk == 'true'
+    uses: ./.github/workflows/test-node-sdk.yml
+    secrets: inherit
+
+  # Gated on test-wasm (wasm-bindings power browser-sdk). Same semantics as above.
+  test-browser-sdk:
+    needs: [detect-changes, test-wasm]
+    if: >-
+      !cancelled() && needs.test-wasm.result != 'failure'
+      && needs.detect-changes.outputs.browser_sdk == 'true'
+    uses: ./.github/workflows/test-browser-sdk.yml
+    secrets: inherit
+
   test-ios:
     needs: detect-changes
     if: |
@@ -177,6 +229,8 @@ jobs:
       - test-xdbg
       - test-node
       - test-wasm
+      - test-node-sdk
+      - test-browser-sdk
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check
