@@ -21,7 +21,7 @@ use crate::{
     groups::{
         group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
         intents::{QueueIntent, ReaddInstallationsIntentData, UpdateMetadataIntentData},
-        mls_ext::{CommitLogStorer, MlsGroupReload, WrapWelcomeError, wrap_welcome},
+        mls_ext::{CommitLogStorer, MlsGroupReload},
         mls_sync::{
             GroupMessageProcessingError::OpenMlsProcessMessage,
             update_group_membership::apply_readd_installations_intent,
@@ -83,6 +83,7 @@ use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
     MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS,
     SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    WELCOME_HPKE_LABEL,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
@@ -106,6 +107,9 @@ use xmtp_db::{
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls_common::mls_ext::payload_encryption::{
+    WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,
+};
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
@@ -3986,13 +3990,13 @@ where
             }
 
             let aead_type = crate::groups::mls_ext::WelcomePointersExtension::preferred_type();
-            let data = crate::groups::mls_ext::wrap_welcome_symmetric(
+            let data = wrap_payload_symmetric(
                 &action.welcome_message,
                 aead_type,
                 symmetric_key.as_ref(),
                 data_nonce.as_ref(),
             )?;
-            let welcome_metadata = crate::groups::mls_ext::wrap_welcome_symmetric(
+            let welcome_metadata = wrap_payload_symmetric(
                 &welcome_metadata_bytes,
                 aead_type,
                 symmetric_key.as_ref(),
@@ -4030,7 +4034,7 @@ where
         let total_installations = action.installations.len();
 
         let welcomes_iter = action.installations.into_iter().map(
-            |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
+            |installation| -> Result<WelcomeMessageInput, WrapPayloadError> {
                 // Unconditionally use the wrapper algorithm for the welcome pointer because it will always be post quantum compatible.
                 let algorithm = installation.welcome_wrapper_algorithm;
                 let wp_cap = installation.welcome_pointee_encryption_aead_types;
@@ -4041,11 +4045,12 @@ where
                         version: Some(WelcomeMessageInputVersion::WelcomePointer(
                             WelcomePointerInput {
                                 installation_key: installation.installation_key,
-                                welcome_pointer: wrap_welcome(
+                                welcome_pointer: wrap_payload_hpke(
                                     welcome_pointer.as_ref(),
                                     &[],
                                     &installation.hpke_public_key,
                                     algorithm,
+                                    WELCOME_HPKE_LABEL,
                                 )?
                                 .0,
                                 hpke_public_key: installation.hpke_public_key,
@@ -4056,11 +4061,12 @@ where
                 } else {
                     let installation_key = installation.installation_key;
 
-                    let (data, welcome_metadata) = wrap_welcome(
+                    let (data, welcome_metadata) = wrap_payload_hpke(
                         &action.welcome_message,
                         &welcome_metadata_bytes,
                         &installation.hpke_public_key,
                         algorithm,
+                        WELCOME_HPKE_LABEL,
                     )?;
                     Ok(WelcomeMessageInput {
                         version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
@@ -4079,7 +4085,7 @@ where
             .into_iter()
             .map(Ok)
             .chain(welcomes_iter)
-            .collect::<Result<Vec<WelcomeMessageInput>, WrapWelcomeError>>()?;
+            .collect::<Result<Vec<WelcomeMessageInput>, WrapPayloadError>>()?;
 
         assert_eq!(
             welcomes.len(),
