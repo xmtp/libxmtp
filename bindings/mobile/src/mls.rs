@@ -351,7 +351,6 @@ impl DbOptions {
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
-    sync_api: Arc<XmtpApiClient>,
     db: DbOptions,
     inbox_id: &InboxId,
     account_identifier: FfiIdentifier,
@@ -416,15 +415,13 @@ pub async fn create_client(
     );
 
     let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).client_bundle;
-    let sync_api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(sync_api).client_bundle;
     let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
     let mut backend = MessageBackendBuilder::default();
     backend.cursor_store(cursor_store);
-    let api_client = backend.clone().from_bundle(api_client)?;
-    let sync_api_client = backend.from_bundle(sync_api_client)?;
+    let api_client = backend.from_bundle(api_client)?;
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
-        .api_clients(api_client, sync_api_client)
+        .api_client(api_client)
         .enable_api_stats()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)

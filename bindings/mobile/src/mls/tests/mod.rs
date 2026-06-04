@@ -335,7 +335,6 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
 
     let client = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -371,7 +370,6 @@ pub(crate) async fn new_test_client_no_panic(
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),

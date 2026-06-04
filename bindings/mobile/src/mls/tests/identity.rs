@@ -25,7 +25,6 @@ async fn test_can_add_wallet_to_inbox() {
 
     let client = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(static_enc_key().to_vec()),
@@ -124,7 +123,6 @@ async fn test_can_revoke_wallet() {
 
     let client = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(static_enc_key().to_vec()),
@@ -220,7 +218,6 @@ async fn test_invalid_external_signature() {
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
@@ -420,7 +417,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -464,7 +460,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
 
     let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
     let client_b = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
@@ -554,7 +549,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
     let client_b_new_result = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -594,7 +588,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -622,7 +615,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
     let client_b1 = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
@@ -646,7 +638,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     // Step 3: Wallet B creates a second client for inbox_id B
     let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
     let _client_b2 = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
@@ -682,7 +673,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
     let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
     let client_b3 = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
@@ -794,7 +784,6 @@ async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend_test().await,
         connect_to_backend_test().await,
         DbOptions::new(
             Some(tmp_path()),
