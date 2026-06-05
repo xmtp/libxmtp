@@ -157,6 +157,7 @@ where
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             None,
             None,
+            None,
         ),
         &inbox_id,
         ident.into(),

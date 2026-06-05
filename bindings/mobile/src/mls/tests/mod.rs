@@ -340,6 +340,7 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             None,
             None,
+            None,
         ),
         &inbox_id,
         ident,
@@ -374,6 +375,7 @@ pub(crate) async fn new_test_client_no_panic(
         DbOptions::new(
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
             None,
             None,
         ),
