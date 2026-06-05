@@ -123,6 +123,11 @@ async fn main() -> Result<()> {
         .init();
 
     let mut args = Args::parse();
+    if args.count == 0 {
+        // With 0 there are no workers, so the run loop (and --continual's
+        // run-forever contract) would exit immediately. Fail loudly instead.
+        anyhow::bail!("--count must be > 0");
+    }
     if args.continual {
         // Run forever, retrying everything; never exit on its own.
         args.duration = Duration::from_secs(100 * 365 * 24 * 3600);
@@ -496,13 +501,23 @@ fn summarize(results: &[ConnResult], requested: usize) {
         .filter(|r| matches!(r.outcome, Outcome::SetupError(_)))
         .count();
 
+    // `established` is derived from connections that actually produced a result
+    // (handshake completed), NOT `requested - setup_err`: on a mid-run shutdown
+    // some workers are aborted and never report, and counting those as
+    // established would inflate the number.
+    let established = results.len() - setup_err;
+    let interrupted = requested - results.len();
+
     println!("\n===== keepalive-probe summary =====");
     println!("requested:   {requested}");
-    println!("established: {}", requested - setup_err);
+    println!("established: {established}");
     println!("  died:      {}", died.len());
     println!("  closed:    {closed}");
     println!("  survived:  {survived}");
     println!("setup errors:{setup_err}");
+    if interrupted > 0 {
+        println!("interrupted: {interrupted}  (aborted on shutdown before reporting)");
+    }
     let total_rx: u64 = results.iter().map(|r| r.received).sum();
     let total_dc: u64 = results.iter().map(|r| r.disconnects).sum();
     if total_rx > 0 || total_dc > 0 {
@@ -571,7 +586,10 @@ fn classify(err: &str) -> &'static str {
 }
 
 fn round_secs(d: Duration) -> Duration {
-    Duration::from_secs(d.as_secs())
+    // Round to nearest second — truncating would under-report sub-second
+    // lifetimes (1.9s -> 1s, 0.4s -> 0s), which is exactly the timing this
+    // probe exists to measure.
+    Duration::from_secs(d.as_secs_f64().round() as u64)
 }
 
 fn fmt(d: Duration) -> String {
@@ -598,6 +616,23 @@ mod tests {
     #[test]
     fn percentile_empty_is_zero() {
         assert_eq!(percentile(&[], 0.5), Duration::ZERO);
+    }
+
+    #[test]
+    fn round_secs_rounds_to_nearest() {
+        // truncation would report these as 0s and 1s respectively
+        assert_eq!(
+            round_secs(Duration::from_millis(400)),
+            Duration::from_secs(0)
+        );
+        assert_eq!(
+            round_secs(Duration::from_millis(500)),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            round_secs(Duration::from_millis(1900)),
+            Duration::from_secs(2)
+        );
     }
 
     #[test]

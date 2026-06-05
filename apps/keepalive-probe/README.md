@@ -52,7 +52,7 @@ Instead of an idle connection, hold a real `MlsApi/SubscribeGroupMessages` strea
 ```sh
 # 1. run node-go locally (V3 gRPC on http://localhost:5556)
 # 2. make a group + grab its id (hex)
-cargo run -p xmtp_debug -- --backend local generate group   # then `inspect` to get the group id
+cargo run -p xdbg -- --backend local generate group   # then `inspect` to get the group id
 # 3. hold a few streams to it and watch for disconnects
 cargo run -p keepalive-probe -- \
   --endpoint http://localhost:5556 --subscribe-group <hex-group-id> --count 4 --duration 1h
@@ -61,6 +61,8 @@ cargo run -p keepalive-probe -- \
 ```
 
 Against dev: `--endpoint https://grpc.dev.xmtp.network:443 --subscribe-group <id>`. `http://` = plaintext h2 (local), `https://` = TLS. The keepalive flags apply to the stream's channel just like idle mode.
+
+> **Safety:** subscribe is unauthenticated — anyone who knows a group id can stream its (encrypted, but metadata-bearing) message envelopes. Probe your own throwaway groups; don't point it at someone else's group id. Separately, when `SSLKEYLOGFILE` is set the probe writes TLS session keys to that path so a capture can be decrypted in Wireshark — only do this against test endpoints, and treat the keylog file as a secret.
 
 A `DISCONNECTED` line is the disconnect notice; `payloads received` in the summary confirms the streams were live.
 
