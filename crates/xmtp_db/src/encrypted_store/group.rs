@@ -560,7 +560,7 @@ where
 
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_groups"))]
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -710,6 +710,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(groups)
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_groups_by_id_paged"))]
     fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -740,6 +741,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Updates group membership state
+    #[tracing::instrument(err, skip_all, fields(operation = "db.update_group_membership"))]
     fn update_group_membership<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -754,6 +756,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "db.all_sync_groups"))]
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
@@ -762,6 +765,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load(conn))
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_sync_group"))]
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
@@ -770,6 +774,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.first(conn).optional())
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "db.primary_sync_group"))]
     fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
@@ -779,6 +784,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Return a single group that matches the given ID
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_group"))]
     fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
@@ -790,6 +796,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Return a single group that matches the given welcome ID
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_group_by_sequence_id"))]
     fn find_group_by_sequence_id(
         &self,
         cursor: Cursor,
@@ -1010,6 +1017,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Get conversation IDs for all conversations that require a remote commit log publish
     /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "db.get_conversation_ids_for_remote_log_publish")
+    )]
     fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
@@ -1034,6 +1046,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     // All dms and groups that are not sync groups and have consent state Allowed
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "db.get_conversation_ids_for_remote_log_download")
+    )]
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
@@ -1051,6 +1068,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "db.get_conversation_ids_for_fork_check")
+    )]
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
@@ -1067,6 +1089,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load::<Vec<u8>>(conn))
     }
 
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "db.get_conversation_ids_for_requesting_readds")
+    )]
     fn get_conversation_ids_for_requesting_readds(
         &self,
     ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
@@ -1087,6 +1114,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "db.get_conversation_ids_for_responding_readds")
+    )]
     fn get_conversation_ids_for_responding_readds(
         &self,
     ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
@@ -1113,6 +1145,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "db.get_conversation_type"))]
     fn get_conversation_type(
         &self,
         group_id: &GroupId,
@@ -1190,6 +1223,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "db.get_groups_have_pending_leave_request")
+    )]
     fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
@@ -1977,6 +2015,132 @@ pub(crate) mod tests {
             assert_eq!(group3_result.dm_id, None);
             assert_eq!(group3_result.conversation_type, ConversationType::Group);
             assert_eq!(group3_result.created_at_ns, 3000);
+        })
+    }
+
+    /// Regression guard for the `find_group` query-span instrumentation.
+    ///
+    /// `find_group` is annotated with
+    /// `#[tracing::instrument(err, skip_all, fields(operation = "db.find_group"))]`.
+    /// Two contracts must hold for the DB telemetry to be useful and safe:
+    ///   1. the span carries `operation = "db.find_group"` (the metric dimension
+    ///      consumed downstream), and
+    ///   2. `skip_all` keeps the raw `group_id` argument OUT of the span — a leak
+    ///      of the per-group id as a span field would explode metric cardinality.
+    ///
+    /// Capture mechanism: a tiny in-crate `tracing::Subscriber` that records the
+    /// fields of every span created while it is the default dispatcher. We do NOT
+    /// use `xmtp_common::traced_test!` / a `tracing_subscriber` fmt subscriber
+    /// because `xmtp_db` does not depend on the `tracing-subscriber` crate (only
+    /// `tracing` is a direct dependency), so naming it in source would fail to
+    /// compile. A custom `Subscriber` also lets us read span *attributes* directly
+    /// at `new_span` time, which is exactly where the `instrument` macro records
+    /// the static `operation` field — no event needs to fire inside the span and
+    /// no span-event/`FmtSpan` configuration is required, so the assertion is
+    /// deterministic and not flaky. Scoping via `with_default` around only the
+    /// `find_group` call keeps unrelated framework spans out of the buffer.
+    #[test]
+    fn test_find_group_span_emits_operation_and_skips_group_id() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        use tracing::field::{Field, Visit};
+
+        /// Records `field=Debug(value)` pairs for every span created while
+        /// installed, appending them to a shared, thread-safe buffer.
+        #[derive(Clone, Default)]
+        struct CaptureSubscriber {
+            buf: Arc<parking_lot::Mutex<String>>,
+            next_id: Arc<AtomicU64>,
+        }
+
+        struct FieldVisitor<'a>(&'a mut String);
+        impl Visit for FieldVisitor<'_> {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                self.0.push_str(field.name());
+                self.0.push('=');
+                self.0.push_str(&format!("{value:?}"));
+                self.0.push(' ');
+            }
+        }
+
+        impl tracing::Subscriber for CaptureSubscriber {
+            fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+                true
+            }
+
+            fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+                let mut line = String::new();
+                line.push_str("SPAN ");
+                line.push_str(attrs.metadata().name());
+                line.push_str(" {");
+                let mut visitor = FieldVisitor(&mut line);
+                attrs.record(&mut visitor);
+                line.push_str("}\n");
+                self.buf.lock().push_str(&line);
+
+                // Hand out a non-zero, monotonically increasing id per span.
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::span::Id::from_u64(id)
+            }
+
+            fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+            fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {
+            }
+            fn event(&self, _event: &tracing::Event<'_>) {}
+            fn enter(&self, _span: &tracing::span::Id) {}
+            fn exit(&self, _span: &tracing::span::Id) {}
+        }
+
+        with_connection(|conn| {
+            // Insert a group so `find_group` exercises a real (Ok) query path.
+            let test_group = generate_group(None);
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(groups)
+                    .values(test_group.clone())
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            let capture = CaptureSubscriber::default();
+
+            // Scope the subscriber tightly around the single instrumented call so
+            // only `find_group`'s span lands in the buffer.
+            tracing::subscriber::with_default(capture.clone(), || {
+                // `find_group` is synchronous; no runtime needed for the call.
+                let _ = conn.find_group(&test_group.id);
+            });
+
+            let logged = capture.buf.lock().clone();
+
+            // Contract 1: the operation metric dimension is present.
+            assert!(
+                logged.contains("operation=\"db.find_group\""),
+                "expected find_group span to carry operation=\"db.find_group\", got:\n{logged}"
+            );
+
+            // Contract 2: skip_all must keep the raw arg out of the span. The arg
+            // is `id: &GroupId`, so a leak shows up as an `id=` field (GroupId's
+            // Debug renders `GroupId(<hex>)`). Asserting on the parameter name `id=`
+            // (not the substring "group_id", which `GroupId(..)` would not contain)
+            // makes this a real regression guard: dropping skip_all would fail it.
+            assert!(
+                !logged.contains("id="),
+                "skip_all contract violated: the `id` arg leaked into the find_group \
+                 span as a field (cardinality risk), got:\n{logged}"
+            );
+            // Stronger: `operation` must be the ONLY field on the span — no other
+            // `<name>=` pair may appear between the braces.
+            let fields = logged
+                .split_once('{')
+                .and_then(|(_, rest)| rest.split_once('}'))
+                .map(|(inner, _)| inner.trim())
+                .unwrap_or("");
+            assert_eq!(
+                fields, "operation=\"db.find_group\"",
+                "find_group span must carry only the operation field, got fields: {fields:?}"
+            );
         })
     }
 }

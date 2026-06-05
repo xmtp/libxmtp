@@ -54,6 +54,7 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         DbConnection::new(&self.conn)
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "db.transaction"))]
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,

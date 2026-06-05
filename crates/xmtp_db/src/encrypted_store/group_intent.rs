@@ -352,7 +352,7 @@ where
 }
 
 impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
-    #[tracing::instrument(level = "debug", skip(self))]
+    #[tracing::instrument(err, skip_all, fields(operation = "db.insert_group_intent"))]
     fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -365,7 +365,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    #[tracing::instrument(level = "debug", skip(self), fields(group_id = hex::encode(group_id.as_ref())))]
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_group_intents"))]
     fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -527,9 +527,9 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     #[tracing::instrument(
-        level = "debug",
-        skip(self),
-        fields(payload_hash = hex::encode(payload_hash))
+        err,
+        skip_all,
+        fields(operation = "db.find_group_intent_by_payload_hash")
     )]
     fn find_group_intent_by_payload_hash(
         &self,
@@ -547,7 +547,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     /// Find the commit message refresh state for each intent by payload hash.
     /// Returns a map from payload hash to a vector of dependencies (one per originator).
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(err, skip_all, fields(operation = "db.find_dependant_commits"))]
     fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
         payload_hashes: &[P],
