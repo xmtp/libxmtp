@@ -2017,4 +2017,130 @@ pub(crate) mod tests {
             assert_eq!(group3_result.created_at_ns, 3000);
         })
     }
+
+    /// Regression guard for the `find_group` query-span instrumentation.
+    ///
+    /// `find_group` is annotated with
+    /// `#[tracing::instrument(err, skip_all, fields(operation = "db.find_group"))]`.
+    /// Two contracts must hold for the DB telemetry to be useful and safe:
+    ///   1. the span carries `operation = "db.find_group"` (the metric dimension
+    ///      consumed downstream), and
+    ///   2. `skip_all` keeps the raw `group_id` argument OUT of the span — a leak
+    ///      of the per-group id as a span field would explode metric cardinality.
+    ///
+    /// Capture mechanism: a tiny in-crate `tracing::Subscriber` that records the
+    /// fields of every span created while it is the default dispatcher. We do NOT
+    /// use `xmtp_common::traced_test!` / a `tracing_subscriber` fmt subscriber
+    /// because `xmtp_db` does not depend on the `tracing-subscriber` crate (only
+    /// `tracing` is a direct dependency), so naming it in source would fail to
+    /// compile. A custom `Subscriber` also lets us read span *attributes* directly
+    /// at `new_span` time, which is exactly where the `instrument` macro records
+    /// the static `operation` field — no event needs to fire inside the span and
+    /// no span-event/`FmtSpan` configuration is required, so the assertion is
+    /// deterministic and not flaky. Scoping via `with_default` around only the
+    /// `find_group` call keeps unrelated framework spans out of the buffer.
+    #[test]
+    fn test_find_group_span_emits_operation_and_skips_group_id() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        use tracing::field::{Field, Visit};
+
+        /// Records `field=Debug(value)` pairs for every span created while
+        /// installed, appending them to a shared, thread-safe buffer.
+        #[derive(Clone, Default)]
+        struct CaptureSubscriber {
+            buf: Arc<parking_lot::Mutex<String>>,
+            next_id: Arc<AtomicU64>,
+        }
+
+        struct FieldVisitor<'a>(&'a mut String);
+        impl Visit for FieldVisitor<'_> {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                self.0.push_str(field.name());
+                self.0.push('=');
+                self.0.push_str(&format!("{value:?}"));
+                self.0.push(' ');
+            }
+        }
+
+        impl tracing::Subscriber for CaptureSubscriber {
+            fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+                true
+            }
+
+            fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+                let mut line = String::new();
+                line.push_str("SPAN ");
+                line.push_str(attrs.metadata().name());
+                line.push_str(" {");
+                let mut visitor = FieldVisitor(&mut line);
+                attrs.record(&mut visitor);
+                line.push_str("}\n");
+                self.buf.lock().push_str(&line);
+
+                // Hand out a non-zero, monotonically increasing id per span.
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::span::Id::from_u64(id)
+            }
+
+            fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+            fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {
+            }
+            fn event(&self, _event: &tracing::Event<'_>) {}
+            fn enter(&self, _span: &tracing::span::Id) {}
+            fn exit(&self, _span: &tracing::span::Id) {}
+        }
+
+        with_connection(|conn| {
+            // Insert a group so `find_group` exercises a real (Ok) query path.
+            let test_group = generate_group(None);
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(groups)
+                    .values(test_group.clone())
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            let capture = CaptureSubscriber::default();
+
+            // Scope the subscriber tightly around the single instrumented call so
+            // only `find_group`'s span lands in the buffer.
+            tracing::subscriber::with_default(capture.clone(), || {
+                // `find_group` is synchronous; no runtime needed for the call.
+                let _ = conn.find_group(&test_group.id);
+            });
+
+            let logged = capture.buf.lock().clone();
+
+            // Contract 1: the operation metric dimension is present.
+            assert!(
+                logged.contains("operation=\"db.find_group\""),
+                "expected find_group span to carry operation=\"db.find_group\", got:\n{logged}"
+            );
+
+            // Contract 2: skip_all must keep the raw arg out of the span. The arg
+            // is `id: &GroupId`, so a leak shows up as an `id=` field (GroupId's
+            // Debug renders `GroupId(<hex>)`). Asserting on the parameter name `id=`
+            // (not the substring "group_id", which `GroupId(..)` would not contain)
+            // makes this a real regression guard: dropping skip_all would fail it.
+            assert!(
+                !logged.contains("id="),
+                "skip_all contract violated: the `id` arg leaked into the find_group \
+                 span as a field (cardinality risk), got:\n{logged}"
+            );
+            // Stronger: `operation` must be the ONLY field on the span — no other
+            // `<name>=` pair may appear between the braces.
+            let fields = logged
+                .split_once('{')
+                .and_then(|(_, rest)| rest.split_once('}'))
+                .map(|(inner, _)| inner.trim())
+                .unwrap_or("");
+            assert_eq!(
+                fields, "operation=\"db.find_group\"",
+                "find_group span must carry only the operation field, got fields: {fields:?}"
+            );
+        })
+    }
 }
