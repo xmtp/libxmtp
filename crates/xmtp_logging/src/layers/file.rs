@@ -75,3 +75,31 @@ pub(crate) fn file_writer(
         .finish(appender);
     Ok((non_blocking, guard))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Level, ProcessType};
+
+    /// A bad log directory must surface as `Err` from `file_writer`, which
+    /// `install` calls before the irreversible init to stay retryable.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn file_writer_errors_on_unwritable_dir() {
+        // An embedded NUL byte is rejected by the OS path layer on every platform,
+        // so `create_dir_all` (and thus the rolling appender's eager `build`)
+        // fails regardless of the test's working directory or permissions.
+        let cfg = FileConfig {
+            dir: "/tmp/xmtp-log-test-\0-invalid".to_string(),
+            rotation: Rotation::Daily,
+            max_files: 3,
+            process_type: ProcessType::Main,
+            level: Level::Info,
+        };
+        assert!(
+            file_writer(&cfg).is_err(),
+            "file_writer must return Err for an uncreatable log directory so that \
+             install() can validate before the irreversible global init"
+        );
+    }
+}

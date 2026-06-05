@@ -111,11 +111,26 @@ impl LoggingHandle {
     /// Turn on rolling-file logging at runtime. Swaps the file writer and level
     /// filter into the always-present file layer in place, keeping the guard alive.
     pub fn enable_file(&self, cfg: FileConfig) -> Result<(), Error> {
+        // The fallible part (opening the file / spawning the writer thread) runs
+        // first; the infallible slot-swap follows.
         let (non_blocking, guard) =
             crate::layers::file::file_writer(&cfg).map_err(|e| Error::File(e.to_string()))?;
+        self.apply_file_writer(non_blocking, guard, cfg.level)?;
+        Ok(())
+    }
+
+    /// Swap an already-built file writer into the file slot. The infallible half
+    /// of file logging — `install` runs the fallible `file_writer` before the
+    /// irreversible init and applies it here, keeping `install` retryable.
+    pub(crate) fn apply_file_writer(
+        &self,
+        non_blocking: tracing_appender::non_blocking::NonBlocking,
+        guard: WorkerGuard,
+        level: Level,
+    ) -> Result<(), Error> {
         self.file.modify(|layer| {
             *layer.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
-            *layer.filter_mut() = filter_directive(cfg.level.as_str());
+            *layer.filter_mut() = filter_directive(level.as_str());
         })?;
         self.guards.lock().file_worker = Some(guard);
         Ok(())

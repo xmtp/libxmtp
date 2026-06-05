@@ -45,6 +45,18 @@ impl XmtpLoggingBuilder {
             _ => None,
         };
 
+        // Build the file writer before `try_init` (the irreversible step) so a bad
+        // log path errors while `install` is still retryable. Swapped into the file
+        // slot post-init via the infallible `apply_file_writer`.
+        let file_initial: Option<(_, _, _)> = match cfg.file {
+            Some(f) => {
+                let (non_blocking, guard) =
+                    crate::layers::file::file_writer(&f).map_err(|e| Error::File(e.to_string()))?;
+                Some((non_blocking, guard, f.level))
+            }
+            None => None,
+        };
+
         // Slots are pinned to `S = Registry` and collected into one `Vec<BoxLayer>`
         // (added in a single `.with`) rather than chained, which would re-parameterize
         // each layer's subscriber type and break the storable reload handles.
@@ -89,10 +101,11 @@ impl XmtpLoggingBuilder {
             guards,
         );
 
-        // Enable file logging post-init: the layer already exists, so `enable_file`
-        // only swaps its writer + filter in place.
-        if let Some(f) = cfg.file {
-            handle.enable_file(f)?;
+        // Apply the pre-built file writer post-init: the layer already exists, so
+        // this only swaps the writer + filter into place (infallible — the fallible
+        // construction happened before `try_init` above).
+        if let Some((non_blocking, guard, level)) = file_initial {
+            handle.apply_file_writer(non_blocking, guard, level)?;
         }
 
         Ok(handle)

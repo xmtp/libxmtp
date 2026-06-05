@@ -106,11 +106,12 @@ impl From<FfiLogLevel> for Level {
     }
 }
 
-// Into `GenericError` rather than `FfiError`: a blanket `From<T: Into<GenericError>>
-// for FfiError` already exists, so a direct impl would conflict.
+// Map to `Log` (not `Generic`) so mobile keeps the stable `[Log]` error code.
+// Into `GenericError` because the blanket `From<Into<GenericError>>` for
+// `FfiError` would conflict with a direct `FfiError` impl.
 impl From<xmtp_logging::Error> for crate::GenericError {
     fn from(e: xmtp_logging::Error) -> Self {
-        crate::GenericError::Generic { err: e.to_string() }
+        crate::GenericError::Log(e.to_string())
     }
 }
 
