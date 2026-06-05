@@ -93,6 +93,9 @@ export const createClient = async (
     {
       dbPath: dbPath ?? undefined,
       encryptionKey: dbEncryptionKey,
+      maxDbPoolSize: options?.maxDbPoolSize,
+      minDbPoolSize: options?.minDbPoolSize,
+      useSingleConnection: options?.useSingleConnection,
     },
     inboxId,
     identifier,
