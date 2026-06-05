@@ -51,13 +51,16 @@ Instead of an idle connection, hold a real `MlsApi/SubscribeGroupMessages` strea
 **Local first** (point at a local node-go, make a group with `xdbg`):
 ```sh
 # 1. run node-go locally (V3 gRPC on http://localhost:5556)
-# 2. make a group + grab its id (hex)
-cargo run -p xdbg -- --backend local generate group   # then `inspect` to get the group id
-# 3. hold a few streams to it and watch for disconnects
+# 2. seed identities, then a group (group creation needs members)
+cargo run -p xdbg -- --backend local generate --entity identity --amount 10
+cargo run -p xdbg -- --backend local generate --entity group --amount 1
+# 3. grab a group id (hex) — export prints/writes the local groups
+cargo run -p xdbg -- --backend local export --entity group --out /tmp/groups.json
+# 4. hold a few streams to it and watch for disconnects
 cargo run -p keepalive-probe -- \
   --endpoint http://localhost:5556 --subscribe-group <hex-group-id> --count 4 --duration 1h
-# 4. send a message to the group with xdbg → probe logs "payload received"
-# 5. kill / pause the local node → probe logs "DISCONNECTED: ..." with the reason + lifetime
+# 5. send a message to the group with xdbg → probe logs "payload received"
+# 6. kill / pause the local node → probe logs "DISCONNECTED: ..." with the reason + lifetime
 ```
 
 Against dev: `--endpoint https://grpc.dev.xmtp.network:443 --subscribe-group <id>`. `http://` = plaintext h2 (local), `https://` = TLS. The keepalive flags apply to the stream's channel just like idle mode.
