@@ -7,6 +7,7 @@ mod error_code;
 mod log_macros;
 mod logging;
 mod parse_logs_macro;
+mod span_macro;
 mod test_macro;
 mod timeout_macro;
 
@@ -218,4 +219,69 @@ pub fn timeout(
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     timeout_macro::timeout(attr, body)
+}
+
+/// Instrument an `ApiClientWrapper` RPC method as `operation = "rpc.<fn_name>"`
+/// in libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
+/// `xmtp.api.*` Collector metrics. See [`span`] for the shared rationale.
+///
+/// ```ignore
+/// #[xmtp_macro::rpc_span]
+/// pub async fn upload_key_package(&self, ..) -> Result<()> { .. }
+/// // → #[tracing::instrument(err, skip_all, fields(operation = "rpc.upload_key_package"))]
+/// ```
+#[proc_macro_attribute]
+pub fn rpc_span(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    span_macro::rpc_span(attr, body)
+}
+
+/// Instrument an `xmtp_db` query method as `operation = "db.<fn_name>"` in
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
+/// `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
+#[proc_macro_attribute]
+pub fn db_span(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    span_macro::db_span(attr, body)
+}
+
+/// Instrument a high-level MLS operation as `operation = "mls.<fn_name>"` in
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
+/// `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
+#[proc_macro_attribute]
+pub fn mls_span(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    span_macro::mls_span(attr, body)
+}
+
+/// Instrument a method as a telemetry operation span in libxmtp's single
+/// canonical, OTEL-safe form: `#[tracing::instrument(err, skip_all,
+/// fields(operation = "<prefix>.<fn_name>"))]`.
+///
+/// `err` records span status=error on an `Err` return; `skip_all` keeps every
+/// argument off the span so a per-call id can never leak in and explode
+/// trace-attribute cardinality. `operation` is the single dimension the
+/// Collector's `span_metrics` connector buckets on. Making this the only
+/// writable form guarantees those invariants at compile time — no runtime test.
+///
+/// This is the escape hatch for a namespace without a dedicated attribute;
+/// prefer [`rpc_span`] / [`db_span`] / [`mls_span`] where they apply.
+///
+/// ```ignore
+/// #[xmtp_macro::span(prefix = "stream")]
+/// pub async fn subscribe(&self, ..) -> Result<..> { .. }
+/// // → operation = "stream.subscribe"
+/// ```
+#[proc_macro_attribute]
+pub fn span(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    span_macro::span(attr, body)
 }
