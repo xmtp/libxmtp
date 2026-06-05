@@ -37,14 +37,15 @@ pub(crate) fn empty_file_layer() -> FileLayer {
         .with_filter(EnvFilter::new("off"))
 }
 
-/// Build the OTLP telemetry layer and its tracer-provider guard from `cfg`. The
-/// fallible part of enabling telemetry (constructing the exporter); shared by
-/// `install` (pre-init validation) and `enable_telemetry`.
+/// Build the OTLP trace layer, the OTLP logs appender layer, and the guard that
+/// owns both providers. Both layers go into the telemetry slot together so they
+/// are enabled/disabled atomically.
 pub(crate) fn build_telemetry_layer(
     cfg: TelemetryConfig,
-) -> Result<(BoxLayer, TelemetryGuard), Error> {
-    let (layer, guard) = telemetry::init::<Registry>(cfg.endpoint, cfg.resource_attributes)?;
-    Ok((layer.boxed(), guard))
+) -> Result<(BoxLayer, BoxLayer, TelemetryGuard), Error> {
+    let (trace_layer, appender, guard) =
+        telemetry::init::<Registry>(cfg.endpoint, cfg.resource_attributes)?;
+    Ok((trace_layer.boxed(), appender, guard))
 }
 
 /// Worker guards that must stay alive for the lifetime of the process: the
@@ -147,12 +148,13 @@ impl LoggingHandle {
         Ok(())
     }
 
-    /// Turn on OTLP trace export at runtime. Builds the exporter + tracing layer
+    /// Turn on OTLP trace + log export at runtime. Builds the exporter + tracing layer
     /// from `cfg`, installs it in the telemetry slot, and keeps the tracer
     /// provider guard alive. Replaces any previously-enabled telemetry layer.
     pub fn enable_telemetry(&self, cfg: TelemetryConfig) -> Result<(), Error> {
-        let (layer, guard) = build_telemetry_layer(cfg)?;
-        self.telemetry.reload(Some(layer))?;
+        let (trace_layer, appender, guard) = build_telemetry_layer(cfg)?;
+        let combined: BoxLayer = vec![trace_layer, appender].boxed();
+        self.telemetry.reload(Some(combined))?;
         self.guards.lock().telemetry = Some(guard);
         Ok(())
     }
