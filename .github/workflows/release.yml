@@ -195,40 +195,6 @@ jobs:
       pending-kind: ${{ needs.plan.outputs.kind }}
     secrets: inherit
 
-  release-node:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.node == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
-    uses: ./.github/workflows/release-node.yml
-    with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
-    secrets: inherit
-
-  release-wasm:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.wasm == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
-    uses: ./.github/workflows/release-wasm.yml
-    with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
-    secrets: inherit
-
   release-node-sdk:
     needs: [validate, plan]
     if: >-
