@@ -7,6 +7,16 @@ on:
         description: 'Path to the npm package directory'
         required: true
         type: string
+      install-dir:
+        description: 'Directory to run `yarn` install from. For a Yarn workspace member this is the workspace root, not the package dir. Defaults to package-dir.'
+        required: false
+        type: string
+        default: ''
+      lockfile-path:
+        description: 'Path to the yarn.lock used for dependency caching. For a Yarn workspace member this is the workspace-root lockfile. Defaults to <package-dir>/yarn.lock.'
+        required: false
+        type: string
+        default: ''
       sdk:
         description: 'SDK name for release tools (e.g. node-bindings, wasm-bindings)'
         required: true
@@ -66,12 +76,12 @@ jobs:
       - name: Setup node
         uses: ./.github/actions/setup-node
         with:
-          cache-dependency-path: "${{ inputs.package-dir }}/yarn.lock"
+          cache-dependency-path: "${{ inputs.lockfile-path != '' && inputs.lockfile-path || format('{0}/yarn.lock', inputs.package-dir) }}"
 
       - uses: ./.github/actions/setup-release-tools
 
       - name: Install dependencies
-        working-directory: ${{ inputs.package-dir }}
+        working-directory: ${{ inputs.install-dir != '' && inputs.install-dir || inputs.package-dir }}
         run: yarn
 
       - name: Set version
