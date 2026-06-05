@@ -24,3 +24,5 @@ jobs:
         run: just js check
       - name: ESLint
         run: just js lint
+      - name: Build SDKs (rollup bundle — exercises the release build path)
+        run: just js build

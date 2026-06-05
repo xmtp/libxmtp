@@ -1579,6 +1579,7 @@ __metadata:
     rollup: "npm:^4.59.0"
     rollup-plugin-dts: "npm:^6.3.0"
     rollup-plugin-tsconfig-paths: "npm:^1.5.2"
+    tslib: "npm:^2.8.1"
     typescript: "npm:^5.9.3"
     viem: "npm:^2.44.4"
     vite: "npm:^7.3.1"
@@ -1642,6 +1643,7 @@ __metadata:
     rollup: "npm:^4.59.0"
     rollup-plugin-dts: "npm:^6.3.0"
     rollup-plugin-tsconfig-paths: "npm:^1.5.2"
+    tslib: "npm:^2.8.1"
     tsx: "npm:^4.21.0"
     typescript: "npm:^5.9.3"
     uint8array-extras: "npm:^1.5.0"
@@ -3927,7 +3929,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tslib@npm:^2.4.0":
+"tslib@npm:^2.4.0, tslib@npm:^2.8.1":
   version: 2.8.1
   resolution: "tslib@npm:2.8.1"
   checksum: 10c0/9c4759110a19c53f992d9aae23aac5ced636e99887b51b9e61def52611732872ff7668757d4e4c61f19691e36f4da981cd9485e869b4a7408d689f6bf1f14e62
