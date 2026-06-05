@@ -14,7 +14,9 @@ workspace = true
 anyhow.workspace = true
 bytes.workspace = true
 clap.workspace = true
+hex = "0.4"
 http-body-util.workspace = true
+humantime = "2"
 hyper = { workspace = true, features = ["client", "http2"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 rustls = { workspace = true, features = ["ring"] }
@@ -33,9 +35,11 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 url.workspace = true
 webpki-roots = "0.26"
-humantime = "2"
-hex = "0.4"
 # Subscribe mode (real V3 streams): tonic gRPC client + the MLS proto types.
-tonic = { workspace = true, features = ["default", "tls-webpki-roots", "tls-ring"] }
+tonic = { workspace = true, features = [
+  "default",
+  "tls-webpki-roots",
+  "tls-ring",
+] }
 tonic-prost = "0.14"
 xmtp_proto.workspace = true

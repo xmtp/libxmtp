@@ -1,8 +1,12 @@
 # keepalive-probe
 
-Throwaway diagnostic for [`herald-lite#70`](https://github.com/xmtplabs/herald-lite/issues/70) — "UNAVAILABLE status GRPC errors."
+A standalone probe for XMTP gRPC **connection health** — it holds connections to an XMTP gRPC endpoint with a configurable keepalive and reports how long each survives and why it dropped. Built to diagnose [`herald-lite#70`](https://github.com/xmtplabs/herald-lite/issues/70) (`hyper::Error(Http2, KeepAliveTimedOut)` → gRPC `UNAVAILABLE`), it doubles as a long-lived **sidecar** that continuously traps disconnects so you can tell a client/host problem apart from a backend/path one.
 
-herald instances regularly log `hyper::Error(Http2, KeepAliveTimedOut)` → gRPC `UNAVAILABLE` against the dev backend, then retry. We ruled out the NLB, server, CPU, and memory as causes. This binary isolates the **transport keepalive** in the simplest possible form: open *N* idle HTTP/2 connections to the gRPC endpoint, hold them doing nothing, and measure how long each survives — and whether tweaking the keepalive config changes that.
+Two modes:
+- **idle** (default): open *N* bare HTTP/2 connections and measure how long each survives — isolates pure transport keepalive behavior.
+- **subscribe** (`--subscribe-group <hex>`): hold *N* real `MlsApi/SubscribeGroupMessages` streams, logging every payload and every disconnect — the herald-shaped test.
+
+Run with `--continual` to make it a never-exiting daemon (retries through everything, drains on SIGINT/SIGTERM) suitable for running as a non-essential sidecar next to a real client.
 
 ## What it does
 
@@ -69,6 +73,10 @@ Per-connection lines as they die, then a summary: established / died / closed / 
 - **Idle connections die on default config** → keepalive-on-an-idle-path is the mechanism; confirm `--ka-timeout 30s` (or `--ka-while-idle false`) makes them survive, and that's the fix to push into libxmtp.
 - **Idle connections survive but herald's don't** → the death is stream/activity-specific, not pure transport; escalate to holding a real `Subscribe` stream.
 
-## Scope
+## Build & CI
 
-Throwaway. No XMTP protos, no auth (the gRPC layer has none), no real RPCs, no reconnect logic, no metrics export. Not in `default-members`, so it never builds in normal CI; `cargo run -p keepalive-probe` only.
+Excluded from `default-members` (like `xdbg`), so it doesn't build in the default workspace CI. Instead:
+- **clippy gate:** `nix/package/keepalive-probe-check.nix`, run by `.github/workflows/test-keepalive-probe.yml` on changes to the crate or its deps.
+- **image:** `apps/keepalive-probe/docker/Dockerfile`, built + pushed to `ghcr.io/xmtp/keepalive-probe` by `.github/workflows/push-keepalive-probe.yml` (sha + `latest` tags).
+
+Run locally with `cargo run -p keepalive-probe -- …`.
