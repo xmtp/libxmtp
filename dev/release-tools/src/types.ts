@@ -3,6 +3,8 @@ export enum Sdk {
   Android = "android",
   NodeBindings = "node-bindings",
   WasmBindings = "wasm-bindings",
+  BrowserSdk = "browser-sdk",
+  NodeSdk = "node-sdk",
   Libxmtp = "libxmtp",
 }
 

@@ -5,7 +5,7 @@ describe("listSdksForChannel", () => {
   it("returns fan-out targets for nightly, excluding the hub", () => {
     const rows = listSdksForChannel("nightly");
     const names = rows.map((r) => r.sdk).sort();
-    expect(names).toEqual(["android", "ios", "node-bindings", "wasm-bindings"]);
+    expect(names).toEqual(["android", "browser-sdk", "ios", "node-bindings", "node-sdk", "wasm-bindings"]);
     // hub (libxmtp, empty releaseWorkflow) is excluded
     expect(rows.every((r) => r.releaseWorkflow !== "")).toBe(true);
   });

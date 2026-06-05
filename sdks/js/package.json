@@ -1,0 +1,28 @@
+{
+  "name": "@xmtp/js-sdks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "yarn@4.10.3",
+  "workspaces": [
+    "browser-sdk",
+    "node-sdk"
+  ],
+  "scripts": {
+    "typecheck": "yarn workspaces foreach -A run typecheck",
+    "build": "yarn workspaces foreach -A run build",
+    "lint": "eslint .",
+    "test": "yarn workspaces foreach -A run test"
+  },
+  "devDependencies": {
+    "@eslint/compat": "^2.0.1",
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
+    "globals": "^17.1.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

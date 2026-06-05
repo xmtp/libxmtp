@@ -1,0 +1,134 @@
+name: Release Node SDK
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: string
+        description: "RC number (required for rc releases)"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.publish.outputs.version }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      binding-version: ${{ steps.binding-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Compute version
+        id: version
+        run: |
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk node-sdk --release-type nightly \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
+          else
+            VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+
+      - name: Compute binding version
+        id: binding-version
+        run: |
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk node-bindings --release-type nightly \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
+          else
+            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed binding version: $VERSION"
+
+  build:
+    needs: setup
+    runs-on: warp-ubuntu-latest-x64-16x
+    env:
+      NIX_DEVSHELL: js
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - uses: taiki-e/install-action@just
+
+      - name: Stage node bindings
+        run: just js bindings
+
+      - name: Install + build node-sdk
+        run: |
+          nix develop .#js --command bash -euc '
+            cd sdks/js && yarn install --immutable
+            yarn workspace @xmtp/node-sdk run build'
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: node_sdk_build
+          path: sdks/js/node-sdk/dist
+          retention-days: 1
+
+  publish:
+    needs: [setup, build]
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      package-dir: sdks/js/node-sdk
+      sdk: node-sdk
+      version: ${{ needs.setup.outputs.version }}
+      artifact-pattern: node_sdk_build
+      artifact-path: sdks/js/node-sdk/dist
+      ignore-scripts: true
+      dep-name: "@xmtp/node-bindings"
+      dep-version: ${{ needs.setup.outputs.binding-version }}
+    secrets: inherit

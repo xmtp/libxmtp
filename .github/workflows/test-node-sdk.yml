@@ -1,0 +1,28 @@
+name: Test Node SDK
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: js
+jobs:
+  test:
+    name: Test (node-sdk) shard ${{ matrix.shard }}
+    runs-on: warp-ubuntu-latest-x64-16x
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          with-warpbuild-cache: "false"
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just js install-ci
+      - name: Start backend
+        run: just backend up
+      - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
+        run: just js test-node-sdk-ci -- --shard ${{ matrix.shard }}/2
