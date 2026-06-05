@@ -560,7 +560,7 @@ where
 
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
-    #[tracing::instrument(err, skip_all, fields(operation = "db.find_groups"))]
+    #[xmtp_common::db_span]
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -710,7 +710,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(groups)
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.find_groups_by_id_paged"))]
+    #[xmtp_common::db_span]
     fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -741,7 +741,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Updates group membership state
-    #[tracing::instrument(err, skip_all, fields(operation = "db.update_group_membership"))]
+    #[xmtp_common::db_span]
     fn update_group_membership<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -756,7 +756,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.all_sync_groups"))]
+    #[xmtp_common::db_span]
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
@@ -765,7 +765,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load(conn))
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.find_sync_group"))]
+    #[xmtp_common::db_span]
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
@@ -774,7 +774,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.first(conn).optional())
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.primary_sync_group"))]
+    #[xmtp_common::db_span]
     fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
@@ -784,7 +784,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Return a single group that matches the given ID
-    #[tracing::instrument(err, skip_all, fields(operation = "db.find_group"))]
+    #[xmtp_common::db_span]
     fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
@@ -796,7 +796,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Return a single group that matches the given welcome ID
-    #[tracing::instrument(err, skip_all, fields(operation = "db.find_group_by_sequence_id"))]
+    #[xmtp_common::db_span]
     fn find_group_by_sequence_id(
         &self,
         cursor: Cursor,
@@ -1017,11 +1017,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Get conversation IDs for all conversations that require a remote commit log publish
     /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_conversation_ids_for_remote_log_publish")
-    )]
+    #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
@@ -1046,11 +1042,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     // All dms and groups that are not sync groups and have consent state Allowed
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_conversation_ids_for_remote_log_download")
-    )]
+    #[xmtp_common::db_span]
     fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
@@ -1068,11 +1060,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_conversation_ids_for_fork_check")
-    )]
+    #[xmtp_common::db_span]
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
@@ -1089,11 +1077,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load::<Vec<u8>>(conn))
     }
 
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_conversation_ids_for_requesting_readds")
-    )]
+    #[xmtp_common::db_span]
     fn get_conversation_ids_for_requesting_readds(
         &self,
     ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
@@ -1114,11 +1098,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_conversation_ids_for_responding_readds")
-    )]
+    #[xmtp_common::db_span]
     fn get_conversation_ids_for_responding_readds(
         &self,
     ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
@@ -1145,7 +1125,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.get_conversation_type"))]
+    #[xmtp_common::db_span]
     fn get_conversation_type(
         &self,
         group_id: &GroupId,
@@ -1223,11 +1203,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_groups_have_pending_leave_request")
-    )]
+    #[xmtp_common::db_span]
     fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
@@ -2020,7 +1996,7 @@ pub(crate) mod tests {
 
     /// Regression guard for the `find_group` query-span instrumentation.
     ///
-    /// `find_group` is annotated with
+    /// `find_group` is annotated with `#[xmtp_common::db_span]`, which expands to
     /// `#[tracing::instrument(err, skip_all, fields(operation = "db.find_group"))]`.
     /// Two contracts must hold for the DB telemetry to be useful and safe:
     ///   1. the span carries `operation = "db.find_group"` (the metric dimension
