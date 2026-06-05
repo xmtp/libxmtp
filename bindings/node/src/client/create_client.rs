@@ -43,6 +43,11 @@ fn init_logging(options: LogOptions) -> Result<()> {
   // Preserve the old default of "info" when no level is provided.
   let level = options.level.as_ref().map(map_level).unwrap_or(Level::Info);
 
+  // stdout console level override: `None` follows the global `level` (unchanged
+  // behavior). Set to e.g. `warn` to quiet stdout below the OTLP export level and
+  // avoid duplicate logs.
+  let stdout_level = options.stdout_level.as_ref().map(map_level);
+
   // Only configure telemetry when an endpoint is set, so we don't spawn an
   // exporter that just logs connection errors.
   let telemetry = options.otel_endpoint.clone().map(|endpoint| {
@@ -60,6 +65,10 @@ fn init_logging(options: LogOptions) -> Result<()> {
 
   let cfg = LoggingConfig {
     level,
+    // native_level only affects the server-compact native layer (native = true);
+    // node uses the plain stdout layer, so `None` (follow global) is fine.
+    native_level: None,
+    stdout_level,
     json: options.structured.unwrap_or_default(),
     file: None,
     telemetry,
@@ -79,6 +88,18 @@ fn init_logging(options: LogOptions) -> Result<()> {
       "failed to initialize logging: {e}"
     ))),
   }
+}
+
+/// Initialize the global logging pipeline (stdout + optional OTLP trace/log
+/// export) before any client is created. Process-global and idempotent: the
+/// first call wins, later calls (including the implicit one inside
+/// `createClient`) are no-ops, so it is safe to call this early and still pass
+/// `logOptions` to `createClient`. Pass the same `LogOptions` you would give
+/// `createClient` (level, stdoutLevel, structured, otelEndpoint,
+/// resourceAttributes).
+#[napi(js_name = "initLogging")]
+pub fn init_logging_export(options: Option<LogOptions>) -> Result<()> {
+  init_logging(options.unwrap_or_default())
 }
 
 /// Flush buffered telemetry spans before process exit. Call once on graceful

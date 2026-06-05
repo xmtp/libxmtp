@@ -77,6 +77,7 @@ export const createClient = async (
   const logOptions: LogOptions = {
     structured: options?.structuredLogging ?? false,
     level: options?.loggingLevel ?? LogLevel.Off,
+    stdoutLevel: options?.stdoutLoggingLevel,
     otelEndpoint: options?.otelEndpoint,
     resourceAttributes: options?.resourceAttributes,
   };

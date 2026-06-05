@@ -38,9 +38,11 @@ impl XmtpLoggingBuilder {
         let mut guards = Guards::default();
         let otel_initial: Option<BoxLayer> = match cfg.telemetry {
             Some(t) if t.endpoint.is_some() => {
-                let (layer, guard) = build_telemetry_layer(t)?;
+                let (trace_layer, appender, guard) = build_telemetry_layer(t)?;
                 guards.telemetry = Some(guard);
-                Some(layer)
+                // Both the trace exporter and the logs appender ride the single
+                // telemetry slot; a Vec<BoxLayer> is itself a Layer<Registry>.
+                Some(vec![trace_layer, appender].boxed())
             }
             _ => None,
         };
@@ -66,11 +68,16 @@ impl XmtpLoggingBuilder {
             reload::Layer::new(filter_directive(cfg.level.as_str()));
 
         // Slot 2: stdout, or the native layer (which carries its own reloadable
-        // filter handles on mobile; none on the server/stdout path).
+        // filter handles on mobile; none on the server/stdout path). The per-layer
+        // level defaults to the global `level` (so `.level(..)` alone controls
+        // every layer); an explicit `native_level`/`stdout_level` narrows it.
         let (primary_layer, native_filters): (BoxLayer, Vec<_>) = if cfg.native {
-            crate::layers::native::native_layer()
+            crate::layers::native::native_layer(cfg.native_level.unwrap_or(cfg.level))
         } else {
-            (stdout_layer::<Registry>(cfg.json), Vec::new())
+            (
+                stdout_layer::<Registry>(cfg.json, cfg.stdout_level.unwrap_or(cfg.level)),
+                Vec::new(),
+            )
         };
 
         // Slot 3: the always-present file layer, seeded empty so its `FilterId` is
