@@ -209,7 +209,7 @@ jobs:
       ref: ${{ needs.validate.outputs.ref }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
-      dry-run: ${{ needs.validate.outputs.dry-run }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   release-browser-sdk:
@@ -226,7 +226,7 @@ jobs:
       ref: ${{ needs.validate.outputs.ref }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
-      dry-run: ${{ needs.validate.outputs.dry-run }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   merge-pr:
