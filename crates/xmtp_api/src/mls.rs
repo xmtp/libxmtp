@@ -69,7 +69,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    #[tracing::instrument(level = "trace", skip_all, fields(group_id = %group_id))]
+    #[xmtp_common::rpc_span]
     pub async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>> {
         self.api_client
             .query_group_messages(group_id)
@@ -78,7 +78,7 @@ where
     }
 
     /// Query for the latest message on a group
-    #[tracing::instrument(level = "trace", skip_all, fields(group_id = %group_id))]
+    #[xmtp_common::rpc_span]
     pub async fn query_latest_group_message(
         &self,
         group_id: GroupId,
@@ -94,7 +94,7 @@ where
             .map_err(crate::dyn_err)
     }
 
-    #[tracing::instrument(level = "trace", skip_all, fields(installation_id = hex::encode(installation_id)))]
+    #[xmtp_common::rpc_span]
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,
@@ -114,7 +114,7 @@ where
     /// New InboxID clients should set `is_inbox_id_credential` to true.
     /// V3 clients should have `is_inbox_id_credential` to `false`.
     /// Not indicating your client version will result in validation failure.
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::rpc_span]
     pub async fn upload_key_package(
         &self,
         key_package: Vec<u8>,
@@ -139,7 +139,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::rpc_span]
     pub async fn fetch_key_packages(
         &self,
         installation_keys: Vec<Vec<u8>>,
@@ -186,7 +186,7 @@ where
         Ok(mapping)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::rpc_span]
     pub async fn send_welcome_messages(&self, messages: &[WelcomeMessageInput]) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
@@ -204,7 +204,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::rpc_span]
     pub async fn send_group_messages(&self, group_messages: Vec<GroupMessageInput>) -> Result<()> {
         tracing::debug!(
             inbox_id = self.inbox_id,
@@ -227,6 +227,7 @@ where
         Ok(())
     }
 
+    #[xmtp_common::rpc_span]
     pub async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
@@ -241,6 +242,7 @@ where
             .map_err(crate::dyn_err)
     }
 
+    #[xmtp_common::rpc_span]
     pub async fn subscribe_group_messages_with_cursors(
         &self,
         groups_with_cursors: &TopicCursor,
@@ -258,6 +260,7 @@ where
             .map_err(crate::dyn_err)
     }
 
+    #[xmtp_common::rpc_span]
     pub async fn subscribe_welcome_messages(
         &self,
         installation_key: &InstallationId,
@@ -275,6 +278,7 @@ where
             .map_err(crate::dyn_err)
     }
 
+    #[xmtp_common::rpc_span]
     pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
 
@@ -293,6 +297,7 @@ where
         Ok(())
     }
 
+    #[xmtp_common::rpc_span]
     pub async fn query_commit_log(
         &self,
         query_log_requests: Vec<QueryCommitLogRequest>,
@@ -319,6 +324,7 @@ where
         Ok(all_responses)
     }
 
+    #[xmtp_common::rpc_span]
     pub async fn get_newest_message_metadata(
         &self,
         group_ids: &[GroupId],
