@@ -1,10 +1,13 @@
-//! keepalive-probe — throwaway diagnostic for herald-lite #70.
+//! keepalive-probe — XMTP gRPC connection-health probe.
 //!
-//! Opens `--count` idle HTTP/2 connections to an XMTP gRPC endpoint with a
-//! configurable keepalive, holds each one doing nothing, and reports how long
-//! each survives. Defaults mirror libxmtp's `apply_channel_options`
-//! (`crates/xmtp_api_grpc/src/grpc_client/native.rs`), so a bare run reproduces
-//! herald's transport behavior. Override the keepalive flags to sweep config.
+//! Holds `--count` connections to an XMTP gRPC endpoint with a configurable
+//! keepalive and reports how long each survives — either as bare idle HTTP/2
+//! connections, or (with `--subscribe-group`) as real `MlsApi/SubscribeGroupMessages`
+//! streams that log every payload and disconnect. Keepalive defaults mirror
+//! libxmtp's `apply_channel_options` (`crates/xmtp_api_grpc/src/grpc_client/native.rs`),
+//! so a bare run reproduces a client's transport behavior; override the flags to
+//! sweep config. Run with `--continual` as a long-lived sidecar that traps
+//! disconnects indefinitely and never exits on its own.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,6 +82,12 @@ struct Args {
     /// trap that catches every black-hole event, not just the first per stream.
     #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
     reconnect: bool,
+
+    /// Daemon mode: run forever (ignore --duration), retry through every error
+    /// including the first connect, and never exit on its own. For running as a
+    /// long-lived sidecar. Implies --reconnect. Stops only on SIGINT/SIGTERM.
+    #[arg(long, default_value_t = false)]
+    continual: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +122,12 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if args.continual {
+        // Run forever, retrying everything; never exit on its own.
+        args.duration = Duration::from_secs(100 * 365 * 24 * 3600);
+        args.reconnect = true;
+    }
 
     // Best-effort: ensure a process-default rustls provider exists. Errs only if
     // one is already installed (e.g. by tonic's TLS), which is the state we want.
@@ -172,8 +186,8 @@ async fn main() -> Result<()> {
                 Some(Err(e)) => tracing::error!("worker task failed to join: {e}"),
                 None => break,
             },
-            _ = tokio::signal::ctrl_c() => {
-                tracing::warn!(remaining = set.len(), "interrupted — aborting remaining connections");
+            _ = shutdown_signal() => {
+                tracing::warn!(remaining = set.len(), "shutdown signal — aborting remaining connections");
                 set.abort_all();
                 while let Some(joined) = set.join_next().await {
                     if let Ok(r) = joined {
@@ -188,6 +202,26 @@ async fn main() -> Result<()> {
 
     summarize(&results, args.count);
     Ok(())
+}
+
+/// Resolve on SIGINT (Ctrl-C) or, on unix, SIGTERM — so a container stop drains cleanly.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    let term = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let term = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = term => {}
+    }
 }
 
 async fn run_connection(
@@ -358,8 +392,9 @@ async fn run_subscribe(
                 tokio::time::sleep(BACKOFF).await;
             }
             Err(e) => {
-                // First attempt failing is a genuine setup error — surface it.
-                if disconnects == 0 && received_total == 0 {
+                // First attempt failing is a genuine setup error — surface it, UNLESS
+                // we're a continual daemon (then keep retrying forever, never exit).
+                if !args.continual && disconnects == 0 && received_total == 0 {
                     return Err(e);
                 }
                 // A re-subscribe failed (server briefly unreachable): count it as a
