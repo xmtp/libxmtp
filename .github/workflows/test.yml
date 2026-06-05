@@ -26,6 +26,7 @@ jobs:
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
       xdbg: ${{ steps.filter.outputs.xdbg }}
+      keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -137,6 +138,17 @@ jobs:
               - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-xdbg.yml'
+            keepalive-probe:
+              - 'apps/keepalive-probe/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-keepalive-probe.yml'
 
   test-workspace:
     needs: detect-changes
@@ -148,6 +160,12 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.xdbg == 'true'
     uses: ./.github/workflows/test-xdbg.yml
+    secrets: inherit
+
+  test-keepalive-probe:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.keepalive-probe == 'true'
+    uses: ./.github/workflows/test-keepalive-probe.yml
     secrets: inherit
 
   test-node:
@@ -227,6 +245,7 @@ jobs:
     needs:
       - test-workspace
       - test-xdbg
+      - test-keepalive-probe
       - test-node
       - test-wasm
       - test-node-sdk

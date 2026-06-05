@@ -37,6 +37,7 @@ workspace-members = [
   "error_glossary",
   "xnet-cli",
   "xnet-lib",
+  "keepalive-probe",
 ]
 third-party = [
   { name = "tonic" },
@@ -59,6 +60,7 @@ workspace-members = [
   "error_glossary",
   "xnet-cli",
   "xnet-lib",
+  "keepalive-probe",
 ]
 third-party = [
   { name = "tonic" },
