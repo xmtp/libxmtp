@@ -157,6 +157,8 @@ mod tests {
 
         let handle = XmtpLogging::builder()
             .level(Level::Info)
+            .native_level(Level::Warn)
+            .with_native(true)
             .install()
             .expect("first install should succeed");
 
@@ -164,10 +166,11 @@ mod tests {
         handle.set_level(Level::Debug).expect("set_level");
         handle.set_level(Level::Trace).expect("set_level");
 
-        // Non-mobile installs stdout, so the native filter is None → no-op Ok.
+        // With `with_native(true)`, the server native layer now carries a
+        // reloadable filter handle, so this drives a live filter (not a no-op).
         handle
             .set_native_level(Level::Debug)
-            .expect("set_native_level no-op ok");
+            .expect("set_native_level drives the server handle");
 
         // The file slot toggles off cleanly even when never enabled.
         handle.disable_file().expect("disable_file");
