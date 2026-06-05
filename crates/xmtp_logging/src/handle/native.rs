@@ -66,8 +66,9 @@ pub(crate) struct Guards {
 /// telemetry exporter.
 pub struct LoggingHandle {
     filter: reload::Handle<EnvFilter, Registry>,
-    /// Reloadable filters on the native (logcat/oslog) layers. Empty on non-mobile
-    /// builds; one per native layer otherwise.
+    /// Reloadable filter handles for the native layers, driven by
+    /// [`Self::set_native_level`]: one on the server/stdout build, one on iOS,
+    /// two on Android.
     native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
     file: reload::Handle<FileLayer, Registry>,
     telemetry: reload::Handle<Option<BoxLayer>, Registry>,
@@ -100,8 +101,10 @@ impl LoggingHandle {
         Ok(())
     }
 
-    /// Change the native (logcat/oslog) layer's log level at runtime. No-op on
-    /// non-mobile builds, where the native filter is not reloadable.
+    /// Change the native (stdout / logcat / oslog) layer's level at runtime, on
+    /// all native targets. Note: reloads with a per-libxmtp-crate filter
+    /// (`filter_directive`), so a prior `RUST_LOG` override no longer applies
+    /// after the first call.
     pub fn set_native_level(&self, level: Level) -> Result<(), Error> {
         for handle in &self.native_filters {
             handle.reload(crate::filter::filter_directive(level.as_str()))?;

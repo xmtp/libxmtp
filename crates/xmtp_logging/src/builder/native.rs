@@ -70,7 +70,7 @@ impl XmtpLoggingBuilder {
         // Slot 2: stdout, or the native layer (which carries its own reloadable
         // filter handles on mobile; none on the server/stdout path).
         let (primary_layer, native_filters): (BoxLayer, Vec<_>) = if cfg.native {
-            crate::layers::native::native_layer()
+            crate::layers::native::native_layer(cfg.native_level.unwrap_or(cfg.level))
         } else {
             (stdout_layer::<Registry>(cfg.json), Vec::new())
         };

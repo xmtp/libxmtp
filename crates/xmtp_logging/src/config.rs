@@ -26,6 +26,20 @@ impl Level {
     }
 }
 
+impl From<Level> for tracing::level_filters::LevelFilter {
+    fn from(l: Level) -> Self {
+        use tracing::level_filters::LevelFilter as L;
+        match l {
+            Level::Off => L::OFF,
+            Level::Error => L::ERROR,
+            Level::Warn => L::WARN,
+            Level::Info => L::INFO,
+            Level::Debug => L::DEBUG,
+            Level::Trace => L::TRACE,
+        }
+    }
+}
+
 /// Rolling-file rotation interval (native file logging).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rotation {
