@@ -38,9 +38,11 @@ impl XmtpLoggingBuilder {
         let mut guards = Guards::default();
         let otel_initial: Option<BoxLayer> = match cfg.telemetry {
             Some(t) if t.endpoint.is_some() => {
-                let (layer, guard) = build_telemetry_layer(t)?;
+                let (trace_layer, appender, guard) = build_telemetry_layer(t)?;
                 guards.telemetry = Some(guard);
-                Some(layer)
+                // Both the trace exporter and the logs appender ride the single
+                // telemetry slot; a Vec<BoxLayer> is itself a Layer<Registry>.
+                Some(vec![trace_layer, appender].boxed())
             }
             _ => None,
         };
