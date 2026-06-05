@@ -124,6 +124,8 @@ jobs:
     uses: ./.github/workflows/npm-publish.yml
     with:
       package-dir: sdks/js/node-sdk
+      install-dir: sdks/js
+      lockfile-path: sdks/js/yarn.lock
       sdk: node-sdk
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: node_sdk_build
