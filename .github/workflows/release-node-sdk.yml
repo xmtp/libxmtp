@@ -21,10 +21,17 @@ on:
       pending-kind:
         required: false
         type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
         value: ${{ jobs.publish.outputs.version }}
+      binding-version:
+        description: "The @xmtp/node-bindings version published in this run and pinned by the SDK"
+        value: ${{ jobs.bindings.outputs.version }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,7 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      binding-version: ${{ steps.binding-version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -63,30 +69,20 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Computed version: $VERSION"
 
-      - name: Compute binding version
-        id: binding-version
-        run: |
-          if [ "${{ inputs.release-type }}" = "rc" ]; then
-            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type rc --rc-number ${{ inputs.rc-number }})
-          elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type dev)
-          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
-            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
-              echo "::error::nightly resolve called with empty pending version/kind"
-              exit 1
-            fi
-            VERSION=$(xmtp-release resolve-sdk-version \
-              --sdk node-bindings --release-type nightly \
-              --pending-version "${{ inputs.pending-version }}" \
-              --pending-kind "${{ inputs.pending-kind }}")
-          else
-            VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type final)
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed binding version: $VERSION"
+  bindings:
+    needs: setup
+    uses: ./.github/workflows/release-node.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.ref }}
+      pending-version: ${{ inputs.pending-version }}
+      pending-kind: ${{ inputs.pending-kind }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
 
   build:
-    needs: setup
+    needs: [setup, bindings]
     runs-on: warp-ubuntu-latest-x64-16x
     env:
       NIX_DEVSHELL: js
@@ -120,7 +116,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [setup, build]
+    needs: [setup, build, bindings]
     uses: ./.github/workflows/npm-publish.yml
     with:
       package-dir: sdks/js/node-sdk
@@ -132,5 +128,6 @@ jobs:
       artifact-path: sdks/js/node-sdk/dist
       ignore-scripts: true
       dep-name: "@xmtp/node-bindings"
-      dep-version: ${{ needs.setup.outputs.binding-version }}
+      dep-version: ${{ needs.bindings.outputs.version }}
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit

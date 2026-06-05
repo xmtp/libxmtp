@@ -29,16 +29,6 @@ on:
         required: false
         type: boolean
         default: false
-      node:
-        description: "Release Node Bindings"
-        required: false
-        type: boolean
-        default: false
-      wasm:
-        description: "Release WASM Bindings"
-        required: false
-        type: boolean
-        default: false
       node-sdk:
         description: "Release Node SDK"
         required: false
@@ -71,8 +61,6 @@ jobs:
       ref: ${{ steps.resolve.outputs.ref }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
-      node: ${{ steps.resolve.outputs.node }}
-      wasm: ${{ steps.resolve.outputs.wasm }}
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
       browser-sdk: ${{ steps.resolve.outputs.browser-sdk }}
       dry-run: ${{ steps.resolve.outputs.dry-run }}
@@ -87,8 +75,6 @@ jobs:
           GITHUB_REF: ${{ github.ref }}
           INPUT_IOS: ${{ inputs.ios }}
           INPUT_ANDROID: ${{ inputs.android }}
-          INPUT_NODE: ${{ inputs.node }}
-          INPUT_WASM: ${{ inputs.wasm }}
           INPUT_NODE_SDK: ${{ inputs.node-sdk }}
           INPUT_BROWSER_SDK: ${{ inputs.browser-sdk }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
@@ -98,8 +84,6 @@ jobs:
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "ios=true" >> "$GITHUB_OUTPUT"
             echo "android=true" >> "$GITHUB_OUTPUT"
-            echo "node=true" >> "$GITHUB_OUTPUT"
-            echo "wasm=true" >> "$GITHUB_OUTPUT"
             echo "node-sdk=true" >> "$GITHUB_OUTPUT"
             echo "browser-sdk=true" >> "$GITHUB_OUTPUT"
             echo "dry-run=false" >> "$GITHUB_OUTPUT"
@@ -108,8 +92,6 @@ jobs:
             echo "ref=${INPUT_REF:-$GITHUB_REF}" >> "$GITHUB_OUTPUT"
             echo "ios=$INPUT_IOS" >> "$GITHUB_OUTPUT"
             echo "android=$INPUT_ANDROID" >> "$GITHUB_OUTPUT"
-            echo "node=$INPUT_NODE" >> "$GITHUB_OUTPUT"
-            echo "wasm=$INPUT_WASM" >> "$GITHUB_OUTPUT"
             echo "node-sdk=$INPUT_NODE_SDK" >> "$GITHUB_OUTPUT"
             echo "browser-sdk=$INPUT_BROWSER_SDK" >> "$GITHUB_OUTPUT"
             echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
@@ -213,46 +195,11 @@ jobs:
       pending-kind: ${{ needs.plan.outputs.kind }}
     secrets: inherit
 
-  release-node:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.node == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
-    uses: ./.github/workflows/release-node.yml
-    with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
-    secrets: inherit
-
-  release-wasm:
-    needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.wasm == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
-    uses: ./.github/workflows/release-wasm.yml
-    with:
-      release-type: ${{ needs.validate.outputs.release-type }}
-      rc-number: ${{ inputs.rc-number }}
-      ref: ${{ needs.validate.outputs.ref }}
-      pending-version: ${{ needs.plan.outputs.version }}
-      pending-kind: ${{ needs.plan.outputs.kind }}
-    secrets: inherit
-
   release-node-sdk:
     needs: [validate, plan]
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure')
       && needs.validate.outputs.node-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
       && (needs.validate.outputs.release-type != 'nightly'
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-node-sdk.yml
@@ -262,6 +209,7 @@ jobs:
       ref: ${{ needs.validate.outputs.ref }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   release-browser-sdk:
@@ -269,7 +217,6 @@ jobs:
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure')
       && needs.validate.outputs.browser-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && needs.validate.outputs.dry-run != 'true'
       && (needs.validate.outputs.release-type != 'nightly'
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-browser-sdk.yml
@@ -279,6 +226,7 @@ jobs:
       ref: ${{ needs.validate.outputs.ref }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
   merge-pr:
@@ -286,7 +234,7 @@ jobs:
     # and delete the release branch even though the release-* jobs were skipped
     # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
     if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure') && needs.validate.outputs.dry-run != 'true'
-    needs: [validate, release-ios, release-android, release-node, release-wasm, release-node-sdk, release-browser-sdk]
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -322,7 +270,7 @@ jobs:
   # Do NOT drop any of the three; they jointly make non-nightly run and nightly
   # block-on-not-green / block-on-error.
   hub:
-    needs: [validate, plan, release-ios, release-android, release-node, release-wasm, release-node-sdk, release-browser-sdk]
+    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk]
     if: >-
       needs.validate.outputs.release-type == 'nightly'
       && needs.plan.outputs.gate-skip != 'true'
@@ -356,8 +304,8 @@ jobs:
         env:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node.outputs.version }}
-          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
         run: |
           set -euo pipefail
           if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${WASM_VERSION}" ]; then
@@ -414,8 +362,8 @@ jobs:
           HUB_VERSION: ${{ steps.hubver.outputs.version }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node.outputs.version }}
-          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
         run: |
           set -euo pipefail
           BODY=$(cat <<EOF
@@ -455,7 +403,7 @@ jobs:
           fi
 
   notify:
-    needs: [validate, plan, hub, release-ios, release-android, release-node, release-wasm, release-node-sdk, release-browser-sdk, merge-pr]
+    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, merge-pr]
     if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -466,10 +414,10 @@ jobs:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_RESULT: ${{ needs.release-android.result }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_RESULT: ${{ needs.release-node.result }}
-          NODE_VERSION: ${{ needs.release-node.outputs.version }}
-          WASM_RESULT: ${{ needs.release-wasm.result }}
-          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
+          NODE_RESULT: ${{ needs.release-node-sdk.result }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          WASM_RESULT: ${{ needs.release-browser-sdk.result }}
+          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"

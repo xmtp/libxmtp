@@ -21,6 +21,10 @@ on:
       pending-kind:
         required: false
         type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -269,4 +273,5 @@ jobs:
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: bindings_node_*
       artifact-path: bindings/node/dist
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit
