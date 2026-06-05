@@ -49,6 +49,38 @@ describe("Client", () => {
     expect(client3.inboxId).not.toEqual(client.inboxId);
   });
 
+  it("should create multiple clients from a single shared backend", async () => {
+    // Build one backend (connection) and reuse it to create several clients,
+    // the way a service hosting many inboxes in one process would.
+    const backend = await createBackend({ env: "local" });
+
+    const { signer: signer1, address: address1 } = createSigner();
+    const { signer: signer2, address: address2 } = createSigner();
+
+    const client1 = await Client.create(signer1, { backend, dbPath: null });
+    const client2 = await Client.create(signer2, { backend, dbPath: null });
+
+    // Both clients came up and are distinct.
+    expect(client1.inboxId).toBeDefined();
+    expect(client2.inboxId).toBeDefined();
+    expect(client1.inboxId).not.toEqual(client2.inboxId);
+    expect(client1.accountIdentifier?.identifier).toBe(address1);
+    expect(client2.accountIdentifier?.identifier).toBe(address2);
+
+    // Each shares the same backend instance.
+    const backendOf = (options: typeof client1.options) =>
+      options && "backend" in options ? options.backend : undefined;
+    expect(backendOf(client1.options)).toBe(backend);
+    expect(backendOf(client2.options)).toBe(backend);
+
+    // The shared backend is usable for backend-only calls too.
+    const canMessage = await Client.canMessage(
+      [await signer1.getIdentifier(), await signer2.getIdentifier()],
+      backend,
+    );
+    expect(canMessage.size).toBe(2);
+  });
+
   it("should create a client with worker config and logging options", async () => {
     const { signer } = createSigner();
     const workerConfig = {
@@ -77,6 +109,26 @@ describe("Client", () => {
     expect(() => {
       flushTelemetry();
     }).not.toThrow();
+  });
+
+  it("should create a client with DB connection pool options", async () => {
+    const { signer } = createSigner();
+    const client = await createClient(signer, {
+      maxDbPoolSize: 10,
+      minDbPoolSize: 2,
+    });
+    expect(client.inboxId).toBeDefined();
+    expect(client.options?.maxDbPoolSize).toBe(10);
+    expect(client.options?.minDbPoolSize).toBe(2);
+  });
+
+  it("should create a client with a single DB connection", async () => {
+    const { signer } = createSigner();
+    const client = await createClient(signer, {
+      useSingleConnection: true,
+    });
+    expect(client.inboxId).toBeDefined();
+    expect(client.options?.useSingleConnection).toBe(true);
   });
 
   it("should create a client without a signer", async () => {

@@ -111,6 +111,26 @@ export type StorageOptions = {
    * @see https://docs.xmtp.org/chat-apps/core-messaging/create-a-client#view-an-encrypted-database
    */
   dbEncryptionKey?: Uint8Array | HexString;
+  /**
+   * Maximum number of connections in the local DB connection pool.
+   *
+   * Defaults to 25 when unset. Ignored when `useSingleConnection` is `true`.
+   */
+  maxDbPoolSize?: number;
+  /**
+   * Minimum number of connections kept warm in the local DB connection pool.
+   *
+   * Defaults to 5 when unset. Ignored when `useSingleConnection` is `true`.
+   */
+  minDbPoolSize?: number;
+  /**
+   * When `true`, the native DB uses a single connection (one file descriptor)
+   * instead of a pool. The pool-size options above are ignored. Intended for
+   * services running many clients in one process.
+   *
+   * Defaults to `false` (pooled).
+   */
+  useSingleConnection?: boolean;
 };
 
 export type ContentOptions = {
@@ -175,6 +195,16 @@ export type ClientOptions = (NetworkOptions | { backend: Backend }) &
   StorageOptions &
   ContentOptions &
   OtherOptions;
+
+/**
+ * `Omit` that distributes over unions. The built-in `Omit` collapses a union
+ * (e.g. `ClientOptions`' `NetworkOptions | { backend }` arm) because
+ * `keyof (A | B)` only yields shared keys. This preserves each arm, so options
+ * like `{ backend }` survive `Omit<ClientOptions, "codecs">`.
+ */
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
 
 export type EnrichedReply<T = unknown, U = unknown> = {
   referenceId: string;

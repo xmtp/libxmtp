@@ -24,7 +24,12 @@ import { HistorySyncUrls } from "@/constants";
 import { Conversations } from "@/Conversations";
 import { DebugInformation } from "@/DebugInformation";
 import { Preferences } from "@/Preferences";
-import type { ClientOptions, ExtractCodecContentTypes, XmtpEnv } from "@/types";
+import type {
+  ClientOptions,
+  DistributiveOmit,
+  ExtractCodecContentTypes,
+  XmtpEnv,
+} from "@/types";
 import { createBackend } from "@/utils/createBackend";
 import { createClient } from "@/utils/createClient";
 import {
@@ -131,7 +136,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   static async create<ContentCodecs extends ContentCodec[] = []>(
     signer: Signer,
-    options?: Omit<ClientOptions, "codecs"> & {
+    options?: DistributiveOmit<ClientOptions, "codecs"> & {
       codecs?: ContentCodecs;
     },
   ) {
@@ -159,7 +164,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   static async build<ContentCodecs extends ContentCodec[] = []>(
     identifier: Identifier,
-    options?: Omit<ClientOptions, "codecs"> & {
+    options?: DistributiveOmit<ClientOptions, "codecs"> & {
       codecs?: ContentCodecs;
     },
   ) {
