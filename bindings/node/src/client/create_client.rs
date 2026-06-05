@@ -60,6 +60,10 @@ fn init_logging(options: LogOptions) -> Result<()> {
 
   let cfg = LoggingConfig {
     level,
+    // native_level only affects the server-compact native layer (native = true);
+    // node uses the plain stdout layer, so `None` (follow global) is fine.
+    native_level: None,
+    stdout_level,
     json: options.structured.unwrap_or_default(),
     file: None,
     telemetry,

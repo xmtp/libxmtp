@@ -55,6 +55,25 @@ impl XmtpLoggingBuilder {
         self
     }
 
+    /// Override the level for the server-compact native fmt layer (only used when
+    /// [`Self::with_native`]`(true)`). By default this layer follows the global
+    /// `level`; calling this narrows it to `l` independently (narrows only). For
+    /// the plain stdout layer (`with_native(false)`) use [`Self::stdout_level`].
+    pub fn native_level(mut self, l: Level) -> Self {
+        self.cfg.native_level = Some(l);
+        self
+    }
+
+    /// Override the level for the plain/JSON stdout layer (used when
+    /// [`Self::with_native`]`(false)`). By default this layer follows the global
+    /// `level`; set this to `Warn` to quiet stdout below the OTLP export level —
+    /// e.g. so a log shipper does not duplicate logs already exported via OTLP,
+    /// while OTLP still receives `level`.
+    pub fn stdout_level(mut self, l: Level) -> Self {
+        self.cfg.stdout_level = Some(l);
+        self
+    }
+
     /// Use JSON stdout output when `true`, compact otherwise.
     pub fn json(mut self, j: bool) -> Self {
         self.cfg.json = j;
@@ -110,6 +129,22 @@ mod tests {
         assert_eq!(b.cfg.level, Level::Info);
         assert!(!b.cfg.json);
         assert!(!b.cfg.native);
+    }
+
+    #[test]
+    fn native_level_defaults_none_and_is_settable() {
+        let b = XmtpLogging::builder();
+        assert_eq!(b.cfg.native_level, None);
+        let b = b.native_level(Level::Warn);
+        assert_eq!(b.cfg.native_level, Some(Level::Warn));
+    }
+
+    #[test]
+    fn stdout_level_defaults_none_and_is_settable() {
+        let b = XmtpLogging::builder();
+        assert_eq!(b.cfg.stdout_level, None);
+        let b = b.stdout_level(Level::Warn);
+        assert_eq!(b.cfg.stdout_level, Some(Level::Warn));
     }
 
     // A single global-init test: `install()` can only succeed once per process,

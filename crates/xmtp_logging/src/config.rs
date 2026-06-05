@@ -74,6 +74,15 @@ pub struct TelemetryConfig {
 #[derive(Debug, Clone, Default)]
 pub struct LoggingConfig {
     pub level: Level,
+    /// Level for the server-compact native fmt layer (`native = true`). `None`
+    /// (the default) follows the global `level`. `Some(l)` narrows that layer to
+    /// `l` independently of the global `level` (narrows only, never widens).
+    pub native_level: Option<Level>,
+    /// Level for the plain/JSON stdout layer (`native = false`). `None` (the
+    /// default) follows the global `level`. `Some(l)` narrows stdout to `l` — e.g.
+    /// `Some(Warn)` to quiet stdout so a log shipper does not duplicate the
+    /// OTLP-exported stream while OTLP still receives `level`.
+    pub stdout_level: Option<Level>,
     pub json: bool,
     pub file: Option<FileConfig>,
     pub telemetry: Option<TelemetryConfig>,
