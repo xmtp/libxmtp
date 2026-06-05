@@ -160,7 +160,12 @@ tracing-subscriber = { version = "0.3", default-features = false }
 tracing-web = "0.1"
 # OpenTelemetry trace-export stack (native-only; see crates/xmtp_common/src/telemetry.rs).
 opentelemetry = "0.32"
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "trace"] }
+opentelemetry-appender-tracing = "0.32"
+opentelemetry-otlp = { version = "0.32", features = [
+  "grpc-tonic",
+  "trace",
+  "logs",
+] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 tracing-opentelemetry = "0.33"
 trait-variant = "0.1.2"
