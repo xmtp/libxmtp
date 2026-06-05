@@ -234,7 +234,7 @@ jobs:
     # and delete the release branch even though the release-* jobs were skipped
     # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
     if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure') && needs.validate.outputs.dry-run != 'true'
-    needs: [validate, release-ios, release-android, release-node, release-wasm, release-node-sdk, release-browser-sdk]
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -270,7 +270,7 @@ jobs:
   # Do NOT drop any of the three; they jointly make non-nightly run and nightly
   # block-on-not-green / block-on-error.
   hub:
-    needs: [validate, plan, release-ios, release-android, release-node, release-wasm, release-node-sdk, release-browser-sdk]
+    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk]
     if: >-
       needs.validate.outputs.release-type == 'nightly'
       && needs.plan.outputs.gate-skip != 'true'
@@ -304,8 +304,8 @@ jobs:
         env:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node.outputs.version }}
-          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
         run: |
           set -euo pipefail
           if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${WASM_VERSION}" ]; then
@@ -362,8 +362,8 @@ jobs:
           HUB_VERSION: ${{ steps.hubver.outputs.version }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node.outputs.version }}
-          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
         run: |
           set -euo pipefail
           BODY=$(cat <<EOF
@@ -403,7 +403,7 @@ jobs:
           fi
 
   notify:
-    needs: [validate, plan, hub, release-ios, release-android, release-node, release-wasm, release-node-sdk, release-browser-sdk, merge-pr]
+    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, merge-pr]
     if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -414,10 +414,10 @@ jobs:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_RESULT: ${{ needs.release-android.result }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_RESULT: ${{ needs.release-node.result }}
-          NODE_VERSION: ${{ needs.release-node.outputs.version }}
-          WASM_RESULT: ${{ needs.release-wasm.result }}
-          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
+          NODE_RESULT: ${{ needs.release-node-sdk.result }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          WASM_RESULT: ${{ needs.release-browser-sdk.result }}
+          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
