@@ -4,32 +4,37 @@
 use parking_lot::Mutex;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Layer;
+use tracing_subscriber::filter::Filtered;
+use tracing_subscriber::fmt::format::{Format, Json, JsonFields};
 use tracing_subscriber::reload;
 use tracing_subscriber::{EnvFilter, Registry};
 
 use crate::config::{FileConfig, Level, TelemetryConfig};
 use crate::error::Error;
 use crate::filter::filter_directive;
+use crate::layers::file::EmptyOrFileWriter;
 use crate::telemetry::{self, TelemetryGuard};
 
 /// A boxed, type-erased layer over the global [`Registry`]. Used for the
-/// reloadable file and telemetry slots.
+/// reloadable telemetry slot.
 pub(crate) type BoxLayer = Box<dyn Layer<Registry> + Send + Sync>;
 
-/// Build the rolling-file logging layer and its worker guard from `cfg`. This is
-/// the fallible part of enabling file logging (opening the file / spawning the
-/// writer thread); pulling it out lets `install` validate the config *before*
-/// the irreversible global-subscriber init, and lets `enable_file` reuse it.
-pub(crate) fn build_file_layer(cfg: &FileConfig) -> Result<(BoxLayer, WorkerGuard), Error> {
-    let (non_blocking, guard) =
-        crate::layers::file::file_writer(cfg).map_err(|e| Error::File(e.to_string()))?;
+/// The concrete, always-present rolling-file fmt layer. Spelled out so the reload
+/// handle has a storable type; toggled in place via [`reload::Handle::modify`]
+/// rather than added/removed, to keep its per-layer `FilterId` stable.
+pub(crate) type FileLayer = Filtered<
+    tracing_subscriber::fmt::Layer<Registry, JsonFields, Format<Json>, EmptyOrFileWriter>,
+    EnvFilter,
+    Registry,
+>;
 
-    let layer: BoxLayer = tracing_subscriber::fmt::layer()
+/// The initial (off) file layer seeded at `install()` time: an empty-writer JSON
+/// fmt layer with an `off` filter. `enable_file` swaps in the real writer + filter.
+pub(crate) fn empty_file_layer() -> FileLayer {
+    tracing_subscriber::fmt::layer()
         .json()
-        .with_writer(non_blocking)
-        .boxed();
-
-    Ok((layer, guard))
+        .with_writer(EmptyOrFileWriter::Empty)
+        .with_filter(EnvFilter::new("off"))
 }
 
 /// Build the OTLP telemetry layer and its tracer-provider guard from `cfg`. The
@@ -60,7 +65,10 @@ pub(crate) struct Guards {
 /// telemetry exporter.
 pub struct LoggingHandle {
     filter: reload::Handle<EnvFilter, Registry>,
-    file: reload::Handle<Option<BoxLayer>, Registry>,
+    /// Reloadable filters on the native (logcat/oslog) layers. Empty on non-mobile
+    /// builds; one per native layer otherwise.
+    native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
+    file: reload::Handle<FileLayer, Registry>,
     telemetry: reload::Handle<Option<BoxLayer>, Registry>,
     guards: Mutex<Guards>,
 }
@@ -71,12 +79,14 @@ impl LoggingHandle {
     /// `install`; not public API.
     pub(crate) fn new(
         filter: reload::Handle<EnvFilter, Registry>,
-        file: reload::Handle<Option<BoxLayer>, Registry>,
+        native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
+        file: reload::Handle<FileLayer, Registry>,
         telemetry: reload::Handle<Option<BoxLayer>, Registry>,
         guards: Guards,
     ) -> Self {
         Self {
             filter,
+            native_filters,
             file,
             telemetry,
             guards: Mutex::new(guards),
@@ -89,20 +99,50 @@ impl LoggingHandle {
         Ok(())
     }
 
-    /// Turn on rolling-file logging at runtime. Builds the non-blocking file
-    /// writer described by `cfg`, installs a JSON fmt layer writing to it, and
-    /// keeps the worker guard alive. Replaces any previously-enabled file layer.
+    /// Change the native (logcat/oslog) layer's log level at runtime. No-op on
+    /// non-mobile builds, where the native filter is not reloadable.
+    pub fn set_native_level(&self, level: Level) -> Result<(), Error> {
+        for handle in &self.native_filters {
+            handle.reload(crate::filter::filter_directive(level.as_str()))?;
+        }
+        Ok(())
+    }
+
+    /// Turn on rolling-file logging at runtime. Swaps the file writer and level
+    /// filter into the always-present file layer in place, keeping the guard alive.
     pub fn enable_file(&self, cfg: FileConfig) -> Result<(), Error> {
-        let (layer, guard) = build_file_layer(&cfg)?;
-        self.file.reload(Some(layer))?;
+        // The fallible part (opening the file / spawning the writer thread) runs
+        // first; the infallible slot-swap follows.
+        let (non_blocking, guard) =
+            crate::layers::file::file_writer(&cfg).map_err(|e| Error::File(e.to_string()))?;
+        self.apply_file_writer(non_blocking, guard, cfg.level)?;
+        Ok(())
+    }
+
+    /// Swap an already-built file writer into the file slot. The infallible half
+    /// of file logging — `install` runs the fallible `file_writer` before the
+    /// irreversible init and applies it here, keeping `install` retryable.
+    pub(crate) fn apply_file_writer(
+        &self,
+        non_blocking: tracing_appender::non_blocking::NonBlocking,
+        guard: WorkerGuard,
+        level: Level,
+    ) -> Result<(), Error> {
+        self.file.modify(|layer| {
+            *layer.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
+            *layer.filter_mut() = filter_directive(level.as_str());
+        })?;
         self.guards.lock().file_worker = Some(guard);
         Ok(())
     }
 
-    /// Turn off rolling-file logging at runtime. Removes the file layer and drops
-    /// the worker guard (which flushes any buffered lines).
+    /// Turn off rolling-file logging at runtime. Swaps the writer back to empty and
+    /// the filter to `off`, then drops the guard (flushing buffered lines).
     pub fn disable_file(&self) -> Result<(), Error> {
-        self.file.reload(None)?;
+        self.file.modify(|layer| {
+            *layer.inner_mut().writer_mut() = EmptyOrFileWriter::Empty;
+            *layer.filter_mut() = EnvFilter::new("off");
+        })?;
         self.guards.lock().file_worker = None;
         Ok(())
     }

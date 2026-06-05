@@ -17,7 +17,7 @@ mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::LoggingHandle;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use native::{BoxLayer, Guards, build_file_layer, build_telemetry_layer};
+pub(crate) use native::{BoxLayer, Guards, build_telemetry_layer, empty_file_layer};
 
 #[cfg(target_arch = "wasm32")]
 mod wasm;

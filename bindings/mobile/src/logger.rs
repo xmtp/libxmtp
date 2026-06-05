@@ -1,210 +1,41 @@
 use crate::FfiError;
-use log::level_filters::LevelFilter;
-use parking_lot::Mutex;
-use std::io::Write;
-use std::sync::{
-    Arc, LazyLock, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
-use tracing_appender::non_blocking::NonBlockingBuilder;
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_appender::rolling::RollingFileAppender;
-use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::JsonFields;
-use tracing_subscriber::fmt::format::{Format, Json};
-use tracing_subscriber::{
-    EnvFilter, Layer, filter::Filtered, fmt, layer::Layered, layer::SubscriberExt,
-    registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
-};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use xmtp_logging::{FileConfig, Level, LoggingHandle, ProcessType, Rotation, XmtpLogging};
 
-// Default native log level used until `set_native_log_level` is called.
-#[cfg(any(target_os = "android", target_os = "ios"))]
-const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Info;
+// Process-global logging handle, built once on first use. `None` when the host
+// process already installed a subscriber (install -> AlreadyInitialized); the
+// runtime log controls then become no-ops rather than fighting it.
+static HANDLE: OnceLock<Option<LoggingHandle>> = OnceLock::new();
 
-// Native layers install on the global `Registry` (see `LOGGER`), so S is pinned
-// to `Registry` to give the reload handle a concrete, storable type.
-#[cfg(any(target_os = "android", target_os = "ios"))]
-static LIBXMTP_FILTER_HANDLE: std::sync::OnceLock<
-    parking_lot::Mutex<reload::Handle<tracing_subscriber::EnvFilter, Registry>>,
-> = std::sync::OnceLock::new();
+// Guards the one-shot debug-file enable: only the first `enter_debug_writer` wins
+// until `exit_debug_writer` resets it.
+static FILE_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn set_native_filter(level: &str) -> Result<(), FfiError> {
-    use crate::GenericError;
-
-    let handle = LIBXMTP_FILTER_HANDLE
-        .get()
-        .ok_or_else(|| crate::GenericError::Generic {
-            err: "native logger not initialized".to_string(),
-        })?;
-    let filter = xmtp_logging::filter_directive(level);
-    handle.lock().reload(filter)?;
-    Ok(())
+fn handle() -> Option<&'static LoggingHandle> {
+    HANDLE
+        .get_or_init(|| {
+            match XmtpLogging::builder()
+                .level(Level::Trace)
+                .with_native(true)
+                .install()
+            {
+                Ok(h) => Some(h),
+                // Already installed by the host: don't panic across the FFI
+                // boundary — leave logging to whoever owns the subscriber.
+                Err(e) => {
+                    tracing::debug!("xmtp_logging install skipped: {e}");
+                    None
+                }
+            }
+        })
+        .as_ref()
 }
 
-#[cfg(target_os = "android")]
-pub use android::*;
-#[cfg(target_os = "android")]
-mod android {
-    use super::*;
-    use tracing_subscriber::EnvFilter;
-
-    pub fn native_layer() -> impl Layer<Registry> {
-        let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
-        let libxmtp_filter = xmtp_logging::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
-        let (reloadable_filter, handle) = reload::Layer::new(libxmtp_filter);
-        // `native_layer` is invoked exactly once via the `LOGGER` LazyLock; if
-        // somehow called again (e.g. a stray test re-init), keep the original
-        // handle so `set_native_log_level` still drives the live filter.
-        let _ = LIBXMTP_FILTER_HANDLE.set(parking_lot::Mutex::new(handle));
-
-        vec![
-            paranoid_android::layer(env!("CARGO_PKG_NAME"))
-                .with_thread_names(true)
-                .with_filter(reloadable_filter)
-                .boxed(),
-            tracing_android_trace::AndroidTraceAsyncLayer::new()
-                .with_filter(api_calls_filter)
-                .boxed(),
-        ]
-    }
+/// Force-initialize the global logging handle (installs the subscriber).
+pub fn init_logger() {
+    let _ = handle();
 }
-
-#[cfg(target_os = "ios")]
-pub use ios::*;
-#[cfg(target_os = "ios")]
-mod ios {
-    use super::*;
-    use tracing_oslog::OsLogger;
-
-    pub fn native_layer() -> impl Layer<Registry> {
-        let libxmtp_filter = xmtp_logging::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
-        let (reloadable_filter, handle) = reload::Layer::new(libxmtp_filter);
-        // See android::native_layer for the rationale on ignoring the set result.
-        let _ = LIBXMTP_FILTER_HANDLE.set(parking_lot::Mutex::new(handle));
-        let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        OsLogger::new(subsystem, "default").with_filter(reloadable_filter)
-    }
-}
-
-// production logger for anything not ios/android mobile
-#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-pub use other::*;
-#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-mod other {
-    use super::*;
-    use log::Subscriber;
-
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        use tracing_subscriber::{
-            EnvFilter, Layer,
-            fmt::{self, format},
-        };
-        let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-            .from_env_lossy();
-        fmt::layer()
-            .compact()
-            .fmt_fields({
-                format::debug_fn(move |writer, field, value| {
-                    if field.name() == "message" {
-                        write!(writer, "{:?}", value)?;
-                    }
-                    Ok(())
-                })
-            })
-            .with_filter(filter)
-    }
-
-    // Non-mobile builds have no reloadable native filter; the FFI call is a no-op.
-    pub(super) fn set_native_filter(_level: &str) -> Result<(), FfiError> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-enum EmptyOrFileWriter {
-    #[default]
-    Empty,
-    File(tracing_appender::non_blocking::NonBlocking),
-}
-
-impl Write for EmptyOrFileWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
-            Self::Empty => Ok(buf.len()),
-            Self::File(f) => f.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            Self::Empty => Ok(()),
-            Self::File(f) => f.flush(),
-        }
-    }
-}
-
-impl MakeWriter<'_> for EmptyOrFileWriter {
-    type Writer = Self;
-
-    fn make_writer(&self) -> Self::Writer {
-        match self {
-            Self::Empty => Self::Empty,
-            Self::File(f) => Self::File(f.make_writer()),
-        }
-    }
-}
-
-// this is a crazy type b/c tracing uses recursive "Layer" types to allow for an arbitrary number
-// of layers
-// however, this allows us to dynamically reload the debug file at runtime
-#[allow(clippy::type_complexity)]
-static LOGGER: LazyLock<
-    Arc<
-        Mutex<
-            reload::Handle<
-                Filtered<
-                    fmt::Layer<
-                        Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-                        JsonFields,
-                        Format<Json>,
-                        EmptyOrFileWriter,
-                    >,
-                    EnvFilter,
-                    Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-                >,
-                Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-            >,
-        >,
-    >,
-> = LazyLock::new(|| {
-    let native_layer = native_layer();
-    // just turn the layer off for now
-    let fmt = fmt::Layer::default()
-        .with_writer(EmptyOrFileWriter::default())
-        .json()
-        .with_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::OFF.into())
-                .parse_lossy("off"),
-        );
-    let (filter, reload_handle) = reload::Layer::new(fmt);
-    let _ = tracing_subscriber::registry()
-        .with(native_layer.boxed())
-        .with(filter)
-        .try_init();
-    Arc::new(Mutex::new(reload_handle))
-});
-
-// needs to be alive for the duration of execution
-static WORKER: OnceLock<Arc<Mutex<Option<WorkerGuard>>>> = OnceLock::new();
-
-static FILE_INITIALIZED: LazyLock<Arc<AtomicBool>> =
-    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 /// Enum representing log file rotation options
 #[derive(uniffi::Enum, PartialEq, Debug, Clone)]
@@ -219,13 +50,13 @@ pub enum FfiLogRotation {
     Never = 3,
 }
 
-impl From<FfiLogRotation> for tracing_appender::rolling::Rotation {
-    fn from(rotation: FfiLogRotation) -> Self {
-        match rotation {
-            FfiLogRotation::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
-            FfiLogRotation::Hourly => tracing_appender::rolling::Rotation::HOURLY,
-            FfiLogRotation::Daily => tracing_appender::rolling::Rotation::DAILY,
-            FfiLogRotation::Never => tracing_appender::rolling::Rotation::NEVER,
+impl From<FfiLogRotation> for Rotation {
+    fn from(r: FfiLogRotation) -> Self {
+        match r {
+            FfiLogRotation::Minutely => Rotation::Minutely,
+            FfiLogRotation::Hourly => Rotation::Hourly,
+            FfiLogRotation::Daily => Rotation::Daily,
+            FfiLogRotation::Never => Rotation::Never,
         }
     }
 }
@@ -239,11 +70,11 @@ pub enum FfiProcessType {
     NotificationExtension = 1,
 }
 
-impl FfiProcessType {
-    fn to_str(&self) -> &str {
-        match self {
-            Self::Main => "main",
-            Self::NotificationExtension => "notif",
+impl From<FfiProcessType> for ProcessType {
+    fn from(p: FfiProcessType) -> Self {
+        match p {
+            FfiProcessType::Main => ProcessType::Main,
+            FfiProcessType::NotificationExtension => ProcessType::NotificationExtension,
         }
     }
 }
@@ -263,15 +94,24 @@ pub enum FfiLogLevel {
     Trace = 4,
 }
 
-impl FfiLogLevel {
-    fn to_str(&self) -> &str {
-        match self {
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-            Self::Debug => "debug",
-            Self::Trace => "trace",
+impl From<FfiLogLevel> for Level {
+    fn from(l: FfiLogLevel) -> Self {
+        match l {
+            FfiLogLevel::Error => Level::Error,
+            FfiLogLevel::Warn => Level::Warn,
+            FfiLogLevel::Info => Level::Info,
+            FfiLogLevel::Debug => Level::Debug,
+            FfiLogLevel::Trace => Level::Trace,
         }
+    }
+}
+
+// Map to `Log` (not `Generic`) so mobile keeps the stable `[Log]` error code.
+// Into `GenericError` because the blanket `From<Into<GenericError>>` for
+// `FfiError` would conflict with a direct `FfiError` impl.
+impl From<xmtp_logging::Error> for crate::GenericError {
+    fn from(e: xmtp_logging::Error) -> Self {
+        crate::GenericError::Log(e.to_string())
     }
 }
 
@@ -302,57 +142,23 @@ pub fn enter_debug_writer_with_level(
     log_level: FfiLogLevel,
     process_type: FfiProcessType,
 ) -> Result<(), FfiError> {
-    if !FILE_INITIALIZED.load(Ordering::Relaxed) {
-        enable_debug_file_inner(directory, rotation, max_files, log_level, process_type)?;
-        FILE_INITIALIZED.store(true, Ordering::Relaxed);
+    let Some(h) = handle() else { return Ok(()) };
+    if FILE_INITIALIZED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        let cfg = FileConfig {
+            dir: directory,
+            rotation: rotation.into(),
+            max_files,
+            process_type: process_type.into(),
+            level: log_level.into(),
+        };
+        if let Err(e) = h.enable_file(cfg) {
+            FILE_INITIALIZED.store(false, Ordering::Release);
+            return Err(e.into());
+        }
     }
-    Ok(())
-}
-
-fn enable_debug_file_inner(
-    directory: String,
-    rotation: FfiLogRotation,
-    max_files: u32,
-    log_level: FfiLogLevel,
-    process_type: FfiProcessType,
-) -> Result<(), FfiError> {
-    // First, ensure any previous logger is properly shut down
-    let _ = exit_debug_writer();
-
-    let version = env!("CARGO_PKG_VERSION");
-    let commit_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
-    let process_id = std::process::id();
-    let process_suffix = process_type.to_str();
-
-    let file_appender = RollingFileAppender::builder()
-        .filename_prefix(format!(
-            "libxmtp-v{}.{}.{}.{}.log",
-            version, commit_sha, process_suffix, process_id
-        ))
-        .rotation(rotation.into())
-        .max_log_files(max_files as usize)
-        .build(&directory)?;
-
-    let (non_blocking, worker) = NonBlockingBuilder::default()
-        .thread_name("libxmtp-log-writer")
-        .finish(file_appender);
-
-    // Initialize the worker container if needed
-    if WORKER.get().is_none() {
-        let _ = WORKER.set(Arc::new(Mutex::new(None)));
-    }
-
-    // Now we can safely update the worker
-    if let Some(worker_container) = WORKER.get() {
-        *worker_container.lock() = Some(worker);
-    }
-
-    let handle = LOGGER.lock();
-    handle.modify(|l| {
-        *l.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
-        let filter = xmtp_logging::filter_directive(log_level.to_str());
-        *l.filter_mut() = filter;
-    })?;
     Ok(())
 }
 
@@ -361,24 +167,11 @@ fn enable_debug_file_inner(
 /// written. this ends the writer thread.
 #[uniffi::export]
 pub fn exit_debug_writer() -> Result<(), FfiError> {
-    let handle = LOGGER.lock();
-    handle.modify(|l| {
-        *l.inner_mut().writer_mut() = EmptyOrFileWriter::Empty;
-        *l.filter_mut() = EnvFilter::builder()
-            .with_default_directive(LevelFilter::OFF.into())
-            .parse_lossy("off");
-    })?;
-    if let Some(w) = WORKER.get()
-        && let Some(w) = w.lock().take()
-    {
-        drop(w)
+    if let Some(h) = handle() {
+        h.disable_file()?;
     }
-    FILE_INITIALIZED.store(false, Ordering::Relaxed);
+    FILE_INITIALIZED.store(false, Ordering::Release);
     Ok(())
-}
-
-pub fn init_logger() {
-    let _ = LazyLock::force(&LOGGER);
 }
 
 /// Updates the log level of the native log layer (oslog on iOS, logcat on Android).
@@ -386,30 +179,16 @@ pub fn init_logger() {
 /// activity in Console.app / Instruments. No-op on non-mobile builds.
 #[uniffi::export]
 pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
-    init_logger();
-    set_native_filter(log_level.to_str())
+    if let Some(h) = handle() {
+        h.set_native_level(log_level.into())?;
+    }
+    Ok(())
 }
-
-#[cfg(test)]
-pub use test_logger::*;
 
 #[cfg(test)]
 mod test_logger {
     use super::*;
-    use log::Subscriber;
     use std::io::Read;
-
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        xmtp_logging::logger_layer()
-    }
-
-    // Test builds don't install a reloadable native filter; the FFI call is a no-op.
-    pub(super) fn set_native_filter(_level: &str) -> Result<(), FfiError> {
-        Ok(())
-    }
 
     // _NOTE:_ this test **fails** if there are rogue loggers
     // started with `ctor::ctor` in other crates.

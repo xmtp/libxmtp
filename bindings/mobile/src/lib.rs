@@ -105,16 +105,6 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
-    /// Log init error.
-    ///
-    /// Failed to initialize log file. Not retryable.
-    #[error("Error initializing rolling log file")]
-    LogInit(#[from] tracing_appender::rolling::InitError),
-    /// Reload log error.
-    ///
-    /// Failed to reload log subscriber. Not retryable.
-    #[error(transparent)]
-    ReloadLog(#[from] tracing_subscriber::reload::Error),
     /// Log error.
     ///
     /// Error initializing debug log file. Not retryable.
