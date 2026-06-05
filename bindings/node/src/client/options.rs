@@ -170,11 +170,16 @@ pub struct LogOptions {
   /// enable structured JSON logging to stdout.Useful for third-party log viewers
   /// an option so that it does not require being specified in js object.
   pub structured: Option<bool>,
-  /// Filter logs by level
+  /// Filter logs by level. Also the level exported to OTLP when `otelEndpoint`
+  /// is set (the appender ships events at this level).
   pub level: Option<LogLevel>,
-  /// OTLP endpoint (e.g. "http://collector:4317"). When set, spans are exported
-  /// via OTLP to this endpoint. A downstream OpenTelemetry Collector derives
-  /// metrics from the spans.
+  /// Level for the stdout console layer only. Defaults to `level`. Set to `warn`
+  /// to quiet stdout below the OTLP export level — e.g. so a log shipper does not
+  /// duplicate logs already exported via OTLP, while OTLP still receives `level`.
+  pub stdout_level: Option<LogLevel>,
+  /// OTLP endpoint (e.g. "http://collector:4317"). When set, spans AND logs are
+  /// exported via OTLP to this endpoint. A downstream OpenTelemetry Collector
+  /// derives metrics from the spans and forwards the correlated logs.
   pub otel_endpoint: Option<String>,
   /// Resource attributes attached to all exported spans (e.g.
   /// { "service.instance.id": "herald-7", "deployment.environment": "prod" }).

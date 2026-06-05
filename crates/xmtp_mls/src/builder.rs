@@ -218,6 +218,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .flatten()
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "mls.build_client"))]
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
         ApiClient: XmtpApi + XmtpQuery + 'static,

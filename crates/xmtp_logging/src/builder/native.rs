@@ -68,11 +68,16 @@ impl XmtpLoggingBuilder {
             reload::Layer::new(filter_directive(cfg.level.as_str()));
 
         // Slot 2: stdout, or the native layer (which carries its own reloadable
-        // filter handles on mobile; none on the server/stdout path).
+        // filter handles on mobile; none on the server/stdout path). The per-layer
+        // level defaults to the global `level` (so `.level(..)` alone controls
+        // every layer); an explicit `native_level`/`stdout_level` narrows it.
         let (primary_layer, native_filters): (BoxLayer, Vec<_>) = if cfg.native {
             crate::layers::native::native_layer(cfg.native_level.unwrap_or(cfg.level))
         } else {
-            (stdout_layer::<Registry>(cfg.json), Vec::new())
+            (
+                stdout_layer::<Registry>(cfg.json, cfg.stdout_level.unwrap_or(cfg.level)),
+                Vec::new(),
+            )
         };
 
         // Slot 3: the always-present file layer, seeded empty so its `FilterId` is

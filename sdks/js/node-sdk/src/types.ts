@@ -146,14 +146,21 @@ export type OtherOptions = {
    */
   structuredLogging?: boolean;
   /**
-   * Logging level
+   * Logging level. Also the level exported to OTLP when `otelEndpoint` is set.
    */
   loggingLevel?: LogLevel;
   /**
+   * Level for the stdout console layer only. Defaults to `loggingLevel`. Set to
+   * `LogLevel.Warn` to quiet stdout below the OTLP export level — e.g. so a log
+   * shipper does not duplicate logs already exported via OTLP, while OTLP still
+   * receives `loggingLevel`.
+   */
+  stdoutLoggingLevel?: LogLevel;
+  /**
    * OTLP endpoint (e.g. `"http://collector:4317"`) for exporting telemetry
-   * spans. When set (and the binding is built with the `otel` feature), spans
+   * spans and logs. When set, spans (and `tracing` events as correlated logs)
    * are exported via OTLP to this endpoint, where a downstream OpenTelemetry
-   * Collector can derive metrics from them.
+   * Collector can derive metrics from the spans and forward the logs.
    *
    * Call {@link flushTelemetry} on graceful shutdown to flush buffered spans.
    */

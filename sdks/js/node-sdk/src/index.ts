@@ -109,6 +109,7 @@ export {
   GroupMessageKind,
   GroupPermissionsOptions,
   IdentifierKind,
+  initLogging,
   ListConversationsOrderBy,
   LogLevel,
   MessageSortBy,
