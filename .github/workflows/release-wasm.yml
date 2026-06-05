@@ -21,6 +21,10 @@ on:
       pending-kind:
         required: false
         type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -100,4 +104,5 @@ jobs:
       artifact-pattern: wasm_build
       artifact-path: bindings/wasm/dist
       ignore-scripts: true
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit

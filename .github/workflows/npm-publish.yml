@@ -48,6 +48,11 @@ on:
         required: false
         type: string
         default: ''
+      dry-run:
+        description: 'When true, run all steps EXCEPT the npm publish and tag (no side effects)'
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version"
@@ -106,8 +111,10 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Publish to NPM
+        if: ${{ inputs.dry-run != true }}
         working-directory: ${{ inputs.package-dir }}
         run: npm publish --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
       - name: Tag release
+        if: ${{ inputs.dry-run != true }}
         run: xmtp-release tag-release --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}" --ignore-if-exists
