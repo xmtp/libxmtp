@@ -850,7 +850,7 @@ macro_rules! apply_message_filters {
 
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
-    #[tracing::instrument(err, skip_all, fields(operation = "db.get_group_messages"))]
+    #[xmtp_common::db_span]
     fn get_group_messages(
         &self,
         group_id: &GroupId,
@@ -896,7 +896,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     /// Count group messages matching the given criteria
-    #[tracing::instrument(err, skip_all, fields(operation = "db.count_group_messages"))]
+    #[xmtp_common::db_span]
     fn count_group_messages(
         &self,
         group_id: &GroupId,
@@ -942,7 +942,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(count)
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.missing_messages"))]
+    #[xmtp_common::db_span]
     fn missing_messages(
         &self,
         group_id: &GroupId,
@@ -962,7 +962,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| query.load(conn))
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.group_messages_paged"))]
+    #[xmtp_common::db_span]
     fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
@@ -1011,11 +1011,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     /// Query for group messages with their reactions
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_group_messages_with_reactions")
-    )]
+    #[xmtp_common::db_span]
     fn get_group_messages_with_reactions(
         &self,
         group_id: &GroupId,
@@ -1093,7 +1089,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(messages_with_reactions)
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.get_inbound_relations"))]
+    #[xmtp_common::db_span]
     fn get_inbound_relations(
         &self,
         group_id: &GroupId,
@@ -1138,7 +1134,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(inbound_relations)
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.get_outbound_relations"))]
+    #[xmtp_common::db_span]
     fn get_outbound_relations(
         &self,
         group_id: &GroupId,
@@ -1158,7 +1154,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect())
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.get_inbound_relation_counts"))]
+    #[xmtp_common::db_span]
     fn get_inbound_relation_counts(
         &self,
         group_id: &GroupId,
@@ -1186,11 +1182,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect())
     }
 
-    #[tracing::instrument(
-        err,
-        skip_all,
-        fields(operation = "db.get_latest_message_times_by_sender")
-    )]
+    #[xmtp_common::db_span]
     fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -1306,7 +1298,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.delete_expired_messages"))]
+    #[xmtp_common::db_span]
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             use diesel::prelude::*;
@@ -1335,7 +1327,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.messages_newer_than"))]
+    #[xmtp_common::db_span]
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
@@ -1418,7 +1410,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(all_cursors)
     }
 
-    #[tracing::instrument(err, skip_all, fields(operation = "db.clear_messages"))]
+    #[xmtp_common::db_span]
     fn clear_messages(
         &self,
         group_ids: Option<&[GroupId]>,
