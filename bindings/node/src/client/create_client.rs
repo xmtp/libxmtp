@@ -97,8 +97,10 @@ fn init_logging(options: LogOptions) -> Result<()> {
 /// `logOptions` to `createClient`. Pass the same `LogOptions` you would give
 /// `createClient` (level, stdoutLevel, structured, otelEndpoint,
 /// resourceAttributes).
+///
+/// `async` is load-bearing: it runs on napi's Tokio runtime so the OTLP tonic exporter build has a reactor (a sync `#[napi] pub fn` runs reactor-less on the JS thread and panics).
 #[napi(js_name = "initLogging")]
-pub fn init_logging_export(options: Option<LogOptions>) -> Result<()> {
+pub async fn init_logging_export(options: Option<LogOptions>) -> Result<()> {
   init_logging(options.unwrap_or_default())
 }
 
