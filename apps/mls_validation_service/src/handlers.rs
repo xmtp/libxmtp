@@ -2,8 +2,9 @@ use futures::future::{join_all, try_join_all};
 use openmls::framing::ContentType;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
 use openmls_rust_crypto::RustCrypto;
-use tonic::{Request, Response, Status};
+use tonic::{Code, Request, Response, Status, metadata::MetadataValue};
 
+use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_id::{
     associations::{
@@ -35,21 +36,54 @@ use xmtp_proto::xmtp::{
     },
 };
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, ErrorCode)]
 pub enum GrpcServerError {
     #[error(transparent)]
+    #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Association(#[from] AssociationError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Signature(#[from] SignatureError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Conversion(#[from] xmtp_proto::ConversionError),
+}
+
+impl RetryableError for GrpcServerError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            GrpcServerError::Signature(e) => e.is_retryable(),
+            // An association can fail because verifying one of its signatures hit a
+            // transient error (e.g. the chain RPC), which should still be retryable.
+            GrpcServerError::Association(AssociationError::Signature(e)) => e.is_retryable(),
+            GrpcServerError::Conversion(e) => e.is_retryable(),
+            GrpcServerError::Deserialization(_) | GrpcServerError::Association(_) => false,
+        }
+    }
 }
 
 impl From<GrpcServerError> for Status {
     fn from(err: GrpcServerError) -> Self {
-        Status::invalid_argument(err.to_string())
+        // Retryable errors are transient and server-side (for example, failing to
+        // reach the chain RPC while verifying a smart contract wallet signature), so
+        // surface them as `Unavailable` and let callers retry. Everything else is a
+        // genuine bad request and stays `InvalidArgument`.
+        let code = if err.is_retryable() {
+            Code::Unavailable
+        } else {
+            Code::InvalidArgument
+        };
+
+        let mut status = Status::new(code, err.to_string());
+        // Attach the stable error label (e.g. "SignatureError::VerifierError") as
+        // metadata so callers get a precise reason instead of only a free-form string.
+        if let Ok(value) = MetadataValue::try_from(err.error_code()) {
+            status.metadata_mut().insert("error-code", value);
+        }
+        status
     }
 }
 
@@ -532,5 +566,30 @@ mod tests {
                 error: None
             }
         );
+    }
+
+    #[test]
+    fn deserialization_error_maps_to_invalid_argument() {
+        let status = Status::from(GrpcServerError::Deserialization(
+            DeserializationError::InvalidAccountId,
+        ));
+
+        assert_eq!(status.code(), Code::InvalidArgument);
+        assert!(status.metadata().get("error-code").is_some());
+    }
+
+    #[test]
+    fn retryable_signature_error_maps_to_unavailable() {
+        use xmtp_id::scw_verifier::VerifierError;
+
+        // A missing/unreachable chain verifier is a transient, server-side failure.
+        let err = GrpcServerError::Signature(SignatureError::VerifierError(
+            VerifierError::NoVerifier("eip155:1".to_string()),
+        ));
+        assert!(err.is_retryable());
+
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::Unavailable);
+        assert!(status.metadata().get("error-code").is_some());
     }
 }
