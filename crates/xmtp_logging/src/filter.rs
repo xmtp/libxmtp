@@ -33,4 +33,51 @@ mod tests {
         filter_directive("TRACE");
         filter_directive("INCORRECT_DOES_NOT_PANIC");
     }
+
+    #[test]
+    fn stdout_filter_at_warn_drops_xmtp_info() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        use tracing::dispatcher::{self, Dispatch};
+        use tracing_subscriber::{Registry, fmt, prelude::*};
+
+        #[derive(Clone, Default)]
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Buf {
+            type Writer = Buf;
+            fn make_writer(&'a self) -> Buf {
+                self.clone()
+            }
+        }
+
+        let buf = Buf::default();
+        let layer = fmt::layer()
+            .with_writer(buf.clone())
+            .with_filter(super::filter_directive("warn"));
+        let subscriber = Registry::default().with(layer);
+
+        dispatcher::with_default(&Dispatch::new(subscriber), || {
+            tracing::info!(target: "xmtp_api", "should be dropped at warn");
+            tracing::warn!(target: "xmtp_api", "should be kept at warn");
+        });
+
+        let out = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        assert!(
+            !out.contains("should be dropped"),
+            "INFO leaked to stdout at warn:\n{out}"
+        );
+        assert!(
+            out.contains("should be kept"),
+            "WARN was wrongly dropped:\n{out}"
+        );
+    }
 }
