@@ -14770,6 +14770,7 @@ dependencies = [
  "parking_lot",
  "passkey",
  "pin-project",
+ "proptest",
  "prost",
  "public-suffix",
  "rand 0.10.1",

@@ -21,6 +21,7 @@ pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
+pub(crate) mod watchdog;
 
 use crate::messages::enrichment::EnrichMessageError;
 #[cfg(any(test, feature = "test-utils"))]
@@ -246,6 +247,12 @@ pub enum SubscribeError {
     /// Enriched Message Error.
     #[error("error occured during subscription {0}")]
     Enriched(#[from] EnrichMessageError),
+    /// Stream liveness watchdog tripped.
+    ///
+    /// No activity arrived within the idle timeout, so the stream was terminated to force
+    /// a reconnect (resuming from the persisted cursor). Retryable.
+    #[error("stream went stale: no activity within the idle timeout")]
+    StreamStale,
 }
 
 impl SubscribeError {
@@ -284,6 +291,7 @@ impl RetryableError for SubscribeError {
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
             Enriched(c) => retryable!(c),
+            StreamStale => true,
         }
     }
 }
@@ -307,7 +315,8 @@ impl crate::worker::NeedsDbReconnect for SubscribeError {
             | BoxError(_)
             | Conversion(_)
             | Envelope(_)
-            | Enriched(_) => false,
+            | Enriched(_)
+            | StreamStale => false,
         }
     }
 }
@@ -406,7 +415,7 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static + use<Context>>
     where
         Context::ApiClient: XmtpMlsStreams,
     {
@@ -429,40 +438,31 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
-        mut convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
+        convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
         include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-
-        xmtp_common::spawn(Some(rx), async move {
-            let cancel = client.context.cancellation_token().clone();
-            let stream = match client
-                .stream_conversations(conversation_type, include_duplicate_dms)
-                .await
-            {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::warn!("Failed to create conversation stream, closing: {}", e);
-                    on_close();
-                    return Ok::<_, SubscribeError>(());
+        let cancel = client.context.cancellation_token().clone();
+        // Re-subscribing recreates the underlying `LocalEvents` broadcast receiver, which
+        // has no replay; the watchdog runner establishes the new subscription *before* its
+        // reconnect wait, so the new receiver is attached while we pause. Network welcomes
+        // are caught up from the persisted cursor, so the only residual gap is a *locally*
+        // created group (`LocalEvents::NewGroup`) broadcast in the brief window while the new
+        // subscription is being built — bounded, since the caller already holds that group.
+        watchdog::spawn_watchdog_stream(
+            cancel,
+            "stream_conversations",
+            move || {
+                let client = client.clone();
+                async move {
+                    client
+                        .stream_conversations_owned(conversation_type, include_duplicate_dms)
+                        .await
                 }
-            };
-            futures::pin_mut!(stream);
-            let _ = tx.send(());
-            loop {
-                tokio::select! {
-                    _ = cancel.cancelled() => break,
-                    next = stream.next() => match next {
-                        Some(convo) => convo_callback(convo),
-                        None => break,
-                    }
-                }
-            }
-            tracing::debug!("`stream_conversations` stream ended, dropping stream");
-            on_close();
-            Ok::<_, SubscribeError>(())
-        })
+            },
+            convo_callback,
+            on_close,
+        )
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -501,40 +501,23 @@ where
         context: Context,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-        mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+        callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-
-        xmtp_common::spawn(Some(rx), async move {
-            tracing::debug!("stream all messages with callback");
-            let cancel = context.cancellation_token().clone();
-            let stream =
-                match StreamAllMessages::new(&context, conversation_type, consent_state).await {
-                    Ok(stream) => stream,
-                    Err(e) => {
-                        tracing::warn!("Failed to create message stream, closing: {}", e);
-                        on_close();
-                        return Ok::<_, SubscribeError>(());
-                    }
-                };
-
-            futures::pin_mut!(stream);
-            let _ = tx.send(());
-
-            loop {
-                tokio::select! {
-                    _ = cancel.cancelled() => break,
-                    next = stream.next() => match next {
-                        Some(message) => callback(message),
-                        None => break,
-                    }
+        let cancel = context.cancellation_token().clone();
+        watchdog::spawn_watchdog_stream(
+            cancel,
+            "stream_all_messages",
+            move || {
+                let context = context.clone();
+                let consent_state = consent_state.clone();
+                async move {
+                    StreamAllMessages::new_owned(context, conversation_type, consent_state).await
                 }
-            }
-            tracing::debug!("`stream_all_messages` stream ended, dropping stream");
-            on_close();
-            Ok::<_, SubscribeError>(())
-        })
+            },
+            callback,
+            on_close,
+        )
     }
 
     pub fn stream_consent_with_callback(

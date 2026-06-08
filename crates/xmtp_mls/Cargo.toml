@@ -159,6 +159,7 @@ once_cell.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential.workspace = true
 passkey = "0.4"
+proptest.workspace = true
 public-suffix = "0.1.2"
 rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse.workspace = true
