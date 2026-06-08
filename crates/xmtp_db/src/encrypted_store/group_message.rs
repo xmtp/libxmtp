@@ -613,6 +613,14 @@ pub trait QueryGroupMessage {
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// The soonest `expire_at_ns` among published Application messages that have
+    /// an expiry set, or `None` if no disappearing messages exist. Note this can
+    /// return a timestamp already in the past (an expiry that elapsed while the
+    /// worker was asleep) — the caller clamps the resulting sleep to `>= 0` and
+    /// deletes on the next wake. Same filters as `delete_expired_messages`
+    /// without its `expire_at_ns <= now` bound.
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
@@ -770,6 +778,10 @@ where
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         (**self).delete_expired_messages()
+    }
+
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+        (**self).min_expire_at_ns()
     }
 
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
@@ -1313,6 +1325,20 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             )
             .returning(StoredGroupMessage::as_returning())
             .load::<StoredGroupMessage>(conn)
+        })
+    }
+
+    #[xmtp_common::db_span]
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            use diesel::dsl::min;
+            use diesel::prelude::*;
+            dsl::group_messages
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::kind.eq(GroupMessageKind::Application))
+                .filter(dsl::expire_at_ns.is_not_null())
+                .select(min(dsl::expire_at_ns))
+                .first::<Option<i64>>(conn)
         })
     }
 

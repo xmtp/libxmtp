@@ -98,8 +98,14 @@ pub fn interval_stream(
 
 /// Draw a random delay in `[0, jitter]`. Mirrors the jitter draw in
 /// [`crate::retry`] so the same cross-platform `rand` path is exercised.
-fn rand_offset(jitter: crate::time::Duration) -> crate::time::Duration {
+///
+/// Public so workers that compute their own per-iteration sleeps (rather than
+/// driving [`jittered_interval_stream`]) can de-synchronize fleet-wide wakes.
+pub fn rand_offset(jitter: crate::time::Duration) -> crate::time::Duration {
     use rand::RngExt;
+    if jitter.is_zero() {
+        return crate::time::Duration::ZERO;
+    }
     let distr = rand::distr::Uniform::new_inclusive(crate::time::Duration::ZERO, jitter).unwrap();
     rand::rng().sample(distr)
 }

@@ -38,6 +38,7 @@ pub fn context() -> NewMockContext {
         worker_config: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         task_channels: TaskWorkerChannels::default(),
+        disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),
         worker_metrics: Arc::default(),
         cancellation_token: tokio_util::sync::CancellationToken::new(),
         shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),

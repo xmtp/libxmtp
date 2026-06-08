@@ -361,6 +361,11 @@ impl PublishIntentData {
 pub(crate) struct ProcessedMessageOutcome {
     pub(crate) identifier: MessageIdentifier,
     pub(crate) intent_error: Option<GroupMessageProcessingError>,
+    /// True when this message stored a disappearing (expiring) message. The
+    /// disappearing worker is re-armed *after* the storage transaction commits
+    /// (see `process_message`), so the worker's `min_expire_at_ns`
+    /// query is guaranteed to observe the newly written `expire_at_ns`.
+    pub(crate) disappearing_message_stored: bool,
 }
 
 impl ProcessedMessageOutcome {
@@ -370,6 +375,7 @@ impl ProcessedMessageOutcome {
         Self {
             identifier,
             intent_error: None,
+            disappearing_message_stored: false,
         }
     }
 }
@@ -895,6 +901,7 @@ where
         intent: &StoredGroupIntent,
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
+        disappearing_stored: &mut bool,
     ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
         if intent.state == IntentState::Committed
             || intent.state == IntentState::Processed
@@ -1058,6 +1065,14 @@ where
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
             })?;
+        // Self-sent messages get their `expire_at_ns` filled in here (not at the
+        // incoming-message store site). Signal the caller so it re-arms the
+        // disappearing worker *after* this storage transaction commits — re-arming
+        // inline (pre-commit) would race the worker's `min_expire_at_ns`
+        // read against the not-yet-committed row.
+        if message_expire_at_ns.is_some() {
+            *disappearing_stored = true;
+        }
         self.process_own_leave_request_message(mls_group, storage, &id);
         self.process_own_delete_message(storage, &id);
         Ok(Some(id))
@@ -1428,6 +1443,13 @@ where
                         };
                         message.store_or_ignore(&storage.db())?;
                         identifier.internal_id(message_id);
+
+                        // A disappearing message was just persisted with a known
+                        // future deadline; wake the disappearing worker after the
+                        // txn commits so it re-arms its timer to that deadline.
+                        if message.expire_at_ns.is_some() {
+                            deferred_events.request_disappearing_rearm();
+                        }
 
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
@@ -2039,6 +2061,21 @@ where
             result
         })
         .await
+        .inspect(|outcome| {
+            // Re-arm the disappearing worker only after the storage transaction
+            // has committed, so its `min_expire_at_ns` read is sure to observe the
+            // message's `expire_at_ns`. Skipped when the worker is disabled so it
+            // never receives signals it won't drain (the channel is also
+            // capacity-1, bounding memory regardless).
+            if outcome.disappearing_message_stored
+                && self
+                    .context
+                    .worker_config()
+                    .worker_enabled(crate::worker::WorkerKind::DisappearingMessages)
+            {
+                self.context.disappearing_channels().rearm();
+            }
+        })
     }
 
     #[tracing::instrument(skip(self, mls_group, envelope), level = "trace")]
@@ -2113,6 +2150,9 @@ where
                 // intent to a terminal `Error` state. Captured here before it is
                 // folded into the intent row + dropped, so the caller can report
                 // the real cause in the sync summary.
+                // Set inside the txn when a self-sent disappearing message is
+                // published; consumed post-commit below to re-arm the worker.
+                let mut disappearing_stored = false;
                 let intent_error = self.context.mls_storage().transaction(|conn| {
                     let storage = conn.key_store();
                     let db = storage.db();
@@ -2147,7 +2187,7 @@ where
                     let result: Result<Option<Vec<u8>>, IntentResolutionError> = match validation_result {
                         Err(err) => Err(err),
                         Ok(validated_intent) => {
-                            self.process_own_message(mls_group, validated_intent, &intent, envelope, &storage)
+                            self.process_own_message(mls_group, validated_intent, &intent, envelope, &storage, &mut disappearing_stored)
                         }
                     };
                     // The non-retryable cause for an `Error`-bound intent. Only
@@ -2210,6 +2250,7 @@ where
                 Ok(ProcessedMessageOutcome {
                     identifier,
                     intent_error,
+                    disappearing_message_stored: disappearing_stored,
                 })
             }
             // No matching intent found. The message did not originate here.
@@ -2405,6 +2446,7 @@ where
                 Ok(ProcessedMessageOutcome {
                     identifier,
                     intent_error,
+                    disappearing_message_stored: _,
                 }) => {
                     // An own-intent that failed non-retryably advances the cursor and
                     // is marked Error in its row, then returns success — so the message
@@ -4862,14 +4904,14 @@ pub(crate) mod tests {
 pub struct DeferredEvents {
     worker_events: VecDeque<SyncWorkerEvent>,
     local_events: VecDeque<LocalEvents>,
+    /// Set when a disappearing message was persisted this txn; collapses many
+    /// stored messages into a single post-commit re-arm of the disappearing worker.
+    disappearing_rearm: bool,
 }
 
 impl DeferredEvents {
     pub fn new() -> Self {
-        Self {
-            worker_events: VecDeque::new(),
-            local_events: VecDeque::new(),
-        }
+        Self::default()
     }
 
     pub fn add_worker_event(&mut self, event: SyncWorkerEvent) {
@@ -4880,6 +4922,12 @@ impl DeferredEvents {
         self.local_events.push_back(event);
     }
 
+    /// Request a disappearing-messages worker re-arm after the txn commits.
+    /// Idempotent: many stored messages in one txn collapse to a single wake.
+    pub fn request_disappearing_rearm(&mut self) {
+        self.disappearing_rearm = true;
+    }
+
     /// Send all collected events to their respective channels
     pub fn send_all<Context: XmtpSharedContext>(&mut self, context: &Context) {
         while let Some(event) = self.worker_events.pop_front() {
@@ -4888,6 +4936,19 @@ impl DeferredEvents {
 
         while let Some(event) = self.local_events.pop_front() {
             let _ = context.local_events().send(event);
+        }
+
+        if self.disappearing_rearm {
+            self.disappearing_rearm = false;
+            // Skip the nudge entirely when no disappearing worker is running so a
+            // disabled worker never receives signals it won't drain. (The channel
+            // is also capacity-1, bounding memory regardless.)
+            if context
+                .worker_config()
+                .worker_enabled(crate::worker::WorkerKind::DisappearingMessages)
+            {
+                context.disappearing_channels().rearm();
+            }
         }
     }
 }
