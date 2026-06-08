@@ -270,6 +270,17 @@ where
                         )
                     })?;
             }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(_)) => {
+                // The proto variant lands here (this PR is the proto regen). The
+                // real dispatch — load the group and run the self-remove — is
+                // wired up in the stacked self-remove worker PR. Until then,
+                // drop the task rather than leave the match non-exhaustive.
+                tracing::debug!(
+                    "Task {} is a ProcessPendingSelfRemove with no handler yet. Deleting.",
+                    task.id
+                );
+                context.db().delete_task(task.id)?;
+            }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
                 context.db().delete_task(task.id)?;
