@@ -4,6 +4,7 @@ ignore = [
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
   { id = "RUSTSEC-2021-0139", reason = "ansi_term is only used in tests" },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests
