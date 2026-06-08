@@ -36,17 +36,31 @@ async fn test_self_removal_with_pending_state() {
     let bo_state_after_leave = bo_group.membership_state().unwrap();
     assert_eq!(bo_state_after_leave, FfiGroupMembershipState::PendingRemove);
 
-    // Alix syncs to process the leave request
+    // Alix syncs to process the leave request (enqueues the self-remove task and
+    // wakes the TaskRunner). Removal is now event-driven via the TaskRunner rather
+    // than a fixed poll, and completing it is multi-step: Alix's TaskRunner builds
+    // and publishes the removal commit, then Bo syncs it down. Drive both sides in
+    // a bounded loop until Bo is removed instead of relying on a single fixed wait.
     alix_group.sync().await.unwrap();
-
-    // Wait for admin worker to process the removal
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Bo syncs to get the final removal
-    bo_group.sync().await.unwrap();
+    let mut removed = false;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        // Sync Alix to let her TaskRunner-driven removal commit publish, then Bo
+        // to receive it. The removal is async (super-admin's TaskRunner), so poll
+        // until it lands rather than relying on a single fixed wait.
+        alix_group.sync().await.ok();
+        bo_group.sync().await.ok();
+        if !bo_group.is_active().unwrap() {
+            removed = true;
+            break;
+        }
+    }
 
     // Verify Bo's group is no longer active
-    assert!(!bo_group.is_active().unwrap());
+    assert!(
+        removed,
+        "Bo should be removed by the self-remove TaskRunner"
+    );
 
     // Verify Alix's membership state remains Allowed
     let alix_state_final = alix_group.membership_state().unwrap();
@@ -96,20 +110,26 @@ async fn test_membership_state_after_readd() {
         "Bo should be in PendingRemove state after leaving"
     );
 
-    // Alix syncs to process the leave request
+    // Alix syncs to process the leave request, then drive both sides in a bounded
+    // loop until the event-driven TaskRunner removal completes (commit built +
+    // published by Alix, synced down by Bo).
     alix_group.sync().await.unwrap();
-
-    // Wait for admin worker to process the removal
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Bo syncs to get the final removal
-    bo_group.sync().await.unwrap();
+    let mut removed = false;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        // Sync Alix to let her TaskRunner-driven removal commit publish, then Bo
+        // to receive it. The removal is async (super-admin's TaskRunner), so poll
+        // until it lands rather than relying on a single fixed wait.
+        alix_group.sync().await.ok();
+        bo_group.sync().await.ok();
+        if !bo_group.is_active().unwrap() {
+            removed = true;
+            break;
+        }
+    }
 
     // Verify Bo's group is no longer active
-    assert!(
-        !bo_group.is_active().unwrap(),
-        "Bo's group should be inactive after removal"
-    );
+    assert!(removed, "Bo's group should be inactive after removal");
 
     // Alix re-adds Bo to the group
     alix_group

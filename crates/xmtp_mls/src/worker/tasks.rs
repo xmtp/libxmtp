@@ -9,6 +9,7 @@ use prost::Message;
 use std::sync::Arc;
 use xmtp_common::Event;
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
+use xmtp_db::{StorageError, diesel};
 use xmtp_macro::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
@@ -23,6 +24,8 @@ pub enum TaskWorkerError {
     Group(#[from] crate::groups::GroupError),
     #[error("device sync error: {0}")]
     DeviceSync(#[from] DeviceSyncError),
+    #[error("failed to load MLS group from store: {0}")]
+    LoadGroup(#[from] crate::mls_store::MlsStoreError),
     #[error("invalid task data for {id}: {error}")]
     InvalidTaskData { id: i64, error: prost::DecodeError },
     #[error("invalid hash for {id}, expected: {expected}, got: {got}")]
@@ -43,10 +46,13 @@ impl NeedsDbReconnect for TaskWorkerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             TaskWorkerError::Storage(s)
-            | TaskWorkerError::Group(crate::groups::GroupError::Storage(s))
             | TaskWorkerError::DeviceSync(DeviceSyncError::Storage(s)) => s.db_needs_connection(),
+            TaskWorkerError::LoadGroup(e) => e.needs_db_reconnect(),
+            // Forward through GroupError's own classifier so a dropped pool hiding
+            // in a `Db`/`MlsStore` (not just `Storage`) variant still restarts the
+            // worker instead of being retried on a dead connection.
+            TaskWorkerError::Group(e) => e.needs_db_reconnect(),
             TaskWorkerError::DeviceSync(_) => false,
-            TaskWorkerError::Group(_) => false,
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
             TaskWorkerError::ReceiverLocked => false,
@@ -56,11 +62,20 @@ impl NeedsDbReconnect for TaskWorkerError {
     }
 }
 
+/// Message to the TaskRunner loop.
+pub enum TaskMessage {
+    /// Persist a new durable task row.
+    New(DbNewTask),
+    /// No-op wake: the task row was already inserted directly in a DB
+    /// transaction; receiving this just makes the loop re-read the tasks table.
+    Wake,
+}
+
 #[derive(Clone)]
 pub struct TaskWorkerChannels {
     // Using unbounded to avoid potential issues with the receiver queue being full
-    pub task_sender: tokio::sync::mpsc::UnboundedSender<DbNewTask>,
-    pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<DbNewTask>>>,
+    pub task_sender: tokio::sync::mpsc::UnboundedSender<TaskMessage>,
+    pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TaskMessage>>>,
 }
 
 impl Default for TaskWorkerChannels {
@@ -79,7 +94,14 @@ impl TaskWorkerChannels {
     }
     pub fn send(&self, new_task: DbNewTask) {
         self.task_sender
-            .send(new_task)
+            .send(TaskMessage::New(new_task))
+            .expect("Task receiver is owned by same struct");
+    }
+    /// Wake the TaskRunner to re-evaluate its next due task. Use after inserting
+    /// a task row directly in a DB transaction (best-effort; idempotent).
+    pub fn wake(&self) {
+        self.task_sender
+            .send(TaskMessage::Wake)
             .expect("Task receiver is owned by same struct");
     }
 }
@@ -155,9 +177,14 @@ where
                 xmtp_common::time::now_ns(),
             );
             tokio::select! {
-                task = receiver.recv() => {
-                    let task = task.expect("Task sender is owned by the task worker");
-                    self.context.db().create_task(task)?;
+                msg = receiver.recv() => {
+                    // A Wake is a no-op here: its row is already in the DB, and
+                    // any recv loops back to recompute the next due task.
+                    if let TaskMessage::New(task) =
+                        msg.expect("Task sender is owned by the task worker")
+                    {
+                        self.context.db().create_task(task)?;
+                    }
                 }
                 () = xmtp_common::time::sleep(next_wakeup) => {
                     if let Some(task) = next_task {
@@ -198,9 +225,19 @@ where
                     .min(task.max_backoff_duration_ns);
                 let next_attempt_at_ns = now.saturating_add(next_attempt_duration);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
-                context
+                match context
                     .db()
-                    .update_task(task.id, attempts, now, next_attempt_at_ns)?;
+                    .update_task(task.id, attempts, now, next_attempt_at_ns)
+                {
+                    Ok(_) => {}
+                    // The row was concurrently deleted (e.g. a dead-row cleanup in
+                    // upsert_pending_self_remove_task crossed this retry). Nothing
+                    // left to reschedule — don't abort the worker loop.
+                    Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {
+                        tracing::debug!("Task {} vanished before reschedule; skipping", task.id);
+                    }
+                    Err(e) => return Err(e.into()),
+                }
             }
         }
         Ok(())
@@ -270,16 +307,10 @@ where
                         )
                     })?;
             }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(_)) => {
-                // The proto variant lands here (this PR is the proto regen). The
-                // real dispatch — load the group and run the self-remove — is
-                // wired up in the stacked self-remove worker PR. Until then,
-                // drop the task rather than leave the match non-exhaustive.
-                tracing::debug!(
-                    "Task {} is a ProcessPendingSelfRemove with no handler yet. Deleting.",
-                    task.id
-                );
-                context.db().delete_task(task.id)?;
+            Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(
+                pending,
+            )) => {
+                Self::process_pending_self_remove(task, pending, context).await?;
             }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
@@ -300,6 +331,41 @@ where
             xmtp_common::time::Duration::from_nanos(0)
         } else {
             std::time::Duration::from_nanos((next_task_wakeup - now) as u64)
+        }
+    }
+
+    /// Run a `ProcessPendingSelfRemove` task: load the group and remove members
+    /// who requested to leave (a no-op unless this client is super-admin).
+    async fn process_pending_self_remove(
+        task: &DbTask,
+        pending: xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove,
+        context: &Context,
+    ) -> Result<(), TaskWorkerError> {
+        // A malformed group_id can never succeed — drop the task, don't retry.
+        let Ok(group_id) = xmtp_proto::types::GroupId::try_from(pending.group_id.as_slice()) else {
+            tracing::warn!(
+                "Task {} has a malformed group_id for ProcessPendingSelfRemove. Deleting.",
+                task.id
+            );
+            context.db().delete_task(task.id)?;
+            return Ok(());
+        };
+        match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
+            Ok(group) => {
+                // No-op unless super-admin; idempotent, so retries are safe.
+                group.process_pending_self_removals().await?;
+                Ok(())
+            }
+            Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
+                tracing::debug!(
+                    "Task {} targets a group that no longer exists. Deleting.",
+                    task.id
+                );
+                context.db().delete_task(task.id)?;
+                Ok(())
+            }
+            // A DB/connection error is transient — let it retry.
+            Err(e) => Err(e.into()),
         }
     }
     async fn process_welcome_pointer(

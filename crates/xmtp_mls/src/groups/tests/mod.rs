@@ -1297,29 +1297,16 @@ async fn test_self_removal() {
         .membership_state;
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 
-    // Check Bola's other installations
+    // Check Bola's other installation. Note: with the event-driven self-remove,
+    // the super-admin (Amal) removes Bola promptly via the TaskRunner rather than
+    // after a fixed poll interval, so Bola_i2 may observe either the transient
+    // PendingRemove state or the already-removed state depending on timing. We
+    // therefore assert the eventual, deterministic outcome (Bola removed) rather
+    // than the transient pending window.
     bola_i2.sync_welcomes().await.unwrap();
     let bola_i2_groups = bola_i2.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_i2_groups.len(), 1);
     let bola_i2_group = bola_i2_groups.first().unwrap();
-    assert_eq!(bola_i2_group.members().await.unwrap().len(), 2);
-    bola_i2_group.sync().await.unwrap();
-
-    let bola_i2_group_pending_leave_users = bola_i2
-        .db()
-        .get_pending_remove_users(&bola_i2_group.group_id)
-        .unwrap();
-    // Bola's inboxId should be in the pending-remove list
-    assert!(bola_i2_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
-    // The pending-remove list should only contain one item
-    assert_eq!(bola_i2_group_pending_leave_users.len(), 1);
-    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
-
-    // group's state should be set to PendingRemove on Bola's other installation
-    assert_eq!(
-        bola_i2_group_state_in_db.unwrap().membership_state,
-        GroupMembershipState::PendingRemove
-    );
 
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -1827,10 +1814,14 @@ async fn test_clean_pending_remove_list_on_member_removal() {
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_super_admin_promotion_marks_pending_leave_requests() {
     // Test that when a user is promoted to super_admin and there are pending remove users,
-    // the group is marked as having pending leave requests
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
+    // the group is marked as having pending leave requests.
+    //
+    // Workers are disabled so the TaskRunner doesn't immediately process the
+    // removal (which would clear the flag) — this test asserts the transient
+    // flag-marking on promotion, not the eventual removal.
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    tester!(caro, disable_workers);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -1890,10 +1881,13 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_super_admin_demotion_clears_pending_leave_requests() {
-    // Test that when a user is demoted from super_admin, the pending leave request flag is cleared
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
+    // Test that when a user is demoted from super_admin, the pending leave request flag is cleared.
+    //
+    // Workers are disabled so the TaskRunner doesn't process the removal and
+    // clear the flag on its own — this isolates the demotion-clears-flag path.
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    tester!(caro, disable_workers);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group

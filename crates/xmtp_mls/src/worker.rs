@@ -2,7 +2,6 @@ pub mod device_sync;
 pub mod disappearing_messages;
 pub mod key_package_cleaner;
 pub mod metrics;
-pub mod pending_self_remove;
 pub mod tasks;
 
 use crate::context::XmtpSharedContext;
@@ -33,7 +32,6 @@ pub enum WorkerKind {
     KeyPackageCleaner,
     CommitLog,
     TaskRunner,
-    PendingSelfRemove,
 }
 
 /// Configuration for the cadence and enablement of background workers.
@@ -372,7 +370,6 @@ mod disconnect_propagation_tests {
     use crate::subscriptions::SubscribeError;
     use crate::worker::device_sync::DeviceSyncError;
     use crate::worker::key_package_cleaner::KeyPackagesCleanerError;
-    use crate::worker::pending_self_remove::PendingSelfRemoveWorkerError;
     use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
 
     /// A `StorageError` that signals the connection pool was dropped.
@@ -423,23 +420,18 @@ mod disconnect_propagation_tests {
     // Per-worker `run_tasks` error types — what the supervisor actually inspects.
 
     #[xmtp_common::test]
-    fn pending_self_remove_error_forwards_disconnect() {
-        // Group-load (MlsStoreError) and member-removal (GroupError) paths both
-        // reach the loop; the GroupError path previously mapped to `false`.
+    fn task_worker_load_group_forwards_disconnect() {
+        use crate::worker::tasks::TaskWorkerError;
+        // Self-remove tasks load the MLS group (MlsStoreError) and remove members
+        // (GroupError); a dropped pool must bubble through both paths.
         assert!(
-            PendingSelfRemoveWorkerError::LoadGroup(MlsStoreError::Connection(
-                disconnect_connection()
-            ))
-            .needs_db_reconnect()
-        );
-        assert!(
-            PendingSelfRemoveWorkerError::GroupError(GroupError::Storage(disconnect_storage()))
+            TaskWorkerError::LoadGroup(MlsStoreError::Connection(disconnect_connection()))
                 .needs_db_reconnect()
         );
         assert!(
-            !PendingSelfRemoveWorkerError::GroupError(GroupError::InvalidGroupMembership)
-                .needs_db_reconnect()
+            TaskWorkerError::Group(GroupError::Storage(disconnect_storage())).needs_db_reconnect()
         );
+        assert!(!TaskWorkerError::Group(GroupError::InvalidGroupMembership).needs_db_reconnect());
     }
 
     #[xmtp_common::test]

@@ -1712,6 +1712,21 @@ where
         Ok(())
     }
 
+    /// Process this group's pending self-remove requests end-to-end: remove the
+    /// members still in the group that requested removal, then clean up stale
+    /// pending-remove rows. Idempotent and a no-op when this client is not a
+    /// super-admin, so it is safe to call from both the inline message-processing
+    /// fast-path and the durable `TaskRunner` retry path.
+    pub(crate) async fn process_pending_self_removals(&self) -> Result<(), GroupError> {
+        // Both helpers early-return on an empty pending list; cleanup owns the
+        // flag-clear. Keeping the empty-check inside cleanup (rather than a
+        // separate clear here) avoids racing a concurrent LeaveRequest insert and
+        // wrongly clearing the flag.
+        self.remove_members_pending_removal().await?;
+        self.cleanup_pending_removal_list().await?;
+        Ok(())
+    }
+
     /// Removes all members from the group who are currently in the pending removal list.
     ///
     /// Only admins and super admins can call this function. Validates permissions, filters
