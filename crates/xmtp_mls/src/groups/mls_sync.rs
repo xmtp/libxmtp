@@ -76,7 +76,7 @@ use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{
-    Event, ExponentialBackoff, Retry, RetryableError, Strategy, log_event, retry_async,
+    Event, ExponentialBackoff, Retry, Retryable, RetryableError, Strategy, log_event, retry_async,
     time::now_ns,
 };
 use xmtp_configuration::{
@@ -304,7 +304,8 @@ impl GroupMessageProcessingError {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
+#[retry(when = self.processing_error.is_retryable())]
 pub struct IntentResolutionError {
     processing_error: GroupMessageProcessingError,
     // The next intent state to transition to, if the error is non-retriable.
@@ -315,12 +316,6 @@ pub struct IntentResolutionError {
 impl std::fmt::Display for IntentResolutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "IntentValidationError: {}", self.processing_error)
-    }
-}
-
-impl RetryableError for IntentResolutionError {
-    fn is_retryable(&self) -> bool {
-        self.processing_error.is_retryable()
     }
 }
 

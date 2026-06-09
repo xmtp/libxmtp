@@ -25,7 +25,7 @@ use prost::Message;
 use serde::Serialize;
 use std::collections::HashSet;
 use thiserror::Error;
-use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_common::Retryable;
 use xmtp_db::StorageError;
 use xmtp_db::local_commit_log::CommitType;
 #[cfg(doc)]
@@ -47,7 +47,7 @@ use xmtp_proto::xmtp::{
     },
 };
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum CommitValidationError {
     #[error("Actor could not be found")]
     ActorCouldNotBeFound,
@@ -88,6 +88,7 @@ pub enum CommitValidationError {
     #[error(transparent)]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
+    #[retry(inherit)]
     InstallationDiff(#[from] InstallationDiffError),
     #[error("Failed to parse group mutable permissions: {0}")]
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
@@ -132,15 +133,6 @@ pub enum CommitValidationError {
     Bootstrap(#[from] super::app_data::bootstrap_validator::BootstrapValidationError),
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
-}
-
-impl RetryableError for CommitValidationError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Hash, Serialize)]
@@ -2488,5 +2480,26 @@ mod min_version_monotonicity_tests {
             ),
             "expected MinVersionDowngrade, got {err:?}",
         );
+    }
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    use super::*;
+    use xmtp_common::RetryableError;
+    use xmtp_db::ConnectionError;
+
+    #[test]
+    fn commit_validation_error_retryability() {
+        // Previously: InstallationDiff(e) => e.is_retryable(); _ => false
+        // Only the InstallationDiff variant forwards; a retryable inner is retryable.
+        assert!(
+            CommitValidationError::InstallationDiff(InstallationDiffError::Db(
+                ConnectionError::DisconnectInTransaction
+            ))
+            .is_retryable()
+        );
+        // Everything else (including #[from] StorageError) is hardcoded non-retryable.
+        assert!(!CommitValidationError::ActorCouldNotBeFound.is_retryable());
     }
 }

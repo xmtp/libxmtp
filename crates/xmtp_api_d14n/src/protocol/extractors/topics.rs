@@ -1,6 +1,6 @@
 use hex::FromHexError;
 use openmls::framing::errors::ProtocolMessageError;
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_proto::ConversionError;
 
 use crate::protocol::ExtractionError;
@@ -50,7 +50,7 @@ impl TopicExtractor {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum TopicExtractionError {
     #[error("Topic extraction failed, no topic available")]
     Failed,
@@ -64,12 +64,6 @@ pub enum TopicExtractionError {
     FromHex(#[from] FromHexError),
     #[error(transparent)]
     Conversion(#[from] ConversionError),
-}
-
-impl RetryableError for TopicExtractionError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }
 
 impl From<TopicExtractionError> for EnvelopeError {

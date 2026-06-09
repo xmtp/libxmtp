@@ -1,6 +1,6 @@
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, Retryable};
 
 use crate::group_intent::GroupIntentError;
 
@@ -127,7 +127,9 @@ impl StorageError {
     }
 }
 
-#[derive(Error, Debug, ErrorCode)]
+#[derive(Error, Debug, ErrorCode, Retryable)]
+// All NotFound errors are transient — the row may appear on a later attempt.
+#[retry(default = true)]
 // Monolithic enum for all things lost
 pub enum NotFound {
     /// Group with welcome ID not found.
@@ -217,7 +219,7 @@ pub enum NotFound {
     KeyPackage(Vec<u8>),
 }
 
-#[derive(Error, Debug, ErrorCode)]
+#[derive(Error, Debug, ErrorCode, Retryable)]
 #[error_code(internal)]
 pub enum DuplicateItem {
     /// Duplicate welcome ID.
@@ -230,16 +232,6 @@ pub enum DuplicateItem {
     /// Commit log public key for group already exists. Not retryable.
     #[error("the commit log public key for group id {id} already exists", id = hex::encode(_0))]
     CommitLogPublicKey(Vec<u8>),
-}
-
-impl RetryableError for DuplicateItem {
-    fn is_retryable(&self) -> bool {
-        use DuplicateItem::*;
-        match self {
-            WelcomeId(_) => false,
-            CommitLogPublicKey(_) => false,
-        }
-    }
 }
 
 impl RetryableError<Mls> for diesel::result::Error {
@@ -280,12 +272,6 @@ impl RetryableError for StorageError {
             | Self::InvalidHmacLength
             | Self::Prost(_) => false,
         }
-    }
-}
-
-impl RetryableError for NotFound {
-    fn is_retryable(&self) -> bool {
-        true
     }
 }
 
@@ -515,5 +501,29 @@ impl RetryableError<Mls>
             Self::GroupStateError(err) => retryable!(err),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of enums migrated to
+    //! `#[derive(Retryable)]`, so the derive reproduces the previous
+    //! hand-written behavior exactly.
+    use super::*;
+    use xmtp_proto::types::Cursor;
+
+    #[test]
+    fn not_found_is_always_retryable() {
+        // Previously: `impl RetryableError for NotFound { fn is_retryable(&self) -> bool { true } }`
+        assert!(NotFound::GroupByWelcome(Cursor::default()).is_retryable());
+        assert!(NotFound::InboxIdForAddress("addr".into()).is_retryable());
+        assert!(NotFound::MessageById(vec![1, 2, 3]).is_retryable());
+    }
+
+    #[test]
+    fn duplicate_item_is_never_retryable() {
+        // Previously: both variants hardcoded `false`.
+        assert!(!DuplicateItem::WelcomeId(Some(Cursor::default())).is_retryable());
+        assert!(!DuplicateItem::CommitLogPublicKey(vec![1, 2, 3]).is_retryable());
     }
 }

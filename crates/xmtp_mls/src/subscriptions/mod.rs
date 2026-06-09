@@ -36,7 +36,7 @@ use crate::{
     subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
-use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
+use xmtp_common::{ErrorCode, MaybeSend, Retryable, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
@@ -46,16 +46,11 @@ use xmtp_db::{
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
+#[retry(default = true)]
 pub enum LocalEventError {
     #[error("Unable to send event: {0}")]
     Send(String),
-}
-
-impl RetryableError for LocalEventError {
-    fn is_retryable(&self) -> bool {
-        true
-    }
 }
 
 /// Events local to this client

@@ -22,7 +22,7 @@ use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::{ArchiveError, BackupMetadata};
 use xmtp_common::ErrorCode;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
+use xmtp_common::{NS_IN_DAY, Retryable, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
@@ -51,7 +51,9 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
+// Inverted logic: every variant is retryable EXCEPT the explicit exceptions below.
+#[retry(default = true)]
 pub enum DeviceSyncError {
     /// I/O error.
     ///
@@ -109,6 +111,7 @@ pub enum DeviceSyncError {
     ///
     /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
+    #[retry(false)]
     UnspecifiedDeviceSyncKind,
     /// Sync payload too old.
     ///
@@ -140,6 +143,7 @@ pub enum DeviceSyncError {
     ///
     /// Sync interaction already acknowledged. Not retryable.
     #[error("Sync interaction is already acknowledged by another installation")]
+    #[retry(false)]
     AlreadyAcknowledged,
     /// Missing options.
     ///
@@ -150,11 +154,13 @@ pub enum DeviceSyncError {
     ///
     /// Sync server URL not configured. Not retryable.
     #[error("Missing sync server url")]
+    #[retry(false)]
     MissingSyncServerUrl,
     /// Missing sync group.
     ///
     /// Sync group not found. Not retryable.
     #[error("Missing sync group")]
+    #[retry(false)]
     MissingSyncGroup,
     #[error(transparent)]
     #[error_code(inherit)]
@@ -217,15 +223,21 @@ impl NeedsDbReconnect for DeviceSyncError {
     }
 }
 
-impl RetryableError for DeviceSyncError {
-    fn is_retryable(&self) -> bool {
-        !matches!(
-            self,
-            Self::AlreadyAcknowledged
-                | Self::MissingSyncGroup
-                | Self::MissingSyncServerUrl
-                | Self::UnspecifiedDeviceSyncKind
-        )
+#[cfg(test)]
+mod retryable_golden_tests {
+    use super::*;
+    use xmtp_common::RetryableError;
+
+    #[test]
+    fn device_sync_error_retryability() {
+        // Previously: retryable unless matches
+        //   AlreadyAcknowledged | MissingSyncGroup | MissingSyncServerUrl | UnspecifiedDeviceSyncKind
+        assert!(DeviceSyncError::NoPendingRequest.is_retryable());
+        assert!(DeviceSyncError::InvalidPayload.is_retryable());
+        assert!(!DeviceSyncError::AlreadyAcknowledged.is_retryable());
+        assert!(!DeviceSyncError::MissingSyncGroup.is_retryable());
+        assert!(!DeviceSyncError::MissingSyncServerUrl.is_retryable());
+        assert!(!DeviceSyncError::UnspecifiedDeviceSyncKind.is_retryable());
     }
 }
 

@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use prost::Message;
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_configuration::CUTOVER_REFRESH_TIME;
 use xmtp_proto::api::mock::MockNetworkClient;
 use xmtp_proto::api::{ApiClientError, BytesStream, Client, IsConnectedCheck};
@@ -89,15 +89,10 @@ fn mock_v3_with_cutover(timestamp_ns: u64) -> TestNetworkClient {
 }
 
 /// A retryable error type for constructing migration-matching errors.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Retryable)]
 #[error("{0}")]
+#[retry(true)]
 struct FakeNetworkError(String);
-
-impl RetryableError for FakeNetworkError {
-    fn is_retryable(&self) -> bool {
-        true
-    }
-}
 
 #[xmtp_common::test]
 fn regex_does_not_panic() {

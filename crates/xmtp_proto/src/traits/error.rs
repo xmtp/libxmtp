@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{ApiEndpoint, ProtoError};
 use thiserror::Error;
-use xmtp_common::{BoxDynError, RetryableError, retryable};
+use xmtp_common::{BoxDynError, Retryable, RetryableError, retryable};
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -41,7 +41,8 @@ pub enum ApiClientError {
 /// A lower level NetworkError, like gRPC/QUIC/HTTP/1.1 errors go here.
 /// use [`ApiClientError::new`] to construct
 // needed because of AsDynError sealed trait
-#[derive(Debug)]
+#[derive(Debug, Retryable)]
+#[retry(when = self.source.is_retryable())]
 pub struct NetworkError {
     source: Box<dyn RetryableError>,
 }
@@ -55,12 +56,6 @@ impl std::error::Error for NetworkError {
 impl Display for NetworkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.source)
-    }
-}
-
-impl RetryableError for NetworkError {
-    fn is_retryable(&self) -> bool {
-        self.source.is_retryable()
     }
 }
 
@@ -141,16 +136,10 @@ impl From<std::convert::Infallible> for ApiClientError {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum BodyError {
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
-}
-
-impl RetryableError for BodyError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }

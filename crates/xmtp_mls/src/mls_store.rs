@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use xmtp_api::ApiError;
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
@@ -17,27 +17,20 @@ use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use thiserror::Error;
 use xmtp_db::prelude::*;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Retryable)]
 pub enum MlsStoreError {
     #[error(transparent)]
+    #[retry(inherit)]
     Storage(#[from] xmtp_db::StorageError),
     #[error(transparent)]
+    #[retry(inherit)]
     Api(#[from] ApiError),
     #[error(transparent)]
+    #[retry(inherit)]
     Connection(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
+    #[retry(inherit)]
     NotFound(#[from] NotFound),
-}
-
-impl RetryableError for MlsStoreError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Storage(e) => e.is_retryable(),
-            Self::Api(e) => e.is_retryable(),
-            Self::Connection(e) => e.is_retryable(),
-            Self::NotFound(e) => e.is_retryable(),
-        }
-    }
 }
 
 impl crate::worker::NeedsDbReconnect for MlsStoreError {

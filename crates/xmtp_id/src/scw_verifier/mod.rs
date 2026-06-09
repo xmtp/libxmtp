@@ -11,11 +11,11 @@ use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
-use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, Retryable, RetryableError};
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum VerifierError {
     /// Unexpected ERC-6492 result.
     ///
@@ -29,6 +29,7 @@ pub enum VerifierError {
     ///
     /// Ethereum RPC provider error. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Provider(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     /// URL parse error.
     ///
@@ -39,6 +40,7 @@ pub enum VerifierError {
     ///
     /// I/O operation failed. May be retryable.
     #[error(transparent)]
+    #[retry(true)]
     Io(#[from] std::io::Error),
     /// Serialization error.
     ///
@@ -54,6 +56,7 @@ pub enum VerifierError {
     ///
     /// Verifier not configured for the given chain ID. Retryable.
     #[error("verifier not present for chain ID {0}")]
+    #[retry(true)]
     NoVerifier(String),
     /// Invalid hash.
     ///
@@ -64,20 +67,8 @@ pub enum VerifierError {
     ///
     /// Unclassified verifier error. May be retryable.
     #[error("{0}")]
+    #[retry(inherit)]
     Other(Box<dyn RetryableError>),
-}
-
-impl RetryableError for VerifierError {
-    fn is_retryable(&self) -> bool {
-        use VerifierError::*;
-        match self {
-            Io(_) => true,
-            NoVerifier(_) => true,
-            Provider(_) => true,
-            Other(o) => o.is_retryable(),
-            _ => false,
-        }
-    }
 }
 
 #[xmtp_common::async_trait]
@@ -265,5 +256,18 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         }
 
         Err(VerifierError::NoVerifier(account_id.chain_id))
+    }
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    use super::*;
+    use xmtp_common::RetryableError;
+
+    #[test]
+    fn verifier_error_retryability() {
+        // Previously: Io | NoVerifier | Provider => true; Other(o) => o.is_retryable(); _ => false
+        assert!(VerifierError::NoVerifier("eip155:1".into()).is_retryable());
+        assert!(!VerifierError::MalformedEipUrl.is_retryable());
     }
 }

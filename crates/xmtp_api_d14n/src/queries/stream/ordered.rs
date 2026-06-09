@@ -10,7 +10,7 @@ use std::{
     marker::PhantomData,
     task::{Poll, ready},
 };
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_proto::{api::ApiClientError, types::TopicCursor};
 
 #[pin_project]
@@ -24,8 +24,9 @@ pub struct OrderedStream<S, Store, T> {
 
 // this is an error which should never occur,
 // and if it does is a bug in libxmtp
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum OrderedStreamError {
+    // Hardcoded non-retryable: this error indicates a bug, not a transient failure.
     #[error(transparent)]
     Resolver(#[from] ResolutionError),
 }
@@ -33,12 +34,6 @@ pub enum OrderedStreamError {
 impl From<OrderedStreamError> for ApiClientError {
     fn from(value: OrderedStreamError) -> Self {
         ApiClientError::Other(Box::new(value) as _)
-    }
-}
-
-impl RetryableError for OrderedStreamError {
-    fn is_retryable(&self) -> bool {
-        false
     }
 }
 
@@ -117,6 +112,17 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// Golden: `Resolver` carries no `#[retry(...)]` attribute, so it takes the
+    /// baseline (non-retryable) — matching the pre-derive hand-written
+    /// `is_retryable() { false }`. The inner `ResolutionError`'s own
+    /// retryability is irrelevant: `#[from]` does not forward.
+    #[xmtp_common::test]
+    fn resolver_errors_are_not_retryable() {
+        use xmtp_common::RetryableError;
+        let err = OrderedStreamError::Resolver(crate::protocol::ResolutionError::ResolutionFailed);
+        assert!(!err.is_retryable());
+    }
     use crate::protocol::{InMemoryCursorStore, test::missing_dependencies};
     use futures::{FutureExt, StreamExt, future, stream};
     use proptest::prelude::*;
