@@ -91,6 +91,8 @@ impl Clone for NewMockContext {
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             worker_config: self.worker_config.clone(),
             task_channels: self.task_channels.clone(),
+            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
+            ),
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
@@ -164,6 +166,10 @@ impl XmtpSharedContext for NewMockContext {
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
+    }
+
+    fn disappearing_channels(&self) -> &crate::worker::disappearing_messages::DisappearingChannels {
+        &self.disappearing_channels
     }
 
     fn sync_metrics(&self) -> Option<Arc<crate::worker::metrics::WorkerMetrics<SyncMetric>>> {

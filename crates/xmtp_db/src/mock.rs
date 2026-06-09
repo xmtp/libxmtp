@@ -472,6 +472,8 @@ mock! {
 
         fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
+        fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn delete_message_by_id<MessageId: AsRef<[u8]>>(
             &self,

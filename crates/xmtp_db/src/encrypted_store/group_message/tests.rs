@@ -2725,3 +2725,47 @@ fn test_group_message_kind_is_deletable() {
     // Membership changes are transcript messages - should NOT be deletable
     assert!(!GroupMessageKind::MembershipChange.is_deletable());
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn test_min_expire_at_ns() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn)?;
+
+        // No disappearing messages yet -> None
+        assert_eq!(conn.min_expire_at_ns()?, None);
+
+        // Two published Application messages with expiries 5000 and 3000,
+        // plus one with no expiry (must be ignored).
+        generate_message(
+            None,
+            Some(&group.id),
+            Some(1_000),
+            Some(ContentType::Text),
+            Some(5_000),
+            None,
+        )
+        .store(conn)?;
+        generate_message(
+            None,
+            Some(&group.id),
+            Some(1_000),
+            Some(ContentType::Text),
+            Some(3_000),
+            None,
+        )
+        .store(conn)?;
+        generate_message(
+            None,
+            Some(&group.id),
+            Some(1_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        )
+        .store(conn)?;
+
+        // Soonest expiry wins; the NULL-expiry row is excluded.
+        assert_eq!(conn.min_expire_at_ns()?, Some(3_000));
+    })
+}

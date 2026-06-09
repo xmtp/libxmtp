@@ -4,6 +4,7 @@ use crate::client::DeviceSync;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
+use crate::worker::disappearing_messages::DisappearingChannels;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
@@ -53,6 +54,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) disappearing_channels: DisappearingChannels,
     pub(crate) cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
     // disconnected). The cancellation token tracks "shutdown initiated";
@@ -126,6 +128,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            disappearing_channels: self.disappearing_channels,
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
         }
@@ -243,6 +246,7 @@ where
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
     fn task_channels(&self) -> &TaskWorkerChannels;
+    fn disappearing_channels(&self) -> &DisappearingChannels;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
@@ -329,6 +333,10 @@ where
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
+    }
+
+    fn disappearing_channels(&self) -> &DisappearingChannels {
+        &self.disappearing_channels
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -422,6 +430,10 @@ where
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         <T as XmtpSharedContext>::task_channels(self)
+    }
+
+    fn disappearing_channels(&self) -> &DisappearingChannels {
+        <T as XmtpSharedContext>::disappearing_channels(self)
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {

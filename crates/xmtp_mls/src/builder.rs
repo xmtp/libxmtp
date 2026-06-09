@@ -292,10 +292,22 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
 
         // Fold the legacy single-worker toggles into the unified enable map so
-        // there is one source of truth for "is worker X enabled". The old
-        // fields keep working; they just write here. `disable_workers` stays a
-        // separate global kill-switch checked at registration.
+        // there is one source of truth for "is worker X enabled" that code paths
+        // (e.g. the disappearing-message store site) can consult before nudging a
+        // worker's channel. The old fields keep working; they just write here.
         let mut worker_config = worker_config;
+        if disable_workers {
+            // Global kill-switch: nothing runs, so mark every worker disabled.
+            for kind in [
+                crate::worker::WorkerKind::DeviceSync,
+                crate::worker::WorkerKind::DisappearingMessages,
+                crate::worker::WorkerKind::KeyPackageCleaner,
+                crate::worker::WorkerKind::CommitLog,
+                crate::worker::WorkerKind::TaskRunner,
+            ] {
+                worker_config.enabled.insert(kind, false);
+            }
+        }
         if matches!(device_sync_worker_mode, DeviceSyncMode::Disabled) {
             worker_config
                 .enabled
@@ -331,6 +343,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
+            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
+            ),
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
         });
