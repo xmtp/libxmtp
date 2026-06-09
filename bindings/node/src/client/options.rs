@@ -47,7 +47,6 @@ pub enum WorkerKind {
   KeyPackageCleaner,
   CommitLog,
   TaskRunner,
-  PendingSelfRemove,
 }
 
 impl From<WorkerKind> for XmtpWorkerKind {
@@ -58,7 +57,6 @@ impl From<WorkerKind> for XmtpWorkerKind {
       WorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
       WorkerKind::CommitLog => Self::CommitLog,
       WorkerKind::TaskRunner => Self::TaskRunner,
-      WorkerKind::PendingSelfRemove => Self::PendingSelfRemove,
     }
   }
 }

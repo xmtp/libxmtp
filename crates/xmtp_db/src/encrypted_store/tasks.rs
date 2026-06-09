@@ -4,7 +4,8 @@ use derive_builder::Builder;
 use diesel::prelude::*;
 use prost::Message;
 use xmtp_common::{NS_IN_DAY, NS_IN_SEC, time::now_ns};
-use xmtp_proto::xmtp::mls::database::Task as TaskProto;
+use xmtp_proto::types::GroupId;
+use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
 #[derive(Queryable, Identifiable, Debug, Clone)]
 #[diesel(table_name = tasks)]
@@ -93,6 +94,17 @@ pub trait QueryTasks {
 
     fn get_next_task(&self) -> Result<Option<Task>, StorageError>;
 
+    /// Ensure exactly one live `ProcessPendingSelfRemove` task exists for
+    /// `group_id`. Clears only dead rows (expired / attempts-exhausted) then
+    /// insert-or-ignores, so a live retrying task keeps its backoff and is never
+    /// deleted out from under the TaskRunner, while a stale dead row can't block
+    /// a fresh retry via the `data_hash` unique constraint.
+    fn upsert_pending_self_remove_task(
+        &self,
+        group_id: &GroupId,
+        task: NewTask,
+    ) -> Result<(), StorageError>;
+
     fn update_task(
         &self,
         id: i32,
@@ -115,6 +127,14 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
 
     fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
         (**self).get_next_task()
+    }
+
+    fn upsert_pending_self_remove_task(
+        &self,
+        group_id: &GroupId,
+        task: NewTask,
+    ) -> Result<(), StorageError> {
+        (**self).upsert_pending_self_remove_task(group_id, task)
     }
 
     fn update_task(
@@ -153,6 +173,50 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                 .order(tasks::next_attempt_at_ns)
                 .first::<Task>(conn)
                 .optional()
+        })
+        .map_err(Into::into)
+    }
+
+    fn upsert_pending_self_remove_task(
+        &self,
+        group_id: &GroupId,
+        task: NewTask,
+    ) -> Result<(), StorageError> {
+        let now = now_ns();
+        self.raw_query(|conn| {
+            conn.transaction(|conn| {
+                // Clear only DEAD rows for this group (expired or attempts
+                // exhausted), then insert-or-ignore. We deliberately leave a LIVE
+                // row untouched: deleting it would reset the TaskRunner's backoff
+                // (resurrecting an intentionally-delayed task) and could race the
+                // worker into calling update_task on a now-deleted id. The new
+                // task carries the same data (group_id only), so the unique
+                // data_hash constraint dedups it against any live row; clearing
+                // dead rows first frees that hash so a fresh retry can take over.
+                let rows: Vec<(i32, i32, i32, i64, Vec<u8>)> = tasks::table
+                    .select((
+                        tasks::id,
+                        tasks::attempts,
+                        tasks::max_attempts,
+                        tasks::expires_at_ns,
+                        tasks::data,
+                    ))
+                    .load(conn)?;
+                for (id, attempts, max_attempts, expires_at_ns, data) in rows {
+                    let is_self_remove = matches!(
+                        TaskProto::decode(data.as_slice()).ok().and_then(|t| t.task),
+                        Some(TaskKind::ProcessPendingSelfRemove(p)) if p.group_id == group_id.as_slice()
+                    );
+                    let is_dead = expires_at_ns < now || attempts >= max_attempts;
+                    if is_self_remove && is_dead {
+                        diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)?;
+                    }
+                }
+                diesel::insert_or_ignore_into(tasks::table)
+                    .values(task)
+                    .execute(conn)?;
+                Ok(())
+            })
         })
         .map_err(Into::into)
     }
@@ -364,6 +428,99 @@ pub(crate) mod tests {
             // 15. Verify delete returns false for non-existent task
             let deleted_again = conn.delete_task(task1_id).unwrap();
             assert!(!deleted_again);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn upsert_pending_self_remove_dedups_per_group() {
+        use xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove;
+        let build = |gid: &GroupId| {
+            let proto = TaskProto {
+                task: Some(TaskKind::ProcessPendingSelfRemove(
+                    ProcessPendingSelfRemove {
+                        group_id: gid.to_vec(),
+                    },
+                )),
+            };
+            NewTask::builder()
+                .originating_message_sequence_id(0)
+                .originating_message_originator_id(0)
+                .build(proto)
+                .unwrap()
+        };
+        with_connection(|conn| {
+            // First upsert inserts; a second for the same group dedups, not piles up.
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))?;
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))?;
+            assert_eq!(conn.get_tasks()?.len(), 1);
+
+            // A different group gets its own task.
+            conn.upsert_pending_self_remove_task(&GroupId::TWO, build(&GroupId::TWO))?;
+            assert_eq!(conn.get_tasks()?.len(), 2);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn upsert_preserves_live_task_but_replaces_dead_one() {
+        use xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove;
+        let proto = |gid: &GroupId| TaskProto {
+            task: Some(TaskKind::ProcessPendingSelfRemove(
+                ProcessPendingSelfRemove {
+                    group_id: gid.to_vec(),
+                },
+            )),
+        };
+        with_connection(|conn| {
+            // A live task that has already retried twice and backed off.
+            let now = now_ns();
+            let live = NewTask::builder()
+                .originating_message_sequence_id(0)
+                .originating_message_originator_id(0)
+                .attempts(2)
+                .next_attempt_at_ns(now + NS_IN_DAY)
+                .build(proto(&GroupId::ONE))?;
+            conn.create_task(live)?;
+
+            // Re-upsert must NOT reset its backoff: the live row is left in place.
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, {
+                NewTask::builder()
+                    .originating_message_sequence_id(0)
+                    .originating_message_originator_id(0)
+                    .next_attempt_at_ns(now)
+                    .build(proto(&GroupId::ONE))?
+            })?;
+            let tasks = conn.get_tasks()?;
+            assert_eq!(tasks.len(), 1);
+            assert_eq!(tasks[0].attempts, 2);
+            assert_eq!(tasks[0].next_attempt_at_ns, now + NS_IN_DAY);
+
+            // A dead task (attempts exhausted) IS replaced with a fresh retry.
+            let dead = NewTask::builder()
+                .originating_message_sequence_id(0)
+                .originating_message_originator_id(0)
+                .attempts(20)
+                .max_attempts(20)
+                .build(proto(&GroupId::TWO))?;
+            conn.create_task(dead)?;
+            conn.upsert_pending_self_remove_task(&GroupId::TWO, {
+                NewTask::builder()
+                    .originating_message_sequence_id(0)
+                    .originating_message_originator_id(0)
+                    .attempts(0)
+                    .build(proto(&GroupId::TWO))?
+            })?;
+            let two: Vec<_> = conn
+                .get_tasks()?
+                .into_iter()
+                .filter(|t| {
+                    matches!(
+                        TaskProto::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+                        Some(TaskKind::ProcessPendingSelfRemove(p)) if p.group_id == GroupId::TWO.as_slice()
+                    )
+                })
+                .collect();
+            assert_eq!(two.len(), 1);
+            assert_eq!(two[0].attempts, 0);
         })
     }
 }

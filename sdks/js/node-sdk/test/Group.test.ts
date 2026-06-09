@@ -373,6 +373,13 @@ describe("Group", () => {
     await group2.requestRemoval();
     await group.sync();
 
+    // With event-driven self-remove, client1 (super-admin) processes the
+    // request via the worker, adding a removal GroupUpdated commit. Wait for it
+    // up front so message ordering and counts below are deterministic.
+    await client1.conversations.syncAll();
+    await sleep(4000);
+    await group.sync();
+
     const textMessageId = await group.sendText("gm");
     await group.sendMarkdown("# gm");
     await group.sendAttachment({
@@ -450,8 +457,9 @@ describe("Group", () => {
     await group.send(testCodec.encode({ test: "test" }));
 
     const messages = await group.messages();
-    // read receipts and reactions are automatically filtered
-    expect(messages.length).toBe(13);
+    // read receipts and reactions are automatically filtered; the self-remove
+    // commit adds one GroupUpdated message on top of the original 13.
+    expect(messages.length).toBe(14);
 
     // default sort order
     expect(messages[0].contentType).toEqual(contentTypeGroupUpdated());
@@ -493,12 +501,13 @@ describe("Group", () => {
         ContentType.Custom,
       ],
     });
-    expect(filteredMessages4.length).toBe(3);
+    // two GroupUpdated (initial add + self-remove) + LeaveRequest + Custom
+    expect(filteredMessages4.length).toBe(4);
 
     const filteredMessages5 = await group.messages({
       excludeSenderInboxIds: [client2.inboxId],
     });
-    expect(filteredMessages5.length).toBe(12);
+    expect(filteredMessages5.length).toBe(13);
 
     const filteredMessages6 = await group.messages({
       excludeContentTypes: [
@@ -507,7 +516,7 @@ describe("Group", () => {
         ContentType.Reply,
       ],
     });
-    expect(filteredMessages6.length).toBe(10);
+    expect(filteredMessages6.length).toBe(11);
 
     const filteredMessages7 = await group.messages({
       sentAfterNs: replyMessage?.sentAtNs,
@@ -518,19 +527,20 @@ describe("Group", () => {
     const filteredMessages8 = await group.messages({
       sentBeforeNs: replyMessage?.sentAtNs,
     });
-    expect(filteredMessages8.length).toBe(5);
+    // includes the self-remove commit, which is processed before the reply
+    expect(filteredMessages8.length).toBe(6);
 
-    // initial group updated message adding a member
+    // initial add + self-remove commit
     const filteredMessages9 = await group.messages({
       kind: GroupMessageKind.MembershipChange,
     });
-    expect(filteredMessages9.length).toBe(1);
+    expect(filteredMessages9.length).toBe(2);
 
     await group.sendText("gm", true);
     const filteredMessages10 = await group.messages({
       deliveryStatus: DeliveryStatus.Published,
     });
-    expect(filteredMessages10.length).toBe(13);
+    expect(filteredMessages10.length).toBe(14);
     const filteredMessages11 = await group.messages({
       deliveryStatus: DeliveryStatus.Unpublished,
     });

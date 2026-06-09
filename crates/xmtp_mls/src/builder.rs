@@ -10,7 +10,6 @@ use crate::{
     worker::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner::KeyPackagesCleanerWorker,
-        pending_self_remove::PendingSelfRemoveWorker,
     },
 };
 use futures::FutureExt;
@@ -27,10 +26,13 @@ use xmtp_api_d14n::{
 };
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::{DbConnection, XmtpMlsStorageProvider};
+use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_macro::log_event;
+use xmtp_proto::xmtp::mls::database::{
+    ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind,
+};
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
@@ -199,6 +201,44 @@ where
             worker_config: client.context.worker_config.clone(),
         }
     }
+}
+
+/// One-time backfill of `ProcessPendingSelfRemove` tasks for groups that already
+/// had pending leave requests before self-removal became event-driven. Such rows
+/// have no incoming LeaveRequest to re-fire, so without this they'd only be
+/// processed if a new one arrived. Best-effort and idempotent (deduped per group).
+///
+/// TODO(#3748): removable once every client has shipped a release that enqueues
+/// these tasks inline — safe to delete by the next-next stable release.
+fn backfill_pending_self_remove_tasks<C>(context: &C) -> Result<(), StorageError>
+where
+    C: XmtpSharedContext,
+{
+    let db = context.db();
+    for raw_id in db.get_groups_have_pending_leave_request()? {
+        let Ok(group_id) = xmtp_proto::types::GroupId::try_from(raw_id.as_slice()) else {
+            continue;
+        };
+        let now = xmtp_common::time::now_ns();
+        let proto = TaskProto {
+            task: Some(TaskKind::ProcessPendingSelfRemove(
+                ProcessPendingSelfRemove {
+                    group_id: group_id.to_vec(),
+                },
+            )),
+        };
+        let task = xmtp_db::tasks::NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .created_at_ns(now)
+            .next_attempt_at_ns(now)
+            .build(proto)?;
+        // Insert-if-absent per group: leaves any live retrying task (and its
+        // backoff) untouched, only replacing dead rows. Safe to call on every
+        // startup without resurrecting exhausted tasks.
+        db.upsert_pending_self_remove_task(&group_id, task)?;
+    }
+    Ok(())
 }
 
 // TODO: the return type is temp and
@@ -374,12 +414,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                         context.clone(),
                     );
             }
-            if enabled(WorkerKind::PendingSelfRemove) {
-                workers
-                    .register_new_worker::<PendingSelfRemoveWorker<ContextParts<ApiClient, S, Db>>, _>(
-                        context.clone(),
-                    );
-            }
             // Enable CommitLogWorker based on configuration
             if enabled(WorkerKind::CommitLog)
                 && xmtp_configuration::ENABLE_COMMIT_LOG
@@ -394,6 +428,19 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
+                // One-time backfill: pending self-removes recorded before the
+                // worker became event-driven have no LeaveRequest to re-fire, so
+                // seed a ProcessPendingSelfRemove task for each already-flagged
+                // group. Best-effort (logged, never fails the build).
+                //
+                // TODO: remove this migration once all clients have shipped a
+                // release that enqueues these tasks inline — safe to delete by the
+                // next-next stable release.
+                if let Err(e) = backfill_pending_self_remove_tasks(&context) {
+                    tracing::warn!(
+                        "pending-self-remove backfill failed (will rely on next sync): {e}"
+                    );
+                }
             }
         }
 

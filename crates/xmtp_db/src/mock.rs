@@ -727,6 +727,8 @@ mock! {
 
         fn get_next_task(&self) -> Result<Option<crate::tasks::Task>, StorageError>;
 
+        fn upsert_pending_self_remove_task(&self, group_id: &GroupId, task: crate::tasks::NewTask) -> Result<(), StorageError>;
+
         fn update_task(
             &self,
             id: i32,

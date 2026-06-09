@@ -41,6 +41,7 @@ use crate::{
         id::{calculate_message_id, calculate_message_id_for_intent},
         time::hmac_epoch,
     },
+    worker::WorkerKind,
 };
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -121,6 +122,7 @@ use xmtp_proto::xmtp::mls::{
             WelcomePointer as WelcomePointerInput,
         },
     },
+    database::{ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind},
     message_contents::{
         GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
         plaintext_envelope::{Content, V1, V2},
@@ -1448,7 +1450,7 @@ where
                         // future deadline; wake the disappearing worker after the
                         // txn commits so it re-arms its timer to that deadline.
                         if message.expire_at_ns.is_some() {
-                            deferred_events.request_disappearing_rearm();
+                            deferred_events.wake_worker(WorkerKind::DisappearingMessages);
                         }
 
                         // If this message was sent by us on another installation, check if it
@@ -1468,7 +1470,12 @@ where
                             }
                         }
                         if message.content_type == ContentType::LeaveRequest {
-                            self.process_leave_request_message(mls_group, storage, &message)?;
+                            self.process_leave_request_message(
+                                mls_group,
+                                storage,
+                                &message,
+                                Some(deferred_events),
+                            )?;
                         }
 
                         if message.content_type == ContentType::DeleteMessage {
@@ -1593,7 +1600,7 @@ where
         if let Ok(Some(message)) = storage.db().get_group_message(message_id)
             && message.content_type == ContentType::LeaveRequest
         {
-            match self.process_leave_request_message(mls_group, storage, &message) {
+            match self.process_leave_request_message(mls_group, storage, &message, None) {
                 Ok(()) => {
                     debug!("Successfully processed leave request message");
                 }
@@ -1644,6 +1651,7 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
+        deferred_events: Option<&mut DeferredEvents>,
     ) -> Result<(), GroupMessageProcessingError> {
         let current_inbox_id = self.context.inbox_id().to_string();
 
@@ -1662,6 +1670,32 @@ where
             message_id: message.id.clone(),
         }
         .store_or_ignore(&storage.db())?;
+
+        // Durable backstop: enqueue a self-remove task in THIS txn (atomic with the
+        // PendingRemove insert, one per group, survives restart). The inline call
+        // below is the fast path; the task is the retry/backstop.
+        let now = xmtp_common::time::now_ns();
+        let proto = TaskProto {
+            task: Some(TaskKind::ProcessPendingSelfRemove(
+                ProcessPendingSelfRemove {
+                    group_id: self.group_id.to_vec(),
+                },
+            )),
+        };
+        let task = xmtp_db::tasks::NewTask::builder()
+            .originating_message_sequence_id(message.sequence_id)
+            .originating_message_originator_id(message.originator_id as i32)
+            .created_at_ns(now)
+            .next_attempt_at_ns(now)
+            .build(proto)?;
+        storage
+            .db()
+            .upsert_pending_self_remove_task(&self.group_id, task)?;
+        // Wake post-commit. The own-leave path has no DeferredEvents (its task is a
+        // no-op) — fine, it's picked up on the worker's next turn.
+        if let Some(deferred_events) = deferred_events {
+            deferred_events.wake_worker(WorkerKind::TaskRunner);
+        }
 
         // If we reach here, the action was by another user or no validated commit
         // Only process admin actions if we're admin/super-admin
@@ -4904,9 +4938,9 @@ pub(crate) mod tests {
 pub struct DeferredEvents {
     worker_events: VecDeque<SyncWorkerEvent>,
     local_events: VecDeque<LocalEvents>,
-    /// Set when a disappearing message was persisted this txn; collapses many
-    /// stored messages into a single post-commit re-arm of the disappearing worker.
-    disappearing_rearm: bool,
+    /// Workers to wake once the txn commits. Post-commit (not inline) is load-bearing:
+    /// a pre-commit nudge can race a worker's DB read and be lost, parking the work.
+    wake_workers: HashSet<WorkerKind>,
 }
 
 impl DeferredEvents {
@@ -4922,10 +4956,9 @@ impl DeferredEvents {
         self.local_events.push_back(event);
     }
 
-    /// Request a disappearing-messages worker re-arm after the txn commits.
-    /// Idempotent: many stored messages in one txn collapse to a single wake.
-    pub fn request_disappearing_rearm(&mut self) {
-        self.disappearing_rearm = true;
+    /// Request a post-commit wake of `kind`. Idempotent within a txn.
+    pub fn wake_worker(&mut self, kind: WorkerKind) {
+        self.wake_workers.insert(kind);
     }
 
     /// Send all collected events to their respective channels
@@ -4938,16 +4971,16 @@ impl DeferredEvents {
             let _ = context.local_events().send(event);
         }
 
-        if self.disappearing_rearm {
-            self.disappearing_rearm = false;
-            // Skip the nudge entirely when no disappearing worker is running so a
-            // disabled worker never receives signals it won't drain. (The channel
-            // is also capacity-1, bounding memory regardless.)
-            if context
-                .worker_config()
-                .worker_enabled(crate::worker::WorkerKind::DisappearingMessages)
-            {
-                context.disappearing_channels().rearm();
+        for kind in self.wake_workers.drain() {
+            // Never nudge a disabled worker — it won't drain the signal.
+            if !context.worker_config().worker_enabled(kind) {
+                continue;
+            }
+            match kind {
+                WorkerKind::DisappearingMessages => context.disappearing_channels().rearm(),
+                WorkerKind::TaskRunner => context.task_channels().wake(),
+                // Other workers have no post-commit wake channel today.
+                _ => {}
             }
         }
     }
