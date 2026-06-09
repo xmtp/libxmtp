@@ -6282,11 +6282,21 @@ public struct DbOptions: Equatable, Hashable {
     public var encryptionKey: Data?
     public var maxDbPoolSize: UInt32?
     public var minDbPoolSize: UInt32?
+    /**
+     * When true, use a single DB connection instead of a pool (one file
+     * descriptor). Pool-size options are ignored. Defaults to unset so existing
+     * foreign callers that construct `DbOptions` without this field still compile.
+     */
     public var useSingleConnection: Bool?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(db: String?, encryptionKey: Data?, maxDbPoolSize: UInt32?, minDbPoolSize: UInt32?, useSingleConnection: Bool? = nil) {
+    public init(db: String?, encryptionKey: Data?, maxDbPoolSize: UInt32?, minDbPoolSize: UInt32?, 
+        /**
+         * When true, use a single DB connection instead of a pool (one file
+         * descriptor). Pool-size options are ignored. Defaults to unset so existing
+         * foreign callers that construct `DbOptions` without this field still compile.
+         */useSingleConnection: Bool? = nil) {
         self.db = db
         self.encryptionKey = encryptionKey
         self.maxDbPoolSize = maxDbPoolSize
@@ -6310,10 +6320,10 @@ public struct FfiConverterTypeDbOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DbOptions {
         return
             try DbOptions(
-                db: FfiConverterOptionString.read(from: &buf),
-                encryptionKey: FfiConverterOptionData.read(from: &buf),
-                maxDbPoolSize: FfiConverterOptionUInt32.read(from: &buf),
-                minDbPoolSize: FfiConverterOptionUInt32.read(from: &buf),
+                db: FfiConverterOptionString.read(from: &buf), 
+                encryptionKey: FfiConverterOptionData.read(from: &buf), 
+                maxDbPoolSize: FfiConverterOptionUInt32.read(from: &buf), 
+                minDbPoolSize: FfiConverterOptionUInt32.read(from: &buf), 
                 useSingleConnection: FfiConverterOptionBool.read(from: &buf)
         )
     }
