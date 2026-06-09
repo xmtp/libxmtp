@@ -77,7 +77,7 @@ use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{
-    Event, ExponentialBackoff, Retry, RetryableError, Strategy, log_event, retry_async,
+    Event, ExponentialBackoff, Retry, Retryable, RetryableError, Strategy, log_event, retry_async,
     time::now_ns,
 };
 use xmtp_configuration::{
@@ -138,7 +138,7 @@ use zeroize::Zeroizing;
 
 pub mod update_group_membership;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum GroupMessageProcessingError {
     #[error("intent already processed")]
     IntentAlreadyProcessed,
@@ -157,10 +157,13 @@ pub enum GroupMessageProcessingError {
     #[error("invalid payload")]
     InvalidPayload,
     #[error("storage error: {0}")]
+    #[retry(inherit)]
     Storage(#[from] xmtp_db::StorageError),
     #[error(transparent)]
+    #[retry(inherit)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
+    #[retry(inherit)]
     OpenMlsProcessMessage(
         #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
     ),
@@ -172,10 +175,12 @@ pub enum GroupMessageProcessingError {
     /// `OpenMlsProcessMessage` so the AppData-decode failure mode is
     /// greppable in logs.
     #[error("app-data process message error: {0}")]
+    #[retry(inherit)]
     OpenMlsProcessMessageWithAppData(
         #[from] super::app_data::ProcessMessageWithAppDataError<sql_key_store::SqlKeyStoreError>,
     ),
     #[error("merge staged commit: {0}")]
+    #[retry(inherit)]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
@@ -189,10 +194,12 @@ pub enum GroupMessageProcessingError {
     #[error("unexpected processed message content: {0}")]
     UnexpectedProcessedContent(&'static str),
     #[error("commit validation")]
+    #[retry(inherit)]
     CommitValidation(#[from] CommitValidationError),
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,
     #[error("clear pending commit error: {0}")]
+    #[retry(inherit)]
     ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
     #[error("Serialization/Deserialization Error {0}")]
     Serde(#[from] serde_json::Error),
@@ -209,10 +216,12 @@ pub enum GroupMessageProcessingError {
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]
+    #[retry(inherit)]
     ProcessIntent(#[from] ProcessIntentError),
     #[error(transparent)]
     AssociationDeserialization(#[from] xmtp_id::associations::DeserializationError),
     #[error(transparent)]
+    #[retry(inherit)]
     Client(#[from] ClientError),
     #[error("Group paused due to minimum protocol version requirement")]
     GroupPaused,
@@ -221,12 +230,15 @@ pub enum GroupMessageProcessingError {
     #[error("Message epoch [{0}] is greater than group epoch [{1}]")]
     FutureEpoch(u64, u64),
     #[error(transparent)]
+    #[retry(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
     Builder(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
+    #[retry(inherit)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
+    #[retry(inherit)]
     EnrichMessage(#[from] EnrichMessageError),
     #[error("pre-commit proposal phase complete, re-queuing intent")]
     PreCommitProposalPhaseComplete,
@@ -243,75 +255,12 @@ pub enum GroupMessageProcessingError {
          epoch [{epoch}] without advancing the epoch authenticator; refusing to record corrupt \
          commit log entry"
     )]
+    #[retry(true)]
     EpochAuthenticatorNotAdvanced {
         group_id: GroupId,
         commit_sequence_id: i64,
         epoch: u64,
     },
-}
-
-impl RetryableError for GroupMessageProcessingError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Storage(err) => err.is_retryable(),
-            Self::Diesel(err) => err.is_retryable(),
-            Self::Identity(err) => err.is_retryable(),
-            Self::OpenMlsProcessMessage(err) => err.is_retryable(),
-            Self::OpenMlsProcessMessageWithAppData(err) => match err {
-                super::app_data::ProcessMessageWithAppDataError::OpenMls(e) => e.is_retryable(),
-                // Decode failures are wire-format violations from the
-                // peer — retrying won't help.
-                super::app_data::ProcessMessageWithAppDataError::AppDataDecode(_) => false,
-                // Resolved by upgrading, not by retrying. In practice
-                // this variant never reaches here: the call sites remap
-                // it to `CommitValidation(ProtocolVersionTooLow)` so
-                // the pause machinery in `post_process_message` fires.
-                super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
-                    ..
-                } => false,
-                // Staging failures are validation-shaped — the same
-                // `StageCommitError` on a commit without app-data
-                // proposals surfaces through the `OpenMls` arm as a
-                // non-retryable `InvalidCommit`.
-                super::app_data::ProcessMessageWithAppDataError::ResolveAppDataCommit(_) => false,
-            },
-            Self::MergeStagedCommit(err) => err.is_retryable(),
-            Self::ProcessIntent(err) => err.is_retryable(),
-            Self::CommitValidation(err) => err.is_retryable(),
-            Self::ClearPendingCommit(err) => err.is_retryable(),
-            Self::Client(err) => err.is_retryable(),
-            Self::Db(e) => e.is_retryable(),
-            Self::EnrichMessage(e) => e.is_retryable(),
-            Self::IntentAlreadyProcessed
-            | Self::MessageIdentifierNotFound
-            | Self::WrongCredentialType(_)
-            | Self::Codec(_)
-            | Self::MessageAlreadyProcessed(_)
-            | Self::WelcomeAlreadyProcessed(_)
-            | Self::InvalidSender { .. }
-            | Self::DecodeProto(_)
-            | Self::InvalidPayload
-            | Self::Intent(_)
-            | Self::UnexpectedProcessedContent(_)
-            | Self::EpochIncrementNotAllowed
-            | Self::EncodeProto(_)
-            | Self::IntentMissingStagedCommit
-            | Self::Serde(_)
-            | Self::AssociationDeserialization(_)
-            | Self::TlsError(_)
-            | Self::UnsupportedMessageType(_)
-            | Self::GroupPaused
-            | Self::FutureEpoch(_, _)
-            | Self::OldEpoch(_, _)
-            | Self::PreCommitProposalPhaseComplete => false,
-            Self::Builder(_) => false,
-            Self::Conversion(_) => false,
-            // Retry so the enclosing transaction rolls back (including the
-            // cursor advance) and the message converges via cursor dedup
-            // instead of persisting a forked commit log entry.
-            Self::EpochAuthenticatorNotAdvanced { .. } => true,
-        }
-    }
 }
 
 impl GroupMessageProcessingError {
@@ -370,7 +319,8 @@ impl GroupMessageProcessingError {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
+#[retry(when = self.processing_error.is_retryable())]
 pub struct IntentResolutionError {
     processing_error: GroupMessageProcessingError,
     // The next intent state to transition to, if the error is non-retriable.
@@ -381,12 +331,6 @@ pub struct IntentResolutionError {
 impl std::fmt::Display for IntentResolutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "IntentValidationError: {}", self.processing_error)
-    }
-}
-
-impl RetryableError for IntentResolutionError {
-    fn is_retryable(&self) -> bool {
-        self.processing_error.is_retryable()
     }
 }
 

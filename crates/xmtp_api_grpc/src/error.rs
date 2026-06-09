@@ -1,5 +1,5 @@
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, Retryable};
 use xmtp_proto::ConversionError;
 
 #[derive(Debug, Error, ErrorCode)]
@@ -47,22 +47,26 @@ pub enum GrpcBuilderError {
     Transport(#[from] tonic::transport::Error),
 }
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
+#[retry(default = true)]
 pub enum GrpcError {
     /// Invalid URI.
     ///
     /// URI for channel creation is malformed. Retryable.
     #[error("Invalid URI during channel creation")]
+    #[retry(true)]
     InvalidUri(#[from] http::uri::InvalidUri),
     /// Metadata error.
     ///
     /// Invalid gRPC metadata value. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
     /// gRPC status error.
     ///
     /// gRPC call returned error status. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Status(#[from] tonic::Status),
     /// Not found.
     ///
@@ -81,11 +85,13 @@ pub enum GrpcError {
     MissingPayload,
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(true)]
     Proto(#[from] xmtp_proto::ProtoError),
     /// Decode error.
     ///
     /// Protobuf decoding failed. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Decode(#[from] prost::DecodeError),
     /// Unreachable.
     ///
@@ -97,6 +103,7 @@ pub enum GrpcError {
     /// gRPC transport layer error (native only). Retryable.
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     #[error(transparent)]
+    #[retry(true)]
     Transport(#[from] tonic::transport::Error),
 }
 
@@ -114,11 +121,5 @@ impl GrpcError {
     /// `true` here) erases.
     pub fn is_unimplemented(&self) -> bool {
         matches!(self, Self::Status(status) if status.code() == tonic::Code::Unimplemented)
-    }
-}
-
-impl xmtp_common::retry::RetryableError for GrpcError {
-    fn is_retryable(&self) -> bool {
-        true
     }
 }

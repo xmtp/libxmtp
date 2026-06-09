@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use xmtp_proto::types::{Cursor, GlobalCursor, Topic, TopicCursor};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, xmtp_common::Retryable)]
 pub enum MessageStreamError {
     #[error("received message for not subscribed group {id}", id = hex::encode(_0))]
     NotSubscribed(Vec<u8>),

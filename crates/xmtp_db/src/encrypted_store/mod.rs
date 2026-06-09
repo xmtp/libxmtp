@@ -51,7 +51,7 @@ pub use diesel::{
 };
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, Retryable};
 use xmtp_proto::ConversionError;
 use zeroize::ZeroizeOnDrop;
 
@@ -136,15 +136,17 @@ impl std::fmt::Display for StorageOption {
     }
 }
 
-#[derive(thiserror::Error, Debug, ErrorCode)]
+#[derive(thiserror::Error, Debug, ErrorCode, Retryable)]
 pub enum ConnectionError {
     /// Database error.
     ///
     /// Diesel database query error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(inherit)]
     Platform(#[from] PlatformStorageError),
     /// Decode error.
     ///
@@ -155,11 +157,13 @@ pub enum ConnectionError {
     ///
     /// Cannot disconnect while transaction is active. Retryable.
     #[error("disconnect not possible in transaction")]
+    #[retry(true)]
     DisconnectInTransaction,
     /// Reconnect in transaction.
     ///
     /// Cannot reconnect while transaction is active. Retryable.
     #[error("reconnect not possible in transaction")]
+    #[retry(true)]
     ReconnectInTransaction,
     /// Invalid query.
     ///
@@ -175,20 +179,6 @@ pub enum ConnectionError {
     Expected: {expected}, found: {found}"
     )]
     InvalidVersion { expected: String, found: String },
-}
-
-impl RetryableError for ConnectionError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Database(d) => d.is_retryable(),
-            Self::Platform(n) => n.is_retryable(),
-            Self::DecodeError(_) => false,
-            Self::DisconnectInTransaction => true,
-            Self::ReconnectInTransaction => true,
-            Self::InvalidQuery(_) => false,
-            Self::InvalidVersion { .. } => false,
-        }
-    }
 }
 
 impl ConnectionError {

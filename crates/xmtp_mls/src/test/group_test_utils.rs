@@ -9,31 +9,30 @@ use crate::{
 use thiserror::Error;
 use xmtp_api::{ApiError, XmtpApi};
 use xmtp_api_d14n::protocol::{EnvelopeError, XmtpQuery};
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_db::{
     XmtpDb,
     group_message::{GroupMessageKind, MsgQueryArgs},
 };
 use xmtp_proto::types::{GroupMessage, TopicKind};
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Retryable)]
+#[retry(default = true)]
 pub enum TestError {
     #[error("{0}")]
     Generic(String),
     #[error(transparent)]
+    #[retry(true)]
     Group(#[from] GroupError),
     #[error(transparent)]
+    #[retry(true)]
     Client(#[from] ClientError),
     #[error(transparent)]
+    #[retry(true)]
     Api(#[from] xmtp_api::ApiError),
     #[error(transparent)]
+    #[retry(true)]
     Envelope(#[from] EnvelopeError),
-}
-
-impl RetryableError for TestError {
-    fn is_retryable(&self) -> bool {
-        true
-    }
 }
 
 impl<Context> MlsGroup<Context>

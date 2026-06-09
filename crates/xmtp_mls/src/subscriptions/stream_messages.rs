@@ -35,15 +35,6 @@ use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, SequenceId};
 use xmtp_proto::types::{GroupId, Topic};
 use xmtp_proto::{api_client::XmtpMlsStreams, types::TopicCursor};
 
-impl xmtp_common::RetryableError for MessageStreamError {
-    fn is_retryable(&self) -> bool {
-        use MessageStreamError::*;
-        match self {
-            NotSubscribed(_) | InvalidPayload => false,
-        }
-    }
-}
-
 type AddingResult<Out> = (Out, Vec<u8>, Option<Cursor>);
 
 #[pin_project(PinnedDrop)]

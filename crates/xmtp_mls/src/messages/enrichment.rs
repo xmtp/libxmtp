@@ -2,7 +2,7 @@ use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
 use hex::ToHexExt;
 use std::collections::HashMap;
 use thiserror::Error;
-use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_common::{ErrorCode, Retryable};
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
@@ -21,10 +21,11 @@ pub fn deleted_message_content_type() -> ContentTypeId {
     }
 }
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum EnrichMessageError {
     #[error("DB error: {0}")]
     #[error_code(inherit)]
+    #[retry(inherit)]
     DbConnection(#[from] xmtp_db::ConnectionError),
     /// Codec decode error.
     ///
@@ -36,16 +37,6 @@ pub enum EnrichMessageError {
     /// Protobuf decoding failed. Not retryable.
     #[error("Decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
-}
-
-impl RetryableError for EnrichMessageError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::DbConnection(e) => e.is_retryable(),
-            Self::CodecError(_) => false,
-            Self::DecodeError(_) => false,
-        }
-    }
 }
 
 // Mapping of reactions, keyed by the ID of the message being reacted to.
