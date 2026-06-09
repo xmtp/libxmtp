@@ -1,0 +1,5 @@
+error: empty `#[retry()]`: use bare `#[retry]` for `true`, or specify a key (`true`, `false`, `inherit`, `when = <expr>`, `default = <bool>`)
+ --> tests/ui/retryable/empty_parens.rs:7:5
+  |
+7 |     #[retry()]
+  |     ^
