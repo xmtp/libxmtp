@@ -518,3 +518,279 @@ pub(crate) mod tests {
         assert!(backoff_retry.backoff(3, time_spent).unwrap().as_millis() - 450 <= 25);
     }
 }
+
+/// Behavior tests for the `#[derive(Retryable)]` proc macro.
+///
+/// These exercise the generated `RetryableError` impl across every variant rule
+/// in the design (default-false, `#[retry]`, `#[from]` forward, `#[retry(true|
+/// false)]` override, `#[retry(when = ...)]`, the `#[retry(default = ...)]`
+/// container baseline, named-field forward, and struct support).
+#[cfg(test)]
+mod derive_tests {
+    use super::RetryableError;
+    use thiserror::Error;
+    use xmtp_macro::Retryable;
+
+    /// An inner error that is itself retryable, for testing forwarding.
+    #[derive(Debug, Error, Retryable)]
+    enum Inner {
+        #[error("retryable inner")]
+        #[retry]
+        Transient,
+        #[error("permanent inner")]
+        Permanent,
+    }
+
+    #[test]
+    fn unannotated_variant_is_not_retryable() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("nope")]
+            Plain,
+        }
+        assert!(!E::Plain.is_retryable());
+    }
+
+    #[test]
+    fn retry_attribute_marks_variant_retryable() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("yes")]
+            #[retry]
+            Yes,
+            #[error("no")]
+            No,
+        }
+        assert!(E::Yes.is_retryable());
+        assert!(!E::No.is_retryable());
+    }
+
+    #[test]
+    fn retry_true_and_false_are_explicit() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("t")]
+            #[retry(true)]
+            T,
+            #[error("f")]
+            #[retry(false)]
+            F,
+        }
+        assert!(E::T.is_retryable());
+        assert!(!E::F.is_retryable());
+    }
+
+    #[test]
+    fn from_variant_without_attr_uses_baseline() {
+        // `#[from]` carries NO retry semantics: an unannotated wrapper variant
+        // takes the container baseline (false), even when the inner error is
+        // retryable. Forwarding is always explicit via `#[retry(inherit)]`.
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error(transparent)]
+            Wrapped(#[from] Inner),
+        }
+        assert!(!E::Wrapped(Inner::Transient).is_retryable());
+        assert!(!E::Wrapped(Inner::Permanent).is_retryable());
+    }
+
+    #[test]
+    fn from_variant_with_inherit_forwards() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error(transparent)]
+            #[retry(inherit)]
+            Wrapped(#[from] Inner),
+        }
+        assert!(E::Wrapped(Inner::Transient).is_retryable());
+        assert!(!E::Wrapped(Inner::Permanent).is_retryable());
+    }
+
+    #[test]
+    fn retry_false_on_from_variant_is_false() {
+        // Explicit false on a foreign-wrapping #[from] variant.
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error(transparent)]
+            #[retry(false)]
+            Parse(#[from] core::num::ParseIntError),
+        }
+        let err: E = "x".parse::<i32>().unwrap_err().into();
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn default_true_covers_from_variants() {
+        // Under `default = true`, a bare #[from] variant is `true` — it does
+        // NOT forward. This lets retryable-unless-listed enums stay clean.
+        #[derive(Debug, Error, Retryable)]
+        #[retry(default = true)]
+        enum E {
+            #[error(transparent)]
+            Wrapped(#[from] Inner),
+        }
+        // Inner::Permanent is non-retryable, but baseline-true wins: no forward.
+        assert!(E::Wrapped(Inner::Permanent).is_retryable());
+    }
+
+    #[test]
+    fn retry_inherit_forwards_without_from() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("inner: {0}")]
+            #[retry(inherit)]
+            Inner(Inner),
+        }
+        assert!(E::Inner(Inner::Transient).is_retryable());
+        assert!(!E::Inner(Inner::Permanent).is_retryable());
+    }
+
+    #[test]
+    fn when_expression_on_tuple_binds_this() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("generic: {0}")]
+            #[retry(when = this.contains("database is locked"))]
+            Generic(String),
+        }
+        assert!(E::Generic("database is locked".to_string()).is_retryable());
+        assert!(!E::Generic("syntax error".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn when_expression_on_named_fields_binds_names() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("slow")]
+            #[retry(when = *latency > 500)]
+            Slow { latency: u64 },
+        }
+        assert!(E::Slow { latency: 900 }.is_retryable());
+        assert!(!E::Slow { latency: 100 }.is_retryable());
+    }
+
+    #[test]
+    fn container_default_true_flips_baseline() {
+        #[derive(Debug, Error, Retryable)]
+        #[retry(default = true)]
+        enum E {
+            #[error("a")]
+            A,
+            #[error("b")]
+            B,
+            #[error("c")]
+            #[retry(false)]
+            C,
+        }
+        assert!(E::A.is_retryable());
+        assert!(E::B.is_retryable());
+        assert!(!E::C.is_retryable());
+    }
+
+    #[test]
+    fn struct_error_uses_container_default() {
+        #[derive(Debug, Error, Retryable)]
+        #[error("retryable struct")]
+        #[retry(default = true)]
+        struct Retryful;
+
+        #[derive(Debug, Error, Retryable)]
+        #[error("non-retryable struct")]
+        struct NotRetryful;
+
+        assert!(Retryful.is_retryable());
+        assert!(!NotRetryful.is_retryable());
+    }
+
+    #[test]
+    fn boxed_inner_forwards_through_blanket_impl() {
+        // Box<Inner: RetryableError + Sized> gets the blanket Box<E> impl, so
+        // the generated `inner.is_retryable()` resolves on it. (For
+        // `Box<dyn RetryableError>` resolution is via auto-deref instead — the
+        // blanket impl requires `E: Sized`.)
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("boxed")]
+            #[retry(inherit)]
+            Boxed(Box<Inner>),
+        }
+        assert!(E::Boxed(Box::new(Inner::Transient)).is_retryable());
+        assert!(!E::Boxed(Box::new(Inner::Permanent)).is_retryable());
+    }
+
+    #[test]
+    fn generic_enum_derives() {
+        // The impl must carry the type's generics: impl<T: ...> RetryableError for E<T>.
+        #[derive(Debug, Error, Retryable)]
+        enum E<T: std::fmt::Debug + Send + Sync + 'static> {
+            #[error("wrapped")]
+            #[retry]
+            Wrapped(T),
+            #[error("plain")]
+            Plain,
+        }
+        assert!(E::Wrapped("payload".to_string()).is_retryable());
+        assert!(!E::<String>::Plain.is_retryable());
+    }
+
+    #[test]
+    fn when_on_named_fields_binds_only_referenced_fields() {
+        // `context` is not referenced by the expression; the generated arm must
+        // not bind it (an unused binding fails -Dwarnings builds).
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("slow")]
+            #[retry(when = *latency > 500)]
+            Slow { latency: u64, context: String },
+        }
+        assert!(
+            E::Slow {
+                latency: 900,
+                context: "ctx".into()
+            }
+            .is_retryable()
+        );
+        assert!(
+            !E::Slow {
+                latency: 100,
+                context: "ctx".into()
+            }
+            .is_retryable()
+        );
+    }
+
+    #[test]
+    fn when_on_multi_tuple_binds_positionally() {
+        // First field binds `this0`, second `this1`; only `this0` is referenced,
+        // so `this1`'s position must not produce an unused binding.
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("pair")]
+            #[retry(when = *this0 > 10)]
+            Pair(u32, String),
+        }
+        assert!(E::Pair(11, "x".into()).is_retryable());
+        assert!(!E::Pair(9, "x".into()).is_retryable());
+    }
+
+    #[test]
+    fn when_on_unit_variant_is_allowed() {
+        #[derive(Debug, Error, Retryable)]
+        enum E {
+            #[error("unit")]
+            #[retry(when = 1 > 0)]
+            Unit,
+        }
+        assert!(E::Unit.is_retryable());
+    }
+
+    #[test]
+    fn empty_enum_derives() {
+        // Uninhabited error enums must still derive a valid impl.
+        #[derive(Debug, Error, Retryable)]
+        enum Never {}
+
+        fn assert_impl<T: RetryableError>() {}
+        assert_impl::<Never>();
+    }
+}

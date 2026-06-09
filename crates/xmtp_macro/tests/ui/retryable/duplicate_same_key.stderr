@@ -1,0 +1,5 @@
+error: duplicate `#[retry(...)]` key `inherit`
+ --> tests/ui/retryable/duplicate_same_key.rs:8:13
+  |
+8 |     #[retry(inherit)]
+  |             ^^^^^^^

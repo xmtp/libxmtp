@@ -1,0 +1,5 @@
+error: `#[retry(default = ...)]` is only valid on the enum or struct itself, not on a variant
+ --> tests/ui/retryable/default_on_variant.rs:5:5
+  |
+5 |     #[retry(default = true)]
+  |     ^

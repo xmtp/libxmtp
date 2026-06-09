@@ -1,0 +1,5 @@
+error: duplicate `#[retry(...)]` key `default`
+ --> tests/ui/retryable/duplicate_conflicting_value.rs:7:9
+  |
+7 | #[retry(default = false)]
+  |         ^^^^^^^
