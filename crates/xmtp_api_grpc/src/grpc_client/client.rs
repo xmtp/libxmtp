@@ -81,11 +81,11 @@ impl GrpcClient {
     }
 
     /// Builds a tonic request from a body and a generic HTTP Request
-    fn build_tonic_request(
+    fn build_tonic_request<B>(
         &self,
         request: http::request::Builder,
-        body: Bytes,
-    ) -> Result<tonic::Request<Bytes>, Status> {
+        body: B,
+    ) -> Result<tonic::Request<B>, Status> {
         let request = request
             .body(body)
             .map_err(|e| tonic::Status::from_error(Box::new(e)))?;
@@ -175,6 +175,36 @@ impl Client for GrpcClient {
             let request = this.build_tonic_request(request, body)?;
             let codec = TransparentCodec::default();
             client.server_streaming(request, path, codec).await
+        };
+        let req = crate::streams::NonBlockingStreamRequest::new(
+            Box::pin(response) as crate::streams::ResponseFuture
+        );
+        let response = crate::streams::send(req).await.map_err(GrpcError::from)?;
+        let response = response.map(|body| {
+            BytesStream::new(GrpcStream {
+                inner: EscapableTonicStream::new(body),
+            })
+        });
+        Ok(response.to_http().map(Into::into))
+    }
+
+    // Full-duplex needs a real HTTP/2 transport; the gRPC-Web service used on
+    // wasm cannot carry it, so the browser keeps the trait's default error.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let this = self.clone();
+        // client requires to be moved so it lives long enough for streaming response future.
+        let response = async move {
+            let mut client = this.inner.clone();
+            this.wait_for_ready(&mut client).await?;
+            let request = this.build_tonic_request(request, body)?;
+            let codec = TransparentCodec::default();
+            client.streaming(request, path, codec).await
         };
         let req = crate::streams::NonBlockingStreamRequest::new(
             Box::pin(response) as crate::streams::ResponseFuture
@@ -311,7 +341,7 @@ pub mod tests {
         let request = client
             .build_tonic_request(
                 Default::default(),
-                PublishRequest { envelopes: vec![] }.encode_to_vec().into(),
+                prost::bytes::Bytes::from(PublishRequest { envelopes: vec![] }.encode_to_vec()),
             )
             .unwrap();
 
