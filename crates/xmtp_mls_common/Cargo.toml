@@ -22,6 +22,7 @@ prost.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tls_codec.workspace = true
+url.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
