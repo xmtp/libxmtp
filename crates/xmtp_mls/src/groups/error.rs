@@ -20,6 +20,7 @@ use openmls::{
 use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::ErrorCode;
+use xmtp_common::Retryable;
 use xmtp_common::retry::RetryableError;
 use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -78,7 +79,7 @@ impl std::fmt::Display for ReceiveErrors {
         Ok(())
     }
 }
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum GroupError {
     #[error(transparent)]
     #[error_code(inherit)]
@@ -102,6 +103,7 @@ pub enum GroupError {
     ///
     /// Network request failed. Retryable.
     #[error("api error: {0}")]
+    #[retry(inherit)]
     WrappedApi(#[from] xmtp_api::ApiError),
     /// Invalid group membership.
     ///
@@ -112,11 +114,13 @@ pub enum GroupError {
     ///
     /// Group leave validation failed. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     LeaveCantProcessed(#[from] GroupLeaveValidationError),
     /// Storage error.
     ///
     /// Database operation failed. May be retryable.
     #[error("storage error: {0}")]
+    #[retry(inherit)]
     Storage(#[from] xmtp_db::StorageError),
     /// Intent error.
     ///
@@ -137,6 +141,7 @@ pub enum GroupError {
     ///
     /// Failed to update group membership. May be retryable.
     #[error("add members: {0}")]
+    #[retry(inherit)]
     UpdateGroupMembership(
         #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>,
     ),
@@ -144,16 +149,19 @@ pub enum GroupError {
     ///
     /// MLS group creation failed. May be retryable.
     #[error("group create: {0}")]
+    #[retry(inherit)]
     GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::SqlKeyStoreError>),
     /// Self update error.
     ///
     /// MLS self-update operation failed. May be retryable.
     #[error("self update: {0}")]
+    #[retry(inherit)]
     SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::SqlKeyStoreError>),
     /// Welcome error.
     ///
     /// Processing MLS welcome message failed. May be retryable.
     #[error("welcome error: {0}")]
+    #[retry(inherit)]
     WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::SqlKeyStoreError>),
     /// Invalid extension.
     ///
@@ -169,16 +177,19 @@ pub enum GroupError {
     ///
     /// Client operation failed within group. May be retryable.
     #[error("client: {0}")]
+    #[retry(inherit)]
     Client(#[from] ClientError),
     /// Receive error.
     ///
     /// Processing received group message failed. May be retryable.
     #[error("receive error: {0}")]
+    #[retry(inherit)]
     ReceiveError(#[from] GroupMessageProcessingError),
     /// Receive errors.
     ///
     /// Multiple message processing failures. May be retryable.
     #[error("Receive errors: {0}")]
+    #[retry(inherit)]
     ReceiveErrors(ReceiveErrors),
     /// Address validation error.
     ///
@@ -189,6 +200,7 @@ pub enum GroupError {
     ///
     /// Failed to process local event. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     LocalEvent(#[from] LocalEventError),
     /// Invalid public keys.
     ///
@@ -199,11 +211,13 @@ pub enum GroupError {
     ///
     /// MLS commit validation failed. May be retryable.
     #[error("Commit validation error {0}")]
+    #[retry(inherit)]
     CommitValidation(#[from] CommitValidationError),
     /// Identity error.
     ///
     /// Identity operation failed. Not retryable.
     #[error("identity error: {0}")]
+    #[retry(inherit)]
     Identity(#[from] IdentityError),
     /// Conversion error.
     ///
@@ -219,6 +233,7 @@ pub enum GroupError {
     ///
     /// Failed to create group context extension proposal. May be retryable.
     #[error("create group context proposal error: {0}")]
+    #[retry(inherit)]
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
     ),
@@ -226,21 +241,25 @@ pub enum GroupError {
     ///
     /// Failed to create an add-member proposal. May be retryable.
     #[error("propose add member error: {0}")]
+    #[retry(inherit)]
     ProposeAddMember(#[from] ProposeAddMemberError<sql_key_store::SqlKeyStoreError>),
     /// Propose remove member error.
     ///
     /// Failed to create a remove-member proposal. May be retryable.
     #[error("propose remove member error: {0}")]
+    #[retry(inherit)]
     ProposeRemoveMember(#[from] ProposeRemoveMemberError<sql_key_store::SqlKeyStoreError>),
     /// Proposal error.
     ///
     /// Generic MLS proposal creation/handling failure. May be retryable.
     #[error("proposal error: {0}")]
+    #[retry(inherit)]
     Proposal(#[from] ProposalError<sql_key_store::SqlKeyStoreError>),
     /// Commit to pending proposals error.
     ///
     /// Failed to commit pending proposals into an MLS commit. May be retryable.
     #[error("commit to pending proposals error: {0}")]
+    #[retry(inherit)]
     CommitToPendingProposals(
         #[from] CommitToPendingProposalsError<sql_key_store::SqlKeyStoreError>,
     ),
@@ -248,6 +267,7 @@ pub enum GroupError {
     ///
     /// Failed to merge a pending commit into local state. May be retryable.
     #[error("merge pending commit error: {0}")]
+    #[retry(inherit)]
     MergePendingCommit(
         #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
     ),
@@ -288,6 +308,7 @@ pub enum GroupError {
     /// [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage
     /// failure is preserved instead of being string-flattened.
     #[error("app data commit error: {0}")]
+    #[retry(inherit)]
     AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
     /// Bootstrap synthesis failure — sender-side couldn't build the
     /// complete set of initial component values for the migration
@@ -298,6 +319,11 @@ pub enum GroupError {
     /// identity-update API error is itself retryable. Decode/registry-shape
     /// failures are deterministic and not retryable.
     #[error("bootstrap synthesis error: {0}")]
+    // Bootstrap synthesis can fail on a transient identity-update
+    // API blip — delegate to the inner error so we retry on
+    // network errors and stay non-retryable on deterministic
+    // wire-format / registry-shape failures.
+    #[retry(inherit)]
     BootstrapSynthesis(#[from] super::app_data::migration::BootstrapSynthesisError),
     /// Bootstrap commit-build failure.
     ///
@@ -322,6 +348,7 @@ pub enum GroupError {
     ///
     /// Installation diff computation failed. May be retryable.
     #[error("Installation diff error: {0}")]
+    #[retry(inherit)]
     InstallationDiff(#[from] InstallationDiffError),
     /// No PSK support.
     ///
@@ -332,11 +359,13 @@ pub enum GroupError {
     ///
     /// OpenMLS key store operation failed. May be retryable.
     #[error("sql key store error: {0}")]
+    #[retry(inherit)]
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
     /// Sync failed to wait.
     ///
     /// Waiting for intent sync failed. Retryable.
     #[error("Sync failed to wait for intent: {}", _0)]
+    #[retry(true)]
     SyncFailedToWait(Box<SyncSummary>),
     /// Missing pending commit.
     ///
@@ -347,11 +376,13 @@ pub enum GroupError {
     ///
     /// Failed to process group intent. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     ProcessIntent(#[from] ProcessIntentError),
     /// Failed to load lock.
     ///
     /// Concurrency lock acquisition failed. Retryable.
     #[error("Failed to load lock")]
+    #[retry(true)]
     LockUnavailable,
     /// Exceeded max characters.
     ///
@@ -372,21 +403,25 @@ pub enum GroupError {
     ///
     /// Sync operation completed with errors. May be retryable.
     #[error("{}", _0.to_string())]
+    #[retry(inherit)]
     Sync(#[from] Box<SyncSummary>),
     /// Database connection error.
     ///
     /// Database connection failed. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     /// MLS store error.
     ///
     /// OpenMLS key store failed. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     MlsStore(#[from] MlsStoreError),
     /// Metadata permissions error.
     ///
     /// Metadata permission check failed. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     MetadataPermissionsError(#[from] MetadataPermissionsError),
     /// Failed to verify installations.
     ///
@@ -402,16 +437,19 @@ pub enum GroupError {
     ///
     /// Content type codec failed. Retryable.
     #[error("Codec error: {0}")]
+    #[retry(true)]
     CodecError(#[from] CodecError),
     /// Wrap welcome error.
     ///
     /// Failed to wrap welcome message. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     WrapWelcome(#[from] WrapPayloadError),
     /// Unwrap welcome error.
     ///
     /// Failed to unwrap welcome message. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     UnwrapWelcome(#[from] UnwrapPayloadError),
     /// Welcome data not found.
     ///
@@ -427,6 +465,7 @@ pub enum GroupError {
     ///
     /// Raw database query failed. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     /// Uninitialized field.
     ///
@@ -437,15 +476,17 @@ pub enum GroupError {
     ///
     /// Failed to delete message. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     DeleteMessage(#[from] DeleteMessageError),
     /// Device sync error.
     ///
     /// Device sync operation failed. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     DeviceSync(#[from] Box<DeviceSyncError>),
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Retryable)]
 pub enum DeleteMessageError {
     #[error("Message not found: {0}")]
     MessageNotFound(String),
@@ -455,12 +496,6 @@ pub enum DeleteMessageError {
     NonDeletableMessage,
     #[error("Message already deleted")]
     MessageAlreadyDeleted,
-}
-
-impl RetryableError for DeleteMessageError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }
 
 impl From<prost::EncodeError> for GroupError {
@@ -481,7 +516,7 @@ impl From<SyncSummary> for GroupError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Retryable)]
 pub enum MetadataPermissionsError {
     #[error(transparent)]
     Permissions(#[from] GroupMutablePermissionsError),
@@ -506,13 +541,7 @@ pub enum MetadataPermissionsError {
     ComponentSource(#[from] crate::groups::app_data::component_source::ComponentSourceError),
 }
 
-impl RetryableError for MetadataPermissionsError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
-}
-
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Retryable)]
 pub enum GroupLeaveValidationError {
     #[error("cannot leave a DM conversation")]
     DmLeaveForbidden,
@@ -528,13 +557,7 @@ pub enum GroupLeaveValidationError {
     NotAGroupMember,
 }
 
-impl RetryableError for GroupLeaveValidationError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
-}
-
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Retryable)]
 pub enum DmValidationError {
     #[error("DM group must have DmMembers set")]
     OurInboxMustBeMember,
@@ -548,98 +571,6 @@ pub enum DmValidationError {
     MustHaveEmptyAdminAndSuperAdmin,
     #[error("Invalid permissions for DM group")]
     InvalidPermissions,
-}
-
-impl RetryableError for DmValidationError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::OurInboxMustBeMember
-            | Self::MustHaveMembersSet
-            | Self::InvalidConversationType
-            | Self::ExpectedInboxesDoNotMatch
-            | Self::MustHaveEmptyAdminAndSuperAdmin
-            | Self::InvalidPermissions => false,
-        }
-    }
-}
-
-impl RetryableError for GroupError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::ReceiveErrors(errors) => errors.is_retryable(),
-            Self::Client(client_error) => client_error.is_retryable(),
-            Self::Storage(storage) => storage.is_retryable(),
-            Self::ReceiveError(msg) => msg.is_retryable(),
-            Self::Identity(identity) => identity.is_retryable(),
-            Self::UpdateGroupMembership(update) => update.is_retryable(),
-            Self::GroupCreate(group) => group.is_retryable(),
-            Self::SelfUpdate(update) => update.is_retryable(),
-            Self::WelcomeError(welcome) => welcome.is_retryable(),
-            Self::SqlKeyStore(sql) => sql.is_retryable(),
-            Self::InstallationDiff(diff) => diff.is_retryable(),
-            Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
-            Self::ProposeAddMember(e) => e.is_retryable(),
-            Self::ProposeRemoveMember(e) => e.is_retryable(),
-            Self::Proposal(e) => e.is_retryable(),
-            Self::CommitToPendingProposals(e) => e.is_retryable(),
-            Self::ProposalsNotSupported(_) => false,
-            Self::MinVersionExceedsOwnVersion { .. } => false,
-            Self::MinVersionDowngrade { .. } => false,
-            Self::InvalidMinVersion { .. } => false,
-            Self::ComponentSource(_) => false,
-            Self::AppDataCommit(e) => e.is_retryable(),
-            // Bootstrap synthesis can fail on a transient identity-update
-            // API blip — delegate to the inner error so we retry on
-            // network errors and stay non-retryable on deterministic
-            // wire-format / registry-shape failures.
-            Self::BootstrapSynthesis(e) => e.is_retryable(),
-            Self::BootstrapCommit(_) => false,
-            Self::CommitValidation(err) => err.is_retryable(),
-            Self::WrappedApi(err) => err.is_retryable(),
-            Self::ProcessIntent(err) => err.is_retryable(),
-            Self::LocalEvent(err) => err.is_retryable(),
-            Self::LockUnavailable => true,
-            Self::SyncFailedToWait(_) => true,
-            Self::CodecError(_) => true,
-            Self::Sync(s) => s.is_retryable(),
-            Self::Db(e) => e.is_retryable(),
-            Self::MlsStore(e) => e.is_retryable(),
-            Self::MetadataPermissionsError(e) => e.is_retryable(),
-            Self::WrapWelcome(e) => e.is_retryable(),
-            Self::UnwrapWelcome(e) => e.is_retryable(),
-            Self::Diesel(e) => e.is_retryable(),
-            Self::LeaveCantProcessed(e) => e.is_retryable(),
-            Self::DeleteMessage(e) => e.is_retryable(),
-            Self::DeviceSync(e) => e.is_retryable(),
-            Self::MergePendingCommit(e) => e.is_retryable(),
-            Self::NotFound(_)
-            | Self::UserLimitExceeded
-            | Self::InvalidGroupMembership
-            | Self::Intent(_)
-            | Self::CreateMessage(_)
-            | Self::TlsError(_)
-            | Self::MissingSequenceId
-            | Self::AddressNotFound(_)
-            | Self::InvalidExtension(_)
-            | Self::Signature(_)
-            | Self::LeafNodeError(_)
-            | Self::NoPSKSupport
-            | Self::MissingPendingCommit
-            | Self::AddressValidation(_)
-            | Self::InvalidPublicKeys(_)
-            | Self::CredentialError(_)
-            | Self::ConversionError(_)
-            | Self::CryptoError(_)
-            | Self::TooManyCharacters { .. }
-            | Self::GroupPausedUntilUpdate(_)
-            | Self::GroupInactive
-            | Self::FailedToVerifyInstallations
-            | Self::NoWelcomesToSend
-            | Self::WelcomeDataNotFound(_)
-            | Self::UninitializedField(_)
-            | Self::UninitializedResult => false,
-        }
-    }
 }
 
 impl crate::worker::NeedsDbReconnect for GroupError {

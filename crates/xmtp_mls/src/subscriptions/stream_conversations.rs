@@ -23,24 +23,15 @@ use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, xmtp_common::Retryable)]
 pub enum ConversationStreamError {
     #[error("unexpected message type in welcome")]
     InvalidPayload,
     #[error("the conversation was filtered because of the given conversation type")]
     InvalidConversationType,
     #[error("the welcome pointer was not found")]
+    #[retry(true)]
     WelcomePointerNotFound,
-}
-
-impl xmtp_common::RetryableError for ConversationStreamError {
-    fn is_retryable(&self) -> bool {
-        use ConversationStreamError::*;
-        match self {
-            InvalidPayload | InvalidConversationType => false,
-            WelcomePointerNotFound => true,
-        }
-    }
 }
 
 pub enum WelcomeOrGroup {

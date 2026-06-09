@@ -1,6 +1,6 @@
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, Retryable};
 
 use crate::group_intent::GroupIntentError;
 
@@ -13,17 +13,19 @@ use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
 pub struct Mls;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum StorageError {
     /// Diesel connection error.
     ///
     /// Failed to connect to SQLite. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     DieselConnect(#[from] diesel::ConnectionError),
     /// Diesel result error.
     ///
     /// Database query returned an error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     DieselResult(#[from] diesel::result::Error),
     /// Migration error.
     ///
@@ -39,11 +41,13 @@ pub enum StorageError {
     ///
     /// Attempted to insert a duplicate record. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Duplicate(DuplicateItem),
     /// OpenMLS storage error.
     ///
     /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
     /// Intentional rollback.
     ///
@@ -69,6 +73,7 @@ pub enum StorageError {
     ///
     /// Platform-specific storage error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Platform(#[from] crate::database::PlatformStorageError),
     /// Protobuf decode error.
     ///
@@ -84,6 +89,7 @@ pub enum StorageError {
     ///
     /// Database connection error. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Connection(#[from] crate::ConnectionError),
     /// Invalid HMAC length.
     ///
@@ -94,6 +100,7 @@ pub enum StorageError {
     ///
     /// Group intent processing failed. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     GroupIntent(#[from] GroupIntentError),
 }
 
@@ -127,7 +134,9 @@ impl StorageError {
     }
 }
 
-#[derive(Error, Debug, ErrorCode)]
+#[derive(Error, Debug, ErrorCode, Retryable)]
+// All NotFound errors are transient — the row may appear on a later attempt.
+#[retry(default = true)]
 // Monolithic enum for all things lost
 pub enum NotFound {
     /// Group with welcome ID not found.
@@ -217,7 +226,7 @@ pub enum NotFound {
     KeyPackage(Vec<u8>),
 }
 
-#[derive(Error, Debug, ErrorCode)]
+#[derive(Error, Debug, ErrorCode, Retryable)]
 #[error_code(internal)]
 pub enum DuplicateItem {
     /// Duplicate welcome ID.
@@ -230,16 +239,6 @@ pub enum DuplicateItem {
     /// Commit log public key for group already exists. Not retryable.
     #[error("the commit log public key for group id {id} already exists", id = hex::encode(_0))]
     CommitLogPublicKey(Vec<u8>),
-}
-
-impl RetryableError for DuplicateItem {
-    fn is_retryable(&self) -> bool {
-        use DuplicateItem::*;
-        match self {
-            WelcomeId(_) => false,
-            CommitLogPublicKey(_) => false,
-        }
-    }
 }
 
 impl RetryableError<Mls> for diesel::result::Error {
@@ -257,35 +256,6 @@ impl RetryableError<Mls> for diesel::result::Error {
             // that is not retryable.
             _ => true,
         }
-    }
-}
-
-impl RetryableError for StorageError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::DieselConnect(_) => true,
-            Self::DieselResult(result) => retryable!(result),
-            Self::Duplicate(d) => retryable!(d),
-            Self::OpenMlsStorage(storage) => retryable!(storage),
-            Self::Platform(p) => retryable!(p),
-            Self::Connection(e) => retryable!(e),
-            Self::GroupIntent(e) => retryable!(e),
-            Self::MigrationError(_)
-            | Self::Conversion(_)
-            | Self::NotFound(_)
-            | Self::IntentionalRollback
-            | Self::DbDeserialize
-            | Self::DbSerialize
-            | Self::Builder(_)
-            | Self::InvalidHmacLength
-            | Self::Prost(_) => false,
-        }
-    }
-}
-
-impl RetryableError for NotFound {
-    fn is_retryable(&self) -> bool {
-        true
     }
 }
 

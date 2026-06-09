@@ -4,14 +4,14 @@
 //! with d14n. returns both errors on failure.
 use prost::Message;
 use std::fmt;
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage as V3GroupMessage;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage as V3WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
 
 use crate::subscriptions::SubscribeError;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 enum D14nCompatDecodeError {
     #[error(
         "unable to decode externally streamed message `{}` for v3 or d14n\
@@ -26,12 +26,6 @@ enum D14nCompatDecodeError {
         d14n: prost::DecodeError,
         proto_type: &'static str,
     },
-}
-
-impl RetryableError for D14nCompatDecodeError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }
 
 impl D14nCompatDecodeError {

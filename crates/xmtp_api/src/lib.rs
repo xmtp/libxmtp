@@ -8,7 +8,7 @@ pub mod test_utils;
 
 use std::sync::Arc;
 
-use xmtp_common::{ErrorCode, ExponentialBackoff, Retry, RetryableError, retryable};
+use xmtp_common::{ErrorCode, ExponentialBackoff, Retry, Retryable, RetryableError};
 pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;
@@ -29,12 +29,13 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     ApiError::Api(Box::new(e))
 }
 
-#[derive(Debug, thiserror::Error, ErrorCode)]
+#[derive(Debug, thiserror::Error, ErrorCode, Retryable)]
 pub enum ApiError {
     /// API client error.
     ///
     /// API operation error (network, deserialization, or other). May be retryable.
     #[error("api client error {0}")]
+    #[retry(inherit)]
     Api(Box<dyn RetryableError>),
     /// Mismatched key packages.
     ///
@@ -53,15 +54,6 @@ pub enum ApiError {
     /// Protobuf conversion failed. Not retryable.
     #[error(transparent)]
     ProtoConversion(#[from] xmtp_proto::ConversionError),
-}
-
-impl RetryableError for ApiError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Api(e) => retryable!(e),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{MaybeSend, MaybeSync, Retryable, RetryableError};
 use xmtp_proto::{
     api::ApiClientError,
     types::{Cursor, GlobalCursor, OriginatorId, OrphanedEnvelope, Topic, TopicKind},
 };
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum CursorStoreError {
     #[error("error writing cursors to persistent store")]
     Write,
@@ -16,23 +16,15 @@ pub enum CursorStoreError {
     UnhandledTopicKind(TopicKind),
     #[error("no dependencies found for {_0:?}")]
     NoDependenciesFound(Vec<String>),
+    // retries should be an implementation detail; only Other forwards.
     #[error("{0}")]
+    #[retry(inherit)]
     Other(Box<dyn RetryableError>),
 }
 
 impl CursorStoreError {
     pub fn other<E: RetryableError + 'static>(e: E) -> Self {
         CursorStoreError::Other(Box::new(e))
-    }
-}
-
-impl RetryableError for CursorStoreError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Other(s) => s.is_retryable(),
-            // retries should be an implementation detail
-            _ => false,
-        }
     }
 }
 

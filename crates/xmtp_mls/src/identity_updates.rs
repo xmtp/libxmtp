@@ -9,7 +9,7 @@ use crate::{
 use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
+use xmtp_common::{Event, Retry, Retryable, retry_async};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
@@ -51,24 +51,17 @@ pub struct InstallationDiff {
     pub removed_installations: HashSet<Vec<u8>>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum InstallationDiffError {
     #[error(transparent)]
+    #[retry(inherit)]
     Client(#[from] ClientError),
     #[error(transparent)]
+    #[retry(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Storage(#[from] StorageError),
-}
-
-impl RetryableError for InstallationDiffError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            InstallationDiffError::Client(client_error) => retryable!(client_error),
-            InstallationDiffError::Storage(e) => retryable!(e),
-            InstallationDiffError::Db(e) => retryable!(e),
-        }
-    }
 }
 
 pub struct IdentityUpdates<Context> {

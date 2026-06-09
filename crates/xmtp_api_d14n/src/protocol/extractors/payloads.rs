@@ -1,4 +1,4 @@
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 
 use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::{EnvelopeError, ExtractionError};
@@ -23,16 +23,10 @@ impl PayloadExtractor {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum PayloadExtractionError {
     #[error("Failed to extract payload, wrong ProtocolMessage?")]
     Failed,
-}
-
-impl RetryableError for PayloadExtractionError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }
 
 impl From<PayloadExtractionError> for EnvelopeError {
