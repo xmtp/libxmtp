@@ -585,7 +585,7 @@ impl<'de> serde::Deserialize<'de> for AppDataUpdateData {
         deserializer.deserialize_struct("xmtp.mls.database.AppDataUpdateData", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for app_data_update_data::V1 {
+impl serde::Serialize for app_data_update_data::Update {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -599,7 +599,7 @@ impl serde::Serialize for app_data_update_data::V1 {
         if !self.payload.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AppDataUpdateData.V1", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AppDataUpdateData.Update", len)?;
         if self.component_id != 0 {
             struct_ser.serialize_field("component_id", &self.component_id)?;
         }
@@ -611,7 +611,7 @@ impl serde::Serialize for app_data_update_data::V1 {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for app_data_update_data::V1 {
+impl<'de> serde::Deserialize<'de> for app_data_update_data::Update {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -660,13 +660,13 @@ impl<'de> serde::Deserialize<'de> for app_data_update_data::V1 {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = app_data_update_data::V1;
+            type Value = app_data_update_data::Update;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.AppDataUpdateData.V1")
+                formatter.write_str("struct xmtp.mls.database.AppDataUpdateData.Update")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<app_data_update_data::V1, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<app_data_update_data::Update, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -695,9 +695,146 @@ impl<'de> serde::Deserialize<'de> for app_data_update_data::V1 {
                         }
                     }
                 }
+                Ok(app_data_update_data::Update {
+                    component_id: component_id__.unwrap_or_default(),
+                    payload: payload__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.AppDataUpdateData.Update", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for app_data_update_data::V1 {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.component_id != 0 {
+            len += 1;
+        }
+        if !self.payload.is_empty() {
+            len += 1;
+        }
+        if !self.additional_updates.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AppDataUpdateData.V1", len)?;
+        if self.component_id != 0 {
+            struct_ser.serialize_field("component_id", &self.component_id)?;
+        }
+        if !self.payload.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("payload", pbjson::private::base64::encode(&self.payload).as_str())?;
+        }
+        if !self.additional_updates.is_empty() {
+            struct_ser.serialize_field("additional_updates", &self.additional_updates)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for app_data_update_data::V1 {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "component_id",
+            "componentId",
+            "payload",
+            "additional_updates",
+            "additionalUpdates",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ComponentId,
+            Payload,
+            AdditionalUpdates,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "componentId" | "component_id" => Ok(GeneratedField::ComponentId),
+                            "payload" => Ok(GeneratedField::Payload),
+                            "additionalUpdates" | "additional_updates" => Ok(GeneratedField::AdditionalUpdates),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = app_data_update_data::V1;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.AppDataUpdateData.V1")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<app_data_update_data::V1, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut component_id__ = None;
+                let mut payload__ = None;
+                let mut additional_updates__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ComponentId => {
+                            if component_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("componentId"));
+                            }
+                            component_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Payload => {
+                            if payload__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("payload"));
+                            }
+                            payload__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::AdditionalUpdates => {
+                            if additional_updates__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("additionalUpdates"));
+                            }
+                            additional_updates__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
                 Ok(app_data_update_data::V1 {
                     component_id: component_id__.unwrap_or_default(),
                     payload: payload__.unwrap_or_default(),
+                    additional_updates: additional_updates__.unwrap_or_default(),
                 })
             }
         }

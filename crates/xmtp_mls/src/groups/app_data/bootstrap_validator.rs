@@ -840,6 +840,7 @@ mod tests {
             version: Some(GroupMembershipEntryVersion::V1(GroupMembershipEntryV1 {
                 sequence_id: seq,
                 failed_installations: failed,
+                admitted_via_external_group_id: vec![],
             })),
         }
     }

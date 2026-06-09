@@ -1169,6 +1169,7 @@ mod tests {
             GroupMembershipEntryV1 {
                 sequence_id: 42,
                 failed_installations: vec![vec![0xAA; 16]],
+                admitted_via_external_group_id: vec![],
             },
         );
         entries.insert(
@@ -1176,6 +1177,7 @@ mod tests {
             GroupMembershipEntryV1 {
                 sequence_id: 99,
                 failed_installations: vec![],
+                admitted_via_external_group_id: vec![],
             },
         );
         let entries = entries
@@ -1257,6 +1259,7 @@ mod tests {
             version: Some(GroupMembershipEntryVersion::V1(GroupMembershipEntryV1 {
                 sequence_id: 7,
                 failed_installations: vec![],
+                admitted_via_external_group_id: vec![],
             })),
         };
         snapshot

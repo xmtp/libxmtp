@@ -91,12 +91,22 @@ pub(crate) fn build_group_membership_app_data_payload(
 
 /// Encode a per-inbox `GroupMembershipEntry::V1` value with the given
 /// `sequence_id` and an empty `failed_installations` list.
+///
+/// `admitted_via_external_group_id` is left absent here. That is only
+/// correct while nothing can set it: the field is written exclusively by
+/// the external-commit join path (XIP-82), which does not exist yet on
+/// this branch. The Update arm of [`build_group_membership_app_data_payload`]
+/// rewrites entries from scratch, so once joins can tag entries it MUST
+/// carry the existing tag through (the tag is write-once and validators
+/// will reject a member commit that clears it); that preservation lands
+/// together with the validator enforcement in the external-commit stack.
 fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
     let entry = GroupMembershipEntry {
         version: Some(group_membership_entry::Version::V1(
             group_membership_entry::V1 {
                 sequence_id,
                 failed_installations: vec![],
+                admitted_via_external_group_id: vec![],
             },
         )),
     };
