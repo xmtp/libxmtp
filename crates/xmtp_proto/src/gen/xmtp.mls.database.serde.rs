@@ -1543,6 +1543,106 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::SendWelcomes {
         deserializer.deserialize_struct("xmtp.mls.database.PostCommitAction.SendWelcomes", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ProcessPendingSelfRemove {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.group_id.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.ProcessPendingSelfRemove", len)?;
+        if !self.group_id.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ProcessPendingSelfRemove {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "group_id",
+            "groupId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            GroupId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "groupId" | "group_id" => Ok(GeneratedField::GroupId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ProcessPendingSelfRemove;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.ProcessPendingSelfRemove")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ProcessPendingSelfRemove, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut group_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::GroupId => {
+                            if group_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupId"));
+                            }
+                            group_id__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ProcessPendingSelfRemove {
+                    group_id: group_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.ProcessPendingSelfRemove", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ProposeGroupContextExtensionData {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -2730,6 +2830,9 @@ impl serde::Serialize for Task {
                 task::Task::SendSyncArchive(v) => {
                     struct_ser.serialize_field("send_sync_archive", v)?;
                 }
+                task::Task::ProcessPendingSelfRemove(v) => {
+                    struct_ser.serialize_field("process_pending_self_remove", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -2746,12 +2849,15 @@ impl<'de> serde::Deserialize<'de> for Task {
             "processWelcomePointer",
             "send_sync_archive",
             "sendSyncArchive",
+            "process_pending_self_remove",
+            "processPendingSelfRemove",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ProcessWelcomePointer,
             SendSyncArchive,
+            ProcessPendingSelfRemove,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2776,6 +2882,7 @@ impl<'de> serde::Deserialize<'de> for Task {
                         match value {
                             "processWelcomePointer" | "process_welcome_pointer" => Ok(GeneratedField::ProcessWelcomePointer),
                             "sendSyncArchive" | "send_sync_archive" => Ok(GeneratedField::SendSyncArchive),
+                            "processPendingSelfRemove" | "process_pending_self_remove" => Ok(GeneratedField::ProcessPendingSelfRemove),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2810,6 +2917,13 @@ impl<'de> serde::Deserialize<'de> for Task {
                                 return Err(serde::de::Error::duplicate_field("sendSyncArchive"));
                             }
                             task__ = map_.next_value::<::std::option::Option<_>>()?.map(task::Task::SendSyncArchive)
+;
+                        }
+                        GeneratedField::ProcessPendingSelfRemove => {
+                            if task__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("processPendingSelfRemove"));
+                            }
+                            task__ = map_.next_value::<::std::option::Option<_>>()?.map(task::Task::ProcessPendingSelfRemove)
 ;
                         }
                         GeneratedField::__SkipField__ => {
