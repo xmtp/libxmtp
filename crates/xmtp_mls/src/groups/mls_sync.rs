@@ -4963,6 +4963,11 @@ pub(crate) mod tests {
     /// storage failure (so the sync transaction rolls back and retries) instead
     /// of silently swallowing it. Regression guard for the dropped-error paths
     /// in `process_own_leave_request_message` / `process_own_delete_message`.
+    ///
+    /// Not on wasm: the fault injection uses an env-var flag, and wasm targets
+    /// cannot set environment variables (same gating as the other
+    /// `test_mocks_helpers` based tests).
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
     async fn test_own_reaction_handlers_surface_retryable_errors() {
         use crate::tester;
