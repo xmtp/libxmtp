@@ -311,6 +311,14 @@ pub enum SqlKeyStoreError {
     Connection(#[from] crate::ConnectionError),
 }
 
+impl SqlKeyStoreError {
+    /// True when the pool can't currently hand out a connection. Mirrors
+    /// [`StorageError::db_needs_connection`](crate::StorageError::db_needs_connection).
+    pub fn db_needs_connection(&self) -> bool {
+        matches!(self, Self::Connection(c) if c.db_needs_connection())
+    }
+}
+
 impl RetryableError for SqlKeyStoreError {
     fn is_retryable(&self) -> bool {
         use SqlKeyStoreError::*;

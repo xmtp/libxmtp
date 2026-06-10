@@ -147,16 +147,18 @@ impl NeedsDbReconnect for CommitLogError {
             // A readd send failure wraps an inner CommitLogError; forward.
             Self::FailedToSendReadd { source, .. } => source.needs_db_reconnect(),
             Self::FailedReadds { errors } => errors.iter().any(|e| e.needs_db_reconnect()),
+            // A dropped pool can be wrapped inside a SyncSummary; forward.
+            Self::SyncError(s) => s.needs_db_reconnect(),
+            // OpenMLS key-store ops surface a disconnect as a Connection error.
+            Self::KeystoreError(e) => e.db_needs_connection(),
             // Remaining variants can't carry a dropped-pool signal.
             Self::Diesel(_)
             | Self::Api(_)
             | Self::Prost(_)
-            | Self::KeystoreError(_)
             | Self::CryptoError(_)
             | Self::TryFromSliceError(_)
             | Self::Conversion(_)
             | Self::GroupReaddValidationError(_)
-            | Self::SyncError(_)
             | Self::MissingLatestCommitSequenceId { .. } => false,
         }
     }

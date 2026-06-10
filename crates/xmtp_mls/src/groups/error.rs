@@ -653,6 +653,11 @@ impl crate::worker::NeedsDbReconnect for GroupError {
             Self::MlsStore(s) => s.needs_db_reconnect(),
             Self::Identity(i) => i.needs_db_reconnect(),
             Self::DeviceSync(d) => d.needs_db_reconnect(),
+            // A dropped pool can be wrapped inside a SyncSummary's
+            // publish/post-commit/other/per-message errors; forward it.
+            Self::Sync(s) | Self::SyncFailedToWait(s) => s.needs_db_reconnect(),
+            // OpenMLS key-store ops surface a disconnect as a Connection error.
+            Self::SqlKeyStore(e) => e.db_needs_connection(),
             _ => false,
         }
     }
