@@ -672,11 +672,14 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         value_bytes: Vec<u8>,
     }
 
+    /// (key_bytes, value_bytes) pairs from the openmls kv store.
+    type KvRows = Vec<(Vec<u8>, Vec<u8>)>;
+
     fn kv_scan(
         db: &impl xmtp_db::ConnectionExt,
         label: &[u8],
         group_id: &[u8],
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Box<dyn std::error::Error>> {
+    ) -> Result<KvRows, Box<dyn std::error::Error>> {
         let rows: Vec<KvRow> = db.raw_query(|conn| {
             sql_query(KV_SCAN)
                 .bind::<diesel::sql_types::Integer, _>(label.len() as i32)
