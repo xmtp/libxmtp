@@ -1246,6 +1246,14 @@ where
         let queryable_content_fields = Self::extract_queryable_content_fields(message);
 
         let message_id = calculate_message_id(self.group_id, message, &idempotency_key);
+
+        // Idempotent: a retry with the same key + content resolves to the same id.
+        // Return the existing message rather than failing on the PK conflict, so
+        // crash-recovery retries are at-least-once-with-dedup instead of an error.
+        if let Some(existing) = self.context.db().get_group_message(&message_id)? {
+            return Ok(existing.id);
+        }
+
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id,

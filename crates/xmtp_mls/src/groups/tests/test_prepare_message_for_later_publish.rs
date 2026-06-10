@@ -167,6 +167,31 @@ async fn test_default_idempotency_key_is_unique_per_send() {
     );
 }
 
+/// Re-preparing the same content with the same explicit key is idempotent: it
+/// returns the existing message id instead of erroring on the PK conflict, and
+/// does not create a duplicate row. This is the sender side of
+/// at-least-once-with-dedup (e.g. a crash-recovery retry).
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_duplicate_idempotency_key_is_idempotent() {
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+
+    let key = "retry-key".to_string();
+    let id_1 = group.prepare_message_for_later_publish(b"retry me", true, Some(key.clone()))?;
+    // Second identical prepare must not error and must return the same id.
+    let id_2 = group.prepare_message_for_later_publish(b"retry me", true, Some(key))?;
+
+    assert_eq!(id_1, id_2);
+
+    // Only one row was stored.
+    let messages = group.find_messages(&MsgQueryArgs {
+        kind: Some(GroupMessageKind::Application),
+        ..Default::default()
+    })?;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].id, id_1);
+}
+
 /// End-to-end: the idempotency key rides the wire so the receiver recomputes the
 /// exact same message id. This is the foundation of at-least-once-with-dedup:
 /// a retry of identical content with the same key collapses to one message id.
