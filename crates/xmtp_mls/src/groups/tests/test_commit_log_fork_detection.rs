@@ -653,10 +653,13 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     use diesel::{RunQueryDsl, sql_query};
     use openmls_traits::storage::CURRENT_VERSION;
 
-    // Raw access to the openmls kv store, mirroring xmtp_db::sql_key_store's
-    // key layout: storage_key = label ++ bincode(inner_key) ++ version (u16 BE).
-    const KV_SELECT: &str =
-        "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
+    // Raw access to the openmls kv store. Rows are located by label prefix +
+    // raw group id containment rather than by reconstructing the exact
+    // bincode-encoded storage key, so the test does not depend on
+    // xmtp_db::sql_key_store's key encoding. Restores use the exact key_bytes
+    // returned by the scan.
+    const KV_SCAN: &str = "SELECT key_bytes, value_bytes FROM openmls_key_value \
+         WHERE substr(key_bytes, 1, ?) = ? AND instr(key_bytes, ?) > 0 AND version = ?";
     const KV_REPLACE: &str =
         "REPLACE INTO openmls_key_value (key_bytes, version, value_bytes) VALUES (?, ?, ?)";
     const GROUP_CONTEXT_LABEL: &[u8] = b"GroupContext";
@@ -665,31 +668,28 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     #[derive(diesel::QueryableByName)]
     struct KvRow {
         #[diesel(sql_type = diesel::sql_types::Binary)]
+        key_bytes: Vec<u8>,
+        #[diesel(sql_type = diesel::sql_types::Binary)]
         value_bytes: Vec<u8>,
     }
 
-    fn kv_storage_key(label: &[u8], inner_key: &[u8]) -> Vec<u8> {
-        let mut key = label.to_vec();
-        key.extend_from_slice(inner_key);
-        key.extend_from_slice(&(CURRENT_VERSION).to_be_bytes());
-        key
-    }
-
-    fn kv_select(
+    fn kv_scan(
         db: &impl xmtp_db::ConnectionExt,
-        storage_key: &[u8],
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        label: &[u8],
+        group_id: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Box<dyn std::error::Error>> {
         let rows: Vec<KvRow> = db.raw_query(|conn| {
-            sql_query(KV_SELECT)
-                .bind::<diesel::sql_types::Binary, _>(storage_key)
+            sql_query(KV_SCAN)
+                .bind::<diesel::sql_types::Integer, _>(label.len() as i32)
+                .bind::<diesel::sql_types::Binary, _>(label)
+                .bind::<diesel::sql_types::Binary, _>(group_id)
                 .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
                 .load(conn)
         })?;
         Ok(rows
             .into_iter()
-            .next()
-            .expect("kv row must exist")
-            .value_bytes)
+            .map(|r| (r.key_bytes, r.value_bytes))
+            .collect())
     }
 
     fn kv_replace(
@@ -733,23 +733,27 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         .expect("the add-caro commit must be on the network");
     let commit_sequence_id = commit_envelope.cursor.sequence_id as i64;
 
-    // Bo's group is at epoch E; compute the kv storage keys for the epoch-E
-    // GroupContext and epoch-keypair rows so they can be snapshotted.
+    // Bo's group is at epoch E; snapshot the raw epoch-E GroupContext and
+    // epoch-keypair kv rows so they can be written back after the sync.
     let mut group_copy =
         OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls())?
             .expect("bo's group must exist");
     let epoch_e = group_copy.epoch();
     let auth_e = group_copy.epoch_authenticator().as_slice().to_vec();
-    let gid_ser = bincode::serialize(&bo_group.group_id.to_openmls())?;
-    let ctx_key = kv_storage_key(GROUP_CONTEXT_LABEL, &gid_ser);
-    let mut ekp_inner = gid_ser.clone();
-    ekp_inner.extend_from_slice(&bincode::serialize(&epoch_e)?);
-    ekp_inner.extend_from_slice(&bincode::serialize(&group_copy.own_leaf_index().u32())?);
-    let ekp_key = kv_storage_key(EPOCH_KEY_PAIRS_LABEL, &ekp_inner);
 
     let db = bo.context.db();
-    let ctx_e_bytes = kv_select(&db, &ctx_key)?;
-    let ekp_e_bytes = kv_select(&db, &ekp_key)?;
+    let ctx_rows_e = kv_scan(&db, GROUP_CONTEXT_LABEL, bo_group.group_id.as_ref())?;
+    assert_eq!(
+        ctx_rows_e.len(),
+        1,
+        "expected exactly one GroupContext kv row for the group"
+    );
+    // A welcome-joined member that has not yet merged a commit has no
+    // epoch-keypair row yet — openmls only writes that row in merge_commit
+    // (store_epoch_keypairs), and reads of a missing row gracefully return an
+    // empty set. Snapshot whatever rows exist (possibly none) so the torn
+    // state mirrors Bo's real epoch-E state.
+    let ekp_rows_e = kv_scan(&db, EPOCH_KEY_PAIRS_LABEL, bo_group.group_id.as_ref())?;
 
     // --- Pass 1 (the second process's view; mirrors mls_sync.rs:1092). ---
     // Process the commit against a copy of Bo's group inside a transaction that
@@ -808,12 +812,13 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     drop(consistent);
 
     // --- Tear the storage. ---
-    // Write the stale epoch-E GroupContext and epoch-E keypair rows back over
-    // the E+1 state, leaving tree / epoch secrets / message secrets at E+1.
-    // This simulates the second process's interleaved writes landing on the
-    // shared kv store without cross-process mutual exclusion.
-    kv_replace(&db, &ctx_key, &ctx_e_bytes)?;
-    kv_replace(&db, &ekp_key, &ekp_e_bytes)?;
+    // Write the stale epoch-E GroupContext (and any epoch-E keypair rows)
+    // back over the E+1 state, leaving tree / epoch secrets / message secrets
+    // at E+1. This simulates the second process's interleaved writes landing
+    // on the shared kv store without cross-process mutual exclusion.
+    for (key, value) in ctx_rows_e.iter().chain(ekp_rows_e.iter()) {
+        kv_replace(&db, key, value)?;
+    }
 
     // --- The reload (mls_sync.rs:1109 analog) hands back the torn group: ---
     // it reports epoch E, but its epoch secrets (and therefore its
