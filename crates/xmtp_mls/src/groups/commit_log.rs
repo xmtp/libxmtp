@@ -956,6 +956,10 @@ where
             if local_log.commit_result == CommitResult::Success
                 && local_log.applied_epoch_authenticator == local_log.last_epoch_authenticator
             {
+                // Note: `update_cursor` is monotonic (it only ever moves the
+                // cursor forward), so the cursor updates below for older
+                // matched rows — the loop walks descending rowids — cannot
+                // regress the cursor behind this terminal row.
                 conn.update_cursor(
                     conversation_id,
                     xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
