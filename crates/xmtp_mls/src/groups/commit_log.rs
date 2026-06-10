@@ -897,10 +897,32 @@ where
             Originators::REMOTE_COMMIT_LOG,
         )?;
 
+        // Chain-start anchor: rows with `commit_sequence_id == 0` (Welcome /
+        // GroupCreation / BackupRestore) mark the beginning of this member's
+        // current membership session — e.g. rejoining via a new welcome after
+        // having been removed. History before the latest chain start is not
+        // attestable by this member and must not be compared against remote
+        // consensus. Those rows are filtered out of
+        // `get_local_commit_log_after_cursor`, so the anchor is looked up
+        // separately and applied as a floor on the local fork-check cursor.
+        let mut local_cursor = fork_check_local_cursor.sequence_id as i64;
+        let mut crossed_chain_start = false;
+        if let Some(anchor_rowid) = conn.get_latest_chain_start_rowid(conversation_id)?
+            && anchor_rowid as i64 > local_cursor
+        {
+            local_cursor = anchor_rowid as i64;
+            crossed_chain_start = true;
+            conn.update_cursor(
+                conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+                Cursor::commit_log(anchor_rowid as u64),
+            )?;
+        }
+
         // Get local and remote commit logs
         let local_logs = conn.get_local_commit_log_after_cursor(
             conversation_id,
-            fork_check_local_cursor.sequence_id as i64,
+            local_cursor,
             LocalCommitLogOrder::DescendingByRowid,
         )?;
         let remote_logs = conn.get_remote_commit_log_after_cursor(
@@ -911,12 +933,37 @@ where
 
         // If there are no new commits to check, preserve the existing fork status
         if local_logs.is_empty() {
+            if crossed_chain_start {
+                // A new chain start (e.g. a welcome from being re-added)
+                // invalidates any previously computed status: nothing after
+                // it has been verified against remote consensus yet.
+                return Ok(None);
+            }
             return Ok(conn.get_group_commit_log_forked_status(conversation_id)?);
         }
 
         let mut is_remote_log_up_to_date = true;
         // Check each local log against remote logs for matching commit_sequence_id
         for local_log in &local_logs {
+            // Terminal removal marker: a commit that removed us merges only
+            // the public diff — we cannot derive the new epoch's secrets, so
+            // a Success row whose applied authenticator equals its last
+            // authenticator means "this commit removed us", not a fork. The
+            // remaining members publish the real post-commit authenticator,
+            // which can never match ours, so this row must be excluded from
+            // comparison. (Covers both new RemovedFromGroup rows and legacy
+            // rows that recorded the new epoch with the stale authenticator.)
+            if local_log.commit_result == CommitResult::Success
+                && local_log.applied_epoch_authenticator == local_log.last_epoch_authenticator
+            {
+                conn.update_cursor(
+                    conversation_id,
+                    xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+                    Cursor::commit_log(local_log.rowid as u64),
+                )?;
+                continue;
+            }
+
             let Some(matching_remote_log) =
                 self.find_matching_remote_log(&remote_logs, local_log.commit_sequence_id)
             else {

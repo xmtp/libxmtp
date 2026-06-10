@@ -168,8 +168,64 @@ impl CommitLogStorer for MlsGroup {
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
     ) -> Result<(), GroupMessageProcessingError> {
+        // Whether this commit removes our own leaf (authored by anyone — an
+        // admin removal or our own leave request). Captured before the merge
+        // consumes the staged commit.
+        let removed_us = staged_commit.self_removed();
+        let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
+        let applied_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
+
+        if removed_us {
+            // A commit that removes us merges only the public diff (openmls
+            // `StagedCommitState::PublicState`): the group context epoch
+            // advances and the group becomes inactive, but a removed member
+            // cannot derive the new epoch's secrets. Record what is actually
+            // true — we processed the commit, remained at the pre-commit
+            // epoch, and exited — instead of claiming we applied the new
+            // epoch with a stale authenticator (which fork detection would
+            // misread as a fork; see commit-log fork investigation).
+            if xmtp_configuration::ENABLE_COMMIT_LOG {
+                NewLocalCommitLog {
+                    group_id: self.group_id().try_into()?,
+                    commit_sequence_id: sequence_id,
+                    last_epoch_authenticator: last_epoch_authenticator.clone(),
+                    commit_result: CommitResult::Success,
+                    applied_epoch_number: last_epoch_number,
+                    applied_epoch_authenticator: last_epoch_authenticator,
+                    sender_inbox_id: Some(validated_commit.actor_inbox_id()),
+                    sender_installation_id: Some(validated_commit.actor_installation_id()),
+                    commit_type: Some(format!("{}", CommitType::RemovedFromGroup)),
+                    error_message: None,
+                }
+                .store(&provider.key_store().db())?;
+            }
+            return Ok(());
+        }
+
+        // Invariant: a successful staged-commit merge by a member that
+        // remains in the group always advances the epoch and therefore
+        // changes the epoch authenticator. If it did not, the group state we
+        // merged onto was corrupt/torn (e.g. a cross-process race on a shared
+        // MLS DB handed us a reloaded group that already carried the
+        // post-commit epoch secrets). Recording a Success entry would persist
+        // a forked commit log. Refuse instead: the error is retryable, so the
+        // enclosing transaction (cursor advance + merge + log write) rolls
+        // back and the message is reprocessed against settled state.
+        if applied_epoch_authenticator == last_epoch_authenticator {
+            tracing::error!(
+                group_id = hex::encode(self.group_id().as_slice()),
+                commit_sequence_id = sequence_id,
+                epoch = self.epoch().as_u64(),
+                "staged commit merge did not advance the epoch authenticator; \
+                 refusing to record corrupt commit log entry"
+            );
+            return Err(GroupMessageProcessingError::EpochAuthenticatorNotAdvanced {
+                commit_sequence_id: sequence_id,
+                epoch: self.epoch().as_u64(),
+            });
+        }
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
@@ -178,7 +234,7 @@ impl CommitLogStorer for MlsGroup {
                 last_epoch_authenticator,
                 commit_result: CommitResult::Success,
                 applied_epoch_number: self.epoch().as_u64() as i64,
-                applied_epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
+                applied_epoch_authenticator,
                 sender_inbox_id: Some(validated_commit.actor_inbox_id()),
                 sender_installation_id: Some(validated_commit.actor_installation_id()),
                 commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
