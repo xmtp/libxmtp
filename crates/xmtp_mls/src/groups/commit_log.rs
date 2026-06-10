@@ -351,7 +351,9 @@ where
             let max_rowid = logs.last().map(|log| log.rowid);
             let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = logs
                 .iter()
-                .filter(|log| log.commit_type.as_deref() != Some(removed_from_group_marker.as_str()))
+                .filter(|log| {
+                    log.commit_type.as_deref() != Some(removed_from_group_marker.as_str())
+                })
                 .map(PlaintextCommitLogEntry::from)
                 .collect();
 
