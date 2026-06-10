@@ -235,7 +235,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiConversation.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
+				idempotencyKey: nil
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
