@@ -45,26 +45,51 @@ use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_member
 /// updates intentionally don't propagate failed_installations changes
 /// over the AppData path; the worst case is a slightly noisier retry
 /// loop. Future enhancement once a clearer attribution path exists.
+///
+/// `admitted_via_external_group_id` is the exception to the
+/// rewrite-from-scratch shape: the tag is write-once (XIP-82) and
+/// validators reject any member commit that sets, clears, or alters
+/// it, so the Update arm carries the existing entry's tag through
+/// from `extensions` (the group's pre-commit AppData dictionary).
+/// Inserted entries are untagged — only the external-commit join path
+/// ever sets the tag.
 pub(crate) fn build_group_membership_app_data_payload(
     old: &GroupMembership,
     new: &GroupMembership,
+    extensions: &Extensions<GroupContext>,
 ) -> Result<Vec<u8>, GroupError> {
+    let existing_entries =
+        crate::groups::app_data::component_source::read_group_membership_entries(extensions)
+            .map_err(GroupError::ComponentSource)?
+            .unwrap_or_default();
+    let existing_tag = |inbox_id: &InboxId| -> Vec<u8> {
+        existing_entries
+            .get(inbox_id)
+            .and_then(|entry| entry.version.as_ref())
+            .map(|group_membership_entry::Version::V1(v1)| {
+                v1.admitted_via_external_group_id.clone()
+            })
+            .unwrap_or_default()
+    };
+
     let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
 
     // Inserts and updates: walk new.members, classify against old.
     for (inbox_id_str, &sequence_id) in new.members.iter() {
-        let entry = encode_membership_entry(sequence_id)?;
         match old.members.get(inbox_id_str) {
             None => {
-                // New inbox: Insert.
+                // New inbox: Insert, never tagged.
                 let inbox_id = InboxId::from_hex(inbox_id_str)
                     .map_err(|e| GroupError::ComponentSource(e.into()))?;
+                let entry = encode_membership_entry(sequence_id, vec![])?;
                 delta = delta.insert(inbox_id, VLBytes::new(entry));
             }
             Some(&old_seq) if old_seq != sequence_id => {
-                // Existing inbox with bumped sequence_id: Update.
+                // Existing inbox with bumped sequence_id: Update,
+                // carrying the write-once tag through unchanged.
                 let inbox_id = InboxId::from_hex(inbox_id_str)
                     .map_err(|e| GroupError::ComponentSource(e.into()))?;
+                let entry = encode_membership_entry(sequence_id, existing_tag(&inbox_id))?;
                 delta = delta.update(inbox_id, VLBytes::new(entry));
             }
             _ => {
@@ -90,23 +115,20 @@ pub(crate) fn build_group_membership_app_data_payload(
 }
 
 /// Encode a per-inbox `GroupMembershipEntry::V1` value with the given
-/// `sequence_id` and an empty `failed_installations` list.
-///
-/// `admitted_via_external_group_id` is left absent here. That is only
-/// correct while nothing can set it: the field is written exclusively by
-/// the external-commit join path (XIP-82), which does not exist yet on
-/// this branch. The Update arm of [`build_group_membership_app_data_payload`]
-/// rewrites entries from scratch, so once joins can tag entries it MUST
-/// carry the existing tag through (the tag is write-once and validators
-/// will reject a member commit that clears it); that preservation lands
-/// together with the validator enforcement in the external-commit stack.
-fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
+/// `sequence_id`, an empty `failed_installations` list, and the given
+/// write-once `admitted_via_external_group_id` (empty ≡ absent —
+/// proto3 scalar default; the caller passes the existing entry's tag
+/// for rewrites, empty for fresh inserts).
+fn encode_membership_entry(
+    sequence_id: u64,
+    admitted_via_external_group_id: Vec<u8>,
+) -> Result<Vec<u8>, GroupError> {
     let entry = GroupMembershipEntry {
         version: Some(group_membership_entry::Version::V1(
             group_membership_entry::V1 {
                 sequence_id,
                 failed_installations: vec![],
-                admitted_via_external_group_id: vec![],
+                admitted_via_external_group_id,
             },
         )),
     };
@@ -213,6 +235,7 @@ pub(crate) async fn apply_update_group_membership_intent(
             Some(build_group_membership_app_data_payload(
                 &old_group_membership,
                 &new_group_membership,
+                &extensions,
             )?)
         } else {
             None

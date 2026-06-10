@@ -1039,12 +1039,27 @@ pub(crate) struct GroupMetadataReturn {
 /// receive-side validator to bridge the dict-stored membership back
 /// into the existing `GroupMembership` Rust type without rewriting
 /// every caller.
-pub(crate) fn read_group_membership_from_dict(
+/// Read and decode the per-inbox `GROUP_MEMBERSHIP` entries from the
+/// AppData dictionary, keeping the full `GroupMembershipEntry` shape
+/// (including `admitted_via_external_group_id` — XIP-82 max-uses
+/// accounting and tag preservation read it; the legacy-flattening
+/// [`read_group_membership_from_dict`] drops it).
+///
+/// Returns `None` on unmigrated groups (the legacy extension is
+/// authoritative there and carries no per-entry state) and when the
+/// dict has no `GROUP_MEMBERSHIP` entry.
+pub(crate) fn read_group_membership_entries(
     extensions: &Extensions<GroupContext>,
-) -> Result<Option<xmtp_proto::xmtp::mls::message_contents::GroupMembership>, ComponentSourceError>
-{
+) -> Result<
+    Option<
+        std::collections::BTreeMap<
+            InboxId,
+            xmtp_proto::xmtp::mls::message_contents::GroupMembershipEntry,
+        >,
+    >,
+    ComponentSourceError,
+> {
     use xmtp_mls_common::app_data::migration::decode_group_membership_dict;
-    use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
 
     // Gate on the unified migration predicate so a stray
     // `GROUP_MEMBERSHIP` dict entry on a pre-bootstrap group can't
@@ -1065,12 +1080,23 @@ pub(crate) fn read_group_membership_from_dict(
         return Ok(None);
     };
 
-    let entries = decode_group_membership_dict(bytes).map_err(|e| {
+    decode_group_membership_dict(bytes).map(Some).map_err(|e| {
         ComponentSourceError::MalformedComponentValue {
             component_id: ComponentId::GROUP_MEMBERSHIP,
             reason: format!("TlsMap decode: {e}"),
         }
-    })?;
+    })
+}
+
+pub(crate) fn read_group_membership_from_dict(
+    extensions: &Extensions<GroupContext>,
+) -> Result<Option<xmtp_proto::xmtp::mls::message_contents::GroupMembership>, ComponentSourceError>
+{
+    use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
+
+    let Some(entries) = read_group_membership_entries(extensions)? else {
+        return Ok(None);
+    };
 
     // Flatten per-inbox GroupMembershipEntryV1 back into the legacy
     // proto shape: members (inbox_id → sequence_id), failed_installations
