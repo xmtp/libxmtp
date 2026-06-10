@@ -592,11 +592,10 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 }
 
 /// Regression test for the fork-detection false positive observed in
-/// production (Convos group `e08a717548dc996845dc1f2d6986bdd0`, bundle
-/// `6E527FC8`): a member that is removed from a group — and possibly re-added
+/// production: a member that is removed from a group — and possibly re-added
 /// later — was flagged as forked, even though nothing diverged.
 ///
-/// Why: when a commit removes *us*, openmls merges only the public diff
+/// Why: when a commit removes us, openmls merges only the public diff
 /// (`StagedCommitState::PublicState`) — the group context epoch advances and
 /// the group becomes inactive, but a removed member cannot derive the new
 /// epoch's secrets. The remaining members derive them and publish the real
