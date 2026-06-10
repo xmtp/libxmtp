@@ -1333,6 +1333,9 @@ pub struct FfiSendMessageOpts {
     pub should_push: bool,
     /// Optional idempotency key. Re-sending identical content with the same key
     /// produces the same message id and is deduplicated. Defaults to a timestamp.
+    /// Defaults to unset so existing foreign callers that construct
+    /// `FfiSendMessageOpts` without this field still compile.
+    #[uniffi(default = None)]
     pub idempotency_key: Option<String>,
 }
 

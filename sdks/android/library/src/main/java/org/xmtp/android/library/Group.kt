@@ -210,7 +210,7 @@ class Group(
     ): String =
         withContext(Dispatchers.IO) {
             if (noSend) {
-                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush).toHex()
+                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush, null).toHex()
             } else {
                 libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
             }
