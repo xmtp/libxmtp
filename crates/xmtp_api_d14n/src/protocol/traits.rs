@@ -16,8 +16,8 @@ use xmtp_proto::types::WelcomeMessage;
 use super::ExtractionError;
 use super::PayloadExtractor;
 use super::TopicExtractor;
+use xmtp_common::Retryable;
 use xmtp_common::RetryableError;
-use xmtp_common::retryable;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::xmtpv4::envelopes::AuthenticatedData;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
@@ -53,11 +53,13 @@ pub use sort::*;
 mod ordered_collection;
 pub use ordered_collection::*;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum EnvelopeError {
     #[error(transparent)]
+    #[retry(inherit)]
     Conversion(#[from] ConversionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Extraction(#[from] ExtractionError),
     #[error("Each topic must have a payload")]
     TopicMismatch,
@@ -66,12 +68,15 @@ pub enum EnvelopeError {
     #[error(transparent)]
     MissingBuilderField(#[from] UninitializedFieldError),
     #[error(transparent)]
+    #[retry(inherit)]
     Store(#[from] CursorStoreError),
     #[error(transparent)]
+    #[retry(true)]
     Decode(#[from] prost::DecodeError),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
+    #[retry(inherit)]
     DynError(Box<dyn RetryableError>),
 }
 
@@ -81,17 +86,28 @@ impl EnvelopeError {
     }
 }
 
-impl RetryableError for EnvelopeError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Conversion(c) => retryable!(c),
-            Self::Extraction(e) => retryable!(e),
-            Self::TopicMismatch => false,
-            Self::DynError(d) => retryable!(d),
-            Self::NotFound(_) => false,
-            Self::MissingBuilderField(_) => false,
-            Self::Store(s) => retryable!(s),
-            Self::Decode(_) => true,
-        }
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of [`EnvelopeError`] after its
+    //! migration to `#[derive(Retryable)]`.
+    use super::*;
+
+    /// A real `prost::DecodeError` (`DecodeError::new` is deprecated).
+    fn decode_error() -> prost::DecodeError {
+        <() as prost::Message>::decode(b"\xff".as_slice()).unwrap_err()
+    }
+
+    #[xmtp_common::test]
+    fn envelope_error_decode_is_retryable() {
+        // Previously: `Self::Decode(_) => true,`
+        assert!(EnvelopeError::Decode(decode_error()).is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn envelope_error_non_retryable_variants() {
+        // Previously: `Self::TopicMismatch => false,`
+        assert!(!EnvelopeError::TopicMismatch.is_retryable());
+        // Previously: `Self::NotFound(_) => false,`
+        assert!(!EnvelopeError::NotFound("envelope").is_retryable());
     }
 }

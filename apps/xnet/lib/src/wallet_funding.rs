@@ -11,7 +11,7 @@ use alloy::{
 };
 use color_eyre::eyre::{Context, Result};
 use tracing::info;
-use xmtp_common::{Retry, RetryableError, retry_async};
+use xmtp_common::{Retry, Retryable, retry_async};
 
 /// Default funding amount for new nodes (in ETH)
 const DEFAULT_FUNDING_AMOUNT_ETH: &str = "1000";
@@ -72,6 +72,8 @@ pub async fn fund_wallet(
     Ok(())
 }
 
+#[derive(Retryable)]
+#[retry(true)]
 pub struct SetBalanceFailure(Box<dyn std::error::Error + Send + Sync>);
 
 impl std::error::Error for SetBalanceFailure {
@@ -89,12 +91,6 @@ impl std::fmt::Display for SetBalanceFailure {
 impl std::fmt::Debug for SetBalanceFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self, f)
-    }
-}
-
-impl RetryableError for SetBalanceFailure {
-    fn is_retryable(&self) -> bool {
-        true
     }
 }
 

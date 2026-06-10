@@ -19,7 +19,7 @@ pub use stream::*;
 pub use v3::*;
 
 use std::collections::HashMap;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::Retryable;
 use xmtp_proto::{
     ConversionError,
     api::{self, ApiClientError, BodyError, Client, Query},
@@ -69,15 +69,17 @@ pub(crate) async fn build_node_clients(
     Ok(clients)
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum QueryError {
     #[error(transparent)]
+    #[retry(inherit)]
     ApiClient(#[from] ApiClientError),
     #[error(transparent)]
     Envelope(#[from] crate::protocol::EnvelopeError),
     #[error(transparent)]
     Conversion(#[from] ConversionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Body(#[from] BodyError),
 }
 
@@ -87,13 +89,33 @@ impl From<crate::protocol::EnvelopeError> for ApiClientError {
     }
 }
 
-impl RetryableError for QueryError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::ApiClient(c) => retryable!(c),
-            Self::Envelope(_e) => false,
-            Self::Conversion(_c) => false,
-            Self::Body(b) => retryable!(b),
-        }
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of [`QueryError`] after its
+    //! migration to `#[derive(Retryable)]`.
+    use super::*;
+    use xmtp_common::RetryableError;
+
+    /// A real `prost::DecodeError` (`DecodeError::new` is deprecated).
+    fn decode_error() -> prost::DecodeError {
+        <() as prost::Message>::decode(b"\xff".as_slice()).unwrap_err()
+    }
+
+    #[xmtp_common::test]
+    fn query_error_api_client_inherits() {
+        // Previously: `Self::ApiClient(c) => retryable!(c),`
+        let retryable = ApiClientError::Expired(xmtp_common::time::Expired);
+        assert!(QueryError::ApiClient(retryable).is_retryable());
+        let unretryable = ApiClientError::WritesDisabled;
+        assert!(!QueryError::ApiClient(unretryable).is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn query_error_envelope_is_never_retryable() {
+        // Previously: `Self::Envelope(_e) => false,` — even when the inner
+        // envelope error is itself retryable.
+        let inner = crate::protocol::EnvelopeError::Decode(decode_error());
+        assert!(inner.is_retryable());
+        assert!(!QueryError::Envelope(inner).is_retryable());
     }
 }

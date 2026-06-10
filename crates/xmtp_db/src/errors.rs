@@ -13,17 +13,19 @@ use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
 pub struct Mls;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum StorageError {
     /// Diesel connection error.
     ///
     /// Failed to connect to SQLite. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     DieselConnect(#[from] diesel::ConnectionError),
     /// Diesel result error.
     ///
     /// Database query returned an error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     DieselResult(#[from] diesel::result::Error),
     /// Migration error.
     ///
@@ -39,11 +41,13 @@ pub enum StorageError {
     ///
     /// Attempted to insert a duplicate record. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Duplicate(DuplicateItem),
     /// OpenMLS storage error.
     ///
     /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
     /// Intentional rollback.
     ///
@@ -69,6 +73,7 @@ pub enum StorageError {
     ///
     /// Platform-specific storage error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Platform(#[from] crate::database::PlatformStorageError),
     /// Protobuf decode error.
     ///
@@ -84,6 +89,7 @@ pub enum StorageError {
     ///
     /// Database connection error. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Connection(#[from] crate::ConnectionError),
     /// Invalid HMAC length.
     ///
@@ -94,6 +100,7 @@ pub enum StorageError {
     ///
     /// Group intent processing failed. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     GroupIntent(#[from] GroupIntentError),
 }
 
@@ -248,29 +255,6 @@ impl RetryableError<Mls> for diesel::result::Error {
             // so best is probably to return true here and map known errors to something else
             // that is not retryable.
             _ => true,
-        }
-    }
-}
-
-impl RetryableError for StorageError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::DieselConnect(_) => true,
-            Self::DieselResult(result) => retryable!(result),
-            Self::Duplicate(d) => retryable!(d),
-            Self::OpenMlsStorage(storage) => retryable!(storage),
-            Self::Platform(p) => retryable!(p),
-            Self::Connection(e) => retryable!(e),
-            Self::GroupIntent(e) => retryable!(e),
-            Self::MigrationError(_)
-            | Self::Conversion(_)
-            | Self::NotFound(_)
-            | Self::IntentionalRollback
-            | Self::DbDeserialize
-            | Self::DbSerialize
-            | Self::Builder(_)
-            | Self::InvalidHmacLength
-            | Self::Prost(_) => false,
         }
     }
 }
@@ -525,5 +509,32 @@ mod retryable_golden_tests {
         // Previously: both variants hardcoded `false`.
         assert!(!DuplicateItem::WelcomeId(Some(Cursor::default())).is_retryable());
         assert!(!DuplicateItem::CommitLogPublicKey(vec![1, 2, 3]).is_retryable());
+    }
+
+    #[test]
+    fn storage_error_diesel_connect_is_retryable() {
+        // Previously: `Self::DieselConnect(_) => true,`
+        let err = diesel::ConnectionError::BadConnection("nope".into());
+        assert!(StorageError::DieselConnect(err).is_retryable());
+    }
+
+    #[test]
+    fn storage_error_inherits_diesel_result() {
+        use diesel::result::{DatabaseErrorKind, Error};
+        // Previously: `Self::DieselResult(result) => retryable!(result),`
+        let unique = Error::DatabaseError(
+            DatabaseErrorKind::UniqueViolation,
+            Box::new(String::from("dup")),
+        );
+        assert!(!StorageError::DieselResult(unique).is_retryable());
+        assert!(StorageError::DieselResult(Error::NotFound).is_retryable());
+    }
+
+    #[test]
+    fn storage_error_baseline_variants_not_retryable() {
+        // Previously: grouped in the `=> false` arm.
+        assert!(!StorageError::IntentionalRollback.is_retryable());
+        assert!(!StorageError::InvalidHmacLength.is_retryable());
+        assert!(!StorageError::DbSerialize.is_retryable());
     }
 }

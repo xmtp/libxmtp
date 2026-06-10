@@ -15,7 +15,7 @@ use diesel::{
 use parking_lot::Mutex;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_common::{BoxDynError, ErrorCode, RetryableError, retryable};
+use xmtp_common::{BoxDynError, ErrorCode, Retryable};
 use xmtp_configuration::{BUSY_TIMEOUT, MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 
 use pool::*;
@@ -150,23 +150,29 @@ impl StorageOption {
     }
 }
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum PlatformStorageError {
     /// Pool error.
     ///
     /// Database connection pool error. Retryable.
     #[error("Pool error: {0}")]
+    #[retry(true)]
     Pool(#[from] diesel::r2d2::PoolError),
     /// DB connection error.
     ///
     /// R2D2 connection manager error (e.g. a failed `on_acquire` while
     /// establishing a connection). Transient — retryable.
+    // An r2d2 connection-setup error (e.g. a failed `on_acquire` when
+    // establishing the single connection) is transient — retryable, in
+    // line with how the pooled checkout path classifies the same failure.
     #[error("Error with connection to Sqlite {0}")]
+    #[retry(true)]
     DbConnection(#[from] diesel::r2d2::Error),
     /// Pool needs connection.
     ///
     /// Pool must reconnect before use. Retryable.
     #[error("Pool needs to  reconnect before use")]
+    #[retry(true)]
     PoolNeedsConnection,
     /// Pool requires path.
     ///
@@ -177,6 +183,7 @@ pub enum PlatformStorageError {
     ///
     /// Encryption key given but SQLCipher not available. Retryable.
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
+    #[retry(true)]
     SqlCipherNotLoaded,
     /// SQLCipher key incorrect.
     ///
@@ -187,11 +194,13 @@ pub enum PlatformStorageError {
     ///
     /// Database file is locked by another process. Retryable.
     #[error("Database is locked")]
+    #[retry(true)]
     DatabaseLocked,
     /// Diesel result error.
     ///
     /// Database query error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     DieselResult(#[from] diesel::result::Error),
     /// Not found.
     ///
@@ -202,6 +211,7 @@ pub enum PlatformStorageError {
     ///
     /// File system I/O error. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Io(#[from] std::io::Error),
     /// Hex decode error.
     ///
@@ -212,33 +222,13 @@ pub enum PlatformStorageError {
     ///
     /// Failed to establish connection. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     DieselConnect(#[from] diesel::ConnectionError),
     /// Boxed error.
     ///
     /// Wrapped dynamic error. Not retryable.
     #[error(transparent)]
     Boxed(#[from] BoxDynError),
-}
-
-impl RetryableError for PlatformStorageError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Pool(_) => true,
-            // An r2d2 connection-setup error (e.g. a failed `on_acquire` when
-            // establishing the single connection) is transient — retryable, in
-            // line with how the pooled checkout path classifies the same failure.
-            Self::DbConnection(_) => true,
-            Self::SqlCipherNotLoaded => true,
-            Self::PoolNeedsConnection => true,
-            Self::SqlCipherKeyIncorrect => false,
-            Self::DatabaseLocked => true,
-            Self::DieselResult(result) => retryable!(result),
-            Self::Io(_) => true,
-            Self::DieselConnect(_) => true,
-
-            _ => false,
-        }
-    }
 }
 
 /// Database used in `native` (everywhere but web)
@@ -679,6 +669,26 @@ mod tests {
     use super::*;
     use crate::{Fetch, Store, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
+
+    #[test]
+    fn platform_storage_error_retryable_golden() {
+        use xmtp_common::RetryableError;
+        // Previously: `Self::DatabaseLocked => true,`
+        assert!(PlatformStorageError::DatabaseLocked.is_retryable());
+        // Previously: `Self::PoolNeedsConnection => true,`
+        assert!(PlatformStorageError::PoolNeedsConnection.is_retryable());
+        // Previously: `Self::SqlCipherNotLoaded => true,`
+        assert!(PlatformStorageError::SqlCipherNotLoaded.is_retryable());
+        // Previously: `Self::Io(_) => true,`
+        assert!(PlatformStorageError::Io(std::io::Error::other("io")).is_retryable());
+        // Previously: `Self::DieselResult(result) => retryable!(result),`
+        assert!(PlatformStorageError::DieselResult(diesel::result::Error::NotFound).is_retryable());
+        // Previously: `Self::SqlCipherKeyIncorrect => false,`
+        assert!(!PlatformStorageError::SqlCipherKeyIncorrect.is_retryable());
+        // Previously: the `_ => false` catch-all.
+        assert!(!PlatformStorageError::PoolRequiresPath.is_retryable());
+        assert!(!PlatformStorageError::FromHex(hex::FromHexError::OddLength).is_retryable());
+    }
 
     #[tokio::test]
     async fn releases_db_lock() {

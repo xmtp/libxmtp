@@ -51,7 +51,7 @@ pub use diesel::{
 };
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, Retryable};
 use xmtp_proto::ConversionError;
 use zeroize::ZeroizeOnDrop;
 
@@ -136,15 +136,17 @@ impl std::fmt::Display for StorageOption {
     }
 }
 
-#[derive(thiserror::Error, Debug, ErrorCode)]
+#[derive(thiserror::Error, Debug, ErrorCode, Retryable)]
 pub enum ConnectionError {
     /// Database error.
     ///
     /// Diesel database query error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(inherit)]
     Platform(#[from] PlatformStorageError),
     /// Decode error.
     ///
@@ -155,11 +157,13 @@ pub enum ConnectionError {
     ///
     /// Cannot disconnect while transaction is active. Retryable.
     #[error("disconnect not possible in transaction")]
+    #[retry(true)]
     DisconnectInTransaction,
     /// Reconnect in transaction.
     ///
     /// Cannot reconnect while transaction is active. Retryable.
     #[error("reconnect not possible in transaction")]
+    #[retry(true)]
     ReconnectInTransaction,
     /// Invalid query.
     ///
@@ -175,20 +179,6 @@ pub enum ConnectionError {
     Expected: {expected}, found: {found}"
     )]
     InvalidVersion { expected: String, found: String },
-}
-
-impl RetryableError for ConnectionError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Database(d) => d.is_retryable(),
-            Self::Platform(n) => n.is_retryable(),
-            Self::DecodeError(_) => false,
-            Self::DisconnectInTransaction => true,
-            Self::ReconnectInTransaction => true,
-            Self::InvalidQuery(_) => false,
-            Self::InvalidVersion { .. } => false,
-        }
-    }
 }
 
 impl ConnectionError {
@@ -602,5 +592,47 @@ mod db_needs_connection_tests {
 
         // A non-pool error must NOT be classified as needing a reconnect.
         assert!(!StorageError::DbSerialize.db_needs_connection());
+    }
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of [`ConnectionError`] after its
+    //! migration to `#[derive(Retryable)]`.
+    use super::*;
+    use xmtp_common::RetryableError;
+
+    #[xmtp_common::test]
+    fn connection_error_transaction_variants_are_retryable() {
+        // Previously: `Self::DisconnectInTransaction => true,`
+        assert!(ConnectionError::DisconnectInTransaction.is_retryable());
+        // Previously: `Self::ReconnectInTransaction => true,`
+        assert!(ConnectionError::ReconnectInTransaction.is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn connection_error_inherits_database() {
+        use diesel::result::{DatabaseErrorKind, Error};
+        // Previously: `Self::Database(d) => d.is_retryable(),`
+        assert!(ConnectionError::Database(Error::NotFound).is_retryable());
+        let unique = Error::DatabaseError(
+            DatabaseErrorKind::UniqueViolation,
+            Box::new(String::from("dup")),
+        );
+        assert!(!ConnectionError::Database(unique).is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn connection_error_non_retryable_variants() {
+        // Previously: `Self::InvalidQuery(_) => false,`
+        assert!(!ConnectionError::InvalidQuery("bad query".into()).is_retryable());
+        // Previously: `Self::InvalidVersion { .. } => false,`
+        assert!(
+            !ConnectionError::InvalidVersion {
+                expected: "2".into(),
+                found: "1".into()
+            }
+            .is_retryable()
+        );
     }
 }

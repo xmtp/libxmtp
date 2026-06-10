@@ -2,23 +2,27 @@ use std::fmt::Display;
 
 use crate::{ApiEndpoint, ProtoError};
 use thiserror::Error;
-use xmtp_common::{BoxDynError, Retryable, RetryableError, retryable};
+use xmtp_common::{BoxDynError, Retryable, RetryableError};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 #[non_exhaustive]
 pub enum ApiClientError {
     /// The client encountered an error.
     #[error("api client at endpoint \"{}\" has error {}", endpoint, source)]
+    #[retry(when = source.is_retryable())]
     ClientWithEndpoint {
         endpoint: String,
         /// The client error.
         source: NetworkError,
     },
     #[error("client errored {}", source)]
+    #[retry(inherit)]
     Client { source: NetworkError },
     #[error(transparent)]
+    #[retry(true)]
     Http(#[from] http::Error),
     #[error(transparent)]
+    #[retry(inherit)]
     Body(#[from] BodyError),
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
@@ -29,8 +33,10 @@ pub enum ApiClientError {
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
     #[error(transparent)]
+    #[retry(true)]
     Expired(#[from] xmtp_common::time::Expired),
     #[error("{0}")]
+    #[retry(inherit)]
     Other(Box<dyn RetryableError>),
     #[error("{0}")]
     OtherUnretryable(BoxDynError),
@@ -109,26 +115,6 @@ impl ApiClientError {
     }
 }
 
-impl RetryableError for ApiClientError {
-    fn is_retryable(&self) -> bool {
-        use ApiClientError::*;
-        match self {
-            Client { source } => retryable!(*source),
-            ClientWithEndpoint { source, .. } => retryable!(source),
-            Body(e) => retryable!(e),
-            Http(_) => true,
-            DecodeError(_) => false,
-            Conversion(_) => false,
-            ProtoError(_) => false,
-            InvalidUri(_) => false,
-            Expired(_) => true,
-            Other(r) => retryable!(r),
-            OtherUnretryable(_) => false,
-            WritesDisabled => false,
-        }
-    }
-}
-
 // Infallible errors by definition can never occur
 impl From<std::convert::Infallible> for ApiClientError {
     fn from(_v: std::convert::Infallible) -> ApiClientError {
@@ -142,4 +128,54 @@ pub enum BodyError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of [`ApiClientError`] after its
+    //! migration to `#[derive(Retryable)]`.
+    use super::*;
+
+    /// A real `prost::DecodeError` (`DecodeError::new` is deprecated).
+    fn decode_error() -> prost::DecodeError {
+        <() as prost::Message>::decode(b"\xff".as_slice()).unwrap_err()
+    }
+
+    #[xmtp_common::test]
+    fn api_client_error_http_and_expired_are_retryable() {
+        // Previously: `Http(_) => true,`
+        let http_err = http::Error::from("".parse::<http::Uri>().unwrap_err());
+        assert!(ApiClientError::Http(http_err).is_retryable());
+        // Previously: `Expired(_) => true,`
+        assert!(ApiClientError::Expired(xmtp_common::time::Expired).is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn api_client_error_client_variants_forward_to_source() {
+        // Previously: `Client { source } => retryable!(*source),`
+        let retryable_net = NetworkError::new(ApiClientError::Expired(xmtp_common::time::Expired));
+        assert!(
+            ApiClientError::Client {
+                source: retryable_net
+            }
+            .is_retryable()
+        );
+        // Previously: `ClientWithEndpoint { source, .. } => retryable!(source),`
+        let unretryable_net = NetworkError::new(ApiClientError::WritesDisabled);
+        assert!(
+            !ApiClientError::ClientWithEndpoint {
+                endpoint: "endpoint".into(),
+                source: unretryable_net
+            }
+            .is_retryable()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn api_client_error_non_retryable_variants() {
+        // Previously: `DecodeError(_) => false,`
+        assert!(!ApiClientError::DecodeError(decode_error()).is_retryable());
+        // Previously: `WritesDisabled => false,`
+        assert!(!ApiClientError::WritesDisabled.is_retryable());
+    }
 }

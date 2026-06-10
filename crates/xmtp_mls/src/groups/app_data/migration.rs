@@ -44,7 +44,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
 /// Sender-side bootstrap synthesis errors.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, xmtp_common::Retryable)]
 pub enum BootstrapSynthesisError {
     #[error(transparent)]
     Common(#[from] CommonMigrationError),
@@ -52,7 +52,15 @@ pub enum BootstrapSynthesisError {
     /// Bootstrap can't fall back silently: a missing installation list
     /// means we can't partition `failed_installations`, so we surface
     /// the lookup error rather than emit incorrect bytes.
+    // Most synthesis failures are deterministic over the inputs and
+    // not retryable (decode errors, registry-shape mismatches, common
+    // migration validation). The exception is `IdentityUpdateLookup`,
+    // which wraps a [`crate::client::ClientError`] that can carry a
+    // transient API failure (network blip, server 5xx). Delegate
+    // retryability to the wrapped client error so a momentary blip
+    // during bootstrap doesn't permanently fail the intent.
     #[error("identity-update lookup failed for inbox {inbox_id}: {source}")]
+    #[retry(when = source.is_retryable())]
     IdentityUpdateLookup {
         inbox_id: String,
         #[source]
@@ -92,26 +100,6 @@ pub enum BootstrapSynthesisError {
     /// `?` operator needs a conversion.
     #[error("wire delta encode: {0}")]
     TlsCodec(#[from] tls_codec::Error),
-}
-
-impl xmtp_common::retry::RetryableError for BootstrapSynthesisError {
-    /// Most synthesis failures are deterministic over the inputs and
-    /// not retryable (decode errors, registry-shape mismatches, common
-    /// migration validation). The exception is `IdentityUpdateLookup`,
-    /// which wraps a [`crate::client::ClientError`] that can carry a
-    /// transient API failure (network blip, server 5xx). Delegate
-    /// retryability to the wrapped client error so a momentary blip
-    /// during bootstrap doesn't permanently fail the intent.
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::IdentityUpdateLookup { source, .. } => source.is_retryable(),
-            Self::Common(_)
-            | Self::LegacyMembershipDecode(_)
-            | Self::RegistryReEncode(_)
-            | Self::SequenceIdOverflow { .. }
-            | Self::TlsCodec(_) => false,
-        }
-    }
 }
 
 /// Synthesize the full `AppDataUpdate` payload set the bootstrap
@@ -870,5 +858,56 @@ mod tests {
         let again =
             synthesize_initial_component_values_from_extensions(&alix.context, &exts).await?;
         assert_eq!(out, again, "bootstrap synthesis must be byte-stable");
+    }
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of [`BootstrapSynthesisError`]
+    //! after its migration to `#[derive(Retryable)]`.
+    use super::*;
+    use xmtp_common::RetryableError;
+
+    /// A real `prost::DecodeError` (`DecodeError::new` is deprecated).
+    fn decode_error() -> prost::DecodeError {
+        <() as prost::Message>::decode(b"\xff".as_slice()).unwrap_err()
+    }
+
+    #[xmtp_common::test]
+    fn identity_update_lookup_forwards_to_source() {
+        // Previously: `Self::IdentityUpdateLookup { source, .. } => source.is_retryable(),`
+        let retryable_source =
+            crate::client::ClientError::Storage(xmtp_db::StorageError::DieselConnect(
+                xmtp_db::diesel::ConnectionError::BadConnection("nope".into()),
+            ));
+        assert!(
+            BootstrapSynthesisError::IdentityUpdateLookup {
+                inbox_id: "inbox".into(),
+                source: retryable_source
+            }
+            .is_retryable()
+        );
+        let unretryable_source =
+            crate::client::ClientError::Storage(xmtp_db::StorageError::IntentionalRollback);
+        assert!(
+            !BootstrapSynthesisError::IdentityUpdateLookup {
+                inbox_id: "inbox".into(),
+                source: unretryable_source
+            }
+            .is_retryable()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn deterministic_failures_are_not_retryable() {
+        // Previously: grouped `=> false` arm.
+        assert!(!BootstrapSynthesisError::LegacyMembershipDecode(decode_error()).is_retryable());
+        assert!(
+            !BootstrapSynthesisError::SequenceIdOverflow {
+                inbox_id: "inbox".into(),
+                sequence_id: u64::MAX
+            }
+            .is_retryable()
+        );
     }
 }

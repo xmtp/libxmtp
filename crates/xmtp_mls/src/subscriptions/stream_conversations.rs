@@ -23,24 +23,15 @@ use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, xmtp_common::Retryable)]
 pub enum ConversationStreamError {
     #[error("unexpected message type in welcome")]
     InvalidPayload,
     #[error("the conversation was filtered because of the given conversation type")]
     InvalidConversationType,
     #[error("the welcome pointer was not found")]
+    #[retry(true)]
     WelcomePointerNotFound,
-}
-
-impl xmtp_common::RetryableError for ConversationStreamError {
-    fn is_retryable(&self) -> bool {
-        use ConversationStreamError::*;
-        match self {
-            InvalidPayload | InvalidConversationType => false,
-            WelcomePointerNotFound => true,
-        }
-    }
 }
 
 pub enum WelcomeOrGroup {
@@ -697,5 +688,26 @@ mod test {
         for _ in 0..dms {
             let _welcome = stream.next().await;
         }
+    }
+}
+
+#[cfg(test)]
+mod retryable_golden_tests {
+    //! Golden tests pinning the retryability of [`ConversationStreamError`]
+    //! after its migration to `#[derive(Retryable)]`.
+    use super::*;
+    use xmtp_common::RetryableError;
+
+    #[xmtp_common::test]
+    fn welcome_pointer_not_found_is_retryable() {
+        // Previously: `WelcomePointerNotFound => true,`
+        assert!(ConversationStreamError::WelcomePointerNotFound.is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn invalid_variants_are_not_retryable() {
+        // Previously: `InvalidPayload | InvalidConversationType => false,`
+        assert!(!ConversationStreamError::InvalidPayload.is_retryable());
+        assert!(!ConversationStreamError::InvalidConversationType.is_retryable());
     }
 }
