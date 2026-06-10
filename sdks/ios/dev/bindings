@@ -1,6 +1,12 @@
 #!/bin/bash
 source "$(dirname "$0")/.setup"
 
+# Darwin only: Linux workstations build via remote Darwin builders, which
+# hold their own Xcode import.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    "$(dirname "$0")/.ensure-xcode"
+fi
+
 SWIFT_OUT="${ROOT}/bindings/mobile/build/swift"
 
 # --- Preflight sanity check on the nix binary cache ---
