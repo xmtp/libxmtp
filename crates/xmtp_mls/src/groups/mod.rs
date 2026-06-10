@@ -1146,7 +1146,7 @@ where
         self.commit_pending_proposals_if_any().await?;
 
         let message_id =
-            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
 
         self.sync_until_last_intent_resolved().await?;
 
@@ -1217,7 +1217,7 @@ where
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
         let message_id =
-            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
         Ok(message_id)
     }
 
@@ -1229,17 +1229,23 @@ where
     /// # Arguments
     /// * `message` - The message content bytes
     /// * `should_push` - Whether to send a push notification when publishing
+    /// * `idempotency_key` - Optional caller-supplied key the message id is
+    ///   derived from. Defaults to the send timestamp when `None`.
     ///
     /// Returns the message ID.
     pub fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
         should_push: bool,
+        idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, GroupError> {
         let now = now_ns();
+        // Resolve the key once: a caller-supplied key makes the resulting id
+        // deterministic; otherwise we fall back to the timestamp (always unique).
+        let idempotency_key = idempotency_key.unwrap_or_else(|| now.to_string());
         let queryable_content_fields = Self::extract_queryable_content_fields(message);
 
-        let message_id = calculate_message_id(self.group_id, message, &now.to_string());
+        let message_id = calculate_message_id(self.group_id, message, &idempotency_key);
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id,
@@ -1259,6 +1265,7 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,
+            idempotency_key,
         };
         group_message.store(&self.context.db())?;
 
@@ -1294,9 +1301,10 @@ where
             return Ok(());
         }
 
-        // Create envelope from stored message
+        // Create envelope from stored message, reusing the idempotency key the
+        // message id was derived from so receivers recompute the same id.
         let plain_envelope =
-            Self::into_envelope(&message.decrypted_message_bytes, message.sent_at_ns);
+            Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
@@ -1425,20 +1433,24 @@ where
         envelope: F,
     ) -> Result<Vec<u8>, GroupError>
     where
-        F: FnOnce(i64) -> PlaintextEnvelope,
+        F: FnOnce(&str) -> PlaintextEnvelope,
     {
         // Store the message locally first (with should_push preference)
-        let message_id = self.prepare_message_for_later_publish(message, opts.should_push)?;
+        let message_id = self.prepare_message_for_later_publish(
+            message,
+            opts.should_push,
+            opts.idempotency_key,
+        )?;
 
-        // Fetch the stored message to get the sent_at_ns timestamp
+        // Fetch the stored message to get the resolved idempotency key
         let stored_message = self
             .context
             .db()
             .get_group_message(&message_id)?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
 
-        // Create envelope using the stored timestamp for consistency
-        let plain_envelope = envelope(stored_message.sent_at_ns);
+        // Create envelope using the stored idempotency key so the id stays consistent
+        let plain_envelope = envelope(&stored_message.idempotency_key);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
@@ -1452,7 +1464,7 @@ where
         Ok(message_id)
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
         PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),

@@ -64,12 +64,18 @@ pub struct SendMessageOpts {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idempotency_key: Option<String>,
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
       should_push: opts.should_push,
+      idempotency_key: opts.idempotency_key,
     }
   }
 }
@@ -219,11 +225,16 @@ impl Conversation {
     &self,
     #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
     #[wasm_bindgen(js_name = shouldPush)] should_push: bool,
+    #[wasm_bindgen(js_name = idempotencyKey)] idempotency_key: Option<String>,
   ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
     let message_id = group
-      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .prepare_message_for_later_publish(
+        encoded_content.encode_to_vec().as_slice(),
+        should_push,
+        idempotency_key,
+      )
       .map_err(ErrorWrapper::js)?;
     Ok(hex::encode(message_id))
   }
@@ -250,6 +261,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: TextCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -264,6 +276,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: MarkdownCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -278,6 +291,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ReactionCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -292,6 +306,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ReplyCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -302,6 +317,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ReadReceiptCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -316,6 +332,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: AttachmentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -331,6 +348,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: RemoteAttachmentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -346,6 +364,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: MultiRemoteAttachmentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -361,6 +380,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: TransactionReferenceCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -377,6 +397,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: WalletSendCallsCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -391,6 +412,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ActionsCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -405,6 +427,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: IntentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -1037,6 +1060,7 @@ mod tests {
       sequence_id: 0,
       expire_at_ns: None,
       should_push: true,
+      idempotency_key: 1738354508964432000i64.to_string(),
     };
     crate::to_value(&stored_message).unwrap();
   }

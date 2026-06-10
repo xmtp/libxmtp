@@ -535,10 +535,11 @@ where
         let mut encoded_added_payload_bytes = Vec::new();
         encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
+        let added_idempotency_key = format!("{}_welcome_added", welcome.created_ns);
         let added_message_id = crate::utils::id::calculate_message_id(
             stored_group.id,
             encoded_added_payload_bytes.as_slice(),
-            &format!("{}_welcome_added", welcome.created_ns),
+            &added_idempotency_key,
         );
 
         let added_content_type = encoded_added_payload.r#type.unwrap_or_else(|| {
@@ -575,6 +576,8 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,
+            // Matches the key used to derive `added_message_id` above.
+            idempotency_key: added_idempotency_key,
         };
 
         added_msg.store_or_ignore(&db)?;

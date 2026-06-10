@@ -328,6 +328,7 @@ pub(crate) mod tests {
                         expire_at_ns: None,
                         inserted_at_ns: 0,
                         should_push: true,
+                        idempotency_key: timestamp.to_string(),
                     }))
                 });
             mock_db
@@ -416,6 +417,7 @@ pub(crate) mod tests {
                         expire_at_ns: None,
                         inserted_at_ns: 0,
                         should_push: true,
+                        idempotency_key: timestamp.to_string(),
                     }))
                 });
             mock_db.expect_future_dependents().returning(|_| Ok(vec![]));

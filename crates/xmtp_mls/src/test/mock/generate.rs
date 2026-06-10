@@ -176,5 +176,6 @@ pub fn generate_stored_msg(
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: true,
+        idempotency_key: 100.to_string(),
     }
 }

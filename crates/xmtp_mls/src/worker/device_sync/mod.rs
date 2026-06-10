@@ -321,11 +321,14 @@ where
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
-            send_message_opts::SendMessageOpts { should_push: false },
-            |now| PlaintextEnvelope {
+            send_message_opts::SendMessageOpts {
+                should_push: false,
+                idempotency_key: None,
+            },
+            |key| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
                     content: content_bytes.clone(),
-                    idempotency_key: now.to_string(),
+                    idempotency_key: key.to_string(),
                 })),
             },
         )?;

@@ -81,6 +81,9 @@ pub struct StoredGroupMessage {
     pub expire_at_ns: Option<i64>,
     /// Whether to send a push notification when publishing this message
     pub should_push: bool,
+    /// The idempotency key the message id is derived from. Defaults to the send
+    /// timestamp, but callers may supply their own to make retries idempotent.
+    pub idempotency_key: String,
 }
 
 impl StoredGroupMessage {
@@ -111,6 +114,7 @@ struct NewStoredGroupMessage {
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
     pub should_push: bool,
+    pub idempotency_key: String,
 }
 
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
@@ -133,6 +137,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             sequence_id: msg.sequence_id,
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
+            idempotency_key: msg.idempotency_key.clone(),
         }
     }
 }
