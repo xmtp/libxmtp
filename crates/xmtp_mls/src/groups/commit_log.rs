@@ -24,7 +24,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
     group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
-    local_commit_log::LocalCommitLogOrder,
+    local_commit_log::{CommitType, LocalCommitLogOrder},
     prelude::*,
     readd_status::QueryReaddStatus,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
@@ -333,18 +333,30 @@ where
             // Step 2: collect all the commit log entries for this conversation
             // Local commit log entries are returned sorted in ascending order of `rowid`
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
-            let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
-                conn.get_local_commit_log_after_cursor(
-                    &conversation.id,
-                    published_commit_log_cursor as i64,
-                    LocalCommitLogOrder::AscendingByRowid,
-                )?
+            let logs = conn.get_local_commit_log_after_cursor(
+                &conversation.id,
+                published_commit_log_cursor as i64,
+                LocalCommitLogOrder::AscendingByRowid,
+            )?;
+            // A commit that removed us is recorded locally (RemovedFromGroup,
+            // with the pre-commit epoch/authenticator) for debuggability, but
+            // must never be published: it does not attest the new epoch and
+            // could shadow the real consensus entry published by the
+            // remaining members. In practice a removed member is not a
+            // publisher (only super admins and DM participants publish, super
+            // admins cannot be removed, and DMs have no removals) — this
+            // filter makes that property structural. The publish cursor still
+            // advances past skipped rows.
+            let removed_from_group_marker = CommitType::RemovedFromGroup.to_string();
+            let max_rowid = logs.last().map(|log| log.rowid);
+            let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = logs
                 .iter()
-                .map(|log| (PlaintextCommitLogEntry::from(log), log.rowid))
-                .unzip();
+                .filter(|log| log.commit_type.as_deref() != Some(removed_from_group_marker.as_str()))
+                .map(PlaintextCommitLogEntry::from)
+                .collect();
 
             // Step 3: Compile the conversation cursor info and all the commit log entries for this conversation
-            if let Some(max_rowid) = rowids.into_iter().last() {
+            if let Some(max_rowid) = max_rowid {
                 let signed_entries =
                     self.sign_group_logs(conversation, &plaintext_commit_log_entries)?;
                 all_entries.extend(signed_entries);
