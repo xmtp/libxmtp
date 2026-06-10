@@ -392,6 +392,7 @@ mod tests {
             commit_log_public_key: None,
             is_commit_log_forked: None,
             has_pending_leave_request: None,
+            epoch_entered_at_ns: None,
         };
         group.store(conn).unwrap();
         group_id

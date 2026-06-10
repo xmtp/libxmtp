@@ -121,6 +121,7 @@ pub async fn create_dm_with_consent(
             fork_details: Default::default(),
             commit_log_public_key: None,
             has_pending_leave_request: None,
+            epoch_entered_at_ns: None,
             installations_last_checked: now_ns(),
             is_commit_log_forked: None,
             last_message_ns: None,
