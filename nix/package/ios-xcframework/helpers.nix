@@ -38,41 +38,69 @@ rec {
   # lib.generators.toPlist. Keeps escaping and formatting consistent with nixpkgs
   # plist conventions instead of an inline heredoc.
   mkInfoPlist =
-    minOSVersion:
+    minOSVersion: isMacOS:
     writeText "Info.plist" (
-      lib.generators.toPlist { escape = true; } {
-        CFBundleExecutable = "xmtpv3FFI";
-        CFBundleIdentifier = "org.xmtp.xmtpv3FFI";
-        CFBundleInfoDictionaryVersion = "6.0";
-        CFBundleName = "xmtpv3FFI";
-        CFBundlePackageType = "FMWK";
-        CFBundleVersion = "1";
-        CFBundleShortVersionString = "1.0";
-        MinimumOSVersion = minOSVersion;
-      }
+      lib.generators.toPlist { escape = true; } (
+        {
+          CFBundleExecutable = "xmtpv3FFI";
+          CFBundleIdentifier = "org.xmtp.xmtpv3FFI";
+          CFBundleInfoDictionaryVersion = "6.0";
+          CFBundleName = "xmtpv3FFI";
+          CFBundlePackageType = "FMWK";
+          CFBundleVersion = "1";
+          CFBundleShortVersionString = "1.0";
+        }
+        # macOS frameworks declare LSMinimumSystemVersion; iOS uses
+        # MinimumOSVersion.
+        // (
+          if isMacOS then { LSMinimumSystemVersion = minOSVersion; } else { MinimumOSVersion = minOSVersion; }
+        )
+      )
     );
 
   # Wrap a (possibly lipo'd) dylib in a .framework bundle for
-  # xcodebuild -create-xcframework -framework <fw>.
+  # xcodebuild -create-xcframework -framework <fw>. iOS frameworks are
+  # flat; macOS frameworks require the versioned Versions/A layout with
+  # top-level symlinks and Info.plist under Resources/.
   mkFrameworkBundle =
     {
       name,
       dylibPath,
       minOSVersion,
       headerDir,
+      isMacOS ? false,
     }:
+    let
+      fw = "$TMPDIR/${name}/xmtpv3FFI.framework";
+      contentDir = if isMacOS then "${fw}/Versions/A" else fw;
+      plistDest = if isMacOS then "${contentDir}/Resources/Info.plist" else "${fw}/Info.plist";
+      dylibId =
+        if isMacOS then
+          "@rpath/xmtpv3FFI.framework/Versions/A/xmtpv3FFI"
+        else
+          "@rpath/xmtpv3FFI.framework/xmtpv3FFI";
+    in
     ''
       echo "Building framework bundle: ${name}"
-      mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Headers
-      mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Modules
-      cp ${dylibPath} $TMPDIR/${name}/xmtpv3FFI.framework/xmtpv3FFI
-      install_name_tool -id @rpath/xmtpv3FFI.framework/xmtpv3FFI \
-        $TMPDIR/${name}/xmtpv3FFI.framework/xmtpv3FFI
-      cp ${headerDir}/*.h $TMPDIR/${name}/xmtpv3FFI.framework/Headers/
+      mkdir -p ${contentDir}/Headers ${contentDir}/Modules
+      ${lib.optionalString isMacOS "mkdir -p ${contentDir}/Resources"}
+      cp ${dylibPath} ${contentDir}/xmtpv3FFI
+      # store copies are read-only; install_name_tool and rcodesign both
+      # rewrite the binary in place
+      chmod u+w ${contentDir}/xmtpv3FFI
+      install_name_tool -id ${dylibId} ${contentDir}/xmtpv3FFI
+      cp ${headerDir}/*.h ${contentDir}/Headers/
       sed 's/^module /framework module /' \
         ${headerDir}/module.modulemap \
-        > $TMPDIR/${name}/xmtpv3FFI.framework/Modules/module.modulemap
-      cp ${mkInfoPlist minOSVersion} $TMPDIR/${name}/xmtpv3FFI.framework/Info.plist
-      rcodesign sign $TMPDIR/${name}/xmtpv3FFI.framework
+        > ${contentDir}/Modules/module.modulemap
+      cp ${mkInfoPlist minOSVersion isMacOS} ${plistDest}
+      ${lib.optionalString isMacOS ''
+        ln -s A ${fw}/Versions/Current
+        ln -s Versions/Current/xmtpv3FFI ${fw}/xmtpv3FFI
+        ln -s Versions/Current/Headers ${fw}/Headers
+        ln -s Versions/Current/Modules ${fw}/Modules
+        ln -s Versions/Current/Resources ${fw}/Resources
+      ''}
+      rcodesign sign ${fw}
     '';
 }

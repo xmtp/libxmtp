@@ -7,7 +7,7 @@
   };
 
   inputs = {
-    # Cross pkgsets apply the iOS branch (NixOS/nixpkgs#512100) as a patch
+    # Cross pkgsets apply the upstream iOS branch as a patch
     # on top — see nixpkgs-patched in nix/lib/default.nix.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     fenix = {

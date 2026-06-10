@@ -37,7 +37,9 @@ mkShell (
       zlib
     ];
 
-    inherit (base.commonArgs) nativeBuildInputs;
+    # rustBase, not commonArgs: carries the nix git needed for eval-time
+    # builtins.fetchGit under the shell's LD_LIBRARY_PATH.
+    inherit (shellCommon.rustBase) nativeBuildInputs;
 
     buildInputs =
       base.commonArgs.buildInputs

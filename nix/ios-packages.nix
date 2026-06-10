@@ -64,11 +64,14 @@
         else
           throw "Unsupported host architecture for ios-libs-fast";
 
-      # xcframework derivations are host-side packaging tools — call them through
-      # the local cross-pkgs so darwin.xcode auto-resolves via crossSystem.xcodeVer.
-      hostPkgs = crossPkgs.${fastAbi};
-      xcode-tools = hostPkgs.callPackage ./lib/packages/xcode-tools.nix { };
-      xcframework = hostPkgs.callPackage ./package/ios-xcframework { inherit xcode-tools; };
+      # xcframework derivations are host-side packaging tools — call them
+      # through NATIVE pkgs (substitutable stdenv) and resolve Xcode
+      # explicitly. A cross pkgset with xcodeVer would rebuild its whole
+      # bootstrap from source just to run lipo/xcodebuild.
+      xcode-tools = pkgs.callPackage ./lib/packages/xcode-tools.nix {
+        inherit (iosCommon) xcodeVer;
+      };
+      xcframework = pkgs.callPackage ./package/ios-xcframework { inherit xcode-tools; };
 
       allAbis = lib.attrNames iosDylibs;
       fastAbis = [
@@ -86,6 +89,10 @@
         abis = allAbis;
         dylibs = iosDylibs;
         swiftBindings = swift-bindings;
+        iosMinVersion = iosCommon.darwinMinVersion + ".0";
+        # Pinned constant (matches the darwin toolchain default) so the
+        # advertised floor doesn't vary with the build host's architecture.
+        macMinVersion = "14.0";
         inherit version;
       };
       ios-xcframework-static-fast = xcframework.mkStatic {
@@ -139,24 +146,29 @@
           ]
         );
 
-      ios-libs-fast = mkLibs "xmtpv3-ios-fast" [ fastAbi ];
+      ios-libs-fast = mkLibs "xmtpv3-ios-fast" fastAbis;
       ios-libs = mkLibs "xmtpv3-ios" allAbis;
     in
     {
-      packages = {
-        inherit
-          ios-libs
-          ios-libs-fast
-          swift-bindings
-          ios-xcframework-static
-          ios-xcframework-dynamic
-          ios-release
-          ios-devFast
-          ;
-      }
-      // lib.mapAttrs' (abi: dylib: {
-        name = "ios-bindings-${abi}";
-        value = dylib;
-      }) iosDylibs;
+      # iOS packaging needs darwin.xcode — only exposed on Darwin hosts.
+      # Linux workstations build via .#packages.aarch64-darwin.<attr> on a
+      # remote Darwin builder.
+      packages = lib.optionalAttrs pkgs.stdenv.isDarwin (
+        {
+          inherit
+            ios-libs
+            ios-libs-fast
+            swift-bindings
+            ios-xcframework-static
+            ios-xcframework-dynamic
+            ios-release
+            ios-devFast
+            ;
+        }
+        // lib.mapAttrs' (abi: dylib: {
+          name = "ios-bindings-${abi}";
+          value = dylib;
+        }) iosDylibs
+      );
     };
 }
