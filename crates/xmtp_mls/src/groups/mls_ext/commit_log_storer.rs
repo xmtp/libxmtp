@@ -170,6 +170,31 @@ impl CommitLogStorer for MlsGroup {
     ) -> Result<(), GroupMessageProcessingError> {
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
+        let applied_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
+
+        // Invariant: a successful staged-commit merge always advances the
+        // epoch and therefore changes the epoch authenticator. If the
+        // authenticator did not change, the group state we merged onto was
+        // corrupt/torn (e.g. a cross-process race on a shared MLS DB handed
+        // us a reloaded group that already carried the post-commit epoch
+        // secrets). Recording a Success entry here would persist a forked
+        // commit log (observed in production as applied == last at the same
+        // epoch). Refuse instead: this error is retryable, so the enclosing
+        // transaction (cursor advance + merge + log write) rolls back and the
+        // message is reprocessed against settled state.
+        if applied_epoch_authenticator == last_epoch_authenticator {
+            tracing::error!(
+                group_id = hex::encode(self.group_id().as_slice()),
+                commit_sequence_id = sequence_id,
+                epoch = self.epoch().as_u64(),
+                "staged commit merge did not advance the epoch authenticator; \
+                 refusing to record corrupt commit log entry"
+            );
+            return Err(GroupMessageProcessingError::EpochAuthenticatorNotAdvanced {
+                commit_sequence_id: sequence_id,
+                epoch: self.epoch().as_u64(),
+            });
+        }
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
@@ -178,7 +203,7 @@ impl CommitLogStorer for MlsGroup {
                 last_epoch_authenticator,
                 commit_result: CommitResult::Success,
                 applied_epoch_number: self.epoch().as_u64() as i64,
-                applied_epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
+                applied_epoch_authenticator,
                 sender_inbox_id: Some(validated_commit.actor_inbox_id()),
                 sender_installation_id: Some(validated_commit.actor_installation_id()),
                 commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
