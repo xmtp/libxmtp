@@ -592,7 +592,6 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 }
 
 /// Regression test for the corrupt commit-log write observed in production
-/// (Convos group `e08a717548dc996845dc1f2d6986bdd0`, debug bundle `6E527FC8`).
 ///
 /// The local commit log on the "forked" member contained a *successful*
 /// `UpdateGroupMembership` entry whose `applied_epoch_authenticator` equals its
@@ -602,7 +601,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 /// commits (`mark_failed_commit_logged`, which records that nothing was
 /// applied).
 ///
-/// Root cause (see the commit-log fork investigation): the iOS main app and the
+/// Root cause: the iOS main app and the
 /// Notification Service Extension share one MLS SQLite DB, but `GroupCommitLock`
 /// is in-process only — the two processes never contend. With both processes
 /// running the receive path's "process twice + reload" pattern
