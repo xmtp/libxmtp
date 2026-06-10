@@ -22,6 +22,22 @@ nix develop .#ios
 just ios build
 ```
 
+### First-time setup: Xcode in the Nix store
+
+On macOS, iOS builds need Xcode imported into /nix/store (Apple's license
+forbids redistributing it via binary caches). `just ios build` handles this
+automatically on first run (~5 min) if `/Applications/Xcode_26.3.app`
+exists. Install it with:
+
+```bash
+brew install xcodes
+xcodes install 26.3
+```
+
+The version must match `xcodeVer` in `nix/ios-packages.nix`. Override with
+`XCODE_VERSION` / `XCODE_APP` env vars if your install lives elsewhere.
+CI imports Xcode via the xmtp-cache-apple action instead.
+
 ## Development Commands
 
 All commands run through justfile recipes with Nix:

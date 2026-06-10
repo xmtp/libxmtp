@@ -112,7 +112,7 @@ in
           patches = [
             (hostPkgs.fetchpatch2 {
               url = "https://github.com/NixOS/nixpkgs/pull/512100.patch";
-              hash = lib.fakeHash;
+              hash = "sha256-QBeYgZHwCcd/vmXjkxewBhQrXT4Gv46Xh6z8e0JYxiY=";
             })
           ];
         };
