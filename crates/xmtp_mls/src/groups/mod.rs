@@ -4,6 +4,7 @@ pub mod commit_log_key;
 mod error;
 pub mod external_commit_policy;
 pub use external_commit_policy::{ExternalInviteCoordinates, ExternalInviteSettings};
+pub mod external_invite;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
