@@ -805,12 +805,14 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     // GroupCommitLock is per-process. The DB is now consistently at E+1.
     bo_group.sync().await?;
 
-    let consistent =
-        OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls())?
-            .expect("bo's group must exist");
+    let consistent = OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls())?
+        .expect("bo's group must exist");
     assert_eq!(consistent.epoch(), staged_commit.group_context().epoch());
     let auth_e1 = consistent.epoch_authenticator().as_slice().to_vec();
-    assert_ne!(auth_e, auth_e1, "the applied commit advanced the authenticator");
+    assert_ne!(
+        auth_e, auth_e1,
+        "the applied commit advanced the authenticator"
+    );
     drop(consistent);
 
     // --- Tear the storage. ---
