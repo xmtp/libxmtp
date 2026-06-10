@@ -14,20 +14,20 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "napi-rs-cli";
-  version = "3.5.1";
+  version = "3.7.1";
 
   src = fetchFromGitHub {
     owner = "napi-rs";
     repo = "napi-rs";
     tag = "@napi-rs/cli@${finalAttrs.version}";
-    hash = "sha256-q8vHmnx5EAdI8FZi4z/2agHjPR5uuRaElDEnTRtlCqc=";
+    hash = "sha256-USINxrWg2z8GZJe4Yy4Zk07yXaibbSbWCf1mRwwhfko=";
   };
 
   missingHashes = ./missing-hashes.json;
 
   yarnOfflineCache = yarn-berry.fetchYarnBerryDeps {
     inherit (finalAttrs) src missingHashes;
-    hash = "sha256-as3rxkbj4MHIUiuq/Z/RzzaRWS3Uo5UdVYK52oq/14c=";
+    hash = "sha256-4DCqH8uPy2y9nYfl05snJiiryJOq9huzTjOk9io0Z74=";
   };
 
   nativeBuildInputs = [

@@ -42,9 +42,10 @@ let
       mv $out/swift/xmtpv3FFI.h $out/swift/include/libxmtp/
       mv $out/swift/xmtpv3FFI.modulemap $out/swift/include/libxmtp/module.modulemap
 
-      # Generate version file
+      # Generate version file. Commit date, not wall clock — keeps the
+      # output reproducible across days.
       echo "Version: ${version}" > $out/libxmtp-version.txt
-      echo "Date: $(date -u +%Y-%m-%d)" >> $out/libxmtp-version.txt
+      echo "Date: ${xmtp.gitCommitDate}" >> $out/libxmtp-version.txt
     '';
   };
 in

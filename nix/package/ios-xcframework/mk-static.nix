@@ -25,6 +25,10 @@ stdenv.mkDerivation {
   dontUnpack = true;
   dontFixup = true;
   nativeBuildInputs = [ xcode-tools ];
+  # xcodebuild dlopens plugins linked against /Library/Developer
+  # PrivateFrameworks (installed by Xcode's first-launch on the builder);
+  # bind just that path into the sandbox instead of going __noChroot.
+  __impureHostDeps = [ "/Library/Developer/PrivateFrameworks" ];
   installPhase = ''
     set -euo pipefail
     echo "=== Building static xcframework ==="

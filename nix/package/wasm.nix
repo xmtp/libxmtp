@@ -92,10 +92,12 @@ let
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
+        # wasm-pack passes its own --message-format to cargo; adding ours
+        # again makes cargo reject the duplicate.
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack \
           --verbose build --target web --out-dir $out/dist \
           --no-pack --release ./bindings/wasm -- \
-          ${features} --message-format json-render-diagnostics > "$cargoBuildLog"
+          ${features} > "$cargoBuildLog"
       '';
     }
   );

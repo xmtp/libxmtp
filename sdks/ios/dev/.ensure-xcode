@@ -6,36 +6,65 @@
 # must be imported manually — Apple's license forbids redistribution, so no
 # binary cache can serve it.
 #
-#   Local dev: imports /Applications/Xcode_<ver>.app on first run (~5 min).
-#              Install it with `xcodes install <ver>` if missing.
+#   Local dev: imports the matching /Applications/Xcode*.app on first run
+#              (~5 min). Installs via `xcodes` (with consent) if missing.
 #   CI:        the xmtp-cache-apple action pre-imports Xcode; this script
 #              only verifies and fails fast with a pointer if it didn't.
 #
-# XCODE_VERSION must match xcodeVer in nix/ios-packages.nix (and the
-# LOCAL examples.nix bump on the nixpkgs branch).
+# XCODE_VERSION must match xcodeVer in nix/ios-packages.nix.
 
 set -euo pipefail
 source "$(dirname "$0")/.setup"
 
+# Escape hatch for Macs that delegate builds to remote Darwin builders
+# (which hold their own Xcode import) — no local Xcode needed.
+[[ "${XMTP_SKIP_ENSURE_XCODE:-}" == "1" ]] && exit 0
+
 XCODE_VERSION="${XCODE_VERSION:-26.3}"
-XCODE_APP="${XCODE_APP:-/Applications/Xcode_${XCODE_VERSION}.app}"
 XCODE_ATTR="xcode_${XCODE_VERSION//./_}"
 
-expected=$(NIXPKGS_ALLOW_UNFREE=1 nix eval --impure --raw \
-    --inputs-from "$ROOT" "nixpkgs#darwin.${XCODE_ATTR}.outPath")
+# Find an /Applications/Xcode*.app whose version matches (covers Xcode.app,
+# Xcode_<ver>.app, and xcodes' Xcode-<ver>.app naming). Echoes the path.
+find_xcode_bundle() {
+    local candidate ver
+    for candidate in /Applications/Xcode*.app; do
+        [[ -d "$candidate" ]] || continue
+        ver=$(defaults read "$candidate/Contents/version" CFBundleShortVersionString 2>/dev/null || true)
+        if [[ "$ver" == "$XCODE_VERSION" || "$ver" == "$XCODE_VERSION".* ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Cache the expected-path eval (~2-5s per run). Keyed on version +
+# flake.lock checksum so a nixpkgs bump invalidates the cache.
+lock_sum=$(cksum "$ROOT/flake.lock" | cut -d' ' -f1)
+cache_file="${XDG_CACHE_HOME:-$HOME/.cache}/xmtp/xcode-store-path-${XCODE_VERSION}-${lock_sum}"
+if [[ -r "$cache_file" ]]; then
+    expected=$(<"$cache_file")
+else
+    expected=$(NIXPKGS_ALLOW_UNFREE=1 nix eval --impure --raw \
+        --inputs-from "$ROOT" "nixpkgs#darwin.${XCODE_ATTR}.outPath")
+    mkdir -p "$(dirname "$cache_file")"
+    printf '%s' "$expected" > "$cache_file"
+fi
 
 if nix path-info "$expected" >/dev/null 2>&1; then
     exit 0
 fi
 
-if [[ "${CI:-}" == "true" ]]; then
+if [[ -n "${CI:-}" ]]; then
     echo "ERROR: Xcode missing from Nix store in CI: $expected" >&2
     echo "The xmtp-cache-apple action should import it before this step." >&2
     exit 1
 fi
 
+XCODE_APP="${XCODE_APP:-$(find_xcode_bundle || true)}"
+
 if [[ ! -d "$XCODE_APP" ]]; then
-    echo "Xcode ${XCODE_VERSION} not found at ${XCODE_APP}."
+    echo "Xcode ${XCODE_VERSION} not found in /Applications."
     echo "⚠️  Installing via xcodes prompts for your Apple ID credentials"
     echo "    and downloads ~5 GB from Apple."
     read -p "Install Xcode ${XCODE_VERSION} now? (y/N) " -n 1 -r; echo
@@ -45,11 +74,8 @@ if [[ ! -d "$XCODE_APP" ]]; then
     else
         nix run nixpkgs#xcodes -- install "${XCODE_VERSION}"
     fi
-    # xcodes may name the bundle Xcode-<ver>.app; pick up whatever landed.
+    XCODE_APP=$(find_xcode_bundle || true)
     if [[ ! -d "$XCODE_APP" ]]; then
-        XCODE_APP=$(ls -d /Applications/Xcode*"${XCODE_VERSION}"*.app 2>/dev/null | head -1)
-    fi
-    if [[ -z "$XCODE_APP" || ! -d "$XCODE_APP" ]]; then
         echo "ERROR: xcodes finished but no Xcode ${XCODE_VERSION} bundle found in /Applications." >&2
         exit 1
     fi
@@ -59,11 +85,12 @@ echo "Importing ${XCODE_APP} into /nix/store (one-time per Xcode version, ~5 min
 got=$(nix store add --name Xcode.app "$XCODE_APP")
 
 if [[ "$got" != "$expected" ]]; then
-    echo "WARN: imported $got" >&2
-    echo "      but the flake expects $expected" >&2
-    echo "      Your Xcode bundle differs from the hash pinned in nixpkgs" >&2
-    echo "      (pkgs/os-specific/darwin/xcode/default.nix). Re-download via" >&2
-    echo "      xcodes, or update the pinned hash for ${XCODE_ATTR}." >&2
+    echo "ERROR: imported ${XCODE_APP} as $got" >&2
+    echo "       but the flake expects $expected" >&2
+    echo "       The bundle's contents differ from the hash pinned in nixpkgs" >&2
+    echo "       (pkgs/os-specific/darwin/xcode/default.nix) even though its" >&2
+    echo "       version matches. Re-download via xcodes, or update the" >&2
+    echo "       pinned hash for ${XCODE_ATTR}." >&2
     exit 1
 fi
 echo "Imported: $got"

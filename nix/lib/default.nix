@@ -100,19 +100,19 @@ in
         hostPkgs = mkHostPkgs system;
         overlays = baseOverlays ++ [ (xmtpOverlay hostPkgs) ];
         # iOS cross-compilation support not yet in nixpkgs, applied as a
-        # patch from the open PR (NixOS/nixpkgs#512100, the insipx/ios-build
-        # branch). Remove once the PR merges.
+        # patch from the upstream iOS branch. Remove once it merges.
         #
-        # The pull/NNN.patch URL tracks the PR head: every push to the
-        # branch changes the patch content, so rebuild once after a push —
-        # the hash-mismatch error prints the new hash to paste over `hash`.
+        # Pinned by commit SHAs (immutable compare URL): pushes to the
+        # branch never affect this build. To pick up new branch commits,
+        # bump the head SHA, set hash = lib.fakeHash, rebuild once, and
+        # paste the printed hash.
         nixpkgs-patched = hostPkgs.applyPatches {
           name = "nixpkgs-ios-cross";
           src = inputs.nixpkgs;
           patches = [
             (hostPkgs.fetchpatch2 {
-              url = "https://github.com/NixOS/nixpkgs/pull/512100.patch";
-              hash = "sha256-QBeYgZHwCcd/vmXjkxewBhQrXT4Gv46Xh6z8e0JYxiY=";
+              url = "https://github.com/NixOS/nixpkgs/compare/2f51ad37d9416828be4be7f48e7617b01cdf0641...insipx:nixpkgs:4f8f394b62476598617a085acda285902d5998ce.patch";
+              hash = "sha256-QzRz77CLCzm+xKAezYctSL7hHQF2IBKt6iqMOD2avg8=";
             })
           ];
         };

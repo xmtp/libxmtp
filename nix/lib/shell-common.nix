@@ -31,6 +31,7 @@
   gh,
   jq,
   curl,
+  git,
   git-cliff,
   graphite-cli,
   toxiproxy,
@@ -69,6 +70,10 @@ in
 {
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
   rustBase = xmtp.base.commonArgs // {
+    # nix-built git: shells export LD_LIBRARY_PATH with nix openssl/zlib
+    # (new glibc), which breaks the runner's system git during eval-time
+    # builtins.fetchGit (crane git deps). Keep a matching git on PATH.
+    nativeBuildInputs = (xmtp.base.commonArgs.nativeBuildInputs or [ ]) ++ [ git ];
     env = {
       OPENSSL_DIR = "${openssl.dev}";
       OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
@@ -156,6 +161,10 @@ in
     gh
     jq
     curl
+    # nix-built git: the shell's LD_LIBRARY_PATH puts nix openssl/zlib
+    # (glibc 2.42) in front of the runner's system git, which then fails
+    # with GLIBC_ABI_DT_X86_64_PLT loader errors during crane git fetches.
+    git
     git-cliff # changelog generation + print-only version oracle (release flow)
     graphite-cli
     toxiproxy

@@ -55,7 +55,9 @@ let
       openssl
       sqlcipher
     ]
-    ++ lib.optionals stdenv.buildPlatform.isDarwin [ libiconv ];
+    # target-side: Rust Apple target specs emit -liconv, so gate on the
+    # platform the artifact runs on, not where it is built.
+    ++ lib.optionals stdenv.hostPlatform.isDarwin [ libiconv ];
 
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
@@ -101,6 +103,10 @@ let
       // overrides'
     );
 
+  # Runtime search path for natively-built binaries: OPENSSL_NO_VENDOR links
+  # openssl (and sqlcipher/zstd) dynamically, but rustc records no rpath.
+  runtimeLibPath = lib.makeLibraryPath commonArgs.buildInputs;
+
 in
 {
   inherit
@@ -108,5 +114,6 @@ in
     bindingsFileset
     commonArgs
     mkCargoArtifacts
+    runtimeLibPath
     ;
 }

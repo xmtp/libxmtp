@@ -3,6 +3,7 @@
   lib,
   stdenv,
   openssl,
+  sqlcipher,
   zstd,
 }:
 let
@@ -16,10 +17,11 @@ let
 
   specialArgs = lib.optionalAttrs stdenv.hostPlatform.isMusl {
     RUSTFLAGS = "-C target-feature=+crt-static";
-    # mls validation srevice does not need sqlite since it does not
-    # depend on xmtp_db
+    # The binary doesn't use xmtp_db, but cargoArtifacts deps-builds the
+    # whole workspace (incl. libsqlite3-sys), so sqlcipher must stay.
     buildInputs = [
       openssl
+      sqlcipher
       zstd
     ];
   };
