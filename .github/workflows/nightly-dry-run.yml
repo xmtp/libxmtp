@@ -1,26 +1,91 @@
 name: nightly-dry-run
 
-# Manual preview of the nightly version-computation plan (cross-test gate +
+# Manual preview of the release version-computation plan (cross-test gate +
 # git-cliff oracle, capped at minor, with the not-major assertion). Calls the
-# same release-gate-plan reusable workflow the real nightly uses, so it
+# same release-gate-plan reusable workflow the real release uses, so it
 # exercises identical logic. Has NO publish jobs — it structurally cannot
 # publish/tag anything. Use this to verify pipeline changes before they ship.
+#
+# release-type:
+#   nightly — preview the gated nightly plan (cross-test must be green).
+#   dev     — preview the GATELESS dev plan AND the per-SDK resolved dev
+#             versions (e.g. node-sdk 6.1.0-dev.<sha>). This is the dry-run for
+#             the dev path: it runs the exact oracle + resolve-sdk-version the
+#             real dev release uses, minus every publish/tag step.
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Ref to compute the nightly plan for"
+        description: "Ref to compute the release plan for"
         required: false
         type: string
         default: main
+      release-type:
+        description: "Which plan to preview"
+        required: false
+        type: choice
+        options:
+          - nightly
+          - dev
+        default: nightly
 
 jobs:
   plan:
     uses: ./.github/workflows/release-gate-plan.yml
     with:
       ref: ${{ inputs.ref || github.ref_name }}
+      # dev previews the gateless path (no cross-test gate), exactly like the
+      # real dev release. nightly keeps the gate.
+      gate: ${{ inputs.release-type != 'dev' }}
     secrets: inherit
+
+  # Preview the per-SDK versions a dev release would publish, using the same
+  # `resolve-sdk-version --release-type dev` the real release jobs call. Prints
+  # only — no manifest writes, no npm publish, no tags.
+  preview-dev-versions:
+    needs: [plan]
+    if: inputs.release-type == 'dev' && needs.plan.outputs.nothing-pending != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Check out the exact SHA the plan oracle resolved against (not the
+          # branch HEAD), so the previewed short-sha + manifest match what a
+          # real dev run on this commit would compute — no drift if commits
+          # land between the plan job and this one.
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-release-tools
+      - name: Resolve dev versions per SDK
+        env:
+          PENDING_VERSION: ${{ needs.plan.outputs.version }}
+          PENDING_KIND: ${{ needs.plan.outputs.kind }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PENDING_VERSION" ] || [ -z "$PENDING_KIND" ]; then
+            echo "::error::plan produced empty pending version/kind; cannot preview dev versions"
+            exit 1
+          fi
+          {
+            echo "## Dev dry-run — resolved versions"
+            echo ""
+            echo "Pending libxmtp bump: \`$PENDING_VERSION\` (kind: $PENDING_KIND)"
+            echo ""
+            echo "| SDK | dev version |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for SDK in node-sdk browser-sdk node-bindings wasm-bindings ios android libxmtp; do
+            V=$(xmtp-release resolve-sdk-version \
+              --sdk "$SDK" --release-type dev \
+              --pending-version "$PENDING_VERSION" \
+              --pending-kind "$PENDING_KIND")
+            echo "| $SDK | \`$V\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::dev $SDK -> $V"
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "No publishes/tags occur in a dry-run." >> "$GITHUB_STEP_SUMMARY"
+
   summary:
     needs: [plan]
     if: always()
@@ -29,7 +94,7 @@ jobs:
       - name: Print plan result
         run: |
           {
-            echo "## Nightly dry-run plan"
+            echo "## Release dry-run plan (${{ inputs.release-type || 'nightly' }})"
             echo ""
             echo "- gate-skip: \`${{ needs.plan.outputs.gate-skip }}\`"
             echo "- nothing-pending: \`${{ needs.plan.outputs.nothing-pending }}\`"

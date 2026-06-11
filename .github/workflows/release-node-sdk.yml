@@ -53,7 +53,14 @@ jobs:
           if [ "${{ inputs.release-type }}" = "rc" ]; then
             VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type dev)
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::dev resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk node-sdk --release-type dev \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
           elif [ "${{ inputs.release-type }}" = "nightly" ]; then
             if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
               echo "::error::nightly resolve called with empty pending version/kind"
