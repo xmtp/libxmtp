@@ -234,7 +234,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    await conversation.sendText('gm', true)
+    await conversation.sendText('gm', { optimistic: true })
 
     const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
@@ -257,6 +257,32 @@ describe.concurrent('Conversation', () => {
 
     const messages4 = await conversation2.listMessages()
     expect(messages4.length).toBe(2)
+  })
+
+  it('should produce deterministic ids for a caller-set idempotency key', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const conversation = await client1.conversations().createGroupByIdentity([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    // Same content + same key => same id (deduplicated to a single message).
+    const id1 = await conversation.sendText('gm', { idempotencyKey: 'key-1' })
+    const id2 = await conversation.sendText('gm', { idempotencyKey: 'key-1' })
+    expect(id2).toBe(id1)
+    expect((await conversation.listMessages()).length).toBe(1)
+
+    // Different key (or no key) => different id.
+    const id3 = await conversation.sendText('gm', { idempotencyKey: 'key-2' })
+    const id4 = await conversation.sendText('gm')
+    expect(id3).not.toBe(id1)
+    expect(id4).not.toBe(id1)
+    expect(id4).not.toBe(id3)
   })
 
   it('should stream messages', async () => {

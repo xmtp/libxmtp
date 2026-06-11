@@ -8,10 +8,17 @@ data class SendOptions(
     var contentType: Content.ContentTypeId? = null,
     @Deprecated("This option is no longer supported and does nothing")
     var ephemeral: Boolean = false,
+    // Optional idempotency key. Re-sending identical content with the same key
+    // produces the same message id and is deduplicated. Defaults to a timestamp.
+    var idempotencyKey: String? = null,
 )
 
 data class MessageVisibilityOptions(
     val shouldPush: Boolean,
+    // Optional idempotency key. Re-sending identical content with the same key
+    // produces the same message id and is deduplicated. Defaults to a timestamp.
+    val idempotencyKey: String? = null,
 ) {
-    fun toFfi(): FfiSendMessageOpts = FfiSendMessageOpts(shouldPush = shouldPush)
+    fun toFfi(): FfiSendMessageOpts =
+        FfiSendMessageOpts(shouldPush = shouldPush, idempotencyKey = idempotencyKey)
 }

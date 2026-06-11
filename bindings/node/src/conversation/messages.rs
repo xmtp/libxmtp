@@ -21,6 +21,18 @@ pub struct SendMessageOpts {
   pub idempotency_key: Option<String>,
 }
 
+/// Options for the top-level `send_*` convenience helpers. `should_push` is
+/// derived from the content type's codec, so callers only control optimistic
+/// delivery and the idempotency key.
+#[napi(object)]
+#[derive(Default)]
+pub struct SendOpts {
+  pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  pub idempotency_key: Option<String>,
+}
+
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {

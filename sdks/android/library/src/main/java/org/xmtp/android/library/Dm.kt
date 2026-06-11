@@ -144,7 +144,10 @@ class Dm(
             if (compression != null) {
                 encoded = encoded.compress(compression)
             }
-            val sendOpts = MessageVisibilityOptions(shouldPush = typedCodec.shouldPush(content))
+            val sendOpts = MessageVisibilityOptions(
+                shouldPush = typedCodec.shouldPush(content),
+                idempotencyKey = options?.idempotencyKey,
+            )
             return Pair(encoded, sendOpts)
         } catch (e: Exception) {
             throw XMTPException("Codec type is not registered")
@@ -165,7 +168,7 @@ class Dm(
     ): String =
         withContext(Dispatchers.IO) {
             if (noSend) {
-                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush, null).toHex()
+                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush, opts.idempotencyKey).toHex()
             } else {
                 libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
             }
