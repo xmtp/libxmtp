@@ -283,12 +283,11 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     // information than the on-wire commit, but the producer of each
     // folded-in proposal already accepted that outcome by leaving it
     // pending instead of issuing its own commit.
+    // Step 1: publish the standalone proposal. This adds the proposal
+    // to the local pending-proposal store AND returns the wire-form
+    // MlsMessageOut so the caller can broadcast it.
     let openmls_id = component_id.as_u16();
     let operation = AppDataUpdateOperation::Update(payload.into());
-
-    // Step 1: publish a standalone proposal. This adds the proposal to
-    // the local pending-proposal store AND returns the wire-form
-    // MlsMessageOut for the proposal so the caller can broadcast it.
     let (proposal_msg, _proposal_ref) = mls_group
         .propose_app_data_update(provider, signer, openmls_id, operation)
         .map_err(GroupAppDataError::Propose)?;
@@ -326,7 +325,6 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     let app_data_updates =
         accumulate_app_data_updates(mls_group, pending_iter).inspect_err(|e| {
             tracing::error!(
-                component_id = %component_id,
                 error = %e,
                 "Failed to compute AppDataUpdates for standalone propose+commit"
             );

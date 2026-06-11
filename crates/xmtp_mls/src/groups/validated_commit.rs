@@ -124,6 +124,13 @@ pub enum CommitValidationError {
     #[error(transparent)]
     ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
 
+    /// An `EXTERNAL_COMMIT_POLICY` write violates the XIP-82
+    /// field-coupling invariants (post-state check: enable requires a
+    /// 32-byte key + slot id; revoke leaves every per-invite field
+    /// absent). Convergent: a pure function of the proposed value.
+    #[error(transparent)]
+    ExternalCommitPolicy(#[from] super::external_commit_policy::ExternalCommitPolicyError),
+
     /// All bootstrap-commit-validator failures. The bootstrap path runs
     /// only during the one-time AppData migration; isolating its many
     /// failure modes in a sub-enum keeps the steady-state validator's
@@ -1574,6 +1581,12 @@ fn validate_app_data_update_proposals_in_commit(
     // re-walk the admin lists and re-parse the credential for every one.
     let mut participants: HashMap<LeafNodeIndex, CommitParticipant> = HashMap::new();
 
+    // Capture the LAST `EXTERNAL_COMMIT_POLICY` write in the commit for
+    // the XIP-82 post-state invariant. For a Bytes component the Update
+    // payload IS the post-state value, and within one commit the last
+    // write wins (matching the accumulate order on apply).
+    let mut policy_write: Option<Vec<u8>> = None;
+
     for queued in proposals {
         let app_data = queued.app_data_update_proposal();
         let proposer_leaf = app_data_update_proposer_leaf(queued.sender())?;
@@ -1590,16 +1603,72 @@ fn validate_app_data_update_proposals_in_commit(
             }
         };
 
+        let component_id = ComponentId::from(app_data.component_id());
         validate_one_app_data_update(
-            ComponentId::from(app_data.component_id()),
+            component_id,
             app_data.operation(),
             ActorAuthority::from(proposer),
             &proposer.inbox_id,
             registry,
             openmls_group,
         )?;
+
+        if let openmls::messages::proposals::AppDataUpdateOperation::Update(payload) =
+            app_data.operation()
+            && component_id == ComponentId::EXTERNAL_COMMIT_POLICY
+        {
+            policy_write = Some(payload.as_slice().to_vec());
+        }
     }
 
+    if let Some(policy_bytes) = policy_write {
+        validate_external_commit_policy_post_state(&policy_bytes)?;
+    }
+
+    Ok(())
+}
+
+/// XIP-82 post-state invariant on `EXTERNAL_COMMIT_POLICY` writes,
+/// enforced on every commit that carries one (member senders; the
+/// external-commit validator path has its own checks):
+///
+/// * The proposed policy value satisfies the field-coupling invariants —
+///   enabled ⇒ 32-byte key + ≥4-byte slot id (+ well-formed refresh
+///   pointers); disabled ⇒ every per-invite field absent.
+///
+/// The joiner-self-entry insert needs no separate grant — per XIP-82,
+/// `allow_external_commit = true` itself authorizes it.
+///
+/// Convergent by construction: a pure function of the commit's own
+/// proposal payload, which every member shares.
+fn validate_external_commit_policy_post_state(
+    policy_bytes: &[u8],
+) -> Result<(), CommitValidationError> {
+    use super::external_commit_policy::validate_policy_v1;
+    use prost::Message;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ExternalCommitPolicyEntry,
+        external_commit_policy_entry::Version as ExternalCommitPolicyVersion,
+    };
+
+    let entry = ExternalCommitPolicyEntry::decode(policy_bytes).map_err(|e| {
+        CommitValidationError::ComponentSource(
+            super::app_data::component_source::ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::EXTERNAL_COMMIT_POLICY,
+                reason: format!("ExternalCommitPolicyEntry decode: {e}"),
+            },
+        )
+    })?;
+    // Unknown future variant: older validators cannot check invariants
+    // they don't understand — same unknown-variant tolerance as the
+    // policy reader (a newer client validates it; this client fails
+    // closed at external-commit time regardless).
+    let Some(ExternalCommitPolicyVersion::V1(policy)) = entry.version else {
+        return Ok(());
+    };
+
+    validate_policy_v1(&policy)?;
     Ok(())
 }
 

@@ -274,6 +274,11 @@ pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
         | ComponentId::MESSAGE_DISAPPEAR_IN_NS
         | ComponentId::COMMIT_LOG_SIGNER => Some(ComponentType::Bytes),
 
+        // External-commit policy: proto-encoded ExternalCommitPolicyEntry,
+        // replaced atomically via the generic AppDataUpdate intent. No
+        // per-id Component impl needed; helpers decode bytes via prost.
+        ComponentId::EXTERNAL_COMMIT_POLICY => Some(ComponentType::Bytes),
+
         // Immutable metadata (not flowable through AppDataUpdate writes,
         // but we still advertise the type for completeness).
         ComponentId::CONVERSATION_TYPE
