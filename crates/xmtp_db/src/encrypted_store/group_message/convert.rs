@@ -37,6 +37,10 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             expire_at_ns: None,
             inserted_at_ns: 0,  // Will be set by database
             should_push: false, // Default to false for synced messages
+            // GroupMessageSave does not carry the idempotency key; fall back to
+            // the historical default (the send timestamp). Restored messages are
+            // already published, so this value is only informational.
+            idempotency_key: value.sent_at_ns.to_string(),
         })
     }
 }

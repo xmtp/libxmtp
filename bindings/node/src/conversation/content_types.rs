@@ -35,6 +35,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: TextCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -45,6 +46,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: MarkdownCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -59,6 +61,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ReactionCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -69,6 +72,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ReplyCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -79,6 +83,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ReadReceiptCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -93,6 +98,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: AttachmentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -108,6 +114,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: RemoteAttachmentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -123,6 +130,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: MultiRemoteAttachmentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -138,6 +146,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: TransactionReferenceCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -153,6 +162,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: WalletSendCallsCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -163,6 +173,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: ActionsCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }
@@ -173,6 +184,7 @@ impl Conversation {
     let opts = SendMessageOpts {
       should_push: IntentCodec::should_push(),
       optimistic,
+      idempotency_key: None,
     };
     self.send(encoded_content.into(), opts).await
   }

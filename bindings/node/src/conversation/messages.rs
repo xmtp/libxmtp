@@ -16,12 +16,16 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 pub struct SendMessageOpts {
   pub should_push: bool,
   pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  pub idempotency_key: Option<String>,
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
       should_push: opts.should_push,
+      idempotency_key: opts.idempotency_key,
     }
   }
 }
@@ -130,11 +134,16 @@ impl Conversation {
     &self,
     encoded_content: EncodedContent,
     should_push: bool,
+    idempotency_key: Option<String>,
   ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
     let message_id = group
-      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .prepare_message_for_later_publish(
+        encoded_content.encode_to_vec().as_slice(),
+        should_push,
+        idempotency_key,
+      )
       .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id))
   }

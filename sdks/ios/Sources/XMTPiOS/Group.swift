@@ -478,7 +478,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiGroup.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
+				idempotencyKey: nil
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)

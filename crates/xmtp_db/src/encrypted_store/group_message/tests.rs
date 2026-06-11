@@ -29,6 +29,7 @@ pub(crate) fn generate_message(
         expire_at_ns,
         inserted_at_ns: 0, // Will be set by database
         should_push: true,
+        idempotency_key: String::new(),
     }
 }
 
@@ -597,6 +598,7 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
         expire_at_ns: None,
         inserted_at_ns: 0, // Will be set by database
         should_push: true,
+        idempotency_key: sent_at_ns.to_string(),
     };
     message.store(conn).unwrap();
     message

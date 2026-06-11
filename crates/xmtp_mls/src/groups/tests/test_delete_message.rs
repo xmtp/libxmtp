@@ -280,6 +280,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         originator_id: 1,
         inserted_at_ns: 0,
         should_push: false,
+        idempotency_key: String::new(),
     };
     delete_message.store(&alix_conn)?;
 
@@ -326,6 +327,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         originator_id: 1,
         inserted_at_ns: 0,
         should_push: false,
+        idempotency_key: String::new(),
     };
     message.store(&alix_conn)?;
 
@@ -400,6 +402,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         originator_id: 1,
         inserted_at_ns: 0,
         should_push: false,
+        idempotency_key: String::new(),
     };
     malicious_delete_message.store(&bo_conn)?;
 
@@ -438,6 +441,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         originator_id: 1,
         inserted_at_ns: 0,
         should_push: false,
+        idempotency_key: String::new(),
     };
     message.store(&bo_conn)?;
 
@@ -1006,6 +1010,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         originator_id: 1,
         inserted_at_ns: 0,
         should_push: false,
+        idempotency_key: String::new(),
     };
     delete_message.store(&alix_conn)?;
 
@@ -1043,6 +1048,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         originator_id: 1,
         inserted_at_ns: 0,
         should_push: false,
+        idempotency_key: String::new(),
     };
     original_message.store(&alix_conn)?;
 
