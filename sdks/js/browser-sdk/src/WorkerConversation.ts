@@ -197,69 +197,71 @@ export class WorkerConversation {
   }
 
   async sendText(text: string, isOptimistic?: boolean) {
-    return this.#group.sendText(text, isOptimistic);
+    return this.#group.sendText(text, { optimistic: isOptimistic });
   }
 
   async sendMarkdown(markdown: string, isOptimistic?: boolean) {
-    return this.#group.sendMarkdown(markdown, isOptimistic);
+    return this.#group.sendMarkdown(markdown, { optimistic: isOptimistic });
   }
 
   async sendReaction(reaction: Reaction, isOptimistic?: boolean) {
-    return this.#group.sendReaction(reaction, isOptimistic);
+    return this.#group.sendReaction(reaction, { optimistic: isOptimistic });
   }
 
   async sendReadReceipt(isOptimistic?: boolean) {
-    return this.#group.sendReadReceipt(isOptimistic);
+    return this.#group.sendReadReceipt({ optimistic: isOptimistic });
   }
 
   async sendReply(reply: Reply, isOptimistic?: boolean) {
-    return this.#group.sendReply(reply, isOptimistic);
+    return this.#group.sendReply(reply, { optimistic: isOptimistic });
   }
 
   async sendTransactionReference(
     transactionReference: TransactionReference,
     isOptimistic?: boolean,
   ) {
-    return this.#group.sendTransactionReference(
-      transactionReference,
-      isOptimistic,
-    );
+    return this.#group.sendTransactionReference(transactionReference, {
+      optimistic: isOptimistic,
+    });
   }
 
   async sendWalletSendCalls(
     walletSendCalls: WalletSendCalls,
     isOptimistic?: boolean,
   ) {
-    return this.#group.sendWalletSendCalls(walletSendCalls, isOptimistic);
+    return this.#group.sendWalletSendCalls(walletSendCalls, {
+      optimistic: isOptimistic,
+    });
   }
 
   async sendActions(actions: Actions, isOptimistic?: boolean) {
-    return this.#group.sendActions(actions, isOptimistic);
+    return this.#group.sendActions(actions, { optimistic: isOptimistic });
   }
 
   async sendIntent(intent: Intent, isOptimistic?: boolean) {
-    return this.#group.sendIntent(intent, isOptimistic);
+    return this.#group.sendIntent(intent, { optimistic: isOptimistic });
   }
 
   async sendAttachment(attachment: Attachment, isOptimistic?: boolean) {
-    return this.#group.sendAttachment(attachment, isOptimistic);
+    return this.#group.sendAttachment(attachment, { optimistic: isOptimistic });
   }
 
   async sendMultiRemoteAttachment(
     multiRemoteAttachment: MultiRemoteAttachment,
     isOptimistic?: boolean,
   ) {
-    return this.#group.sendMultiRemoteAttachment(
-      multiRemoteAttachment,
-      isOptimistic,
-    );
+    return this.#group.sendMultiRemoteAttachment(multiRemoteAttachment, {
+      optimistic: isOptimistic,
+    });
   }
 
   async sendRemoteAttachment(
     remoteAttachment: RemoteAttachment,
     isOptimistic?: boolean,
   ) {
-    return this.#group.sendRemoteAttachment(remoteAttachment, isOptimistic);
+    return this.#group.sendRemoteAttachment(remoteAttachment, {
+      optimistic: isOptimistic,
+    });
   }
 
   async messages(options?: ListMessagesOptions): Promise<DecodedMessage[]> {

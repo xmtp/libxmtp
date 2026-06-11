@@ -214,7 +214,7 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendText(text: string, isOptimistic?: boolean) {
-    return this.#conversation.sendText(text, isOptimistic);
+    return this.#conversation.sendText(text, { optimistic: isOptimistic });
   }
 
   /**
@@ -225,7 +225,9 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendMarkdown(markdown: string, isOptimistic?: boolean) {
-    return this.#conversation.sendMarkdown(markdown, isOptimistic);
+    return this.#conversation.sendMarkdown(markdown, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -236,7 +238,9 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendReaction(reaction: Reaction, isOptimistic?: boolean) {
-    return this.#conversation.sendReaction(reaction, isOptimistic);
+    return this.#conversation.sendReaction(reaction, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -247,7 +251,7 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendReadReceipt(isOptimistic?: boolean) {
-    return this.#conversation.sendReadReceipt(isOptimistic);
+    return this.#conversation.sendReadReceipt({ optimistic: isOptimistic });
   }
 
   /**
@@ -258,7 +262,7 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendReply(reply: Reply, isOptimistic?: boolean) {
-    return this.#conversation.sendReply(reply, isOptimistic);
+    return this.#conversation.sendReply(reply, { optimistic: isOptimistic });
   }
 
   /**
@@ -272,10 +276,9 @@ export class Conversation<ContentTypes = unknown> {
     transactionReference: TransactionReference,
     isOptimistic?: boolean,
   ) {
-    return this.#conversation.sendTransactionReference(
-      transactionReference,
-      isOptimistic,
-    );
+    return this.#conversation.sendTransactionReference(transactionReference, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -289,10 +292,9 @@ export class Conversation<ContentTypes = unknown> {
     walletSendCalls: WalletSendCalls,
     isOptimistic?: boolean,
   ) {
-    return this.#conversation.sendWalletSendCalls(
-      walletSendCalls,
-      isOptimistic,
-    );
+    return this.#conversation.sendWalletSendCalls(walletSendCalls, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -303,7 +305,9 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendActions(actions: Actions, isOptimistic?: boolean) {
-    return this.#conversation.sendActions(actions, isOptimistic);
+    return this.#conversation.sendActions(actions, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -314,7 +318,7 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendIntent(intent: Intent, isOptimistic?: boolean) {
-    return this.#conversation.sendIntent(intent, isOptimistic);
+    return this.#conversation.sendIntent(intent, { optimistic: isOptimistic });
   }
 
   /**
@@ -325,7 +329,9 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendAttachment(attachment: Attachment, isOptimistic?: boolean) {
-    return this.#conversation.sendAttachment(attachment, isOptimistic);
+    return this.#conversation.sendAttachment(attachment, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -339,10 +345,9 @@ export class Conversation<ContentTypes = unknown> {
     multiRemoteAttachment: MultiRemoteAttachment,
     isOptimistic?: boolean,
   ) {
-    return this.#conversation.sendMultiRemoteAttachment(
-      multiRemoteAttachment,
-      isOptimistic,
-    );
+    return this.#conversation.sendMultiRemoteAttachment(multiRemoteAttachment, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**
@@ -356,10 +361,9 @@ export class Conversation<ContentTypes = unknown> {
     remoteAttachment: RemoteAttachment,
     isOptimistic?: boolean,
   ) {
-    return this.#conversation.sendRemoteAttachment(
-      remoteAttachment,
-      isOptimistic,
-    );
+    return this.#conversation.sendRemoteAttachment(remoteAttachment, {
+      optimistic: isOptimistic,
+    });
   }
 
   /**

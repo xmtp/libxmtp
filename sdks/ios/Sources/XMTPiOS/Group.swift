@@ -460,7 +460,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		let visibilityOptions = try MessageVisibilityOptions(
-			shouldPush: shouldPush(codec: codec, content: content)
+			shouldPush: shouldPush(codec: codec, content: content),
+			idempotencyKey: options?.idempotencyKey
 		)
 
 		return (encoded, visibilityOptions)
@@ -479,7 +480,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			messageId = try ffiGroup.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
 				shouldPush: shouldPush,
-				idempotencyKey: nil
+				idempotencyKey: visibilityOptions?.idempotencyKey
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)

@@ -48,4 +48,30 @@ describe("Conversations", () => {
 
     stream.end();
   });
+
+  it("should produce deterministic ids for a caller-set idempotency key", async () => {
+    const client1 = await createTestClient();
+    const client2 = await createTestClient();
+
+    const conversation = await client1
+      .conversations()
+      .createGroupByInboxIds([client2.inboxId]);
+
+    // Same content + same key => same id, deduplicated (no new stored message).
+    const id1 = await conversation.sendText("gm", { idempotencyKey: "key-1" });
+    const countAfterFirst = (await conversation.findMessages()).length;
+    const id2 = await conversation.sendText("gm", { idempotencyKey: "key-1" });
+    expect(id2).toBe(id1);
+    expect((await conversation.findMessages()).length).toBe(countAfterFirst);
+
+    // Different key (or no key) => different id, stored as a new message.
+    const id3 = await conversation.sendText("gm", { idempotencyKey: "key-2" });
+    const id4 = await conversation.sendText("gm");
+    expect(id3).not.toBe(id1);
+    expect(id4).not.toBe(id1);
+    expect(id4).not.toBe(id3);
+    expect((await conversation.findMessages()).length).toBe(
+      countAfterFirst + 2,
+    );
+  });
 });
