@@ -1,5 +1,5 @@
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, Retryable};
 use xmtp_proto::ConversionError;
 
 #[derive(Debug, Error, ErrorCode)]
@@ -47,7 +47,8 @@ pub enum GrpcBuilderError {
     Transport(#[from] tonic::transport::Error),
 }
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
+#[retry(default = true)]
 pub enum GrpcError {
     /// Invalid URI.
     ///
@@ -103,11 +104,5 @@ pub enum GrpcError {
 impl From<ConversionError> for GrpcError {
     fn from(error: ConversionError) -> Self {
         GrpcError::NotFound(error.to_string())
-    }
-}
-
-impl xmtp_common::retry::RetryableError for GrpcError {
-    fn is_retryable(&self) -> bool {
-        true
     }
 }

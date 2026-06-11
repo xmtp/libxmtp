@@ -19,7 +19,7 @@ pub use stream::*;
 pub use v3::*;
 
 use std::collections::HashMap;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::Retryable;
 use xmtp_proto::{
     ConversionError,
     api::{self, ApiClientError, BodyError, Client, Query},
@@ -69,31 +69,22 @@ pub(crate) async fn build_node_clients(
     Ok(clients)
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum QueryError {
     #[error(transparent)]
+    #[retry(inherit)]
     ApiClient(#[from] ApiClientError),
     #[error(transparent)]
     Envelope(#[from] crate::protocol::EnvelopeError),
     #[error(transparent)]
     Conversion(#[from] ConversionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Body(#[from] BodyError),
 }
 
 impl From<crate::protocol::EnvelopeError> for ApiClientError {
     fn from(e: crate::protocol::EnvelopeError) -> ApiClientError {
         ApiClientError::Other(Box::new(e))
-    }
-}
-
-impl RetryableError for QueryError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::ApiClient(c) => retryable!(c),
-            Self::Envelope(_e) => false,
-            Self::Conversion(_c) => false,
-            Self::Body(b) => retryable!(b),
-        }
     }
 }

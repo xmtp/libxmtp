@@ -22,10 +22,10 @@ use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::{ArchiveError, BackupMetadata};
 use xmtp_common::ErrorCode;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
+use xmtp_common::{NS_IN_DAY, Retryable, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
-    NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
+    StorageError, consent_record::ConsentState, group::GroupQueryArgs,
     group_message::StoredGroupMessage,
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
@@ -51,7 +51,9 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
+// Inverted logic: every variant is retryable EXCEPT the explicit exceptions below.
+#[retry(default = true)]
 pub enum DeviceSyncError {
     /// I/O error.
     ///
@@ -109,6 +111,7 @@ pub enum DeviceSyncError {
     ///
     /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
+    #[retry(false)]
     UnspecifiedDeviceSyncKind,
     /// Sync payload too old.
     ///
@@ -140,6 +143,7 @@ pub enum DeviceSyncError {
     ///
     /// Sync interaction already acknowledged. Not retryable.
     #[error("Sync interaction is already acknowledged by another installation")]
+    #[retry(false)]
     AlreadyAcknowledged,
     /// Missing options.
     ///
@@ -150,11 +154,13 @@ pub enum DeviceSyncError {
     ///
     /// Sync server URL not configured. Not retryable.
     #[error("Missing sync server url")]
+    #[retry(false)]
     MissingSyncServerUrl,
     /// Missing sync group.
     ///
     /// Sync group not found. Not retryable.
     #[error("Missing sync group")]
+    #[retry(false)]
     MissingSyncGroup,
     #[error(transparent)]
     #[error_code(inherit)]
@@ -217,20 +223,9 @@ impl NeedsDbReconnect for DeviceSyncError {
     }
 }
 
-impl RetryableError for DeviceSyncError {
-    fn is_retryable(&self) -> bool {
-        !matches!(
-            self,
-            Self::AlreadyAcknowledged
-                | Self::MissingSyncGroup
-                | Self::MissingSyncServerUrl
-                | Self::UnspecifiedDeviceSyncKind
-        )
-    }
-}
-
-impl From<NotFound> for DeviceSyncError {
-    fn from(value: NotFound) -> Self {
+#[cfg(test)]
+impl From<xmtp_db::NotFound> for DeviceSyncError {
+    fn from(value: xmtp_db::NotFound) -> Self {
         DeviceSyncError::Storage(StorageError::NotFound(value))
     }
 }

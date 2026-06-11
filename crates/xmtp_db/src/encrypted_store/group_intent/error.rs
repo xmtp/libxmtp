@@ -1,11 +1,12 @@
 use thiserror::Error;
-use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_common::{ErrorCode, Retryable};
 use xmtp_proto::types::{CursorList, GroupId};
 
 use crate::group_intent::PayloadHash;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 #[error_code(internal)]
+#[retry(default = true)]
 pub enum GroupIntentError {
     /// More than one dependency.
     ///
@@ -25,13 +26,4 @@ pub enum GroupIntentError {
     /// Intent has no known dependencies. Retryable.
     #[error("intent with hash {hash} has no known dependencies")]
     NoDependencyFound { hash: PayloadHash },
-}
-
-impl RetryableError for GroupIntentError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::MoreThanOneDependency { .. } => true,
-            Self::NoDependencyFound { .. } => true,
-        }
-    }
 }

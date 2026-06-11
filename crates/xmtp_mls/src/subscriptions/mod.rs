@@ -36,7 +36,7 @@ use crate::{
     subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
-use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
+use xmtp_common::{ErrorCode, MaybeSend, Retryable, RetryableError, StreamHandle};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
@@ -46,16 +46,11 @@ use xmtp_db::{
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
+#[retry(default = true)]
 pub enum LocalEventError {
     #[error("Unable to send event: {0}")]
     Send(String),
-}
-
-impl RetryableError for LocalEventError {
-    fn is_retryable(&self) -> bool {
-        true
-    }
 }
 
 /// Events local to this client
@@ -176,33 +171,38 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 }
 
-#[derive(thiserror::Error, Debug, ErrorCode)]
+#[derive(thiserror::Error, Debug, ErrorCode, Retryable)]
 pub enum SubscribeError {
     /// Group error.
     ///
     /// Group operation failed during subscription. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Group(#[from] Box<GroupError>),
     /// Not found.
     ///
     /// Subscribed resource not found. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     NotFound(#[from] NotFound),
     /// Group message not found.
     ///
     /// Expected message missing from database. Retryable.
     // TODO: Add this to `NotFound`
     #[error("group message expected in database but is missing")]
+    #[retry(true)]
     GroupMessageNotFound,
     /// Receive group error.
     ///
     /// Processing streamed group message failed. May be retryable.
     #[error("processing group message in stream: {0}")]
+    #[retry(inherit)]
     ReceiveGroup(#[from] Box<GroupMessageProcessingError>),
     /// Storage error.
     ///
     /// Database operation failed. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Storage(#[from] StorageError),
     /// Decode error.
     ///
@@ -213,45 +213,54 @@ pub enum SubscribeError {
     ///
     /// Message stream failed. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     MessageStream(#[from] stream_messages::MessageStreamError),
     /// Conversation stream error.
     ///
     /// Conversation stream failed. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     ConversationStream(#[from] stream_conversations::ConversationStreamError),
     /// API client error.
     ///
     /// Network request failed. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
     /// Boxed error.
     ///
     /// Wrapped dynamic error. May be retryable.
     #[error("{0}")]
+    #[retry(inherit)]
     BoxError(Box<dyn RetryableError>),
     /// Database connection error.
     ///
     /// Database connection failed. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     /// Conversion error.
     ///
     /// Proto conversion failed. Not retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Conversion(#[from] xmtp_proto::ConversionError),
     /// Envelope error.
     ///
     /// Decentralized API envelope error. May be retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
     /// Enriched Message Error.
     #[error("error occured during subscription {0}")]
+    #[retry(inherit)]
     Enriched(#[from] EnrichMessageError),
     /// Stream liveness watchdog tripped.
     ///
     /// No activity arrived within the idle timeout, so the stream was terminated to force
     /// a reconnect (resuming from the persisted cursor). Retryable.
     #[error("stream went stale: no activity within the idle timeout")]
+    #[retry(true)]
     StreamStale,
 }
 
@@ -270,29 +279,6 @@ impl From<GroupError> for SubscribeError {
 impl From<GroupMessageProcessingError> for SubscribeError {
     fn from(value: GroupMessageProcessingError) -> Self {
         SubscribeError::ReceiveGroup(Box::new(value))
-    }
-}
-
-impl RetryableError for SubscribeError {
-    fn is_retryable(&self) -> bool {
-        use SubscribeError::*;
-        match self {
-            Group(e) => retryable!(e),
-            GroupMessageNotFound => true,
-            ReceiveGroup(e) => retryable!(e),
-            Storage(e) => retryable!(e),
-            Decode(_) => false,
-            NotFound(e) => retryable!(e),
-            MessageStream(e) => retryable!(e),
-            ConversationStream(e) => retryable!(e),
-            ApiClient(e) => retryable!(e),
-            BoxError(e) => retryable!(e),
-            Db(c) => retryable!(c),
-            Conversion(c) => retryable!(c),
-            Envelope(c) => retryable!(c),
-            Enriched(c) => retryable!(c),
-            StreamStale => true,
-        }
     }
 }
 

@@ -29,8 +29,8 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::ErrorCode;
+use xmtp_common::Retryable;
 use xmtp_common::time::now_ns;
-use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
@@ -188,7 +188,7 @@ impl IdentityStrategy {
     }
 }
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum IdentityError {
     /// Credential serialization error.
     ///
@@ -258,9 +258,11 @@ pub enum IdentityError {
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(inherit)]
     StorageError(#[from] xmtp_db::StorageError),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(inherit)]
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     /// Key package generation error.
     ///
@@ -300,6 +302,7 @@ pub enum IdentityError {
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
     #[error(transparent)]
     #[error_code(inherit)]
@@ -348,17 +351,6 @@ impl NeedsDbReconnect for IdentityError {
         match self {
             Self::StorageError(s) => s.db_needs_connection(),
             Self::Db(c) => c.db_needs_connection(),
-            _ => false,
-        }
-    }
-}
-
-impl RetryableError for IdentityError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::ApiClient(err) => retryable!(err),
-            Self::StorageError(err) => retryable!(err),
-            Self::OpenMlsStorageError(err) => retryable!(err),
             _ => false,
         }
     }
@@ -1050,6 +1042,7 @@ pub(crate) fn store_key_package_references(
     Ok(())
 }
 
+#[cfg(test)]
 #[cfg(test)]
 mod tests {
     use crate::context::XmtpSharedContext;

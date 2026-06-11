@@ -1,7 +1,7 @@
 use std::{collections::HashSet, marker::PhantomData};
 
 use derive_builder::UninitializedFieldError;
-use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{MaybeSend, MaybeSync, Retryable, RetryableError};
 use xmtp_proto::api::BodyError;
 
 use crate::protocol::{CursorStoreError, Envelope, EnvelopeError, types::RequiredDependency};
@@ -96,34 +96,24 @@ where
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum ResolutionError {
     #[error(transparent)]
+    #[retry(inherit)]
     Envelope(#[from] EnvelopeError),
     #[error(transparent)]
+    #[retry(inherit)]
     Body(#[from] BodyError),
     #[error("{0}")]
+    #[retry(inherit)]
     Api(Box<dyn RetryableError>),
     #[error(transparent)]
     Build(#[from] UninitializedFieldError),
     #[error("Resolution failed  to find all missing dependant envelopes")]
     ResolutionFailed,
     #[error(transparent)]
+    #[retry(inherit)]
     Store(#[from] CursorStoreError),
-}
-
-impl RetryableError for ResolutionError {
-    fn is_retryable(&self) -> bool {
-        use ResolutionError::*;
-        match self {
-            Envelope(e) => e.is_retryable(),
-            Body(b) => b.is_retryable(),
-            Api(a) => a.is_retryable(),
-            Build(_) => false,
-            ResolutionFailed => false,
-            Store(s) => s.is_retryable(),
-        }
-    }
 }
 
 impl ResolutionError {

@@ -1,7 +1,7 @@
 //! Extractors transform [`ProtocolEnvelope`]'s into logical types usable by xmtp_mls
 
 use super::{EnvelopeCollection, EnvelopeError, Extractor, ProtocolEnvelope};
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::Retryable;
 
 mod aggregate;
 pub use aggregate::*;
@@ -35,22 +35,15 @@ pub use orphaned_envelope::*;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum ExtractionError {
     #[error(transparent)]
+    #[retry(inherit)]
     Payload(#[from] PayloadExtractionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Topic(#[from] TopicExtractionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Conversion(#[from] xmtp_proto::ConversionError),
-}
-
-impl RetryableError for ExtractionError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Payload(p) => retryable!(p),
-            Self::Topic(t) => retryable!(t),
-            Self::Conversion(c) => retryable!(c),
-        }
-    }
 }

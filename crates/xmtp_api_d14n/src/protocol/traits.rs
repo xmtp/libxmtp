@@ -16,8 +16,8 @@ use xmtp_proto::types::WelcomeMessage;
 use super::ExtractionError;
 use super::PayloadExtractor;
 use super::TopicExtractor;
+use xmtp_common::Retryable;
 use xmtp_common::RetryableError;
-use xmtp_common::retryable;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::xmtpv4::envelopes::AuthenticatedData;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
@@ -53,11 +53,13 @@ pub use sort::*;
 mod ordered_collection;
 pub use ordered_collection::*;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Retryable)]
 pub enum EnvelopeError {
     #[error(transparent)]
+    #[retry(inherit)]
     Conversion(#[from] ConversionError),
     #[error(transparent)]
+    #[retry(inherit)]
     Extraction(#[from] ExtractionError),
     #[error("Each topic must have a payload")]
     TopicMismatch,
@@ -66,32 +68,20 @@ pub enum EnvelopeError {
     #[error(transparent)]
     MissingBuilderField(#[from] UninitializedFieldError),
     #[error(transparent)]
+    #[retry(inherit)]
     Store(#[from] CursorStoreError),
     #[error(transparent)]
+    #[retry(true)]
     Decode(#[from] prost::DecodeError),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
+    #[retry(inherit)]
     DynError(Box<dyn RetryableError>),
 }
 
 impl EnvelopeError {
     pub fn other(self) -> Self {
         EnvelopeError::DynError(Box::new(self) as _)
-    }
-}
-
-impl RetryableError for EnvelopeError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Conversion(c) => retryable!(c),
-            Self::Extraction(e) => retryable!(e),
-            Self::TopicMismatch => false,
-            Self::DynError(d) => retryable!(d),
-            Self::NotFound(_) => false,
-            Self::MissingBuilderField(_) => false,
-            Self::Store(s) => retryable!(s),
-            Self::Decode(_) => true,
-        }
     }
 }

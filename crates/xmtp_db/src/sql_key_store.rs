@@ -1,4 +1,4 @@
-use xmtp_common::{ErrorCode, RetryableError, retryable};
+use xmtp_common::{ErrorCode, Retryable};
 
 use self::transactions::MutableTransactionConnection;
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
@@ -277,7 +277,7 @@ where
 
 /// Errors thrown by the key store.
 /// General error type for Mls Storage Trait
-#[derive(thiserror::Error, Debug, ErrorCode)]
+#[derive(thiserror::Error, Debug, ErrorCode, Retryable)]
 pub enum SqlKeyStoreError {
     /// Unsupported value type.
     ///
@@ -303,26 +303,14 @@ pub enum SqlKeyStoreError {
     ///
     /// Underlying Diesel database error. May be retryable.
     #[error("database error: {0}")]
+    #[retry(inherit)]
     Storage(#[from] diesel::result::Error),
     /// Connection error.
     ///
     /// Database connection error. Retryable.
     #[error("connection {0}")]
+    #[retry(inherit)]
     Connection(#[from] crate::ConnectionError),
-}
-
-impl RetryableError for SqlKeyStoreError {
-    fn is_retryable(&self) -> bool {
-        use SqlKeyStoreError::*;
-        match self {
-            Storage(err) => retryable!(err),
-            SerializationError => false,
-            UnsupportedMethod => false,
-            UnsupportedValueTypeBytes => false,
-            NotFound => false,
-            Connection(c) => retryable!(c),
-        }
-    }
 }
 
 const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";

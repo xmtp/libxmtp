@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
-use xmtp_common::RetryableError;
 use xmtp_common::hex::NormalizeHex;
+use xmtp_common::{Retryable, RetryableError};
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_configuration::Originators;
 use xmtp_db::consent_record::ConsentState;
@@ -77,21 +77,27 @@ where
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum CommitLogError {
     #[error("generic storage error: {0}")]
+    #[retry(inherit)]
     Storage(#[from] StorageError),
     #[error("diesel error: {0}")]
+    #[retry(inherit)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error("generic api error: {0}")]
+    #[retry(inherit)]
     Api(#[from] ApiError),
     #[error("connection error: {0}")]
+    #[retry(inherit)]
     Connection(#[from] xmtp_db::ConnectionError),
     #[error("prost decode error: {0}")]
     Prost(#[from] prost::DecodeError),
     #[error("keystore error: {0}")]
+    #[retry(inherit)]
     KeystoreError(#[from] xmtp_db::sql_key_store::SqlKeyStoreError),
     #[error("group error: {0}")]
+    #[retry(inherit)]
     GroupError(#[from] GroupError),
     #[error("crypto error: {0}")]
     CryptoError(#[from] openmls_traits::types::CryptoError),
@@ -102,38 +108,19 @@ pub enum CommitLogError {
     #[error("Group did not pass readd validation: {0}")]
     GroupReaddValidationError(String),
     #[error("sync error: {0}")]
+    #[retry(inherit)]
     SyncError(#[from] SyncSummary),
     #[error("failed to send readd request for group {group_id}: {source}")]
+    #[retry(when = source.is_retryable())]
     FailedToSendReadd {
         group_id: GroupId,
         source: Box<CommitLogError>,
     },
     #[error("{count} readd request(s) failed: {errors:?}", count = errors.len())]
+    #[retry(when = errors.iter().any(|e| e.is_retryable()))]
     FailedReadds { errors: Vec<CommitLogError> },
     #[error("no latest commit sequence id found for forked group {group_id}")]
     MissingLatestCommitSequenceId { group_id: GroupId },
-}
-
-impl RetryableError for CommitLogError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Storage(storage_error) => storage_error.is_retryable(),
-            Self::Diesel(diesel_error) => diesel_error.is_retryable(),
-            Self::Api(api_error) => api_error.is_retryable(),
-            Self::Connection(connection_error) => connection_error.is_retryable(),
-            Self::Prost(_prost_error) => false,
-            Self::KeystoreError(keystore_error) => keystore_error.is_retryable(),
-            Self::GroupError(group_error) => group_error.is_retryable(),
-            Self::CryptoError(_crypto_error) => false,
-            Self::TryFromSliceError(_try_from_slice_error) => false,
-            Self::Conversion(_) => false,
-            Self::GroupReaddValidationError(_group_readd_validation_error) => false,
-            Self::SyncError(sync_error) => sync_error.is_retryable(),
-            Self::FailedToSendReadd { source, .. } => source.is_retryable(),
-            Self::FailedReadds { errors } => errors.iter().any(|e| e.is_retryable()),
-            Self::MissingLatestCommitSequenceId { .. } => false,
-        }
-    }
 }
 
 impl NeedsDbReconnect for CommitLogError {

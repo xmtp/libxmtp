@@ -29,7 +29,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
+use xmtp_common::{ErrorCode, Event, Retry, Retryable, retry_async};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
@@ -75,7 +75,7 @@ pub enum Network {
     Prod,
 }
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum ClientError {
     #[error(transparent)]
     #[error_code(inherit)]
@@ -89,11 +89,13 @@ pub enum ClientError {
     ///
     /// Database operation failed. May be retryable.
     #[error("storage error: {0}")]
+    #[retry(inherit)]
     Storage(#[from] StorageError),
     /// API error.
     ///
     /// Network request to XMTP backend failed. Retryable.
     #[error("API error: {0}")]
+    #[retry(inherit)]
     Api(#[from] xmtp_api::ApiError),
     /// Identity error.
     ///
@@ -122,8 +124,11 @@ pub enum ClientError {
     Association(#[from] AssociationError),
     /// Signature validation error.
     ///
-    /// A signature failed verification. Not retryable.
+    /// A signature failed verification. SCW verification errors carry
+    /// retryability through SignatureError; transient RPC provider failures
+    /// must not advance the welcome cursor. See xmtp/libxmtp#3394.
     #[error("signature validation error: {0}")]
+    #[retry(inherit)]
     SignatureValidation(#[from] SignatureError),
     /// Identity update error.
     ///
@@ -140,6 +145,7 @@ pub enum ClientError {
     /// Group operation failed. May be retryable.
     // the box is to prevent infinite cycle between client and group errors
     #[error(transparent)]
+    #[retry(inherit)]
     Group(Box<GroupError>),
     /// Local event error.
     ///
@@ -150,11 +156,13 @@ pub enum ClientError {
     ///
     /// Connection to database failed. Retryable.
     #[error(transparent)]
+    #[retry(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     /// Generic error.
     ///
     /// Unclassified error. May be retryable.
     #[error("generic:{0}")]
+    #[retry(when = this.contains("database is locked"))]
     Generic(String),
     /// MLS store error.
     ///
@@ -180,6 +188,7 @@ pub enum ClientError {
     ///
     /// Registration envelopes haven't propagated to the node yet. Retryable.
     #[error("Envelopes not yet visible on node {node_id}")]
+    #[retry(true)]
     EnvelopesNotYetVisible { node_id: u32 },
     /// Client is closed.
     ///
@@ -208,24 +217,6 @@ impl From<NotFound> for ClientError {
 impl From<GroupError> for ClientError {
     fn from(err: GroupError) -> ClientError {
         ClientError::Group(Box::new(err))
-    }
-}
-
-impl xmtp_common::RetryableError for ClientError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            ClientError::Group(group_error) => retryable!(group_error),
-            ClientError::Api(api_error) => retryable!(api_error),
-            ClientError::Storage(storage_error) => retryable!(storage_error),
-            ClientError::Db(db) => retryable!(db),
-            // SCW verification errors carry retryability through SignatureError;
-            // transient RPC provider failures must not advance the welcome cursor.
-            // See xmtp/libxmtp#3394.
-            ClientError::SignatureValidation(e) => retryable!(e),
-            ClientError::Generic(err) => err.contains("database is locked"),
-            ClientError::EnvelopesNotYetVisible { .. } => true,
-            _ => false,
-        }
     }
 }
 
