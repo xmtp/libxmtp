@@ -19,6 +19,5 @@ data class MessageVisibilityOptions(
     // produces the same message id and is deduplicated. Defaults to a timestamp.
     val idempotencyKey: String? = null,
 ) {
-    fun toFfi(): FfiSendMessageOpts =
-        FfiSendMessageOpts(shouldPush = shouldPush, idempotencyKey = idempotencyKey)
+    fun toFfi(): FfiSendMessageOpts = FfiSendMessageOpts(shouldPush = shouldPush, idempotencyKey = idempotencyKey)
 }

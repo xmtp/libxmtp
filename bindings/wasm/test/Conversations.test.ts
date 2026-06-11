@@ -57,17 +57,21 @@ describe("Conversations", () => {
       .conversations()
       .createGroupByInboxIds([client2.inboxId]);
 
-    // Same content + same key => same id (deduplicated to a single message).
+    // Same content + same key => same id, deduplicated (no new stored message).
     const id1 = await conversation.sendText("gm", { idempotencyKey: "key-1" });
+    const countAfterFirst = (await conversation.findMessages()).length;
     const id2 = await conversation.sendText("gm", { idempotencyKey: "key-1" });
     expect(id2).toBe(id1);
-    expect((await conversation.findMessages()).length).toBe(1);
+    expect((await conversation.findMessages()).length).toBe(countAfterFirst);
 
-    // Different key (or no key) => different id.
+    // Different key (or no key) => different id, stored as a new message.
     const id3 = await conversation.sendText("gm", { idempotencyKey: "key-2" });
     const id4 = await conversation.sendText("gm");
     expect(id3).not.toBe(id1);
     expect(id4).not.toBe(id1);
     expect(id4).not.toBe(id3);
+    expect((await conversation.findMessages()).length).toBe(
+      countAfterFirst + 2,
+    );
   });
 });

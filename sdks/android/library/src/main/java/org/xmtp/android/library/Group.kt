@@ -189,10 +189,11 @@ class Group(
             if (compression != null) {
                 encoded = encoded.compress(compression)
             }
-            val sendOpts = MessageVisibilityOptions(
-                shouldPush = typedCodec.shouldPush(content),
-                idempotencyKey = options?.idempotencyKey,
-            )
+            val sendOpts =
+                MessageVisibilityOptions(
+                    shouldPush = typedCodec.shouldPush(content),
+                    idempotencyKey = options?.idempotencyKey,
+                )
             return Pair(encoded, sendOpts)
         } catch (e: Exception) {
             throw XMTPException("Codec type is not registered")
