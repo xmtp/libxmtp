@@ -4066,18 +4066,18 @@ where
             }
 
             let aead_type = crate::groups::mls_ext::WelcomePointersExtension::preferred_type();
-            let data = wrap_payload_symmetric(
-                &action.welcome_message,
-                aead_type,
-                symmetric_key.as_ref(),
-                data_nonce.as_ref(),
-            )?;
-            let welcome_metadata = wrap_payload_symmetric(
-                &welcome_metadata_bytes,
-                aead_type,
-                symmetric_key.as_ref(),
-                welcome_metadata_nonce.as_ref(),
-            )?;
+            let data = wrap_payload_symmetric()
+                .data(&action.welcome_message)
+                .aead_type(aead_type)
+                .symmetric_key(symmetric_key.as_ref())
+                .nonce(data_nonce.as_ref())
+                .call()?;
+            let welcome_metadata = wrap_payload_symmetric()
+                .data(&welcome_metadata_bytes)
+                .aead_type(aead_type)
+                .symmetric_key(symmetric_key.as_ref())
+                .nonce(welcome_metadata_nonce.as_ref())
+                .call()?;
 
             let welcome_pointee = WelcomeMessageInput {
                 version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {

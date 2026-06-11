@@ -2,9 +2,10 @@
 //! commits.
 //!
 //! The [`payload`] module provides helpers for the
-//! [`ExternalInvitePayload`] proto. The encryption envelope lives in the
-//! sibling `encrypted_group_info` module (added by a separate PR).
+//! [`ExternalInvitePayload`] proto. The [`encrypted_group_info`] module
+//! provides the encryption envelope.
 //!
 //! [`ExternalInvitePayload`]: xmtp_proto::xmtp::mls::message_contents::ExternalInvitePayload
 
+pub mod encrypted_group_info;
 pub mod payload;

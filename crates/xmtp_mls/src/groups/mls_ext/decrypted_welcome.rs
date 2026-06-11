@@ -103,18 +103,18 @@ impl DecryptedWelcome {
             }
         };
 
-        let decrypted_welcome_data = unwrap_payload_symmetric(
-            v1.data.as_slice(),
-            aead_type,
-            &decrypted_welcome_pointer.encryption_key,
-            &decrypted_welcome_pointer.data_nonce,
-        )?;
-        let decrypted_welcome_metadata = unwrap_payload_symmetric(
-            v1.welcome_metadata.as_slice(),
-            aead_type,
-            &decrypted_welcome_pointer.encryption_key,
-            &decrypted_welcome_pointer.welcome_metadata_nonce,
-        )?;
+        let decrypted_welcome_data = unwrap_payload_symmetric()
+            .data(v1.data.as_slice())
+            .aead_type(aead_type)
+            .symmetric_key(&decrypted_welcome_pointer.encryption_key)
+            .nonce(&decrypted_welcome_pointer.data_nonce)
+            .call()?;
+        let decrypted_welcome_metadata = unwrap_payload_symmetric()
+            .data(v1.welcome_metadata.as_slice())
+            .aead_type(aead_type)
+            .symmetric_key(&decrypted_welcome_pointer.encryption_key)
+            .nonce(&decrypted_welcome_pointer.welcome_metadata_nonce)
+            .call()?;
         let welcome = deserialize_welcome(&decrypted_welcome_data)?;
         let welcome_metadata = Some(decrypted_welcome_metadata.as_slice())
             .filter(|data| !data.is_empty())

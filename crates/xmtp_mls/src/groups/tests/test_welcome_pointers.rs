@@ -277,34 +277,39 @@ fn test_welcome_pointer_encryption_round_trip() {
     let aead_type = available_types.supported_aead_types.first().unwrap();
 
     // Test encryption
-    let encrypted_welcome_data =
-        wrap_payload_symmetric(&welcome_data, *aead_type, &symmetric_key, &data_nonce).unwrap();
-    let encrypted_welcome_metadata = wrap_payload_symmetric(
-        &welcome_metadata_bytes,
-        *aead_type,
-        &symmetric_key,
-        &metadata_nonce,
-    )
-    .unwrap();
+    let encrypted_welcome_data = wrap_payload_symmetric()
+        .data(&welcome_data)
+        .aead_type(*aead_type)
+        .symmetric_key(&symmetric_key)
+        .nonce(&data_nonce)
+        .call()
+        .unwrap();
+    let encrypted_welcome_metadata = wrap_payload_symmetric()
+        .data(&welcome_metadata_bytes)
+        .aead_type(*aead_type)
+        .symmetric_key(&symmetric_key)
+        .nonce(&metadata_nonce)
+        .call()
+        .unwrap();
     // Verify encryption worked (data should be different)
     assert_ne!(encrypted_welcome_data, welcome_data);
     assert_ne!(encrypted_welcome_metadata, welcome_metadata_bytes);
 
     // Test decryption
-    let decrypted_welcome_data = unwrap_payload_symmetric(
-        &encrypted_welcome_data,
-        *aead_type,
-        &symmetric_key,
-        &data_nonce,
-    )
-    .unwrap();
-    let decrypted_welcome_metadata = unwrap_payload_symmetric(
-        &encrypted_welcome_metadata,
-        *aead_type,
-        &symmetric_key,
-        &metadata_nonce,
-    )
-    .unwrap();
+    let decrypted_welcome_data = unwrap_payload_symmetric()
+        .data(&encrypted_welcome_data)
+        .aead_type(*aead_type)
+        .symmetric_key(&symmetric_key)
+        .nonce(&data_nonce)
+        .call()
+        .unwrap();
+    let decrypted_welcome_metadata = unwrap_payload_symmetric()
+        .data(&encrypted_welcome_metadata)
+        .aead_type(*aead_type)
+        .symmetric_key(&symmetric_key)
+        .nonce(&metadata_nonce)
+        .call()
+        .unwrap();
 
     // Verify decryption worked (data should match original)
     assert_eq!(decrypted_welcome_data, welcome_data);
@@ -595,22 +600,24 @@ async fn test_welcome_pointer_task_retry_resolution() {
             Ok::<_, crate::groups::GroupError>(action)
         })
         .await?;
-    let data = wrap_payload_symmetric(
-        &send_welcome_action.welcome_message,
-        WelcomePointersExtension::preferred_type(),
-        &welcome_pointer_v1.encryption_key,
-        &welcome_pointer_v1.data_nonce,
-    )
-    .unwrap();
-    let welcome_metadata = wrap_payload_symmetric(
-        WelcomeMetadata { message_cursor: 0 }
-            .encode_to_vec()
-            .as_slice(),
-        WelcomePointersExtension::preferred_type(),
-        &welcome_pointer_v1.encryption_key,
-        &welcome_pointer_v1.welcome_metadata_nonce,
-    )
-    .unwrap();
+    let data = wrap_payload_symmetric()
+        .data(&send_welcome_action.welcome_message)
+        .aead_type(WelcomePointersExtension::preferred_type())
+        .symmetric_key(&welcome_pointer_v1.encryption_key)
+        .nonce(&welcome_pointer_v1.data_nonce)
+        .call()
+        .unwrap();
+    let welcome_metadata = wrap_payload_symmetric()
+        .data(
+            WelcomeMetadata { message_cursor: 0 }
+                .encode_to_vec()
+                .as_slice(),
+        )
+        .aead_type(WelcomePointersExtension::preferred_type())
+        .symmetric_key(&welcome_pointer_v1.encryption_key)
+        .nonce(&welcome_pointer_v1.welcome_metadata_nonce)
+        .call()
+        .unwrap();
 
     let welcome_data = xmtp_proto::xmtp::mls::api::v1::WelcomeMessageInput {
         version: Some(
