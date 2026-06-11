@@ -4,6 +4,7 @@
   mktemp,
   buf,
   curl,
+  git,
   geckodriver,
   corepack,
   pkg-config,
@@ -24,6 +25,8 @@ mkShell {
     mktemp
     buf
     curl
+    # eval-time builtins.fetchGit needs a git matching the nix glibc
+    git
     geckodriver
     # playwright version here must match that in package.json EXACTLY for integration tests to work
     playwright

@@ -29,5 +29,10 @@ rust.buildPackage (
     version = xmtp.mkVersion rust;
     pname = "xdbg";
     cargoExtraArgs = "-p xdbg";
+    # Record the dynamic-openssl rpath so the binary runs outside a dev
+    # shell (`nix run`, cross-version/cross-talk tests).
+    postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+      patchelf --add-rpath ${base.runtimeLibPath} $out/bin/xdbg
+    '';
   }
 )

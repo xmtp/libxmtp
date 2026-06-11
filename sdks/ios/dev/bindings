@@ -1,6 +1,17 @@
 #!/bin/bash
 source "$(dirname "$0")/.setup"
 
+# Darwin only: Linux workstations build via remote Darwin builders, which
+# hold their own Xcode import.
+ATTR_PREFIX=""
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    "$(dirname "$0")/.ensure-xcode"
+else
+    # iOS packages are only exposed on Darwin systems; from Linux, target
+    # the Darwin outputs explicitly (built on remote Darwin builders).
+    ATTR_PREFIX="packages.aarch64-darwin."
+fi
+
 SWIFT_OUT="${ROOT}/bindings/mobile/build/swift"
 
 # --- Preflight sanity check on the nix binary cache ---
@@ -16,7 +27,7 @@ fi
 
 if [[ "${1:-}" == "--release" ]]; then
     echo "Building iOS xcframeworks (all targets)..."
-    nix build "${ROOT}#ios-xcframeworks" --out-link "${ROOT}/bindings/mobile/build/release"
+    nix build "${ROOT}#${ATTR_PREFIX}ios-release" --out-link "${ROOT}/bindings/mobile/build/release"
     rm -rf "$SWIFT_OUT"
     mkdir -p "$SWIFT_OUT"
     cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
@@ -28,7 +39,7 @@ else
     echo "Building iOS xcframeworks (simulator + macOS only)..."
     # Materialize the xcframework instead of symlinking ---
     rm -rf "$SWIFT_OUT"
-    nix build "${ROOT}#ios-xcframeworks-fast" \
+    nix build "${ROOT}#${ATTR_PREFIX}ios-devFast" \
         --out-link "${ROOT}/bindings/mobile/build/nix-fast"
     mkdir -p "$SWIFT_OUT"
     cp -rL "${ROOT}/bindings/mobile/build/nix-fast/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"

@@ -7,6 +7,7 @@
   lib,
   mkShell,
   foundry-bin,
+  just,
   sqlcipher,
   corepack,
   xmtp,
@@ -41,6 +42,7 @@ mkShell {
     ++ [
       rust-toolchain
       foundry-bin
+      just
       sqlcipher
       corepack
     ]

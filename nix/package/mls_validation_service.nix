@@ -2,6 +2,9 @@
   xmtp,
   lib,
   stdenv,
+  openssl,
+  sqlcipher,
+  zstd,
 }:
 let
   inherit (lib.fileset) unions;
@@ -14,6 +17,13 @@ let
 
   specialArgs = lib.optionalAttrs stdenv.hostPlatform.isMusl {
     RUSTFLAGS = "-C target-feature=+crt-static";
+    # The binary doesn't use xmtp_db, but cargoArtifacts deps-builds the
+    # whole workspace (incl. libsqlite3-sys), so sqlcipher must stay.
+    buildInputs = [
+      openssl
+      sqlcipher
+      zstd
+    ];
   };
 
   commonArgs = base.commonArgs // specialArgs;

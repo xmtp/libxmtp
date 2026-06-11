@@ -1,5 +1,5 @@
 # Shared iOS cross-compilation environment configuration.
-# Used by both nix/ios.nix (dev shell) and nix/package/ios.nix (build derivation).
+# Used by the iOS dev shell (nix/shells/ios.nix).
 #
 # All Xcode paths are resolved dynamically at shell time via /usr/bin/xcode-select.
 # This ensures CI runners using setup-xcode (which installs to versioned paths like
