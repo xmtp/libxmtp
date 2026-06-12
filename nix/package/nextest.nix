@@ -46,6 +46,11 @@ rust.cargoNextest (
   // {
     inherit src cargoArtifacts;
     doCheck = true;
+    # Opt in to the diesel TestInstrumentation panic on `database is locked`
+    # for the workspace test run. The panic is off by default so it cannot crash
+    # the node-sdk Vitest workers (xmtp/libxmtp#3765), but we still want the Rust
+    # workspace tests to fail loudly on lock contention.
+    XMTP_PANIC_ON_DB_LOCK = "true";
     pnameSuffix = if d14n then "nextest-d14n" else "nextest-v3";
     partitions = 1;
     partitionType = "count";
