@@ -1075,9 +1075,61 @@ where
         if message_expire_at_ns.is_some() {
             *disappearing_stored = true;
         }
-        self.process_own_leave_request_message(mls_group, storage, &id);
-        self.process_own_delete_message(storage, &id);
+        // Best-effort follow-ups on our own just-published message. The message
+        // is already published and its delivery status persisted; these only
+        // update local state (leave / delete). A retryable storage failure must
+        // still roll the sync back and retry, matching the rest of
+        // process_message_inner; a non-retryable failure is logged and swallowed
+        // because re-publishing won't help and the local reaction is genuinely
+        // best-effort here.
+        self.resolve_own_reaction(
+            self.process_own_leave_request_message(mls_group, storage, &id),
+            intent,
+            &id,
+            "leave request",
+        )?;
+        self.resolve_own_reaction(
+            self.process_own_delete_message(storage, &id),
+            intent,
+            &id,
+            "delete",
+        )?;
         Ok(Some(id))
+    }
+
+    /// Resolve the result of a best-effort follow-up reaction on our own
+    /// just-published message.
+    ///
+    /// Retryable failures become an [`IntentResolutionError`] so the caller
+    /// rolls the sync transaction back and retries (the message was already
+    /// published, so the optimistic row is untouched on rollback). Non-retryable
+    /// failures are logged and swallowed: the publish already succeeded and
+    /// re-running won't help, so we don't wedge the intent.
+    fn resolve_own_reaction(
+        &self,
+        result: Result<(), GroupMessageProcessingError>,
+        intent: &StoredGroupIntent,
+        message_id: &[u8],
+        reaction: &str,
+    ) -> Result<(), IntentResolutionError> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(err) if err.is_retryable() => Err(IntentResolutionError {
+                processing_error: err,
+                // Unused on the retryable path: the caller returns the
+                // processing_error directly (rollback + retry) rather than
+                // transitioning the intent to this state.
+                next_intent_state: intent.state,
+            }),
+            Err(err) => {
+                tracing::warn!(
+                    group_id = %self.group_id,
+                    message_id = hex::encode(message_id),
+                    "non-retryable error processing own {reaction} reaction, skipping: {err}"
+                );
+                Ok(())
+            }
+        }
     }
 
     #[tracing::instrument(level = "trace", skip(mls_group, envelope))]
@@ -1599,46 +1651,58 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message_id: &[u8],
-    ) {
-        if let Ok(Some(message)) = storage.db().get_group_message(message_id)
-            && message.content_type == ContentType::LeaveRequest
-        {
-            match self.process_leave_request_message(mls_group, storage, &message, None) {
-                Ok(()) => {
-                    debug!("Successfully processed leave request message");
-                }
-                Err(e) => {
-                    debug!("Failed to process leave request message: {}", e);
-                }
-            }
+    ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        crate::utils::test_mocks_helpers::maybe_mock_own_reaction_retryable_error()?;
+
+        // Propagate read failures (`?`) instead of dropping them: a retryable
+        // storage error here must roll the sync back and retry. A missing row is
+        // still a benign no-op.
+        let Some(message) = storage.db().get_group_message(message_id)? else {
+            return Ok(());
+        };
+        // Not a leave request: correct early return, not an error.
+        if message.content_type != ContentType::LeaveRequest {
+            return Ok(());
         }
+
+        self.process_leave_request_message(mls_group, storage, &message, None)
     }
 
-    fn process_own_delete_message(&self, storage: &impl XmtpMlsStorageProvider, message_id: &[u8]) {
+    fn process_own_delete_message(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        message_id: &[u8],
+    ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        crate::utils::test_mocks_helpers::maybe_mock_own_reaction_retryable_error()?;
+
         let db = storage.db();
 
-        let Ok(Some(message)) = db.get_group_message(message_id) else {
-            return;
+        // Propagate read failures (`?`); a missing row remains a benign no-op,
+        // handled by the `else` arms below.
+        let Some(message) = db.get_group_message(message_id)? else {
+            return Ok(());
         };
 
         if message.content_type != ContentType::DeleteMessage {
-            return;
+            return Ok(());
         }
 
-        let Ok(Some(deletion)) = db.get_message_deletion(message_id) else {
+        let Some(deletion) = db.get_message_deletion(message_id)? else {
             tracing::warn!(
                 message_id = hex::encode(message_id),
                 "Deletion record not found for own delete message"
             );
-            return;
+            return Ok(());
         };
 
-        let Ok(Some(original_msg)) = db.get_group_message(&deletion.deleted_message_id) else {
+        let Some(original_msg) = db.get_group_message(&deletion.deleted_message_id)? else {
             tracing::debug!(
                 deleted_message_id = hex::encode(&deletion.deleted_message_id),
                 "Original message not found for deletion event (may be out-of-order)"
             );
-            return;
+            return Ok(());
         };
 
         let _ = self
@@ -1647,6 +1711,8 @@ where
             .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
                 original_msg,
             ]));
+
+        Ok(())
     }
 
     fn process_leave_request_message(
@@ -4898,6 +4964,109 @@ pub(crate) mod tests {
         assert!(
             result.is_ok(),
             "Invalid hex message_id should not cause error"
+        );
+    }
+
+    /// The self-publish follow-up reaction handlers must *surface* a retryable
+    /// storage failure (so the sync transaction rolls back and retries) instead
+    /// of silently swallowing it. Regression guard for the dropped-error paths
+    /// in `process_own_leave_request_message` / `process_own_delete_message`.
+    ///
+    /// Not on wasm: the fault injection uses an env-var flag, and wasm targets
+    /// cannot set environment variables (same gating as the other
+    /// `test_mocks_helpers` based tests).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn test_own_reaction_handlers_surface_retryable_errors() {
+        use crate::tester;
+        use crate::utils::test_mocks_helpers::set_test_mode_own_reaction_retryable_error;
+
+        tester!(alix);
+        let alix_group = alix.create_group(None, None)?;
+        let storage = alix.context.mls_storage();
+        let message_id = vec![1, 2, 3];
+
+        // Inject a transient (retryable) storage error into both handlers.
+        set_test_mode_own_reaction_retryable_error(true);
+
+        let leave_result = alix_group.load_mls_group_with_lock(storage, |mls_group| {
+            Ok::<_, crate::groups::GroupError>(alix_group.process_own_leave_request_message(
+                &mls_group,
+                storage,
+                &message_id,
+            ))
+        })?;
+        assert!(
+            matches!(&leave_result, Err(e) if e.is_retryable()),
+            "own leave-request handler should surface the retryable error, got {leave_result:?}"
+        );
+
+        let delete_result = alix_group.process_own_delete_message(storage, &message_id);
+        assert!(
+            matches!(&delete_result, Err(e) if e.is_retryable()),
+            "own delete handler should surface the retryable error, got {delete_result:?}"
+        );
+
+        // With the fault cleared, a message id with no stored row is a benign
+        // no-op (Ok), not an error — the missing-row guards still hold.
+        set_test_mode_own_reaction_retryable_error(false);
+
+        let leave_ok = alix_group.load_mls_group_with_lock(storage, |mls_group| {
+            Ok::<_, crate::groups::GroupError>(alix_group.process_own_leave_request_message(
+                &mls_group,
+                storage,
+                &message_id,
+            ))
+        })?;
+        assert!(
+            leave_ok.is_ok(),
+            "expected benign no-op for missing leave-request row, got {leave_ok:?}"
+        );
+        assert!(
+            alix_group
+                .process_own_delete_message(storage, &message_id)
+                .is_ok(),
+            "expected benign no-op for missing delete row"
+        );
+
+        // End-to-end: the same fault must surface through the real sync path,
+        // not just the handler return value. Publish an own message, inject
+        // the retryable failure, and receive: the sync transaction must roll
+        // back and report the failure in the process summary instead of
+        // silently succeeding.
+        use crate::groups::send_message_opts::SendMessageOpts;
+
+        alix_group.sync().await?;
+        alix_group.send_message_optimistic(b"own message", SendMessageOpts::default())?;
+        alix_group.publish_intents().await?;
+
+        set_test_mode_own_reaction_retryable_error(true);
+        let summary = alix_group.receive().await?;
+        set_test_mode_own_reaction_retryable_error(false);
+        assert!(
+            !summary.errored.is_empty(),
+            "retryable failure in an own-reaction handler should be reported by the sync, got {summary:?}"
+        );
+        assert!(
+            summary.errored.iter().all(|(_, e)| e.is_retryable()),
+            "the injected failure should still be retryable when surfaced, got {summary:?}"
+        );
+        assert!(
+            summary.new_messages.is_empty(),
+            "the message must not count as processed while its reaction fails retryably, got {summary:?}"
+        );
+
+        // The rollback left the cursor untouched: with the fault cleared, the
+        // same message is re-processed successfully on the next sync.
+        let summary = alix_group.receive().await?;
+        assert!(
+            summary.errored.is_empty(),
+            "re-sync after clearing the fault should succeed, got {summary:?}"
+        );
+        assert_eq!(
+            summary.new_messages.len(),
+            1,
+            "the rolled-back message should be processed on retry, got {summary:?}"
         );
     }
 
