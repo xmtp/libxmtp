@@ -69,6 +69,7 @@ export type {
   WalletSendCalls,
   WorkerConfigOptions,
   WorkerIntervalOverride,
+  WorkerJitterOverride,
 } from "@xmtp/node-bindings";
 export {
   ActionStyle,
