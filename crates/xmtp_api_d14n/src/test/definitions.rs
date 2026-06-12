@@ -9,9 +9,8 @@ use std::sync::Arc;
 use xmtp_api_grpc::{
     GrpcClient,
     test::{
-        DevGatewayClient, DevNodeGoClient, DevXmtpdClient, GatewayClient, LocalGatewayClient,
-        LocalNodeGoClient, LocalXmtpdClient, NodeGoClient, ToxicGatewayClient, ToxicNodeGoClient,
-        ToxicXmtpdClient, XmtpdClient,
+        DevNodeGoClient, GatewayClient, LocalGatewayClient, LocalNodeGoClient, LocalXmtpdClient,
+        NodeGoClient, ToxicGatewayClient, ToxicNodeGoClient, ToxicXmtpdClient, XmtpdClient,
     },
 };
 use xmtp_proto::api::mock::MockNetworkClient;
@@ -34,12 +33,6 @@ pub type TestD14nClientCreator = TrackedStatsClient<
 >;
 /// Creator for a feature-flag switchable V3 client
 pub type TestV3ClientCreator = TrackedStatsClient<V3Client<NodeGoClient, Arc<dyn CursorStore>>>;
-
-/// A that only communicates with dev docker
-/// _does not switch on feature flag_
-pub type DevOnlyD14nClientCreator = TrackedStatsClient<
-    D14nClient<ReadWriteClient<DevXmtpdClient, DevGatewayClient>, Arc<dyn CursorStore>>,
->;
 
 /// A client that only communicates with dev network
 /// _does not switch on feature flag_
@@ -78,8 +71,10 @@ xmtp_common::if_d14n! {
     pub type TestClient = TestD14nClient;
     /// Test client that is local only, but still switches between d14n/v3 clients on feature flag
     pub type LocalOnlyTestClientCreator = LocalOnlyD14nClientCreator;
-    /// Test client that is dev only, but still switches between d14n/v3 clients on feature flag
-    pub type DevOnlyTestClientCreator = DevOnlyD14nClientCreator;
+    /// No decentralized dev environment exists, so under the d14n feature the `dev-only`
+    /// test client falls back to local docker d14n so callers that use `.dev()` still get a
+    /// matching client type.
+    pub type DevOnlyTestClientCreator = LocalOnlyD14nClientCreator;
     /// Test client that connects to toxiproxy only, but still switches between d14n/v3 clients on
     /// feature flag
     pub type ToxicOnlyTestClientCreator = ToxicOnlyD14nClientCreator;

@@ -152,7 +152,7 @@ is designed for ECS/Fargate deployment as a continuous health probe.
 
 ```bash
 docker run -d \
-  -e WORKSPACE=testnet-dev \
+  -e WORKSPACE=testnet \
   -e XDBG_LOOP_PAUSE=300 \
   -e PUSHGATEWAY_URL=http://pushgateway:9091 \
   ghcr.io/xmtp/xdbg
@@ -160,7 +160,7 @@ docker run -d \
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `WORKSPACE` | _(empty → local)_ | Target environment: `testnet`, `testnet-dev`, `testnet-staging` |
+| `WORKSPACE` | _(empty → local)_ | Target environment: `testnet` |
 | `XDBG_LOOP_PAUSE` | `300` | Seconds to sleep between monitoring loop iterations |
 | `PUSHGATEWAY_URL` | _(unset)_ | Prometheus PushGateway URL. If unset, metrics are silently disabled |
 | `XDBG_DB_ROOT` | _(unset)_ | Override the default data directory for xdbg state |

@@ -418,26 +418,25 @@ impl BackendOpts {
         if self.perf {
             debug_assert!(self.d14n, "--perf requires --d14n");
             return match self.backend {
-                Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
-                Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
-                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
+                // Dev has no d14n endpoint of its own; pair the V3 dev node with the testnet
+                // (production) perf gateway — the only still-valid d14n target.
+                Dev => Ok((*crate::constants::XMTP_TESTNET_PERF_GATEWAY).clone()),
+                Production => Ok((*crate::constants::XMTP_TESTNET_PERF_GATEWAY).clone()),
                 Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
             };
         }
 
         match (self.backend, self.d14n, self.enable_migration) {
             (Dev, false, false) => eyre::bail!("No gateway for V3"),
-            (Staging, false, false) => eyre::bail!("No gateway for V3"),
             (Production, false, false) => eyre::bail!("No gateway for V3"),
             (Local, false, false) => eyre::bail!("No gateway for V3"),
-            (Dev, true, false) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
-            (Staging, true, false) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
-            (Production, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            // Dev + d14n pairs the V3 dev node with the testnet (production) gateway.
+            (Dev, true, false) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
+            (Production, true, false) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
             (Local, true, false) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
             (Local, _, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
-            (Dev, _, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
-            (Staging, _, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
-            (Production, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            (Dev, _, true) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
+            (Production, _, true) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
         }
     }
 
@@ -506,17 +505,14 @@ impl<'a> From<&'a BackendOpts> for u64 {
         } else {
             match (value.backend, value.d14n, value.enable_migration) {
                 (Production, false, false) => 2,
-                (Staging, false, false) => 1,
                 (Dev, false, false) => 1,
                 (Local, false, false) => 0,
                 (Production, true, false) => 5,
-                (Staging, true, false) => 6,
                 (Dev, true, false) => 4,
                 (Local, true, false) => 3,
                 // Migration cases, where the client is both d14n and v3
                 (Local, _, true) => 7,
                 (Dev, _, true) => 8,
-                (Staging, _, true) => 9,
                 (Production, _, true) => 10,
             }
         }
@@ -541,7 +537,6 @@ impl From<BackendOpts> for url::Url {
 #[derive(ValueEnum, Debug, Copy, Clone, Default)]
 pub enum BackendKind {
     Dev,
-    Staging,
     Production,
     #[default]
     Local,
@@ -552,12 +547,11 @@ impl BackendKind {
         use BackendKind::*;
         match (self, d14n) {
             (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_STAGING).clone(),
             (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
-            (Staging, true) => (*crate::constants::XMTP_STAGING_D14N).clone(),
-            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
+            // Dev has no d14n target; fall back to the centralized V3 dev network.
+            (Dev, true) => (*crate::constants::XMTP_DEV).clone(),
+            (Production, true) => (*crate::constants::XMTP_TESTNET_D14N).clone(),
             (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
         }
     }
@@ -644,7 +638,7 @@ mod tests {
 
     #[test]
     fn perf_with_d14n_and_backend_is_valid() {
-        let opts = parse_backend_args(&["--perf", "--d14n", "--backend", "staging"]);
+        let opts = parse_backend_args(&["--perf", "--d14n", "--backend", "production"]);
         assert!(opts.is_ok());
         let backend = opts.unwrap();
         let url = backend.xmtpd_gateway_url().unwrap();

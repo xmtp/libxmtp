@@ -6,8 +6,8 @@ use super::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction};
 ///
 /// There are two categories of environments:
 /// - **Centralized (V3):** `Local`, `Dev`, `Production` -- backed by node-go with gRPC.
-/// - **Decentralized (D14n):** `TestnetStaging`, `TestnetDev`, `Testnet`, `Mainnet` -- backed by
-///   the decentralized XMTP network (xmtpd).
+/// - **Decentralized (D14n):** `Testnet`, `Mainnet` -- backed by the decentralized XMTP
+///   network (xmtpd).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum XmtpEnv {
     // Centralized (V3) environments
@@ -19,10 +19,6 @@ pub enum XmtpEnv {
     Production,
 
     // Decentralized (D14n) environments
-    /// Testnet staging (internal pre-release).
-    TestnetStaging,
-    /// Testnet dev (development iteration).
-    TestnetDev,
     /// Public testnet.
     Testnet,
     /// Mainnet (production decentralized network).
@@ -39,16 +35,13 @@ impl XmtpEnv {
             Self::Local => Some(GrpcUrlsLocal::NODE),
             Self::Dev => Some(GrpcUrlsDev::NODE),
             Self::Production => Some(GrpcUrlsProduction::NODE),
-            Self::TestnetStaging | Self::TestnetDev | Self::Testnet | Self::Mainnet => None,
+            Self::Testnet | Self::Mainnet => None,
         }
     }
 
     /// Returns `true` if this is a decentralized (D14n) environment.
     pub fn is_d14n(&self) -> bool {
-        matches!(
-            self,
-            Self::TestnetStaging | Self::TestnetDev | Self::Testnet | Self::Mainnet
-        )
+        matches!(self, Self::Testnet | Self::Mainnet)
     }
 }
 
@@ -65,8 +58,6 @@ mod tests {
 
     #[test]
     fn d14n_envs_have_no_api_url() {
-        assert!(XmtpEnv::TestnetStaging.default_api_url().is_none());
-        assert!(XmtpEnv::TestnetDev.default_api_url().is_none());
         assert!(XmtpEnv::Testnet.default_api_url().is_none());
         assert!(XmtpEnv::Mainnet.default_api_url().is_none());
     }
@@ -79,8 +70,6 @@ mod tests {
         assert!(!XmtpEnv::Production.is_d14n());
 
         // D14n envs ARE d14n
-        assert!(XmtpEnv::TestnetStaging.is_d14n());
-        assert!(XmtpEnv::TestnetDev.is_d14n());
         assert!(XmtpEnv::Testnet.is_d14n());
         assert!(XmtpEnv::Mainnet.is_d14n());
     }

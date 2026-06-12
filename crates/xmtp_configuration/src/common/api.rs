@@ -30,28 +30,29 @@ impl DockerUrls {
     pub const ANVIL: &'static str = "http://localhost:8545";
 }
 
-/// Urls to the Grpc Backends
-/// These URLS are rust-feature-flag aware, and will choose local or dev:
-/// * if no feature is passed, uses local environment
-/// * if `dev` feature is passed, uses dev environment
-/// * if compiling for webassembly, uses the envoy/grpc-web variants of the local/dev urls
+/// Urls to the Grpc Backends used by tests and tooling.
+///
+/// The `dev` Cargo feature flag only flips `NODE` to the centralized V3 dev endpoint;
+/// the decentralized dev/staging environments have been retired, so d14n endpoints are
+/// always local.
+///
+/// If compiling for WebAssembly, the envoy/grpc-web variants of the local URLs are used.
 pub struct GrpcUrls;
 
-// URLS for different networks (dev/local) are for switching all tests to that network
-// on a specific feature flag.
+impl GrpcUrls {
+    pub const XMTPD: &'static str = GrpcUrlsLocal::XMTPD;
+    pub const GATEWAY: &'static str = GrpcUrlsLocal::GATEWAY;
+}
+
 if_dev! {
     impl GrpcUrls {
         pub const NODE: &'static str = GrpcUrlsDev::NODE;
-        pub const XMTPD: &'static str = GrpcUrlsStaging::XMTPD;
-        pub const GATEWAY: &'static str = GrpcUrlsStaging::GATEWAY;
     }
 }
 
 if_local! {
-     impl GrpcUrls {
+    impl GrpcUrls {
         pub const NODE: &'static str = GrpcUrlsLocal::NODE;
-        pub const XMTPD: &'static str = GrpcUrlsLocal::XMTPD;
-        pub const GATEWAY: &'static str = GrpcUrlsLocal::GATEWAY;
     }
 }
 
@@ -75,13 +76,8 @@ if_native! {
     }
 }
 
-/// GRPC URLS corresponding to dev environments
+/// GRPC URLS corresponding to the centralized V3 dev environment (node-go hosted by XMTP).
 pub struct GrpcUrlsDev;
-impl GrpcUrlsDev {
-    pub const XMTPD: &'static str = "https://grpc.testnet-dev.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet-dev.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-dev.xmtp.network:443";
-}
 
 if_wasm! {
     impl GrpcUrlsDev {
@@ -90,38 +86,13 @@ if_wasm! {
 }
 
 if_native! {
-     impl GrpcUrlsDev {
+    impl GrpcUrlsDev {
         pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
     }
 }
 
-/// GRPC URLS corresponding to staging environments
-pub struct GrpcUrlsStaging;
-impl GrpcUrlsStaging {
-    pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-staging.xmtp.network:443";
-}
-
-if_wasm! {
-    impl GrpcUrlsStaging {
-        pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
-    }
-}
-
-if_native! {
-    impl GrpcUrlsStaging {
-        pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
-    }
-}
-
-/// GRPC URLS corresponding to production environments
+/// GRPC URLS corresponding to the centralized V3 production environment.
 pub struct GrpcUrlsProduction;
-impl GrpcUrlsProduction {
-    pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet.xmtp.network:443";
-}
 
 if_wasm! {
     impl GrpcUrlsProduction {
@@ -133,6 +104,14 @@ if_native! {
     impl GrpcUrlsProduction {
         pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
     }
+}
+
+/// GRPC URLS corresponding to the decentralized public testnet environment.
+pub struct GrpcUrlsTestnet;
+impl GrpcUrlsTestnet {
+    pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
+    pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
+    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet.xmtp.network:443";
 }
 
 // URLs connected to toxiproxy
