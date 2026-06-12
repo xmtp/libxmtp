@@ -217,7 +217,7 @@ impl CommitLogStorer for MlsGroup {
             // No tracing here: the error carries the full context and is
             // logged when it surfaces at its destination.
             return Err(GroupMessageProcessingError::EpochAuthenticatorNotAdvanced {
-                group_id: hex::encode(self.group_id().as_slice()),
+                group_id: self.group_id().try_into()?,
                 commit_sequence_id: sequence_id,
                 epoch: self.epoch().as_u64(),
             });

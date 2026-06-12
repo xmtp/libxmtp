@@ -236,7 +236,7 @@ pub enum GroupMessageProcessingError {
          commit log entry"
     )]
     EpochAuthenticatorNotAdvanced {
-        group_id: String,
+        group_id: GroupId,
         commit_sequence_id: i64,
         epoch: u64,
     },
