@@ -15,6 +15,9 @@ use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
+xmtp_common::if_native! {
+    pub mod bidi;
+}
 pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
