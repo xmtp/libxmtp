@@ -1341,7 +1341,7 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
      * Prepare a message for later publishing.
      * Stores the message locally without publishing. Returns the message ID.
      */
-    func prepareMessage(contentBytes: Data, shouldPush: Bool) throws  -> Data
+    func prepareMessage(contentBytes: Data, shouldPush: Bool, idempotencyKey: String?) throws  -> Data
     
     func processStreamedConversationMessage(envelopeBytes: Data) async throws  -> [FfiMessage]
     
@@ -1869,12 +1869,13 @@ open func pausedForVersion()throws  -> String?  {
      * Prepare a message for later publishing.
      * Stores the message locally without publishing. Returns the message ID.
      */
-open func prepareMessage(contentBytes: Data, shouldPush: Bool)throws  -> Data  {
+open func prepareMessage(contentBytes: Data, shouldPush: Bool, idempotencyKey: String?)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_prepare_message(
             self.uniffiCloneHandle(),
         FfiConverterData.lower(contentBytes),
-        FfiConverterBool.lower(shouldPush),$0
+        FfiConverterBool.lower(shouldPush),
+        FfiConverterOptionString.lower(idempotencyKey),$0
     )
 })
 }
@@ -6282,11 +6283,21 @@ public struct DbOptions: Equatable, Hashable {
     public var encryptionKey: Data?
     public var maxDbPoolSize: UInt32?
     public var minDbPoolSize: UInt32?
+    /**
+     * When true, use a single DB connection instead of a pool (one file
+     * descriptor). Pool-size options are ignored. Defaults to unset so existing
+     * foreign callers that construct `DbOptions` without this field still compile.
+     */
     public var useSingleConnection: Bool?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(db: String?, encryptionKey: Data?, maxDbPoolSize: UInt32?, minDbPoolSize: UInt32?, useSingleConnection: Bool? = nil) {
+    public init(db: String?, encryptionKey: Data?, maxDbPoolSize: UInt32?, minDbPoolSize: UInt32?, 
+        /**
+         * When true, use a single DB connection instead of a pool (one file
+         * descriptor). Pool-size options are ignored. Defaults to unset so existing
+         * foreign callers that construct `DbOptions` without this field still compile.
+         */useSingleConnection: Bool? = nil) {
         self.db = db
         self.encryptionKey = encryptionKey
         self.maxDbPoolSize = maxDbPoolSize
@@ -6310,10 +6321,10 @@ public struct FfiConverterTypeDbOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DbOptions {
         return
             try DbOptions(
-                db: FfiConverterOptionString.read(from: &buf),
-                encryptionKey: FfiConverterOptionData.read(from: &buf),
-                maxDbPoolSize: FfiConverterOptionUInt32.read(from: &buf),
-                minDbPoolSize: FfiConverterOptionUInt32.read(from: &buf),
+                db: FfiConverterOptionString.read(from: &buf), 
+                encryptionKey: FfiConverterOptionData.read(from: &buf), 
+                maxDbPoolSize: FfiConverterOptionUInt32.read(from: &buf), 
+                minDbPoolSize: FfiConverterOptionUInt32.read(from: &buf), 
                 useSingleConnection: FfiConverterOptionBool.read(from: &buf)
         )
     }
@@ -9422,11 +9433,25 @@ public func FfiConverterTypeFfiReply_lower(_ value: FfiReply) -> RustBuffer {
 
 public struct FfiSendMessageOpts: Equatable, Hashable {
     public var shouldPush: Bool
+    /**
+     * Optional idempotency key. Re-sending identical content with the same key
+     * produces the same message id and is deduplicated. Defaults to a timestamp.
+     * Defaults to unset so existing foreign callers that construct
+     * `FfiSendMessageOpts` without this field still compile.
+     */
+    public var idempotencyKey: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(shouldPush: Bool) {
+    public init(shouldPush: Bool, 
+        /**
+         * Optional idempotency key. Re-sending identical content with the same key
+         * produces the same message id and is deduplicated. Defaults to a timestamp.
+         * Defaults to unset so existing foreign callers that construct
+         * `FfiSendMessageOpts` without this field still compile.
+         */idempotencyKey: String? = nil) {
         self.shouldPush = shouldPush
+        self.idempotencyKey = idempotencyKey
     }
 
     
@@ -9445,12 +9470,14 @@ public struct FfiConverterTypeFfiSendMessageOpts: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSendMessageOpts {
         return
             try FfiSendMessageOpts(
-                shouldPush: FfiConverterBool.read(from: &buf)
+                shouldPush: FfiConverterBool.read(from: &buf), 
+                idempotencyKey: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiSendMessageOpts, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.shouldPush, into: &buf)
+        FfiConverterOptionString.write(value.idempotencyKey, into: &buf)
     }
 }
 
@@ -16289,7 +16316,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 17083) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 38231) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 48127) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 45021) {

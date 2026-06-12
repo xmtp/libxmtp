@@ -58,6 +58,7 @@ export type {
   RemoteAttachment,
   Reply,
   SendMessageOpts,
+  SendOpts,
   SignatureRequestHandle,
   TransactionMetadata,
   TransactionReference,

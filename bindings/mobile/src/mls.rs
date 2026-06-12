@@ -1331,12 +1331,19 @@ impl From<FfiGroupQueryOrderBy> for GroupQueryOrderBy {
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiSendMessageOpts {
     pub should_push: bool,
+    /// Optional idempotency key. Re-sending identical content with the same key
+    /// produces the same message id and is deduplicated. Defaults to a timestamp.
+    /// Defaults to unset so existing foreign callers that construct
+    /// `FfiSendMessageOpts` without this field still compile.
+    #[uniffi(default = None)]
+    pub idempotency_key: Option<String>,
 }
 
 impl From<FfiSendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
     fn from(opts: FfiSendMessageOpts) -> Self {
         xmtp_mls::groups::send_message_opts::SendMessageOpts {
             should_push: opts.should_push,
+            idempotency_key: opts.idempotency_key,
         }
     }
 }
@@ -2499,7 +2506,10 @@ impl FfiConversation {
             TextCodec::encode(text.to_string()).map_err(|e| FfiError::generic(e.to_string()))?;
         self.send(
             encoded_content_to_bytes(content),
-            FfiSendMessageOpts { should_push: true },
+            FfiSendMessageOpts {
+                should_push: true,
+                idempotency_key: None,
+            },
         )
         .await
     }
@@ -2539,10 +2549,13 @@ impl FfiConversation {
         &self,
         content_bytes: Vec<u8>,
         should_push: bool,
+        idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, FfiError> {
-        let id = self
-            .inner
-            .prepare_message_for_later_publish(content_bytes.as_slice(), should_push)?;
+        let id = self.inner.prepare_message_for_later_publish(
+            content_bytes.as_slice(),
+            should_push,
+            idempotency_key,
+        )?;
         Ok(id)
     }
 

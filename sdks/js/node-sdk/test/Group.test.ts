@@ -137,7 +137,7 @@ describe("Group", () => {
     expect(group.addedByInboxId).toBe(client1.inboxId);
 
     const text = "gm";
-    await group.sendText(text, true);
+    await group.sendText(text, { optimistic: true });
 
     const messages = await group.messages();
     expect(messages.length).toBe(1);
@@ -150,6 +150,29 @@ describe("Group", () => {
     expect(messages2.length).toBe(1);
     expect(messages2[0].content).toBe(text);
     expect(messages2[0].deliveryStatus).toBe(DeliveryStatus.Published);
+  });
+
+  it("should produce deterministic ids for a caller-set idempotency key", async () => {
+    const { signer: signer1 } = createSigner();
+    const { signer: signer2 } = createSigner();
+    const client1 = await createRegisteredClient(signer1);
+    const client2 = await createRegisteredClient(signer2);
+    const group = await client1.conversations.createGroup([client2.inboxId]);
+
+    // Same content + same key => same id, deduplicated (no new stored message).
+    const id1 = await group.sendText("gm", { idempotencyKey: "key-1" });
+    const countAfterFirst = (await group.messages()).length;
+    const id2 = await group.sendText("gm", { idempotencyKey: "key-1" });
+    expect(id2).toBe(id1);
+    expect((await group.messages()).length).toBe(countAfterFirst);
+
+    // Different key (or no key) => different id, stored as a new message.
+    const id3 = await group.sendText("gm", { idempotencyKey: "key-2" });
+    const id4 = await group.sendText("gm");
+    expect(id3).not.toBe(id1);
+    expect(id4).not.toBe(id1);
+    expect(id4).not.toBe(id3);
+    expect((await group.messages()).length).toBe(countAfterFirst + 2);
   });
 
   it("should optimistically create a group with members", async () => {
@@ -169,7 +192,7 @@ describe("Group", () => {
     expect(group.addedByInboxId).toBe(client1.inboxId);
 
     const text = "gm";
-    await group.sendText(text, true);
+    await group.sendText(text, { optimistic: true });
 
     const messages = await group.messages();
     expect(messages.length).toBe(1);
@@ -330,7 +353,7 @@ describe("Group", () => {
     const group = await client1.conversations.createGroup([client2.inboxId]);
 
     const text = "gm";
-    await group.sendText(text, true);
+    await group.sendText(text, { optimistic: true });
 
     const messages = await group.messages();
     expect(messages.length).toBe(2);
@@ -536,7 +559,7 @@ describe("Group", () => {
     });
     expect(filteredMessages9.length).toBe(2);
 
-    await group.sendText("gm", true);
+    await group.sendText("gm", { optimistic: true });
     const filteredMessages10 = await group.messages({
       deliveryStatus: DeliveryStatus.Published,
     });

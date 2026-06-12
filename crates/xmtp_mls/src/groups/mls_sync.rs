@@ -1462,6 +1462,9 @@ where
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                             inserted_at_ns: 0, // Will be set by database
                             should_push: true,
+                            // Persist the key from the wire envelope — the exact
+                            // key this message id was derived from.
+                            idempotency_key,
                         };
                         message.store_or_ignore(&storage.db())?;
                         identifier.internal_id(message_id);
@@ -2636,6 +2639,8 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,
+            // Matches the key used to derive `message_id` above.
+            idempotency_key: timestamp_ns.to_string(),
         };
 
         msg.store_or_ignore(&storage.db())?;
@@ -4753,6 +4758,7 @@ pub(crate) mod tests {
             originator_id: 1,
             inserted_at_ns: 0,
             should_push: false,
+            idempotency_key: String::new(),
         };
 
         // Use load_mls_group_with_lock to get access to the MLS group and call process_delete_message
@@ -4820,6 +4826,7 @@ pub(crate) mod tests {
             originator_id: 1,
             inserted_at_ns: 0,
             should_push: false,
+            idempotency_key: String::new(),
         };
 
         let storage = alix.context.mls_storage();
@@ -4894,6 +4901,7 @@ pub(crate) mod tests {
             originator_id: 1,
             inserted_at_ns: 0,
             should_push: false,
+            idempotency_key: String::new(),
         };
 
         let storage = alix.context.mls_storage();

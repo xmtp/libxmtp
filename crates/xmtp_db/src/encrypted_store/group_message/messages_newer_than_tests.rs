@@ -29,6 +29,7 @@ fn generate_message_with_cursor(
         originator_id,
         expire_at_ns: None,
         should_push: true,
+        idempotency_key: sent_at_ns.to_string(),
     }
 }
 

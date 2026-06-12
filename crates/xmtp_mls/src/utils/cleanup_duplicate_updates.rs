@@ -160,6 +160,7 @@ mod tests {
                 expire_at_ns: None,
                 inserted_at_ns: 0,
                 should_push: true,
+                idempotency_key: String::new(),
             }
         };
 

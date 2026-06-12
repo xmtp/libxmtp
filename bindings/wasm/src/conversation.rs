@@ -64,12 +64,48 @@ pub struct SendMessageOpts {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idempotency_key: Option<String>,
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
       should_push: opts.should_push,
+      idempotency_key: opts.idempotency_key,
+    }
+  }
+}
+
+/// Options for the top-level `send*` convenience helpers. `shouldPush` is
+/// derived from the content type's codec, so callers only control optimistic
+/// delivery and the idempotency key.
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct SendOpts {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idempotency_key: Option<String>,
+}
+
+impl SendMessageOpts {
+  /// Build full send opts from a codec-derived `should_push` and the caller's
+  /// convenience `SendOpts` bag.
+  fn from_send_opts(should_push: bool, opts: Option<SendOpts>) -> Self {
+    let opts = opts.unwrap_or_default();
+    SendMessageOpts {
+      should_push,
+      optimistic: opts.optimistic,
+      idempotency_key: opts.idempotency_key,
     }
   }
 }
@@ -219,11 +255,16 @@ impl Conversation {
     &self,
     #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
     #[wasm_bindgen(js_name = shouldPush)] should_push: bool,
+    #[wasm_bindgen(js_name = idempotencyKey)] idempotency_key: Option<String>,
   ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
     let message_id = group
-      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .prepare_message_for_later_publish(
+        encoded_content.encode_to_vec().as_slice(),
+        should_push,
+        idempotency_key,
+      )
       .map_err(ErrorWrapper::js)?;
     Ok(hex::encode(message_id))
   }
@@ -245,12 +286,9 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = sendText)]
-  pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String, JsError> {
+  pub async fn send_text(&self, text: String, opts: Option<SendOpts>) -> Result<String, JsError> {
     let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: TextCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(TextCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -258,13 +296,10 @@ impl Conversation {
   pub async fn send_markdown(
     &self,
     markdown: String,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: MarkdownCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(MarkdownCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -272,37 +307,24 @@ impl Conversation {
   pub async fn send_reaction(
     &self,
     reaction: Reaction,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ReactionCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ReactionCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
   #[wasm_bindgen(js_name = sendReply)]
-  pub async fn send_reply(
-    &self,
-    reply: Reply,
-    optimistic: Option<bool>,
-  ) -> Result<String, JsError> {
+  pub async fn send_reply(&self, reply: Reply, opts: Option<SendOpts>) -> Result<String, JsError> {
     let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ReplyCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ReplyCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
   #[wasm_bindgen(js_name = sendReadReceipt)]
-  pub async fn send_read_receipt(&self, optimistic: Option<bool>) -> Result<String, JsError> {
+  pub async fn send_read_receipt(&self, opts: Option<SendOpts>) -> Result<String, JsError> {
     let encoded_content = ReadReceiptCodec::encode(ReadReceipt {}).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ReadReceiptCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ReadReceiptCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -310,13 +332,10 @@ impl Conversation {
   pub async fn send_attachment(
     &self,
     attachment: Attachment,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: AttachmentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(AttachmentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -324,14 +343,11 @@ impl Conversation {
   pub async fn send_remote_attachment(
     &self,
     #[wasm_bindgen(js_name = remoteAttachment)] remote_attachment: RemoteAttachment,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content =
       RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: RemoteAttachmentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(RemoteAttachmentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -339,14 +355,11 @@ impl Conversation {
   pub async fn send_multi_remote_attachment(
     &self,
     #[wasm_bindgen(js_name = multiRemoteAttachment)] multi_remote_attachment: MultiRemoteAttachment,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
       .map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: MultiRemoteAttachmentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(MultiRemoteAttachmentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -354,14 +367,11 @@ impl Conversation {
   pub async fn send_transaction_reference(
     &self,
     #[wasm_bindgen(js_name = transactionReference)] transaction_reference: TransactionReference,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content =
       TransactionReferenceCodec::encode(transaction_reference.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: TransactionReferenceCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(TransactionReferenceCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -369,15 +379,12 @@ impl Conversation {
   pub async fn send_wallet_send_calls(
     &self,
     #[wasm_bindgen(js_name = walletSendCalls)] wallet_send_calls: WalletSendCalls,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let wsc: xmtp_content_types::wallet_send_calls::WalletSendCalls =
       wallet_send_calls.try_into()?;
     let encoded_content = WalletSendCallsCodec::encode(wsc).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: WalletSendCallsCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(WalletSendCallsCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -385,13 +392,10 @@ impl Conversation {
   pub async fn send_actions(
     &self,
     actions: Actions,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ActionsCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ActionsCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -399,13 +403,10 @@ impl Conversation {
   pub async fn send_intent(
     &self,
     intent: Intent,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: IntentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(IntentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -1037,6 +1038,7 @@ mod tests {
       sequence_id: 0,
       expire_at_ns: None,
       should_push: true,
+      idempotency_key: 1738354508964432000i64.to_string(),
     };
     crate::to_value(&stored_message).unwrap();
   }

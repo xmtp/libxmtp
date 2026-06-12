@@ -968,6 +968,9 @@ where
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
+                        // The conversation_list view does not carry the key; use
+                        // the timestamp proxy (display-only, never republished).
+                        idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
                     });
                     if msg.is_none() {
                         tracing::warn!("tried listing message, but message had missing fields so it was skipped");
