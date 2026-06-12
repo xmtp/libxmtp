@@ -224,6 +224,22 @@ pub enum GroupMessageProcessingError {
     PreCommitProposalPhaseComplete,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// A successful staged-commit merge by a member that remains in the group
+    /// must advance the epoch and therefore change the epoch authenticator.
+    /// If it did not, the group state the commit was merged onto was
+    /// corrupt/torn (e.g. produced by a cross-process race on a shared MLS
+    /// DB). Retryable: the enclosing transaction (cursor + merge + commit
+    /// log) rolls back and the message is reprocessed against settled state.
+    #[error(
+        "staged commit merge for group [{group_id}] at sequence [{commit_sequence_id}] reached \
+         epoch [{epoch}] without advancing the epoch authenticator; refusing to record corrupt \
+         commit log entry"
+    )]
+    EpochAuthenticatorNotAdvanced {
+        group_id: GroupId,
+        commit_sequence_id: i64,
+        epoch: u64,
+    },
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -269,6 +285,10 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::PreCommitProposalPhaseComplete => false,
             Self::Builder(_) => false,
             Self::Conversion(_) => false,
+            // Retry so the enclosing transaction rolls back (including the
+            // cursor advance) and the message converges via cursor dedup
+            // instead of persisting a forked commit log entry.
+            Self::EpochAuthenticatorNotAdvanced { .. } => true,
         }
     }
 }

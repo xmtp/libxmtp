@@ -683,6 +683,11 @@ mock! {
             &self,
             group_id: &GroupId,
         ) -> Result<Option<i32>, crate::ConnectionError>;
+
+        fn get_latest_chain_start_rowid(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<i32>, crate::ConnectionError>;
     }
 
     impl QueryRemoteCommitLog for DbQuery {
