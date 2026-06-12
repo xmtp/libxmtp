@@ -285,6 +285,10 @@ async fn build_partitioned_group_membership<C: XmtpSharedContext>(
                 version: Some(GroupMembershipEntryVersion::V1(GroupMembershipEntryV1 {
                     sequence_id: *seq,
                     failed_installations: failed,
+                    // Every pre-migration member was added via Welcome /
+                    // legacy flows, never an external commit, so the
+                    // admitted-via tag is correctly absent for all of them.
+                    admitted_via_external_group_id: vec![],
                 })),
             },
         );

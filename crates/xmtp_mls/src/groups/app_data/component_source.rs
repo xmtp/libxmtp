@@ -2375,6 +2375,7 @@ mod tests {
                 version: Some(Version::V1(GroupMembershipEntryV1 {
                     sequence_id: 1,
                     failed_installations: vec![],
+                    admitted_via_external_group_id: vec![],
                 })),
             },
         );
@@ -2399,6 +2400,7 @@ mod tests {
                 version: Some(Version::V1(GroupMembershipEntryV1 {
                     sequence_id: 7,
                     failed_installations: vec![vec![0xA1; 16]],
+                    admitted_via_external_group_id: vec![],
                 })),
             },
         );
@@ -2408,6 +2410,7 @@ mod tests {
                 version: Some(Version::V1(GroupMembershipEntryV1 {
                     sequence_id: 42,
                     failed_installations: vec![vec![0xB1; 16]],
+                    admitted_via_external_group_id: vec![],
                 })),
             },
         );

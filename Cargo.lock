@@ -14831,6 +14831,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tls_codec",
+ "url",
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
  "xmtp_common",

@@ -1070,6 +1070,10 @@ impl From<AppDataUpdateIntentData> for Vec<u8> {
             version: Some(AppDataUpdateVersion::V1(AppDataUpdateDataV1 {
                 component_id: intent.component_id as u32,
                 payload: intent.payload,
+                // Multi-component atomic writes (XIP-82 enable atomicity)
+                // populate this in the external-commit stack; the generic
+                // single-component intent carries none.
+                additional_updates: vec![],
             })),
         }
         .encode_to_vec()
@@ -1170,6 +1174,7 @@ mod app_data_update_intent_tests {
             version: Some(AppDataUpdateVersion::V1(AppDataUpdateDataV1 {
                 component_id: u16::MAX as u32 + 1,
                 payload: vec![],
+                additional_updates: vec![],
             })),
         }
         .encode_to_vec();
