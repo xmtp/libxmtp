@@ -85,11 +85,11 @@ _test-all *args="": (_test-v3 args) (_test-d14n args)
 
 [private]
 _test-v3 *args="":
-    {{ cargo_test }} --profile ci {{ args }}
+    XMTP_PANIC_ON_DB_LOCK=true {{ cargo_test }} --profile ci {{ args }}
 
 [private]
 _test-d14n *args="":
-    {{ cargo_test }} \
+    XMTP_PANIC_ON_DB_LOCK=true {{ cargo_test }} \
       --features d14n --profile ci-d14n \
       -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' {{ args }}
 
