@@ -214,14 +214,10 @@ impl CommitLogStorer for MlsGroup {
         // enclosing transaction (cursor advance + merge + log write) rolls
         // back and the message is reprocessed against settled state.
         if applied_epoch_authenticator == last_epoch_authenticator {
-            tracing::error!(
-                group_id = hex::encode(self.group_id().as_slice()),
-                commit_sequence_id = sequence_id,
-                epoch = self.epoch().as_u64(),
-                "staged commit merge did not advance the epoch authenticator; \
-                 refusing to record corrupt commit log entry"
-            );
+            // No tracing here: the error carries the full context and is
+            // logged when it surfaces at its destination.
             return Err(GroupMessageProcessingError::EpochAuthenticatorNotAdvanced {
+                group_id: hex::encode(self.group_id().as_slice()),
                 commit_sequence_id: sequence_id,
                 epoch: self.epoch().as_u64(),
             });

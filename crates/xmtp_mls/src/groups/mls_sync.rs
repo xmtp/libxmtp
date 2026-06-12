@@ -231,10 +231,15 @@ pub enum GroupMessageProcessingError {
     /// DB). Retryable: the enclosing transaction (cursor + merge + commit
     /// log) rolls back and the message is reprocessed against settled state.
     #[error(
-        "commit at sequence [{commit_sequence_id}] merged to epoch [{epoch}] without advancing \
-         the epoch authenticator; refusing to record corrupt commit log entry"
+        "staged commit merge for group [{group_id}] at sequence [{commit_sequence_id}] reached \
+         epoch [{epoch}] without advancing the epoch authenticator; refusing to record corrupt \
+         commit log entry"
     )]
-    EpochAuthenticatorNotAdvanced { commit_sequence_id: i64, epoch: u64 },
+    EpochAuthenticatorNotAdvanced {
+        group_id: String,
+        commit_sequence_id: i64,
+        epoch: u64,
+    },
 }
 
 impl RetryableError for GroupMessageProcessingError {
