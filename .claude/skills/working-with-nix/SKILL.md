@@ -27,7 +27,7 @@ echo $XMTP_DEV_SHELL   # "local", "android", "ios", or unset
 
 ### Rust Version is Pinned — Do Not Change
 
-**Rust 1.92.0** via `flake.nix` → `rust-manifest`. All shells use `xmtp.mkToolchain`. Never modify without project-wide coordination.
+**Rust 1.95.0** via `flake.nix` → `rust-manifest` (`inputs.rust-manifest.url = ".../channel-rust-1.95.0.toml"`). All shells use `xmtp.mkToolchain`. Never modify without project-wide coordination. (`rust-toolchain.toml` says `channel = "stable"` for non-Nix tooling; `Cargo.toml`'s `rust-version = "1.94.0"` is the MSRV floor, not the pin.)
 
 ### iOS Shell is macOS Only
 

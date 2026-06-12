@@ -56,6 +56,9 @@ let
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
+    # trybuild .stderr snapshots — commonCargoSources only keeps .rs/Cargo.toml,
+    # so without this the UI tests regenerate-and-fail in the hermetic build
+    (src + /crates/xmtp_macro/tests/ui)
     (src + /crates/xmtp_proto/src/gen/proto_descriptor.bin)
     (src + /webdriver.json)
     (src + /apps/xnet/lib/signers.txt)
