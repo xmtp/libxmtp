@@ -127,7 +127,7 @@ describe("Dm", () => {
     const dm = await client1.conversations.createDm(client2.inboxId!);
 
     const text = "gm";
-    await dm.sendText(text, true);
+    await dm.sendText(text, { optimistic: true });
 
     const messages = await dm.messages();
     expect(messages.length).toBe(2);
