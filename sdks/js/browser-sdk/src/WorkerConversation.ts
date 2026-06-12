@@ -23,6 +23,7 @@ import {
   type RemoteAttachment,
   type Reply,
   type SendMessageOpts,
+  type SendOpts,
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/wasm-bindings";
@@ -196,72 +197,61 @@ export class WorkerConversation {
     return this.#group.send(encodedContent, opts ?? { shouldPush: true });
   }
 
-  async sendText(text: string, isOptimistic?: boolean) {
-    return this.#group.sendText(text, { optimistic: isOptimistic });
+  async sendText(text: string, opts?: SendOpts) {
+    return this.#group.sendText(text, opts);
   }
 
-  async sendMarkdown(markdown: string, isOptimistic?: boolean) {
-    return this.#group.sendMarkdown(markdown, { optimistic: isOptimistic });
+  async sendMarkdown(markdown: string, opts?: SendOpts) {
+    return this.#group.sendMarkdown(markdown, opts);
   }
 
-  async sendReaction(reaction: Reaction, isOptimistic?: boolean) {
-    return this.#group.sendReaction(reaction, { optimistic: isOptimistic });
+  async sendReaction(reaction: Reaction, opts?: SendOpts) {
+    return this.#group.sendReaction(reaction, opts);
   }
 
-  async sendReadReceipt(isOptimistic?: boolean) {
-    return this.#group.sendReadReceipt({ optimistic: isOptimistic });
+  async sendReadReceipt(opts?: SendOpts) {
+    return this.#group.sendReadReceipt(opts);
   }
 
-  async sendReply(reply: Reply, isOptimistic?: boolean) {
-    return this.#group.sendReply(reply, { optimistic: isOptimistic });
+  async sendReply(reply: Reply, opts?: SendOpts) {
+    return this.#group.sendReply(reply, opts);
   }
 
   async sendTransactionReference(
     transactionReference: TransactionReference,
-    isOptimistic?: boolean,
+    opts?: SendOpts,
   ) {
-    return this.#group.sendTransactionReference(transactionReference, {
-      optimistic: isOptimistic,
-    });
+    return this.#group.sendTransactionReference(transactionReference, opts);
   }
 
-  async sendWalletSendCalls(
-    walletSendCalls: WalletSendCalls,
-    isOptimistic?: boolean,
-  ) {
-    return this.#group.sendWalletSendCalls(walletSendCalls, {
-      optimistic: isOptimistic,
-    });
+  async sendWalletSendCalls(walletSendCalls: WalletSendCalls, opts?: SendOpts) {
+    return this.#group.sendWalletSendCalls(walletSendCalls, opts);
   }
 
-  async sendActions(actions: Actions, isOptimistic?: boolean) {
-    return this.#group.sendActions(actions, { optimistic: isOptimistic });
+  async sendActions(actions: Actions, opts?: SendOpts) {
+    return this.#group.sendActions(actions, opts);
   }
 
-  async sendIntent(intent: Intent, isOptimistic?: boolean) {
-    return this.#group.sendIntent(intent, { optimistic: isOptimistic });
+  async sendIntent(intent: Intent, opts?: SendOpts) {
+    return this.#group.sendIntent(intent, opts);
   }
 
-  async sendAttachment(attachment: Attachment, isOptimistic?: boolean) {
-    return this.#group.sendAttachment(attachment, { optimistic: isOptimistic });
+  async sendAttachment(attachment: Attachment, opts?: SendOpts) {
+    return this.#group.sendAttachment(attachment, opts);
   }
 
   async sendMultiRemoteAttachment(
     multiRemoteAttachment: MultiRemoteAttachment,
-    isOptimistic?: boolean,
+    opts?: SendOpts,
   ) {
-    return this.#group.sendMultiRemoteAttachment(multiRemoteAttachment, {
-      optimistic: isOptimistic,
-    });
+    return this.#group.sendMultiRemoteAttachment(multiRemoteAttachment, opts);
   }
 
   async sendRemoteAttachment(
     remoteAttachment: RemoteAttachment,
-    isOptimistic?: boolean,
+    opts?: SendOpts,
   ) {
-    return this.#group.sendRemoteAttachment(remoteAttachment, {
-      optimistic: isOptimistic,
-    });
+    return this.#group.sendRemoteAttachment(remoteAttachment, opts);
   }
 
   async messages(options?: ListMessagesOptions): Promise<DecodedMessage[]> {

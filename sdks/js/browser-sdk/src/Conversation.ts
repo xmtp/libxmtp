@@ -10,6 +10,7 @@ import {
   type RemoteAttachment,
   type Reply,
   type SendMessageOpts,
+  type SendOpts,
   type TransactionReference,
   type WalletSendCalls,
   type DecodedMessage as XmtpDecodedMessage,
@@ -160,8 +161,10 @@ export class Conversation<ContentTypes = unknown> {
    * @param options - Optional send options
    * @param options.shouldPush - Indicates whether this message should be
    * included in push notifications
-   * @param options.isOptimistic - Indicates whether this message should be
+   * @param options.optimistic - Indicates whether this message should be
    * sent optimistically and published later via `publishMessages`
+   * @param options.idempotencyKey - Optional idempotency key; re-sending
+   * identical content with the same key produces the same deduplicated message id
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async send(content: EncodedContent, options?: SendMessageOpts) {
@@ -176,14 +179,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a text message
    *
    * @param text - The text to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendText(text: string, isOptimistic?: boolean) {
+  async sendText(text: string, opts?: SendOpts) {
     return this.#worker.action("conversation.sendText", {
       id: this.#id,
       text,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -191,14 +194,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a markdown message
    *
    * @param markdown - The markdown to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendMarkdown(markdown: string, isOptimistic?: boolean) {
+  async sendMarkdown(markdown: string, opts?: SendOpts) {
     return this.#worker.action("conversation.sendMarkdown", {
       id: this.#id,
       markdown,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -206,27 +209,27 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a reaction message
    *
    * @param reaction - The reaction to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendReaction(reaction: Reaction, isOptimistic?: boolean) {
+  async sendReaction(reaction: Reaction, opts?: SendOpts) {
     return this.#worker.action("conversation.sendReaction", {
       id: this.#id,
       reaction,
-      isOptimistic,
+      opts,
     });
   }
 
   /**
    * Sends a read receipt message
    *
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendReadReceipt(isOptimistic?: boolean) {
+  async sendReadReceipt(opts?: SendOpts) {
     return this.#worker.action("conversation.sendReadReceipt", {
       id: this.#id,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -234,14 +237,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a reply message
    *
    * @param reply - The reply to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendReply(reply: Reply, isOptimistic?: boolean) {
+  async sendReply(reply: Reply, opts?: SendOpts) {
     return this.#worker.action("conversation.sendReply", {
       id: this.#id,
       reply,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -249,17 +252,17 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a transaction reference message
    *
    * @param transactionReference - The transaction reference to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendTransactionReference(
     transactionReference: TransactionReference,
-    isOptimistic?: boolean,
+    opts?: SendOpts,
   ) {
     return this.#worker.action("conversation.sendTransactionReference", {
       id: this.#id,
       transactionReference,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -267,17 +270,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a wallet send calls message
    *
    * @param walletSendCalls - The wallet send calls to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendWalletSendCalls(
-    walletSendCalls: WalletSendCalls,
-    isOptimistic?: boolean,
-  ) {
+  async sendWalletSendCalls(walletSendCalls: WalletSendCalls, opts?: SendOpts) {
     return this.#worker.action("conversation.sendWalletSendCalls", {
       id: this.#id,
       walletSendCalls,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -285,14 +285,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends an actions message
    *
    * @param actions - The actions to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendActions(actions: Actions, isOptimistic?: boolean) {
+  async sendActions(actions: Actions, opts?: SendOpts) {
     return this.#worker.action("conversation.sendActions", {
       id: this.#id,
       actions,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -300,14 +300,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends an intent message
    *
    * @param intent - The intent to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendIntent(intent: Intent, isOptimistic?: boolean) {
+  async sendIntent(intent: Intent, opts?: SendOpts) {
     return this.#worker.action("conversation.sendIntent", {
       id: this.#id,
       intent,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -315,14 +315,14 @@ export class Conversation<ContentTypes = unknown> {
    * Sends an attachment message
    *
    * @param attachment - The attachment to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
-  async sendAttachment(attachment: Attachment, isOptimistic?: boolean) {
+  async sendAttachment(attachment: Attachment, opts?: SendOpts) {
     return this.#worker.action("conversation.sendAttachment", {
       id: this.#id,
       attachment,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -330,17 +330,17 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a multi remote attachment message
    *
    * @param multiRemoteAttachment - The multi remote attachment to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendMultiRemoteAttachment(
     multiRemoteAttachment: MultiRemoteAttachment,
-    isOptimistic?: boolean,
+    opts?: SendOpts,
   ) {
     return this.#worker.action("conversation.sendMultiRemoteAttachment", {
       id: this.#id,
       multiRemoteAttachment,
-      isOptimistic,
+      opts,
     });
   }
 
@@ -348,17 +348,17 @@ export class Conversation<ContentTypes = unknown> {
    * Sends a remote attachment message
    *
    * @param remoteAttachment - The remote attachment to send
-   * @param isOptimistic - Whether to send the message optimistically
+   * @param opts - Send options (optimistic delivery, idempotency key)
    * @returns Promise that resolves with the message ID after it has been sent
    */
   async sendRemoteAttachment(
     remoteAttachment: RemoteAttachment,
-    isOptimistic?: boolean,
+    opts?: SendOpts,
   ) {
     return this.#worker.action("conversation.sendRemoteAttachment", {
       id: this.#id,
       remoteAttachment,
-      isOptimistic,
+      opts,
     });
   }
 

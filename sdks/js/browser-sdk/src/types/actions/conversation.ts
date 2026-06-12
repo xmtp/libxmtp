@@ -15,6 +15,7 @@ import type {
   RemoteAttachment,
   Reply,
   SendMessageOpts,
+  SendOpts,
   TransactionReference,
   WalletSendCalls,
 } from "@xmtp/wasm-bindings";
@@ -199,7 +200,7 @@ export type ConversationAction =
       data: {
         id: string;
         text: string;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -209,7 +210,7 @@ export type ConversationAction =
       data: {
         id: string;
         markdown: string;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -219,7 +220,7 @@ export type ConversationAction =
       data: {
         id: string;
         reaction: Reaction;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -228,7 +229,7 @@ export type ConversationAction =
       result: string;
       data: {
         id: string;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -238,7 +239,7 @@ export type ConversationAction =
       data: {
         id: string;
         reply: Reply;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -248,7 +249,7 @@ export type ConversationAction =
       data: {
         id: string;
         transactionReference: TransactionReference;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -258,7 +259,7 @@ export type ConversationAction =
       data: {
         id: string;
         walletSendCalls: WalletSendCalls;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -268,7 +269,7 @@ export type ConversationAction =
       data: {
         id: string;
         actions: Actions;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -278,7 +279,7 @@ export type ConversationAction =
       data: {
         id: string;
         intent: Intent;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -288,7 +289,7 @@ export type ConversationAction =
       data: {
         id: string;
         attachment: Attachment;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -298,7 +299,7 @@ export type ConversationAction =
       data: {
         id: string;
         multiRemoteAttachment: MultiRemoteAttachment;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     }
   | {
@@ -308,6 +309,6 @@ export type ConversationAction =
       data: {
         id: string;
         remoteAttachment: RemoteAttachment;
-        isOptimistic?: boolean;
+        opts?: SendOpts;
       };
     };
