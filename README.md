@@ -225,7 +225,11 @@ protocol buffers
 
 ├ sdks/
 
-│ └ [`android`](./sdks/android): Android SDK (Kotlin)
+│ ├ [`android`](./sdks/android): Android SDK (Kotlin)
+
+│ ├ [`ios`](./sdks/ios): iOS SDK (Swift)
+
+│ └ [`js`](./sdks/js): Browser and Node SDK (TypeScript)
 
 ### Run the benchmarks
 
