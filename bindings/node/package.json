@@ -37,20 +37,20 @@
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
-    "@napi-rs/cli": "^3.5.1",
-    "@types/node": "^25.2.3",
+    "@napi-rs/cli": "^3.7.1",
+    "@types/node": "^25.9.3",
     "@types/uuid": "^11.0.0",
     "@xmtp/content-type-remote-attachment": "^2.0.3",
     "fast-glob": "^3.3.3",
     "prettier": "^3.8.0",
     "prettier-plugin-packagejson": "^3.0.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "uuid": "^13.0.0",
-    "viem": "^2.45.1",
-    "vite": "^7.3.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "uuid": "^14.0.0",
+    "viem": "^2.52.2",
+    "vite": "^8.0.16",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.0.8"
+    "vitest": "^4.1.8"
   },
   "packageManager": "yarn@4.11.0",
   "engines": {
