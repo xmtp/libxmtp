@@ -40,6 +40,48 @@ services:
     image: *x-xmtpd-contracts-image
     networks:
       - proxynet
+    # The contracts image bakes `anvil --load-state ./anvil-state.json --host 0.0.0.0
+    # --mixed-mining --block-time 1` as its CMD (the entrypoint is just `anvil`). Because
+    # of `--block-time 1`, anvil mines a block every second and, once its in-memory state
+    # buffer fills, offloads serialized world states (~51MB each, the size of the loaded
+    # contract set) to ~/.foundry/anvil/tmp/<session>/<state-root>.json. anvil does not
+    # bound that on-disk state cache by default, so the directory grows without limit
+    # (observed: 14GB after a few days, 171GB after ~8). It lands in the container's
+    # writable layer on the *shared* Docker VM disk, so it can exhaust the host and crash
+    # unrelated co-located containers (e.g. other devs' Postgres) with ENOSPC.
+    #
+    # Fix (eliminate the leak at the source): re-specify the baked CMD args verbatim — so
+    # --load-state still seeds the pre-deployed XMTP contracts and mining/clock behavior is
+    # unchanged — and add `--prune-history`, which forces max_persisted_states to 0, i.e.
+    # anvil writes *zero* state files to disk (verified: the dir is never even created,
+    # even after mining thousands of blocks) and stays lean on RAM too (~100MB; a
+    # `--prune-history N` lookback window instead would cost ~1GB). Mining, blocks,
+    # receipts, log queries/subscriptions, and *current* contract state all still work —
+    # everything xmtpd's indexer + registration/payer flows use (verified: stack healthy,
+    # d14n send/receive passes). The only thing dropped is `eth_call`/state reads at any
+    # non-latest block, which the d14n flows don't do. Overriding `command:` replaces only
+    # the CMD args; the `anvil` entrypoint is preserved.
+    command:
+      - "--load-state"
+      - "./anvil-state.json"
+      - "--host"
+      - "0.0.0.0"
+      - "--mixed-mining"
+      - "--block-time"
+      - "1"
+      - "--prune-history"
+    # Defense-in-depth (blast-radius containment): mount a size-capped, RAM-backed tmpfs
+    # over the state-cache dir. Even if a future image/flag change re-introduces on-disk
+    # offload, it is hard-capped at 512m, RAM-backed, cleared on every restart, and can
+    # never touch the shared persistent VM disk again.
+    tmpfs:
+      - /home/foundry/.foundry/anvil/tmp:size=512m
+    # anvil logs per mined block; cap container logs so they can't grow unbounded either.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   register-node-native:
     platform: linux/amd64
