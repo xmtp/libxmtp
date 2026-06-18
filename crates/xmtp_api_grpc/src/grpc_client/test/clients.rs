@@ -53,26 +53,6 @@ impl XmtpTestClient for DevNodeGoClient {
 }
 
 /// Client connected to xmtp-node-go on the dev network
-pub struct DevGatewayClient;
-impl XmtpTestClient for DevGatewayClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::GATEWAY)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct DevXmtpdClient;
-impl XmtpTestClient for DevXmtpdClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::XMTPD)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
 pub struct LocalXmtpdClient;
 impl XmtpTestClient for LocalXmtpdClient {
     type Builder = ClientBuilder;

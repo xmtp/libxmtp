@@ -187,10 +187,8 @@ pub enum XmtpEnv {
   Local = 0,
   Dev = 1,
   Production = 2,
-  TestnetStaging = 3,
-  TestnetDev = 4,
-  Testnet = 5,
-  Mainnet = 6,
+  Testnet = 3,
+  Mainnet = 4,
 }
 
 impl From<XmtpEnv> for xmtp_configuration::XmtpEnv {
@@ -199,8 +197,6 @@ impl From<XmtpEnv> for xmtp_configuration::XmtpEnv {
       XmtpEnv::Local => Self::Local,
       XmtpEnv::Dev => Self::Dev,
       XmtpEnv::Production => Self::Production,
-      XmtpEnv::TestnetStaging => Self::TestnetStaging,
-      XmtpEnv::TestnetDev => Self::TestnetDev,
       XmtpEnv::Testnet => Self::Testnet,
       XmtpEnv::Mainnet => Self::Mainnet,
     }
