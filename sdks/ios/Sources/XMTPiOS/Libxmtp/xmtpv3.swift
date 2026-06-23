@@ -1333,6 +1333,16 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func listMembers() async throws  -> [FfiConversationMember]
     
+    /**
+     * Snapshot this group's membership capabilities: the group context's
+     * extension types plus, per member inbox and installation, the extension
+     * types each advertises. Generic facts the caller filters — e.g. to
+     * answer whether the group is migrated to the proposal flow and which
+     * members block it. See
+     * [`xmtp_mls::groups::MlsGroup::membership_capabilities`].
+     */
+    func membershipCapabilities() async throws  -> FfiGroupMembershipCapabilities
+    
     func membershipState() throws  -> FfiGroupMembershipState
     
     func pausedForVersion() throws  -> String?
@@ -1845,6 +1855,31 @@ open func listMembers()async throws  -> [FfiConversationMember]  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiConversationMember.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Snapshot this group's membership capabilities: the group context's
+     * extension types plus, per member inbox and installation, the extension
+     * types each advertises. Generic facts the caller filters — e.g. to
+     * answer whether the group is migrated to the proposal flow and which
+     * members block it. See
+     * [`xmtp_mls::groups::MlsGroup::membership_capabilities`].
+     */
+open func membershipCapabilities()async throws  -> FfiGroupMembershipCapabilities  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_fficonversation_membership_capabilities(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiGroupMembershipCapabilities_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
@@ -7753,6 +7788,67 @@ public func FfiConverterTypeFfiForkRecoveryOpts_lower(_ value: FfiForkRecoveryOp
 }
 
 
+/**
+ * A generic membership/capability snapshot for a group. Mirrors
+ * [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
+ * the proposal migration is complete when `context_extensions` contains
+ * `AppDataDictionary`, and an inbox blocks migration when one of its
+ * installations' `supported_extensions` does not.
+ */
+public struct FfiGroupMembershipCapabilities: Equatable, Hashable {
+    public var contextExtensions: [FfiMlsExtensionType]
+    public var members: [FfiInboxCapabilities]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(contextExtensions: [FfiMlsExtensionType], members: [FfiInboxCapabilities]) {
+        self.contextExtensions = contextExtensions
+        self.members = members
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiGroupMembershipCapabilities: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGroupMembershipCapabilities: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGroupMembershipCapabilities {
+        return
+            try FfiGroupMembershipCapabilities(
+                contextExtensions: FfiConverterSequenceTypeFfiMlsExtensionType.read(from: &buf), 
+                members: FfiConverterSequenceTypeFfiInboxCapabilities.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiGroupMembershipCapabilities, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFfiMlsExtensionType.write(value.contextExtensions, into: &buf)
+        FfiConverterSequenceTypeFfiInboxCapabilities.write(value.members, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGroupMembershipCapabilities_lift(_ buf: RustBuffer) throws -> FfiGroupMembershipCapabilities {
+    return try FfiConverterTypeFfiGroupMembershipCapabilities.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGroupMembershipCapabilities_lower(_ value: FfiGroupMembershipCapabilities) -> RustBuffer {
+    return FfiConverterTypeFfiGroupMembershipCapabilities.lower(value)
+}
+
+
 public struct FfiGroupSyncSummary: Equatable, Hashable {
     public var numEligible: UInt64
     public var numSynced: UInt64
@@ -8109,6 +8205,64 @@ public func FfiConverterTypeFfiInbox_lower(_ value: FfiInbox) -> RustBuffer {
 }
 
 
+/**
+ * Per-inbox installation capabilities. Mirrors
+ * [`xmtp_mls::groups::InboxCapabilities`].
+ */
+public struct FfiInboxCapabilities: Equatable, Hashable {
+    public var inboxId: String
+    public var installations: [FfiInstallationCapabilities]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inboxId: String, installations: [FfiInstallationCapabilities]) {
+        self.inboxId = inboxId
+        self.installations = installations
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiInboxCapabilities: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiInboxCapabilities: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiInboxCapabilities {
+        return
+            try FfiInboxCapabilities(
+                inboxId: FfiConverterString.read(from: &buf), 
+                installations: FfiConverterSequenceTypeFfiInstallationCapabilities.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiInboxCapabilities, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.inboxId, into: &buf)
+        FfiConverterSequenceTypeFfiInstallationCapabilities.write(value.installations, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiInboxCapabilities_lift(_ buf: RustBuffer) throws -> FfiInboxCapabilities {
+    return try FfiConverterTypeFfiInboxCapabilities.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiInboxCapabilities_lower(_ value: FfiInboxCapabilities) -> RustBuffer {
+    return FfiConverterTypeFfiInboxCapabilities.lower(value)
+}
+
+
 public struct FfiInboxState: Equatable, Hashable {
     public var inboxId: String
     public var recoveryIdentity: FfiIdentifier
@@ -8226,6 +8380,72 @@ public func FfiConverterTypeFfiInstallation_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiInstallation_lower(_ value: FfiInstallation) -> RustBuffer {
     return FfiConverterTypeFfiInstallation.lower(value)
+}
+
+
+/**
+ * Capabilities for a single installation (device) in a group. Mirrors
+ * [`xmtp_mls::groups::InstallationCapabilities`].
+ */
+public struct FfiInstallationCapabilities: Equatable, Hashable {
+    public var installationId: Data
+    public var isOwn: Bool
+    public var supportedExtensions: [FfiMlsExtensionType]
+    public var capabilitiesKnown: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(installationId: Data, isOwn: Bool, supportedExtensions: [FfiMlsExtensionType], capabilitiesKnown: Bool) {
+        self.installationId = installationId
+        self.isOwn = isOwn
+        self.supportedExtensions = supportedExtensions
+        self.capabilitiesKnown = capabilitiesKnown
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiInstallationCapabilities: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiInstallationCapabilities: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiInstallationCapabilities {
+        return
+            try FfiInstallationCapabilities(
+                installationId: FfiConverterData.read(from: &buf), 
+                isOwn: FfiConverterBool.read(from: &buf), 
+                supportedExtensions: FfiConverterSequenceTypeFfiMlsExtensionType.read(from: &buf), 
+                capabilitiesKnown: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiInstallationCapabilities, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.installationId, into: &buf)
+        FfiConverterBool.write(value.isOwn, into: &buf)
+        FfiConverterSequenceTypeFfiMlsExtensionType.write(value.supportedExtensions, into: &buf)
+        FfiConverterBool.write(value.capabilitiesKnown, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiInstallationCapabilities_lift(_ buf: RustBuffer) throws -> FfiInstallationCapabilities {
+    return try FfiConverterTypeFfiInstallationCapabilities.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiInstallationCapabilities_lower(_ value: FfiInstallationCapabilities) -> RustBuffer {
+    return FfiConverterTypeFfiInstallationCapabilities.lower(value)
 }
 
 
@@ -12459,6 +12679,140 @@ public func FfiConverterTypeFfiMetadataField_lower(_ value: FfiMetadataField) ->
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * An MLS extension type advertised by an installation's key package or
+ * present in a group's context. Mirrors
+ * [`xmtp_mls::groups::MlsExtensionType`].
+ */
+
+public enum FfiMlsExtensionType: Equatable, Hashable {
+    
+    case applicationId
+    case ratchetTree
+    case requiredCapabilities
+    case externalPub
+    case externalSenders
+    case lastResort
+    case immutableMetadata
+    case appDataDictionary
+    case unknown(id: UInt16
+    )
+    case grease(id: UInt16
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiMlsExtensionType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMlsExtensionType: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMlsExtensionType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMlsExtensionType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .applicationId
+        
+        case 2: return .ratchetTree
+        
+        case 3: return .requiredCapabilities
+        
+        case 4: return .externalPub
+        
+        case 5: return .externalSenders
+        
+        case 6: return .lastResort
+        
+        case 7: return .immutableMetadata
+        
+        case 8: return .appDataDictionary
+        
+        case 9: return .unknown(id: try FfiConverterUInt16.read(from: &buf)
+        )
+        
+        case 10: return .grease(id: try FfiConverterUInt16.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMlsExtensionType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .applicationId:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .ratchetTree:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .requiredCapabilities:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .externalPub:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .externalSenders:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .lastResort:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .immutableMetadata:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .appDataDictionary:
+            writeInt(&buf, Int32(8))
+        
+        
+        case let .unknown(id):
+            writeInt(&buf, Int32(9))
+            FfiConverterUInt16.write(id, into: &buf)
+            
+        
+        case let .grease(id):
+            writeInt(&buf, Int32(10))
+            FfiConverterUInt16.write(id, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMlsExtensionType_lift(_ buf: RustBuffer) throws -> FfiMlsExtensionType {
+    return try FfiConverterTypeFfiMlsExtensionType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMlsExtensionType_lower(_ value: FfiMlsExtensionType) -> RustBuffer {
+    return FfiConverterTypeFfiMlsExtensionType.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum FfiPermissionLevel: Equatable, Hashable {
     
@@ -13314,7 +13668,6 @@ public enum FfiWorkerKind: Equatable, Hashable {
     case keyPackageCleaner
     case commitLog
     case taskRunner
-    case pendingSelfRemove
 
 
 
@@ -13346,8 +13699,6 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         
         case 5: return .taskRunner
         
-        case 6: return .pendingSelfRemove
-        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -13374,10 +13725,6 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         
         case .taskRunner:
             writeInt(&buf, Int32(5))
-        
-        
-        case .pendingSelfRemove:
-            writeInt(&buf, Int32(6))
         
         }
     }
@@ -14831,6 +15178,31 @@ fileprivate struct FfiConverterSequenceTypeFfiInbox: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiInboxCapabilities: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiInboxCapabilities]
+
+    public static func write(_ value: [FfiInboxCapabilities], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiInboxCapabilities.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiInboxCapabilities] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiInboxCapabilities]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiInboxCapabilities.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiInboxState: FfiConverterRustBuffer {
     typealias SwiftType = [FfiInboxState]
 
@@ -14873,6 +15245,31 @@ fileprivate struct FfiConverterSequenceTypeFfiInstallation: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiInstallation.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiInstallationCapabilities: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiInstallationCapabilities]
+
+    public static func write(_ value: [FfiInstallationCapabilities], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiInstallationCapabilities.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiInstallationCapabilities] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiInstallationCapabilities]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiInstallationCapabilities.read(from: &buf))
         }
         return seq
     }
@@ -15123,6 +15520,31 @@ fileprivate struct FfiConverterSequenceTypeFfiContentType: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiContentType.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiMlsExtensionType: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMlsExtensionType]
+
+    public static func write(_ value: [FfiMlsExtensionType], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMlsExtensionType.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMlsExtensionType] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMlsExtensionType]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMlsExtensionType.read(from: &buf))
         }
         return seq
     }
@@ -16308,6 +16730,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 8237) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_membership_capabilities() != 55036) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 43503) {

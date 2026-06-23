@@ -64,7 +64,10 @@ use xmtp_id::{
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
-use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::groups::{
+    ConversationDebugInfo, GroupMembershipCapabilities, InboxCapabilities,
+    InstallationCapabilities, MlsExtensionType,
+};
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
@@ -2212,6 +2215,106 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
     }
 }
 
+/// An MLS extension type advertised by an installation's key package or
+/// present in a group's context. Mirrors
+/// [`xmtp_mls::groups::MlsExtensionType`].
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
+pub enum FfiMlsExtensionType {
+    ApplicationId,
+    RatchetTree,
+    RequiredCapabilities,
+    ExternalPub,
+    ExternalSenders,
+    LastResort,
+    ImmutableMetadata,
+    AppDataDictionary,
+    Unknown { id: u16 },
+    Grease { id: u16 },
+}
+
+impl From<MlsExtensionType> for FfiMlsExtensionType {
+    fn from(value: MlsExtensionType) -> Self {
+        match value {
+            MlsExtensionType::ApplicationId => FfiMlsExtensionType::ApplicationId,
+            MlsExtensionType::RatchetTree => FfiMlsExtensionType::RatchetTree,
+            MlsExtensionType::RequiredCapabilities => FfiMlsExtensionType::RequiredCapabilities,
+            MlsExtensionType::ExternalPub => FfiMlsExtensionType::ExternalPub,
+            MlsExtensionType::ExternalSenders => FfiMlsExtensionType::ExternalSenders,
+            MlsExtensionType::LastResort => FfiMlsExtensionType::LastResort,
+            MlsExtensionType::ImmutableMetadata => FfiMlsExtensionType::ImmutableMetadata,
+            MlsExtensionType::AppDataDictionary => FfiMlsExtensionType::AppDataDictionary,
+            MlsExtensionType::Unknown(id) => FfiMlsExtensionType::Unknown { id },
+            MlsExtensionType::Grease(id) => FfiMlsExtensionType::Grease { id },
+        }
+    }
+}
+
+/// Capabilities for a single installation (device) in a group. Mirrors
+/// [`xmtp_mls::groups::InstallationCapabilities`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiInstallationCapabilities {
+    pub installation_id: Vec<u8>,
+    pub is_own: bool,
+    pub supported_extensions: Vec<FfiMlsExtensionType>,
+    pub capabilities_known: bool,
+}
+
+/// Per-inbox installation capabilities. Mirrors
+/// [`xmtp_mls::groups::InboxCapabilities`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiInboxCapabilities {
+    pub inbox_id: String,
+    pub installations: Vec<FfiInstallationCapabilities>,
+}
+
+/// A generic membership/capability snapshot for a group. Mirrors
+/// [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
+/// the proposal migration is complete when `context_extensions` contains
+/// `AppDataDictionary`, and an inbox blocks migration when one of its
+/// installations' `supported_extensions` does not.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiGroupMembershipCapabilities {
+    pub context_extensions: Vec<FfiMlsExtensionType>,
+    pub members: Vec<FfiInboxCapabilities>,
+}
+
+impl From<InstallationCapabilities> for FfiInstallationCapabilities {
+    fn from(value: InstallationCapabilities) -> Self {
+        FfiInstallationCapabilities {
+            installation_id: value.installation_id,
+            is_own: value.is_own,
+            supported_extensions: value
+                .supported_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            capabilities_known: value.capabilities_known,
+        }
+    }
+}
+
+impl From<InboxCapabilities> for FfiInboxCapabilities {
+    fn from(value: InboxCapabilities) -> Self {
+        FfiInboxCapabilities {
+            inbox_id: value.inbox_id,
+            installations: value.installations.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<GroupMembershipCapabilities> for FfiGroupMembershipCapabilities {
+    fn from(value: GroupMembershipCapabilities) -> Self {
+        FfiGroupMembershipCapabilities {
+            context_extensions: value
+                .context_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            members: value.members.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 impl From<RustMlsGroup> for FfiConversation {
     fn from(mls_group: RustMlsGroup) -> FfiConversation {
         FfiConversation { inner: mls_group }
@@ -3030,6 +3133,19 @@ impl FfiConversation {
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, FfiError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
+    }
+
+    /// Snapshot this group's membership capabilities: the group context's
+    /// extension types plus, per member inbox and installation, the extension
+    /// types each advertises. Generic facts the caller filters — e.g. to
+    /// answer whether the group is migrated to the proposal flow and which
+    /// members block it. See
+    /// [`xmtp_mls::groups::MlsGroup::membership_capabilities`].
+    pub async fn membership_capabilities(
+        &self,
+    ) -> Result<FfiGroupMembershipCapabilities, FfiError> {
+        let capabilities = self.inner.membership_capabilities().await?;
+        Ok(capabilities.into())
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
