@@ -888,8 +888,9 @@ mod tests {
     #[tokio::test]
     async fn single_connection_nested_transaction_no_deadlock() {
         use crate::{
-            ConnectionExt, StorageError, Store, StoreOrIgnore, TransactionalKeyStore,
-            XmtpMlsStorageProvider,
+            ConnectionExt, StorageError, Store, StoreOrIgnore,
+            TransactionOutcome::Continue,
+            TransactionalKeyStore, XmtpMlsStorageProvider,
             refresh_state::{EntityKind, RefreshState},
             sql_key_store::SqlKeyStore,
         };
@@ -936,9 +937,9 @@ mod tests {
                             originator_id: 0,
                         }
                         .store_or_ignore(&inner.db())?;
-                        Ok::<_, StorageError>(())
+                        Ok::<_, StorageError>(Continue(()))
                     })?;
-                    Ok::<_, StorageError>(())
+                    Ok::<_, StorageError>(Continue(()))
                 })
                 .unwrap();
 

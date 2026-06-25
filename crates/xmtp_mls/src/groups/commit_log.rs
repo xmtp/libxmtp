@@ -15,6 +15,7 @@ use xmtp_common::RetryableError;
 use xmtp_common::hex::NormalizeHex;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_configuration::Originators;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
@@ -22,7 +23,7 @@ use xmtp_db::group::StoredGroupForRespondingReadds;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
-    DbQuery, StorageError, Store,
+    DbQuery, StorageError, Store, TransactionOutcome,
     group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
     local_commit_log::{CommitType, LocalCommitLogOrder},
     prelude::*,
@@ -621,14 +622,18 @@ where
 
         for conversation_id in conversation_ids_for_forked_state_check {
             let conversation_id = GroupId::try_from(conversation_id)?;
-            self.context.mls_provider().storage().transaction(|conn| {
-                let key_store = conn.key_store();
-                let db = key_store.db();
-                let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
-                // Persist the fork status to the database
-                db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
-                Ok::<(), CommitLogError>(())
-            })?;
+            self.context
+                .mls_provider()
+                .storage()
+                .transaction(|conn| {
+                    let key_store = conn.key_store();
+                    let db = key_store.db();
+                    let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
+                    // Persist the fork status to the database
+                    db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
+                    Ok::<_, CommitLogError>(Continue(()))
+                })
+                .map(TransactionOutcome::into_continued)?;
             tokio::task::yield_now().await;
         }
 

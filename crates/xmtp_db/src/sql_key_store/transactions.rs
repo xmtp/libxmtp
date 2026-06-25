@@ -1,5 +1,7 @@
 use super::*;
 use crate::DbConnection;
+use crate::TransactionOutcome;
+use crate::TransactionOutcome::{Continue, Rollback};
 
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
@@ -55,9 +57,9 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     }
 
     #[xmtp_common::db_span]
-    fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let conn = &self.conn;
@@ -77,16 +79,59 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         //      transaction starts. Otherwise, we still run into problem #2, even if BUSY_TIMEOUT is
         //      set.
 
-        conn.raw_query(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c))))?
+        // An intentional `Rollback` is turned into diesel's `RollbackTransaction`
+        // sentinel (the only way to make diesel roll back) and flagged, so below we
+        // can report it as `Ok(Rollback)` without inspecting the opaque `E`; any
+        // other `Err` is a real failure and propagates.
+        let mut rolled_back = false;
+        let inner_result: Result<TransactionOutcome<T>, E> = conn
+            .raw_query(|c| {
+                Ok(c.immediate_transaction(|sqlite_c| match f(sqlite_c) {
+                    Ok(Continue(v)) => Ok(Continue(v)),
+                    Ok(Rollback) => {
+                        rolled_back = true;
+                        Err(E::from(diesel::result::Error::RollbackTransaction))
+                    }
+                    Err(e) => Err(e),
+                }))
+            })
+            .map_err(E::from)?;
+
+        // A failed ROLLBACK after our sentinel is still reported as Ok(Rollback);
+        // that rare rollback-execution error is deliberately swallowed.
+        match inner_result {
+            Ok(outcome) => Ok(outcome),
+            Err(_) if rolled_back => Ok(Rollback),
+            Err(e) => Err(e),
+        }
     }
 
-    fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
+    // Same Rollback-sentinel handling as `transaction`; see there for the rationale.
+    fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
-        self.conn
-            .raw_query(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
+        let mut rolled_back = false;
+        let inner_result: Result<TransactionOutcome<T>, E> = self
+            .conn
+            .raw_query(|c| {
+                Ok(c.transaction(|sqlite_c| match f(sqlite_c) {
+                    Ok(Continue(v)) => Ok(Continue(v)),
+                    Ok(Rollback) => {
+                        rolled_back = true;
+                        Err(E::from(diesel::result::Error::RollbackTransaction))
+                    }
+                    Err(e) => Err(e),
+                }))
+            })
+            .map_err(E::from)?;
+
+        match inner_result {
+            Ok(outcome) => Ok(outcome),
+            Err(_) if rolled_back => Ok(Rollback),
+            Err(e) => Err(e),
+        }
     }
 
     fn read<V: Entity<CURRENT_VERSION>>(
@@ -136,7 +181,7 @@ mod tests {
     #![allow(unused)]
 
     use crate::{
-        TestDb, XmtpTestDb,
+        TestDb, TransactionOutcome, XmtpTestDb,
         group_intent::{IntentKind, IntentState, NewGroupIntent},
         prelude::QueryGroupIntent,
     };
@@ -167,13 +212,16 @@ mod tests {
             self.key_store
                 .transaction(|conn| {
                     let storage = conn.key_store();
-                    storage.db().insert_group_intent(NewGroupIntent {
-                        kind: IntentKind::SendMessage,
-                        group_id: GroupId::default(),
-                        data: vec![],
-                        should_push: false,
-                        state: IntentState::ToPublish,
-                    })
+                    storage
+                        .db()
+                        .insert_group_intent(NewGroupIntent {
+                            kind: IntentKind::SendMessage,
+                            group_id: GroupId::default(),
+                            data: vec![],
+                            should_push: false,
+                            state: IntentState::ToPublish,
+                        })
+                        .map(Continue)
                 })
                 .unwrap();
             self.long_async_call().await;

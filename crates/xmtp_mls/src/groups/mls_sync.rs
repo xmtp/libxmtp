@@ -87,9 +87,10 @@ use xmtp_configuration::{
     WELCOME_HPKE_LABEL,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore, TransactionOutcome,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -1134,11 +1135,13 @@ where
                 &provider,
                 message.clone(),
             ));
-            // Rollback the transaction. We want to synchronize with the server before committing.
-            Err::<(), StorageError>(StorageError::IntentionalRollback)
+            // Roll back: sync with the server before committing.
+            Ok::<TransactionOutcome<()>, StorageError>(Rollback)
         });
-        if !matches!(result, Err(StorageError::IntentionalRollback)) {
-            result.inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
+        if !matches!(result, Ok(Rollback)) {
+            result
+                .map(TransactionOutcome::into_continued)
+                .inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
         let processed_message = processed_message.expect("Was just set to Some")?;
 
@@ -1369,7 +1372,7 @@ where
                     envelope.created_ns
                  );
                 identifier.previously_processed(true);
-                return identifier.build();
+                return identifier.build().map(Continue);
             }
             // once the checks for processing pass, actually process the message
             let processed_message = super::app_data::process_message_with_app_data(
@@ -1385,8 +1388,9 @@ where
                 &storage,
                 &mut deferred_events,
             )?;
-            Ok::<_, GroupMessageProcessingError>(identifier)
-        })?;
+            Ok::<_, GroupMessageProcessingError>(Continue(identifier))
+        })
+        .map(TransactionOutcome::into_continued)?;
 
         // Send all deferred events after the transaction completes
         deferred_events.send_all(&self.context);
@@ -2239,7 +2243,7 @@ where
                         // In some cases, we may want to roll back the cursor if we updated the
                         // cursor, but actually cannot process the message.
                         identifier.previously_processed(true);
-                        return Ok(None);
+                        return Ok(Continue(None));
                     }
                     let result: Result<Option<Vec<u8>>, IntentResolutionError> = match validation_result {
                         Err(err) => Err(err),
@@ -2274,7 +2278,7 @@ where
                         // No state transition (e.g. a re-delivered message for an
                         // intent already in this state) — nothing new to report.
                         tracing::warn!("Intent [{}] is already in state [{:?}]", intent_id, next_intent_state);
-                        return Ok(None);
+                        return Ok(Continue(None));
                     }
                     let mut intent_error = None;
                     match next_intent_state {
@@ -2301,8 +2305,9 @@ where
                             db.set_group_intent_processed(intent_id)?;
                         }
                     }
-                    Ok(intent_error)
-                })?;
+                    Ok(Continue(intent_error))
+                })
+                .map(TransactionOutcome::into_continued)?;
                 let identifier = identifier.build()?;
                 Ok(ProcessedMessageOutcome {
                     identifier,
@@ -2456,8 +2461,10 @@ where
                                 accounting_error
                         );
                     }
-                    Ok::<(), GroupMessageProcessingError>(())
-                }) {
+                    Ok::<_, GroupMessageProcessingError>(Continue(()))
+                })
+                .map(TransactionOutcome::into_continued)
+                {
                     tracing::error!("Error post-processing non-retryable error: {transaction_error:?}");
                 };
 
@@ -2791,17 +2798,21 @@ where
                         let last_payload = payloads_to_publish.last().ok_or(GroupError::UninitializedResult)?;
                         let intent_hash = sha256(last_payload);
                         // removing this transaction causes missed messages
-                        self.context.mls_storage().transaction(|conn| {
-                            let storage = conn.key_store();
-                            let db = storage.db();
-                            db.set_group_intent_published(
-                                intent.id,
-                                &intent_hash,
-                                post_commit_action,
-                                staged_commit,
-                                group_epoch as i64,
-                            )
-                        })?;
+                        self.context
+                            .mls_storage()
+                            .transaction(|conn| {
+                                let storage = conn.key_store();
+                                let db = storage.db();
+                                db.set_group_intent_published(
+                                    intent.id,
+                                    &intent_hash,
+                                    post_commit_action,
+                                    staged_commit,
+                                    group_epoch as i64,
+                                )?;
+                                Ok::<_, StorageError>(Continue(()))
+                            })
+                            .map(TransactionOutcome::into_continued)?;
                         tracing::debug!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
@@ -4511,19 +4522,14 @@ where
             .ok()
             .flatten();
 
-        // Rollback the transaction to avoid persisting the commit
-        Err::<(), StorageError>(StorageError::IntentionalRollback)
+        // Intentionally roll back: we captured everything we need; do not persist the commit.
+        Ok::<TransactionOutcome<()>, StorageError>(Rollback)
     });
 
-    let Err(e) = transaction_result else {
-        unreachable!("Transaction never returns ok");
-    };
-
-    // Check if the transaction was intentionally rolled back (expected)
-    // or if there was a real error
-
-    if !matches!(e, StorageError::IntentionalRollback) {
-        return Err(e.into());
+    match transaction_result {
+        Ok(Continue(_)) => unreachable!("Transaction always requests rollback"),
+        Ok(Rollback) => {}
+        Err(e) => return Err(e.into()),
     }
 
     // Return early if group epoch is not set otherwise unwrap the group epoch

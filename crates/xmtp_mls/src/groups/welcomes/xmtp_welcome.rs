@@ -24,8 +24,9 @@ use xmtp_common::time::now_ns;
 use xmtp_configuration::Originators;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
+use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::{
-    StorageError, XmtpOpenMlsProviderRef,
+    StorageError, TransactionOutcome, XmtpOpenMlsProviderRef,
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -251,27 +252,39 @@ where
         events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
         tracing::debug!("attempting to commit welcome={}", &self.welcome.cursor);
-        let commit_result = self.context.mls_storage().transaction(|conn| {
-            let storage = conn.key_store();
-            // Savepoint transaction
-            let result = storage.savepoint(|conn| self.commit(conn, events, decrypted_welcome));
-            let db = storage.db();
-            // if we got an error
-            // and the error is not retryable
-            // and cursor increment is enabled
-            // update the cursor
-            match result {
-                Err(err) if !err.is_retryable() && self.cursor_increment => {
-                    tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.cursor);
-                    self.update_cursor(&db)?;
-                    // return ok to commit the transaction
-                    Ok(CommitResult::FailedForever(err))
-                },
-                // roll everything back to retry
-                Err(e) => Err(e),
-                Ok(group) => Ok(CommitResult::Ok(group)),
-            }
-        })?;
+        let commit_result = self
+            .context
+            .mls_storage()
+            .transaction(|conn| {
+                let storage = conn.key_store();
+                // Savepoint transaction
+                let result = storage.savepoint(|conn| {
+                    self.commit(conn, events, decrypted_welcome)
+                        .map(Continue)
+                });
+                let db = storage.db();
+                // if we got an error
+                // and the error is not retryable
+                // and cursor increment is enabled
+                // update the cursor
+                match result {
+                    Err(err) if !err.is_retryable() && self.cursor_increment => {
+                        tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.cursor);
+                        self.update_cursor(&db)?;
+                        // return ok to commit the transaction
+                        Ok(Continue(CommitResult::FailedForever(err)))
+                    }
+                    // roll everything back to retry
+                    Err(e) => Err(e),
+                    Ok(Continue(group)) => {
+                        Ok(Continue(CommitResult::Ok(group)))
+                    }
+                    Ok(Rollback) => {
+                        unreachable!("savepoint never intentionally rolls back here")
+                    }
+                }
+            })
+            .map(TransactionOutcome::into_continued)?;
         events.send_all(&self.context);
         Ok(commit_result)
     }

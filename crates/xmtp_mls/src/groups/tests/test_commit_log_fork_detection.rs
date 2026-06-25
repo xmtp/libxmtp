@@ -8,11 +8,14 @@ use openmls::group::MlsGroup as OpenMlsGroup;
 use openmls::prelude::{ProcessedMessageContent, Sender};
 use xmtp_configuration::Originators;
 use xmtp_db::Store;
+use xmtp_db::TransactionOutcome::Rollback;
 use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
-use xmtp_db::{MlsProviderExt, StorageError, TransactionalKeyStore, XmtpOpenMlsProvider};
+use xmtp_db::{
+    MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProvider,
+};
 use xmtp_proto::types::Cursor;
 
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
@@ -919,9 +922,9 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
             &provider,
             commit_envelope.message.clone(),
         ));
-        Err::<(), StorageError>(StorageError::IntentionalRollback)
+        Ok::<TransactionOutcome<()>, StorageError>(Rollback)
     });
-    assert!(matches!(result, Err(StorageError::IntentionalRollback)));
+    assert!(matches!(result, Ok(Rollback)));
     let processed_message = processed_message
         .expect("set in the transaction above")
         .expect("processing the commit at the old epoch succeeds");

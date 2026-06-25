@@ -16,25 +16,25 @@ use crate::{
 // only cover errors that can happen in db access
 impl Distribution<StorageError> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> StorageError {
-        match rng.random_range(0..=13) {
+        match rng.random_range(0..=12) {
             0 => StorageError::DieselConnect(rand_diesel_conn_err(rng)),
             1 => StorageError::DieselResult(rand_diesel_result(rng)),
             2 => StorageError::NotFound(rand::random()),
             3 => StorageError::Duplicate(DuplicateItem::WelcomeId(Some(Cursor::default()))),
             4 => rand::random(),
-            5 => StorageError::IntentionalRollback,
-            6 => StorageError::DbSerialize,
-            7 => StorageError::DbDeserialize,
-            8 => StorageError::Builder(derive_builder::UninitializedFieldError::new("test field")),
-            10 => rand::random(), // platform
-            11 => StorageError::Prost(
+            5 => StorageError::DbSerialize,
+            6 => StorageError::DbDeserialize,
+            7 => StorageError::Builder(derive_builder::UninitializedFieldError::new("test field")),
+            8 => rand::random(), // platform
+            9 => StorageError::Prost(
                 <xmtp_proto::mls_v1::GroupMessage as prost::Message>::decode([].as_slice())
                     .unwrap_err(),
             ),
-            12 => StorageError::Connection(rand::random()),
-            13 => StorageError::Conversion(xmtp_proto::ConversionError::Unspecified(
+            10 => StorageError::Connection(rand::random()),
+            11 => StorageError::Conversion(xmtp_proto::ConversionError::Unspecified(
                 "random test error",
             )),
+            12 => StorageError::InvalidHmacLength,
             _ => unreachable!(),
         }
     }

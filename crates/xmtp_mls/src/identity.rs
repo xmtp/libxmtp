@@ -40,12 +40,13 @@ use xmtp_configuration::{
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
-use xmtp_db::{ConnectionExt, MlsProviderExt};
+use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
 use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -731,13 +732,16 @@ impl Identity {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
                 let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-                provider.storage().transaction(|conn| {
-                    let storage = conn.key_store();
-                    storage
-                        .db()
-                        .mark_key_package_before_id_to_be_deleted(history_id)?;
-                    Ok::<(), StorageError>(())
-                })?;
+                provider
+                    .storage()
+                    .transaction(|conn| {
+                        let storage = conn.key_store();
+                        storage
+                            .db()
+                            .mark_key_package_before_id_to_be_deleted(history_id)?;
+                        Ok::<_, StorageError>(Continue(()))
+                    })
+                    .map(TransactionOutcome::into_continued)?;
                 mls_storage
                     .db()
                     .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
