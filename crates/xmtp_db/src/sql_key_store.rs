@@ -1258,6 +1258,7 @@ pub(crate) mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::SqlKeyStore;
+    use crate::TransactionOutcome::{Continue, Rollback};
     use crate::encrypted_store::MlsProviderExt;
     use crate::{
         XmtpTestDb, sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -1346,6 +1347,65 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert_eq!(result.unwrap(), Some(raw_value));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn transaction_commit_persists_rollback_does_not_and_error_propagates() {
+        use crate::{
+            StorageError, TransactionOutcome, traits::TransactionalKeyStore,
+            xmtp_openmls_provider::XmtpMlsStorageProvider,
+        };
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
+        let key_store = SqlKeyStore::new(conn);
+
+        let committed_key = bincode::serialize(&[10u8; 32])?;
+        let rolled_back_key = bincode::serialize(&[11u8; 32])?;
+        let value = bincode::serialize(&vec![7u8; 16])?;
+
+        let is_present = |k: &[u8]| {
+            key_store
+                .read::<CURRENT_VERSION, Vec<u8>>(
+                    crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                    k,
+                )
+                .unwrap()
+                .is_some()
+        };
+
+        // Commit: a value written inside a committing transaction is visible after.
+        let outcome = key_store
+            .transaction(|conn| {
+                conn.key_store().write::<CURRENT_VERSION>(
+                    crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                    &committed_key,
+                    &value,
+                )?;
+                Ok::<_, StorageError>(Continue(()))
+            })
+            .unwrap();
+        assert!(matches!(outcome, Continue(())));
+        assert!(is_present(&committed_key), "commit must persist");
+
+        // Rollback: returns Ok(Rollback), NOT an Err, and the write is discarded.
+        let outcome = key_store
+            .transaction(|conn| {
+                conn.key_store().write::<CURRENT_VERSION>(
+                    crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                    &rolled_back_key,
+                    &value,
+                )?;
+                Ok::<TransactionOutcome<()>, StorageError>(Rollback)
+            })
+            .unwrap();
+        assert!(matches!(outcome, Rollback));
+        assert!(!is_present(&rolled_back_key), "rollback must not persist");
+
+        // Real error: a closure returning Err propagates as Err (and rolls back).
+        let result: Result<TransactionOutcome<()>, StorageError> =
+            key_store.transaction(|_conn| Err(StorageError::DbSerialize));
+        assert!(matches!(result, Err(StorageError::DbSerialize)));
     }
 
     #[xmtp_common::test]

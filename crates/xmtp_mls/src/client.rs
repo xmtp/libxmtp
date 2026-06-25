@@ -32,8 +32,9 @@ use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
-    ConnectionExt, NotFound, StorageError, XmtpDb,
+    ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
@@ -1047,12 +1048,15 @@ where
         )?;
 
         // Clean up old key packages
-        self.context.mls_storage().transaction(|conn| {
-            conn.key_store()
-                .db()
-                .mark_key_package_before_id_to_be_deleted(history_id)?;
-            Ok::<(), StorageError>(())
-        })?;
+        self.context
+            .mls_storage()
+            .transaction(|conn| {
+                conn.key_store()
+                    .db()
+                    .mark_key_package_before_id_to_be_deleted(history_id)?;
+                Ok::<_, StorageError>(Continue(()))
+            })
+            .map(TransactionOutcome::into_continued)?;
 
         self.context
             .mls_storage()

@@ -45,11 +45,6 @@ pub enum StorageError {
     /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
-    /// Intentional rollback.
-    ///
-    /// Transaction was intentionally rolled back. Not retryable.
-    #[error("Transaction was intentionally rolled back")]
-    IntentionalRollback,
     /// DB deserialization failed.
     ///
     /// Failed to deserialize data from database. Not retryable.
@@ -273,7 +268,6 @@ impl RetryableError for StorageError {
             Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
-            | Self::IntentionalRollback
             | Self::DbDeserialize
             | Self::DbSerialize
             | Self::Builder(_)
