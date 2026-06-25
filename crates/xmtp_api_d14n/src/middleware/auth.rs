@@ -181,6 +181,20 @@ impl<C: Client> Client for AuthMiddleware<C> {
         let request = self.modify_request(request).await?;
         self.inner.stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        // Inject the auth header exactly as `stream`/`request` do — otherwise an
+        // authenticated client's bidi subscription would either skip auth or, if
+        // we forgot to override at all, fall through to the trait's default
+        // "unsupported" error.
+        let request = self.modify_request(request).await?;
+        self.inner.bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -273,6 +287,29 @@ mod tests {
                 futures::stream::once(Box::pin(async move { Ok(body) })),
             )))
         }
+
+        async fn bidi_stream(
+            &self,
+            request: http::request::Builder,
+            _path: http::uri::PathAndQuery,
+            _body: xmtp_common::BoxDynStream<'static, Bytes>,
+        ) -> Result<http::Response<BytesStream>, ApiClientError> {
+            // Same header assertion as `stream`: this only passes if the
+            // middleware actually forwarded `bidi_stream` (rather than inheriting
+            // the trait's "unsupported" default) AND injected the auth header.
+            let headers = request.headers_ref().unwrap();
+            if let Some(expected_credential) = &self.expected_credential {
+                assert_eq!(
+                    headers.get(&expected_credential.name).unwrap(),
+                    &expected_credential.value
+                );
+            } else {
+                assert!(headers.is_empty());
+            }
+            Ok(http::Response::new(BytesStream::new(
+                futures::stream::empty(),
+            )))
+        }
     }
 
     impl<C: Client> AuthMiddleware<C> {
@@ -297,7 +334,28 @@ mod tests {
             }
 
             let request = http::request::Builder::new();
-            let result = self.stream(request, path, body).await;
+            let result = self.stream(request, path.clone(), body).await;
+            match (&expected, result) {
+                (Ok(()), Ok(response)) => {
+                    assert_eq!(response.status(), http::StatusCode::OK);
+                }
+                (Err(e), Ok(_)) => {
+                    panic!("Expected error: {e}, got Ok");
+                }
+                (Ok(()), Err(e)) => {
+                    panic!("Expected Ok, got error: {e}");
+                }
+                (Err(e), Err(res)) => {
+                    assert_eq!(e, &res.to_string());
+                }
+            }
+
+            let request = http::request::Builder::new();
+            // `Box::pin` (not `.boxed()`) so this coerces to `BoxDynStream` on
+            // both native (`BoxStream`) and wasm (`LocalBoxStream`) targets.
+            let bidi_body: xmtp_common::BoxDynStream<'static, Bytes> =
+                Box::pin(futures::stream::empty());
+            let result = self.bidi_stream(request, path, bidi_body).await;
             match (&expected, result) {
                 (Ok(()), Ok(response)) => {
                     assert_eq!(response.status(), http::StatusCode::OK);

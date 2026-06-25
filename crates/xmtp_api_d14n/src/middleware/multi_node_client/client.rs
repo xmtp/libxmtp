@@ -78,6 +78,17 @@ impl<T: Client> Client for MultiNodeClient<T> {
 
         inner.stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let inner = self.init_inner().await?;
+
+        inner.bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]

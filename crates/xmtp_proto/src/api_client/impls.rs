@@ -403,3 +403,41 @@ where
             .await
     }
 }
+
+xmtp_common::if_native! {
+    // `XmtpMlsBidiStreams` is native-only (see `api_client.rs`), so its boxed /
+    // arced forwarders are gated the same way. Without these, erasing a client
+    // into `Box<dyn XmtpMlsBidiStreams>` / `Arc<dyn XmtpMlsBidiStreams>` would
+    // fail to compile on `subscribe_bidi`, unlike every other client trait here.
+    #[xmtp_common::async_trait]
+    impl<T> XmtpMlsBidiStreams for Box<T>
+    where
+        T: XmtpMlsBidiStreams + Sync + ?Sized,
+    {
+        type Error = <T as XmtpMlsBidiStreams>::Error;
+        type SubscribeStream = <T as XmtpMlsBidiStreams>::SubscribeStream;
+
+        async fn subscribe_bidi(
+            &self,
+            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            (**self).subscribe_bidi(requests).await
+        }
+    }
+
+    #[xmtp_common::async_trait]
+    impl<T> XmtpMlsBidiStreams for Arc<T>
+    where
+        T: XmtpMlsBidiStreams + ?Sized,
+    {
+        type Error = <T as XmtpMlsBidiStreams>::Error;
+        type SubscribeStream = <T as XmtpMlsBidiStreams>::SubscribeStream;
+
+        async fn subscribe_bidi(
+            &self,
+            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            (**self).subscribe_bidi(requests).await
+        }
+    }
+}
