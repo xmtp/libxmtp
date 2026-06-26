@@ -1,6 +1,9 @@
-x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:v1.3.0
-x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:v1.3.0
-x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:v1.3.0
+# Pinned to the xmtpd #2020 merge commit (ac17e82), the first build with the XIP-83 d14n
+# QueryApi.Subscribe bidi-streaming RPC. No tagged release carries it yet (latest is v1.3.0,
+# Mar 2026); bump to a release tag once one ships with the RPC.
+x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-ac17e82
+x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-ac17e82
+x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-ac17e82
 x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v2026.02.10-1
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
