@@ -2,7 +2,12 @@ import { ConsentEntityType, ConsentState } from "@xmtp/wasm-bindings";
 import { describe, expect, it } from "vitest";
 import { HistorySyncUrls } from "@/constants";
 import { uuid } from "@/utils/uuid";
-import { createRegisteredClient, createSigner, sleep } from "@test/helpers";
+import {
+  createRegisteredClient,
+  createSigner,
+  sleep,
+  waitFor,
+} from "@test/helpers";
 
 describe("DeviceSync", () => {
   it("should sync consent across installations", async () => {
@@ -130,11 +135,6 @@ describe("DeviceSync", () => {
     const messagesBefore = await group2Before!.messages();
     expect(messagesBefore.length).toBe(2);
 
-    await sleep(1000);
-    await alix.syncAllDeviceSyncGroups();
-    await sleep(1000);
-    await alix2.syncAllDeviceSyncGroups();
-
     // list available archives - may fail in some environments
     try {
       const archives = await alix2.listAvailableArchives(7);
@@ -143,7 +143,23 @@ describe("DeviceSync", () => {
       // listAvailableArchives may not be fully supported in all test environments
     }
 
-    await alix2.processSyncArchive("123");
+    // The archive payload propagates to alix2 over the network asynchronously,
+    // so a single device-sync pass can race ahead of delivery and leave
+    // processSyncArchive unable to find the payload (DeviceSyncError::MissingPayload).
+    // Re-sync the device-sync groups and retry until the pinned payload arrives.
+    await waitFor(
+      async () => {
+        await alix.syncAllDeviceSyncGroups();
+        await alix2.syncAllDeviceSyncGroups();
+        try {
+          await alix2.processSyncArchive("123");
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 30000, interval: 1000 },
+    );
     await sleep(1000);
     await alix2.conversations.syncAll();
 
