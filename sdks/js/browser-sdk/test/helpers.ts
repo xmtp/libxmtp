@@ -23,11 +23,11 @@ export const sleep = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 export const waitFor = async (
-  condition: () => boolean,
+  condition: () => boolean | Promise<boolean>,
   { timeout = 2000, interval = 10 } = {},
 ) => {
   const start = Date.now();
-  while (!condition()) {
+  while (!(await condition())) {
     if (Date.now() - start > timeout) {
       throw new Error(`waitFor timed out after ${timeout}ms`);
     }
