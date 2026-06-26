@@ -596,6 +596,7 @@ pub mod tests {
     use crate::tester;
     use futures::stream::StreamExt;
     use rstest::*;
+    use xmtp_db::group_message::GroupMessageKind;
 
     #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
     #[rstest]
@@ -613,15 +614,21 @@ pub mod tests {
         let bob_group = bob_groups.first().unwrap();
         alice_group.sync().await.unwrap();
 
-        let stream = alice_group.stream().await.unwrap();
+        // Filter to application messages: the `group_updated` commit from
+        // `add_members` can race the stream ahead of them, making this flaky (#3765).
+        let stream = alice_group.stream().await.unwrap().filter(|msg| {
+            futures::future::ready(
+                msg.as_ref()
+                    .map(|m| m.kind == GroupMessageKind::Application)
+                    .unwrap_or(true),
+            )
+        });
         futures::pin_mut!(stream);
         bob_group
             .send_message(b"hello", SendMessageOpts::default())
             .await
             .unwrap();
 
-        // group updated msg/bob is added
-        // assert_msg_exists!(stream);
         assert_msg!(stream, "hello");
 
         bob_group

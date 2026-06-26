@@ -12,6 +12,9 @@ const vitestConfig = defineVitestConfig({
   test: {
     globalSetup: ['./vitest.setup.mts'],
     testTimeout: 30000,
+    // Opt out of the Rust db-lock panic; transient contention is retried, not
+    // fatal, and panicking crashes fork workers. See xmtp/libxmtp#3765.
+    env: { XMTP_NO_PANIC_ON_DB_LOCK: 'true' },
   },
 })
 
