@@ -2,6 +2,7 @@ pub mod device_sync;
 pub mod disappearing_messages;
 pub mod key_package_cleaner;
 pub mod metrics;
+pub mod rearm_channel;
 pub mod tasks;
 
 use crate::context::XmtpSharedContext;
