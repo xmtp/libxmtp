@@ -267,3 +267,80 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{identity::serialize_key_package_hash_ref, tester};
+    use std::time::Duration;
+    use xmtp_db::prelude::QueryIdentity;
+
+    /// Helper: fetch the network key package's HPKE init key for `client`.
+    async fn current_init_key<C: crate::context::XmtpSharedContext>(
+        client: &crate::Client<C>,
+    ) -> Vec<u8> {
+        let installation_id = client.installation_public_key().to_vec();
+        let mut map = client
+            .get_key_packages_for_installation_ids(vec![installation_id.clone()])
+            .await
+            .expect("fetch key packages");
+        let kp = map
+            .remove(&installation_id)
+            .expect("installation id present")
+            .expect("key package resolved");
+        serialize_key_package_hash_ref(&kp.inner, &client.context.mls_provider())
+            .expect("serialize hash ref")
+    }
+
+    /// Asserts that calling `queue_key_rotation` wakes the `KeyPackageCleaner`
+    /// worker and causes a real key-package rotation within a bounded wait.
+    ///
+    /// The worker interval is overridden to 100 ms by `WorkerConfig::for_testing()`
+    /// (injected via `TesterBuilder::default`), so the coarse-cadence tick fires
+    /// quickly.  The wake channel fires even sooner: after the 5-second debounce
+    /// the worker calls `maintain()` and uploads the new key package.
+    ///
+    /// NOTE: this test requires a live XMTP node.  In environments without one
+    /// it will fail with a connection-refused error, which is an infrastructure
+    /// limitation rather than a logic failure.
+    #[xmtp_common::test]
+    async fn queue_key_rotation_wakes_worker_and_rotates() {
+        tester!(client);
+
+        // Snapshot the current on-network key-package hash.
+        let init_key_before = current_init_key(&client).await;
+
+        // Queue a rotation: lowers next_key_package_rotation_ns to now+5s and
+        // fires the wake channel. (It does NOT make rotation due *now* — the
+        // deadline is 5s out, which is the debounce the worker waits through.)
+        client.queue_key_rotation().await.unwrap();
+
+        // Bounded poll: the debounce is 5 s, so wait up to 12 s total
+        // (60 × 200 ms). Iteration-counted rather than wall-clock so it works on
+        // wasm, where std::time::Instant::now() panics (no std clock).
+        let mut init_key_after = None;
+        for _ in 0..60 {
+            xmtp_common::time::sleep(Duration::from_millis(200)).await;
+            let key = current_init_key(&client).await;
+            if key != init_key_before {
+                init_key_after = Some(key);
+                break;
+            }
+        }
+        let init_key_after = init_key_after.expect(
+            "key package did not rotate within 12 s after queue_key_rotation; \
+             worker wake path may be broken",
+        );
+
+        assert_ne!(
+            init_key_before, init_key_after,
+            "key package should have rotated after queue_key_rotation + worker wake"
+        );
+
+        // Rotation flag should be cleared by the worker.
+        let still_needs_rotation = client.context.db().is_identity_needs_rotation().unwrap();
+        assert!(
+            !still_needs_rotation,
+            "rotation flag should be cleared after worker ran"
+        );
+    }
+}

@@ -78,6 +78,8 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .enable_sqlite_triggers()
             .default_mls_store()
             .unwrap()
+            // Fast KeyPackageCleaner interval so rotation tests don't wait 1 hour.
+            .worker_config(crate::worker::WorkerConfig::for_testing())
             .local()
     }
 

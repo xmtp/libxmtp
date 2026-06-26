@@ -88,6 +88,21 @@ impl WorkerConfig {
     pub fn worker_enabled(&self, kind: WorkerKind) -> bool {
         self.enabled.get(&kind).copied().unwrap_or(true)
     }
+
+    /// A test-only `WorkerConfig` with a fast `KeyPackageCleaner` interval so
+    /// timing-dependent tests don't wait the production 1-hour coarse cadence.
+    ///
+    /// 100 ms is fast enough for tests that sleep ≤11 s but slow enough that it
+    /// won't busy-loop under a normal test run.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn for_testing() -> Self {
+        let mut cfg = Self::default();
+        cfg.interval_overrides.insert(
+            WorkerKind::KeyPackageCleaner,
+            std::time::Duration::from_millis(100).as_nanos() as u64,
+        );
+        cfg
+    }
 }
 
 pub struct WorkerRunner {

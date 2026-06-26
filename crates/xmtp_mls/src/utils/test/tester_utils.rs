@@ -464,7 +464,9 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             snapshot: None,
             snapshot_path: None,
             disable_workers: false,
-            worker_config: None,
+            // Fast KeyPackageCleaner interval for tests: overrides the 1-hour
+            // production const so timing-dependent rotation tests don't hang.
+            worker_config: Some(crate::worker::WorkerConfig::for_testing()),
         }
     }
 }
