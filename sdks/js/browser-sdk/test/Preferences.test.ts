@@ -10,6 +10,7 @@ import {
   createRegisteredClient,
   createSigner,
   sleep,
+  waitFor,
 } from "@test/helpers";
 
 describe("Preferences", () => {
@@ -205,20 +206,34 @@ describe("Preferences", () => {
     });
 
     await client3.conversations.syncAll();
-    await sleep(1000);
-    await client1.conversations.syncAll();
-    await sleep(1000);
     await client2.conversations.syncAll();
-    await sleep(1000);
 
-    setTimeout(() => {
-      void stream.end();
-    }, 100);
-
+    // Collect updates concurrently while the preference changes propagate.
     const preferences: UserPreferenceUpdate[] = [];
-    for await (const update of stream) {
-      preferences.push(...update);
+    const collecting = (async () => {
+      for await (const update of stream) {
+        preferences.push(...update);
+      }
+    })();
+
+    // Four updates are expected: two consent updates (the group and the
+    // inbox-id consent changes) and two HMAC-key updates (one per new
+    // installation). These propagate over the network asynchronously, so
+    // re-sync until the stream has observed all of them rather than racing a
+    // fixed delay, which can cut off the last update and yield only 3.
+    try {
+      await waitFor(
+        async () => {
+          await client1.conversations.syncAll();
+          return preferences.length >= 4;
+        },
+        { timeout: 30000, interval: 1000 },
+      );
+    } finally {
+      await stream.end();
+      await collecting;
     }
+
     expect(preferences.length).toBe(4);
     const consentUpdate1 = preferences[0] as Extract<
       UserPreferenceUpdate,
