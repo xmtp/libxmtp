@@ -385,6 +385,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             task_channels: workers.task_channels().clone(),
             disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
             ),
+            key_package_channels: crate::worker::rearm_channel::RearmChannel::new(),
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
         });
