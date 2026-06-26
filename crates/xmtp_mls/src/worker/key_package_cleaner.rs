@@ -10,15 +10,26 @@ use futures::TryFutureExt;
 use openmls_traits::storage::StorageProvider;
 use std::time::Duration;
 use thiserror::Error;
+use tracing::Instrument;
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+use xmtp_db::encrypted_store::key_package_history::StoredKeyPackageHistoryEntry;
 use xmtp_db::prelude::*;
 use xmtp_db::{
     MlsProviderExt, StorageError,
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 
-/// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
+/// Coarse fallback cadence: backstops the 30-day rotation and 1-day deletion.
+/// Welcome-queued rotation does NOT wait for this — it rides the wake channel.
+/// Configurable per-kind via WorkerConfig; a small global default also applies
+/// to this worker unless a KeyPackageCleaner override is set.
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(60 * 60); // 1 hour
+
+/// Debounce window matching KEY_PACKAGE_QUEUE_INTERVAL_NS (5 s).
+/// After a channel nudge we sleep this long so the queued rotation is due,
+/// then drain any further nudges that arrived during the sleep.
+const KEY_PACKAGE_QUEUE_INTERVAL: Duration =
+    Duration::from_nanos(xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS as u64);
 
 #[derive(Clone)]
 pub struct Factory<Context> {
@@ -120,17 +131,64 @@ where
             .context
             .worker_interval(WorkerKind::KeyPackageCleaner, INTERVAL_DURATION);
         let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
-        while (intervals.next().await).is_some() {
-            self.tick().await?;
+        let receiver = self.context.key_package_channels().receiver.clone();
+        let mut receiver = receiver.lock().await;
+
+        // No explicit startup pass: on native, jittered_interval_stream's first
+        // tick is immediate, so the first loop iteration covers an overdue/NULL
+        // client. (On wasm the first interval tick waits one period; a fresh
+        // client there relies on the queue→wake path, and overdue rotation is
+        // bounded by the coarse interval — fine at 30d/1d work cadence.)
+        loop {
+            tokio::select! {
+                _ = intervals.next() => {}                 // coarse fallback wake
+                _ = receiver.recv()  => {                  // a rotation was queued (now+5s)
+                    // Wait out the debounce window so the queued rotation is due,
+                    // THEN drain: a nudge that arrived during the sleep is consumed
+                    // here (not re-slept), avoiding a redundant second 5s sleep.
+                    xmtp_common::time::sleep(KEY_PACKAGE_QUEUE_INTERVAL).await;
+                    while receiver.try_recv().is_ok() {}
+                }
+            }
+            self.maintain().await?;
         }
-        Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
-    async fn tick(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        self.delete_expired_key_packages()?;
-        self.rotate_last_key_package_if_needed().await?;
-        Ok(())
+    /// Run a maintenance pass. Reads two cheap guards OUTSIDE any span; returns
+    /// early (NO span) when idle. Otherwise opens exactly ONE `worker_turn` span
+    /// wrapping the real work, so a failing delete/rotate is recorded.
+    async fn maintain(&mut self) -> Result<(), KeyPackagesCleanerError> {
+        let expired_kps = self
+            .context
+            .db()
+            .get_expired_key_packages()
+            .map_err(KeyPackagesCleanerError::Fetch)?;
+        let rotate_due = self
+            .context
+            .db()
+            .is_identity_needs_rotation()
+            .map_err(KeyPackagesCleanerError::Metadata)?;
+
+        if expired_kps.is_empty() && !rotate_due {
+            return Ok(()); // idle: no span, no work
+        }
+
+        let span = tracing::info_span!(
+            "worker_turn",
+            worker = ?self.kind(),
+            operation = "worker_turn"
+        );
+        async {
+            if !expired_kps.is_empty() {
+                self.delete_key_packages(expired_kps)?;
+            }
+            if rotate_due {
+                self.rotate_last_key_package_if_needed().await?;
+            }
+            Ok::<(), KeyPackagesCleanerError>(())
+        }
+        .instrument(span)
+        .await
     }
 
     /// Delete a key package from the local database.
@@ -156,21 +214,15 @@ where
         Ok(())
     }
 
-    /// Delete all the expired keys
-    fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
+    /// Delete the given already-fetched expired key packages. The caller fetched
+    /// the list so the span-gate can decide whether to open a span without a
+    /// second scan of key_package_history.
+    fn delete_key_packages(
+        &mut self,
+        expired_kps: Vec<StoredKeyPackageHistoryEntry>,
+    ) -> Result<(), KeyPackagesCleanerError> {
         let conn = self.context.db();
-
-        // Propagate (don't swallow): a swallowed fetch error never triggered the supervisor's
-        // reconnect path, so a pool outage retried silently every 5s.
-        let expired_kps = conn
-            .get_expired_key_packages()
-            .map_err(KeyPackagesCleanerError::Fetch)?;
-        if expired_kps.is_empty() {
-            return Ok(());
-        }
-
         tracing::info!("Deleting {} expired key packages", expired_kps.len());
-        // Delete from local db
         for kp in &expired_kps {
             self.delete_key_package(
                 kp.key_package_hash_ref.clone(),
@@ -178,8 +230,6 @@ where
             )
             .map_err(KeyPackagesCleanerError::DeleteKeyPackage)?;
         }
-
-        // Delete from database using the max expired ID
         if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
             conn.delete_key_package_history_up_to_id(max_id)
                 .map_err(KeyPackagesCleanerError::Deletion)?;
@@ -189,7 +239,6 @@ where
                 max_id
             );
         }
-
         Ok(())
     }
 
