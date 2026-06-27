@@ -13314,7 +13314,6 @@ public enum FfiWorkerKind: Equatable, Hashable {
     case keyPackageCleaner
     case commitLog
     case taskRunner
-    case pendingSelfRemove
 
 
 
@@ -13346,8 +13345,6 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         
         case 5: return .taskRunner
         
-        case 6: return .pendingSelfRemove
-        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -13374,10 +13371,6 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         
         case .taskRunner:
             writeInt(&buf, Int32(5))
-        
-        
-        case .pendingSelfRemove:
-            writeInt(&buf, Int32(6))
         
         }
     }
