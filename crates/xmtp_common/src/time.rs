@@ -84,7 +84,10 @@ where
 /// JS `setTimeout` (via gloo-timers) casts the millisecond value to `i32`,
 /// so any duration > ~24.8 days overflows and fires immediately. Chunking into
 /// at-most-1-day pieces lets callers sleep the full requested duration.
-#[allow(dead_code)] // only called from wasm arm; also exercised by unit tests
+///
+/// Only the wasm `sleep` path needs this; compiled for wasm (real use) and under
+/// `test` (native coverage of the pure arithmetic), so it is never dead code.
+#[cfg(any(all(target_family = "wasm", target_os = "unknown"), test))]
 fn sleep_chunks(duration: Duration, max: Duration) -> (u64, Duration) {
     let max_ns = max.as_nanos().max(1);
     let full = (duration.as_nanos() / max_ns) as u64;
