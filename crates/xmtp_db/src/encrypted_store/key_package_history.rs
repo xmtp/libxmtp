@@ -47,6 +47,11 @@ pub trait QueryKeyPackageHistory {
 
     fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
 
+    /// Soonest `delete_at_ns` across all key packages pending deletion, or `None`
+    /// if none are scheduled. Used by the cleaner worker to wake at the next
+    /// deletion deadline (not just the rotation deadline).
+    fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
+
     fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
 
     fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
@@ -84,6 +89,10 @@ where
 
     fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
         (**self).get_expired_key_packages()
+    }
+
+    fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).min_key_package_delete_at_ns()
     }
 
     fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
@@ -161,6 +170,18 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
                 .load::<StoredKeyPackageHistoryEntry>(conn)
         })
         .map_err(StorageError::from) // convert ConnectionError into StorageError
+    }
+
+    fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
+        use crate::schema::key_package_history::dsl;
+        use diesel::dsl::min;
+        let v: Option<i64> = self.raw_query(|conn| {
+            dsl::key_package_history
+                .filter(dsl::delete_at_ns.is_not_null())
+                .select(min(dsl::delete_at_ns))
+                .first::<Option<i64>>(conn)
+        })?;
+        Ok(v)
     }
 
     fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {

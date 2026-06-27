@@ -52,6 +52,7 @@ pub trait QueryIdentity {
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError>;
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
 }
 
 impl<T> QueryIdentity for &T
@@ -71,6 +72,10 @@ where
 
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         (**self).is_identity_needs_rotation()
+    }
+
+    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).next_key_package_rotation_ns()
     }
 }
 
@@ -123,6 +128,17 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
             Some(rotate_at) => now_ns() >= rotate_at,
             None => true,
         })
+    }
+
+    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+        use crate::schema::identity::dsl;
+
+        let v: Option<i64> = self.raw_query(|conn| {
+            dsl::identity
+                .select(dsl::next_key_package_rotation_ns)
+                .first::<Option<i64>>(conn)
+        })?;
+        Ok(v)
     }
 }
 
