@@ -1079,6 +1079,7 @@ where
         self.identity()
             .queue_key_rotation(&self.context.db())
             .await?;
+        self.context.wake_key_package_worker();
 
         Ok(())
     }
