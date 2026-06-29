@@ -938,143 +938,6 @@ impl Compression {
         }
     }
 }
-/// v1 external-commit-policy payload.
-/// Field-coupling invariants enforced by libxmtp when applying an
-/// AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal:
-///
-/// * When `allow_external_commit` transitions to true: `symmetric_key`
-///   and `external_group_id` MUST be populated (non-empty, meeting
-///   their length requirements) in the same proposal. The two
-///   transitions are atomic — there is no window where the bit is on
-///   but the invite coordinates are unset.
-///
-/// * When `allow_external_commit` transitions to false (revoke):
-///   `symmetric_key` and `external_group_id` MUST be cleared (set to
-///   empty bytes) in the same proposal. Leaving stale coordinates in
-///   the group state after revoke would let a future re-enable
-///   accidentally revive a previously-distributed key.
-///
-/// * On re-enable (false → true after a prior revoke): the new
-///   `symmetric_key` MUST differ from every previously-used value for
-///   this group, and the new `external_group_id` SHOULD differ as
-///   well. Reusing a revoked key would re-validate every QR ever
-///   printed under that key, defeating the revocation. Admin clients
-///   are responsible for generating fresh material on each enable.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ExternalCommitPolicyV1 {
-    /// Master switch for MLS External Commits adding new members.
-    /// Required for the QR-invite flow. Defaults to false; admins
-    /// (super-admin by default) opt in via
-    /// AppDataUpdate(EXTERNAL_COMMIT_POLICY).
-    ///
-    /// See the field-coupling invariants in the message-level comment
-    /// above: enabling MUST populate symmetric_key + external_group_id;
-    /// revoking (true → false) MUST clear them.
-    #[prost(bool, tag = "1")]
-    pub allow_external_commit: bool,
-    /// Wall-clock auto-disable timestamp (ns since UNIX epoch).
-    /// 0 = no automatic expiry. After this timestamp the validator
-    /// rejects all external commits regardless of `allow_external_commit`.
-    /// Lets admins issue time-bounded invite campaigns without having to
-    /// come back and flip the bit manually.
-    #[prost(uint64, tag = "2")]
-    pub expires_at_ns: u64,
-    /// Maximum staleness of the GroupInfo referenced by an external
-    /// commit, in nanoseconds since GroupInfo export. 0 = no staleness
-    /// limit. External commits whose referenced GroupInfo was exported
-    /// more than `expire_in_ns` ago are rejected. Narrows the replay
-    /// window for stolen-blob attacks and forces re-export frequency.
-    #[prost(uint64, tag = "3")]
-    pub expire_in_ns: u64,
-    /// 32-byte ChaCha20Poly1305 key used to wrap the EncryptedGroupInfoBlob
-    /// for the currently-active invite. Carried in the group state so any
-    /// member (especially a just-joined external committer) can re-export
-    /// GroupInfo and re-upload a refreshed blob under the same key after a
-    /// join — without this, a printed QR / link would die the moment the
-    /// issuing admin went offline.
-    ///
-    /// The QR carries the same key bytes. Rotation = admin sets a new value
-    /// here in a single AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal AND
-    /// issues a new QR carrying the matching key; old QR holders' keys no
-    /// longer decrypt blobs the service serves under the rotated slot.
-    ///
-    /// Length MUST be exactly 32 bytes when populated. Empty (zero-length)
-    /// means no active invite — and MUST coincide with
-    /// `allow_external_commit == false` (see the field-coupling invariants
-    /// at the top of this message). Revoking the invite MUST clear this
-    /// field; re-enabling MUST populate it with a freshly-generated value
-    /// distinct from any previously-used key for this group.
-    ///
-    /// Note: the service_pointer (where the blob lives) is intentionally
-    /// NOT stored in the group. It is per-QR application-defined opaque
-    /// bytes; different invites for the same group may point at different
-    /// services. Joiners use the service_pointer from the QR they scanned.
-    #[prost(bytes = "vec", tag = "4")]
-    pub symmetric_key: ::prost::alloc::vec::Vec<u8>,
-    /// Identifier for the service slot holding the active invite's
-    /// encrypted blob. Application-defined opaque bytes (UUID, snowflake,
-    /// short slot key, etc.); decoupled from the MLS group_id. Admins
-    /// MAY rotate the symmetric_key while keeping this stable (overwrite
-    /// the same slot on the service) or change both together (new slot,
-    /// leaves the old slot orphaned for application-side GC).
-    ///
-    /// The QR carries the same value. The joiner verifies that the QR's
-    /// `external_group_id` equals this field after joining, as
-    /// defense-in-depth against a stale or swapped QR. Mismatch indicates
-    /// the admin rotated to a new slot after the QR was minted; the
-    /// joining client SHOULD treat the just-published commit as orphaned
-    /// (it validates fine, but the refreshed blob the joiner would upload
-    /// to the old slot will not be reachable by holders of the new QR).
-    ///
-    /// MUST be at least 4 bytes when populated (collision-avoidance floor
-    /// for tiny services). RECOMMENDED: 16 random bytes when no
-    /// application-specific scheme is in use. Empty (zero-length) means
-    /// no active invite — and MUST coincide with
-    /// `allow_external_commit == false` (see the field-coupling
-    /// invariants at the top of this message). Revoking the invite MUST
-    /// clear this field; re-enabling SHOULD use a freshly-generated value
-    /// (reusing a prior `external_group_id` is permitted only when the
-    /// admin intends to overwrite the old service slot — typically the
-    /// admin generates a new value to leave the prior slot orphaned).
-    #[prost(bytes = "vec", tag = "5")]
-    pub external_group_id: ::prost::alloc::vec::Vec<u8>,
-}
-impl ::prost::Name for ExternalCommitPolicyV1 {
-    const NAME: &'static str = "ExternalCommitPolicyV1";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.ExternalCommitPolicyV1".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.ExternalCommitPolicyV1".into()
-    }
-}
-/// Versioned envelope. New variants are added as new oneof variants;
-/// readers that don't recognize a variant treat the policy as default
-/// (all fields zero) per the standard unknown-variant tolerance rules.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ExternalCommitPolicyEntry {
-    #[prost(oneof = "external_commit_policy_entry::Version", tags = "1")]
-    pub version: ::core::option::Option<external_commit_policy_entry::Version>,
-}
-/// Nested message and enum types in `ExternalCommitPolicyEntry`.
-pub mod external_commit_policy_entry {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Version {
-        #[prost(message, tag = "1")]
-        V1(super::ExternalCommitPolicyV1),
-    }
-}
-impl ::prost::Name for ExternalCommitPolicyEntry {
-    const NAME: &'static str = "ExternalCommitPolicyEntry";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.ExternalCommitPolicyEntry".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.ExternalCommitPolicyEntry".into()
-    }
-}
 /// v1 shape of the shareable invite blob for QR-code or link-based joining
 /// of an XMTP group via an MLS external commit.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1241,83 +1104,6 @@ impl ::prost::Name for EncryptedGroupInfoBlob {
         "/xmtp.mls.message_contents.EncryptedGroupInfoBlob".into()
     }
 }
-/// Contains a mapping of `inbox_id` -> `sequence_id` for all members of a group.
-/// Designed to be stored in the group context extension of the MLS group
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupMembership {
-    #[prost(map = "string, uint64", tag = "1")]
-    pub members: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
-    /// List of installations that failed to be added due to errors encountered during the evaluation process.
-    #[prost(bytes = "vec", repeated, tag = "2")]
-    pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-}
-impl ::prost::Name for GroupMembership {
-    const NAME: &'static str = "GroupMembership";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMembership".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMembership".into()
-    }
-}
-/// Per-member membership state stored inside the GROUP_MEMBERSHIP component
-/// as a TlsMap\<InboxId, bytes>. Keys are 32-byte inbox ids, values are the
-/// encoded bytes of this message.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct GroupMembershipEntry {
-    #[prost(oneof = "group_membership_entry::Version", tags = "1")]
-    pub version: ::core::option::Option<group_membership_entry::Version>,
-}
-/// Nested message and enum types in `GroupMembershipEntry`.
-pub mod group_membership_entry {
-    /// V1 of the per-member membership state.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct V1 {
-        /// Latest identity-update sequence id this client has applied for this
-        /// member. Validator-checked at bootstrap against the pre-flip
-        /// `GroupMembership.members\[inbox_id\]` value.
-        #[prost(uint64, tag = "1")]
-        pub sequence_id: u64,
-        /// Installation ids belonging to this member that we previously failed
-        /// to add (expired key package, validation failure, etc.). Used to
-        /// suppress retries on later membership updates.
-        ///
-        /// Sender-authoritative at migration: the migrator partitions the
-        /// global `failed_installations` per inbox by walking identity-update
-        /// history. Receivers accept these bytes as-is — the validator only
-        /// checks `sequence_id`, so the blast radius of a bad partition is
-        /// bounded to extra or silenced retries. Installations whose owning
-        /// inbox can't be determined are dropped.
-        #[prost(bytes = "vec", repeated, tag = "2")]
-        pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    }
-    impl ::prost::Name for V1 {
-        const NAME: &'static str = "V1";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.GroupMembershipEntry.V1".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.GroupMembershipEntry.V1".into()
-        }
-    }
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Version {
-        #[prost(message, tag = "1")]
-        V1(V1),
-    }
-}
-impl ::prost::Name for GroupMembershipEntry {
-    const NAME: &'static str = "GroupMembershipEntry";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMembershipEntry".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMembershipEntry".into()
-    }
-}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct OneshotMessage {
     #[prost(oneof = "oneshot_message::MessageType", tags = "1")]
@@ -1461,46 +1247,81 @@ impl ConversationType {
         }
     }
 }
-/// Message for group mutable metadata
+/// Contains a mapping of `inbox_id` -> `sequence_id` for all members of a group.
+/// Designed to be stored in the group context extension of the MLS group
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupMutableMetadataV1 {
-    /// Map to store various metadata attributes (Group name, etc.)
-    #[prost(map = "string, string", tag = "1")]
-    pub attributes: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
-    #[prost(message, optional, tag = "2")]
-    pub admin_list: ::core::option::Option<Inboxes>,
-    /// Creator starts as only super_admin
-    /// Only super_admin can add/remove other super_admin
-    #[prost(message, optional, tag = "3")]
-    pub super_admin_list: ::core::option::Option<Inboxes>,
+pub struct GroupMembership {
+    #[prost(map = "string, uint64", tag = "1")]
+    pub members: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    /// List of installations that failed to be added due to errors encountered during the evaluation process.
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
-impl ::prost::Name for GroupMutableMetadataV1 {
-    const NAME: &'static str = "GroupMutableMetadataV1";
+impl ::prost::Name for GroupMembership {
+    const NAME: &'static str = "GroupMembership";
     const PACKAGE: &'static str = "xmtp.mls.message_contents";
     fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMutableMetadataV1".into()
+        "xmtp.mls.message_contents.GroupMembership".into()
     }
     fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMutableMetadataV1".into()
+        "/xmtp.mls.message_contents.GroupMembership".into()
     }
 }
-/// Wrapper around a list of repeated Inbox Ids
+/// Per-member membership state stored inside the GROUP_MEMBERSHIP component
+/// as a TlsMap\<InboxId, bytes>. Keys are 32-byte inbox ids, values are the
+/// encoded bytes of this message.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Inboxes {
-    #[prost(string, repeated, tag = "1")]
-    pub inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+pub struct GroupMembershipEntry {
+    #[prost(oneof = "group_membership_entry::Version", tags = "1")]
+    pub version: ::core::option::Option<group_membership_entry::Version>,
 }
-impl ::prost::Name for Inboxes {
-    const NAME: &'static str = "Inboxes";
+/// Nested message and enum types in `GroupMembershipEntry`.
+pub mod group_membership_entry {
+    /// V1 of the per-member membership state.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct V1 {
+        /// Latest identity-update sequence id this client has applied for this
+        /// member. Validator-checked at bootstrap against the pre-flip
+        /// `GroupMembership.members\[inbox_id\]` value.
+        #[prost(uint64, tag = "1")]
+        pub sequence_id: u64,
+        /// Installation ids belonging to this member that we previously failed
+        /// to add (expired key package, validation failure, etc.). Used to
+        /// suppress retries on later membership updates.
+        ///
+        /// Sender-authoritative at migration: the migrator partitions the
+        /// global `failed_installations` per inbox by walking identity-update
+        /// history. Receivers accept these bytes as-is — the validator only
+        /// checks `sequence_id`, so the blast radius of a bad partition is
+        /// bounded to extra or silenced retries. Installations whose owning
+        /// inbox can't be determined are dropped.
+        #[prost(bytes = "vec", repeated, tag = "2")]
+        pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupMembershipEntry.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupMembershipEntry.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for GroupMembershipEntry {
+    const NAME: &'static str = "GroupMembershipEntry";
     const PACKAGE: &'static str = "xmtp.mls.message_contents";
     fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.Inboxes".into()
+        "xmtp.mls.message_contents.GroupMembershipEntry".into()
     }
     fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.Inboxes".into()
+        "/xmtp.mls.message_contents.GroupMembershipEntry".into()
     }
 }
 /// Extension data for proposal support in group context.
@@ -1519,6 +1340,143 @@ impl ::prost::Name for ProposalSupport {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.message_contents.ProposalSupport".into()
+    }
+}
+/// v1 external-commit-policy payload.
+/// Field-coupling invariants enforced by libxmtp when applying an
+/// AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal:
+///
+/// * When `allow_external_commit` transitions to true: `symmetric_key`
+///   and `external_group_id` MUST be populated (non-empty, meeting
+///   their length requirements) in the same proposal. The two
+///   transitions are atomic — there is no window where the bit is on
+///   but the invite coordinates are unset.
+///
+/// * When `allow_external_commit` transitions to false (revoke):
+///   `symmetric_key` and `external_group_id` MUST be cleared (set to
+///   empty bytes) in the same proposal. Leaving stale coordinates in
+///   the group state after revoke would let a future re-enable
+///   accidentally revive a previously-distributed key.
+///
+/// * On re-enable (false → true after a prior revoke): the new
+///   `symmetric_key` MUST differ from every previously-used value for
+///   this group, and the new `external_group_id` SHOULD differ as
+///   well. Reusing a revoked key would re-validate every QR ever
+///   printed under that key, defeating the revocation. Admin clients
+///   are responsible for generating fresh material on each enable.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalCommitPolicyV1 {
+    /// Master switch for MLS External Commits adding new members.
+    /// Required for the QR-invite flow. Defaults to false; admins
+    /// (super-admin by default) opt in via
+    /// AppDataUpdate(EXTERNAL_COMMIT_POLICY).
+    ///
+    /// See the field-coupling invariants in the message-level comment
+    /// above: enabling MUST populate symmetric_key + external_group_id;
+    /// revoking (true → false) MUST clear them.
+    #[prost(bool, tag = "1")]
+    pub allow_external_commit: bool,
+    /// Wall-clock auto-disable timestamp (ns since UNIX epoch).
+    /// 0 = no automatic expiry. After this timestamp the validator
+    /// rejects all external commits regardless of `allow_external_commit`.
+    /// Lets admins issue time-bounded invite campaigns without having to
+    /// come back and flip the bit manually.
+    #[prost(uint64, tag = "2")]
+    pub expires_at_ns: u64,
+    /// Maximum staleness of the GroupInfo referenced by an external
+    /// commit, in nanoseconds since GroupInfo export. 0 = no staleness
+    /// limit. External commits whose referenced GroupInfo was exported
+    /// more than `expire_in_ns` ago are rejected. Narrows the replay
+    /// window for stolen-blob attacks and forces re-export frequency.
+    #[prost(uint64, tag = "3")]
+    pub expire_in_ns: u64,
+    /// 32-byte ChaCha20Poly1305 key used to wrap the EncryptedGroupInfoBlob
+    /// for the currently-active invite. Carried in the group state so any
+    /// member (especially a just-joined external committer) can re-export
+    /// GroupInfo and re-upload a refreshed blob under the same key after a
+    /// join — without this, a printed QR / link would die the moment the
+    /// issuing admin went offline.
+    ///
+    /// The QR carries the same key bytes. Rotation = admin sets a new value
+    /// here in a single AppDataUpdate(EXTERNAL_COMMIT_POLICY) proposal AND
+    /// issues a new QR carrying the matching key; old QR holders' keys no
+    /// longer decrypt blobs the service serves under the rotated slot.
+    ///
+    /// Length MUST be exactly 32 bytes when populated. Empty (zero-length)
+    /// means no active invite — and MUST coincide with
+    /// `allow_external_commit == false` (see the field-coupling invariants
+    /// at the top of this message). Revoking the invite MUST clear this
+    /// field; re-enabling MUST populate it with a freshly-generated value
+    /// distinct from any previously-used key for this group.
+    ///
+    /// Note: the service_pointer (where the blob lives) is intentionally
+    /// NOT stored in the group. It is per-QR application-defined opaque
+    /// bytes; different invites for the same group may point at different
+    /// services. Joiners use the service_pointer from the QR they scanned.
+    #[prost(bytes = "vec", tag = "4")]
+    pub symmetric_key: ::prost::alloc::vec::Vec<u8>,
+    /// Identifier for the service slot holding the active invite's
+    /// encrypted blob. Application-defined opaque bytes (UUID, snowflake,
+    /// short slot key, etc.); decoupled from the MLS group_id. Admins
+    /// MAY rotate the symmetric_key while keeping this stable (overwrite
+    /// the same slot on the service) or change both together (new slot,
+    /// leaves the old slot orphaned for application-side GC).
+    ///
+    /// The QR carries the same value. The joiner verifies that the QR's
+    /// `external_group_id` equals this field after joining, as
+    /// defense-in-depth against a stale or swapped QR. Mismatch indicates
+    /// the admin rotated to a new slot after the QR was minted; the
+    /// joining client SHOULD treat the just-published commit as orphaned
+    /// (it validates fine, but the refreshed blob the joiner would upload
+    /// to the old slot will not be reachable by holders of the new QR).
+    ///
+    /// MUST be at least 4 bytes when populated (collision-avoidance floor
+    /// for tiny services). RECOMMENDED: 16 random bytes when no
+    /// application-specific scheme is in use. Empty (zero-length) means
+    /// no active invite — and MUST coincide with
+    /// `allow_external_commit == false` (see the field-coupling
+    /// invariants at the top of this message). Revoking the invite MUST
+    /// clear this field; re-enabling SHOULD use a freshly-generated value
+    /// (reusing a prior `external_group_id` is permitted only when the
+    /// admin intends to overwrite the old service slot — typically the
+    /// admin generates a new value to leave the prior slot orphaned).
+    #[prost(bytes = "vec", tag = "5")]
+    pub external_group_id: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for ExternalCommitPolicyV1 {
+    const NAME: &'static str = "ExternalCommitPolicyV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ExternalCommitPolicyV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ExternalCommitPolicyV1".into()
+    }
+}
+/// Versioned envelope. New variants are added as new oneof variants;
+/// readers that don't recognize a variant treat the policy as default
+/// (all fields zero) per the standard unknown-variant tolerance rules.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExternalCommitPolicyEntry {
+    #[prost(oneof = "external_commit_policy_entry::Version", tags = "1")]
+    pub version: ::core::option::Option<external_commit_policy_entry::Version>,
+}
+/// Nested message and enum types in `ExternalCommitPolicyEntry`.
+pub mod external_commit_policy_entry {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(super::ExternalCommitPolicyV1),
+    }
+}
+impl ::prost::Name for ExternalCommitPolicyEntry {
+    const NAME: &'static str = "ExternalCommitPolicyEntry";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ExternalCommitPolicyEntry".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ExternalCommitPolicyEntry".into()
     }
 }
 /// A group member and affected installation IDs
@@ -1652,5 +1610,47 @@ impl ::prost::Name for GroupUpdated {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.message_contents.GroupUpdated".into()
+    }
+}
+/// Message for group mutable metadata
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupMutableMetadataV1 {
+    /// Map to store various metadata attributes (Group name, etc.)
+    #[prost(map = "string, string", tag = "1")]
+    pub attributes: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(message, optional, tag = "2")]
+    pub admin_list: ::core::option::Option<Inboxes>,
+    /// Creator starts as only super_admin
+    /// Only super_admin can add/remove other super_admin
+    #[prost(message, optional, tag = "3")]
+    pub super_admin_list: ::core::option::Option<Inboxes>,
+}
+impl ::prost::Name for GroupMutableMetadataV1 {
+    const NAME: &'static str = "GroupMutableMetadataV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMutableMetadataV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMutableMetadataV1".into()
+    }
+}
+/// Wrapper around a list of repeated Inbox Ids
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Inboxes {
+    #[prost(string, repeated, tag = "1")]
+    pub inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+impl ::prost::Name for Inboxes {
+    const NAME: &'static str = "Inboxes";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.Inboxes".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.Inboxes".into()
     }
 }
