@@ -1,13 +1,7 @@
-use crate::context::XmtpSharedContext;
 use crate::identity::IdentityError;
-use crate::identity::pq_key_package_references_key;
 use crate::worker::NeedsDbReconnect;
-use openmls_traits::storage::StorageProvider;
 use thiserror::Error;
-use xmtp_db::{
-    MlsProviderExt, StorageError, XmtpMlsStorageProvider,
-    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-};
+use xmtp_db::StorageError;
 
 #[derive(Debug, Error)]
 pub enum KeyPackagesCleanerError {
@@ -45,11 +39,23 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
 /// polling worker loop. The recurring delete/rotate maintenance runs on the
 /// TaskRunner via [`KeyPackageMaintenance`](super::key_package_maintenance);
 /// this struct survives only for [`Self::delete_key_package`], which is used by
-/// a test in `identity.rs`.
+/// a test in `identity.rs` — hence `#[cfg(test)]`.
+#[cfg(test)]
+use crate::{context::XmtpSharedContext, identity::pq_key_package_references_key};
+#[cfg(test)]
+use openmls_traits::storage::StorageProvider;
+#[cfg(test)]
+use xmtp_db::{
+    MlsProviderExt, XmtpMlsStorageProvider,
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
+};
+
+#[cfg(test)]
 pub struct KeyPackagesCleanerWorker<Context> {
     context: Context,
 }
 
+#[cfg(test)]
 impl<Context> KeyPackagesCleanerWorker<Context>
 where
     Context: XmtpSharedContext + 'static,

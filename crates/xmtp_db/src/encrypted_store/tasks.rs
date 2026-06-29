@@ -396,11 +396,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                 // concurrent backoff write can't slip between read and write.
                 let existing: Option<(i32, i32, i64)> = tasks::table
                     .filter(tasks::data_hash.eq(&data_hash))
-                    .select((
-                        tasks::id,
-                        tasks::attempts,
-                        tasks::next_attempt_at_ns,
-                    ))
+                    .select((tasks::id, tasks::attempts, tasks::next_attempt_at_ns))
                     .first::<(i32, i32, i64)>(conn)
                     .optional()?;
                 match existing {

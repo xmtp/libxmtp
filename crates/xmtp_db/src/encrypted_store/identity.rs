@@ -174,7 +174,10 @@ pub(crate) mod tests {
                 .unwrap();
 
             // Reader returns the currently-scheduled deadline.
-            assert_eq!(conn.next_key_package_rotation_ns().unwrap(), Some(far_future));
+            assert_eq!(
+                conn.next_key_package_rotation_ns().unwrap(),
+                Some(far_future)
+            );
 
             // Queuing a rotation pulls the deadline earlier (~5s out).
             conn.queue_key_package_rotation().unwrap();

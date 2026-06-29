@@ -7,9 +7,7 @@ use crate::{
     mutex_registry::MutexRegistry,
     utils::{VersionInfo, cleanup_duplicate_updates},
     worker::{WorkerRunner, tasks::TaskWorker},
-    worker::{
-        device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
-    },
+    worker::{device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker},
 };
 use futures::FutureExt;
 use std::sync::Arc;
@@ -444,7 +442,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 if enabled(WorkerKind::KeyPackageCleaner)
                     && let Err(e) = context.db().ensure_kp_maintenance_task()
                 {
-                    tracing::warn!("kp-maintenance task seed failed (will rely on next start): {e}");
+                    tracing::warn!(
+                        "kp-maintenance task seed failed (will rely on next start): {e}"
+                    );
                 }
             }
         }

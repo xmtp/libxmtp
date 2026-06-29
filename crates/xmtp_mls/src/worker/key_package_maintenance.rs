@@ -61,9 +61,7 @@ impl KeyPackageMaintenance {
     }
 
     /// Delete all expired key packages from the local DB and key store.
-    pub(crate) fn delete_expired<Context>(
-        context: &Context,
-    ) -> Result<(), KeyPackagesCleanerError>
+    pub(crate) fn delete_expired<Context>(context: &Context) -> Result<(), KeyPackagesCleanerError>
     where
         Context: XmtpSharedContext,
     {
@@ -161,7 +159,68 @@ mod tests {
         let day = xmtp_common::NS_IN_DAY;
         assert_eq!(next_deadline_from(None, None, now), now + day); // both absent -> fallback
         assert_eq!(next_deadline_from(Some(now + 50), None, now), now + 50); // rotation only
-        assert_eq!(next_deadline_from(Some(now + 50), Some(now + 20), now), now + 20); // delete sooner
+        assert_eq!(
+            next_deadline_from(Some(now + 50), Some(now + 20), now),
+            now + 20
+        ); // delete sooner
         assert_eq!(next_deadline_from(None, Some(now + 20), now), now + 20); // delete only
+    }
+
+    /// Requires a live XMTP node. End-to-end behavior guard for the TaskRunner-driven
+    /// KP maintenance: `client.queue_key_rotation()` marks the identity for rotation
+    /// AND nudges the recurring KpMaintenance task (PR #2044 ~5s debounce). The
+    /// TaskRunner then wakes, rotates, and uploads a fresh key package — so the
+    /// on-network init key must change within the poll window.
+    ///
+    /// WASM-SAFE: the poll is iteration-counted with `xmtp_common::time::sleep`,
+    /// never `std::time::Instant` (which panics on wasm).
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn queue_key_rotation_wakes_taskrunner_and_rotates() {
+        use crate::tester;
+
+        // Default `tester!` builds with workers (the TaskRunner) enabled — required
+        // so the queued rotation is actually driven to completion.
+        tester!(client);
+
+        let installation_id = client.installation_public_key().to_vec();
+
+        // Snapshot the current on-network init key.
+        // `VerifiedKeyPackageV2::hpke_init_key()` returns an owned Vec<u8>.
+        let before = {
+            let mut map = client
+                .get_key_packages_for_installation_ids(vec![installation_id.clone()])
+                .await?;
+            let entry = map
+                .remove(&installation_id)
+                .expect("installation not found in response")?;
+            entry.hpke_init_key()
+        };
+
+        // Queue a rotation: marks the identity AND nudges the KpMaintenance task.
+        client.queue_key_rotation().await?;
+
+        // Poll up to 12 s (60 × 200 ms) for the on-network key to change.
+        // Uses `xmtp_common::time::sleep` so the test compiles for wasm too
+        // (std::time::Instant panics on wasm).
+        let mut after = None;
+        for _ in 0..60u32 {
+            xmtp_common::time::sleep(std::time::Duration::from_millis(200)).await;
+            let mut map = client
+                .get_key_packages_for_installation_ids(vec![installation_id.clone()])
+                .await?;
+            let entry = map
+                .remove(&installation_id)
+                .expect("installation not found in response")?;
+            let key = entry.hpke_init_key();
+            if key != before {
+                after = Some(key);
+                break;
+            }
+        }
+
+        assert!(
+            after.is_some(),
+            "key package did not rotate after queue_key_rotation + TaskRunner wake"
+        );
     }
 }

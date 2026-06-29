@@ -164,8 +164,7 @@ where
             // Nudge the recurring KP-maintenance task to run within the PR #2044
             // debounce window (~5s) rather than waiting for its far deadline.
             db.bump_kp_maintenance_task(
-                xmtp_common::time::now_ns()
-                    + xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS,
+                xmtp_common::time::now_ns() + xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS,
             )?;
             self.context.task_channels().wake();
         }
