@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -90,6 +90,10 @@ enum Command {
         nonce: u64,
         ack: oneshot::Sender<()>,
     },
+    /// Half-close the request half. The actor drops its wire sender so the
+    /// outbound stream ends (the server sees the half-close), then drains inbound
+    /// to completion. No further outbound frames are sent after this.
+    Finish,
 }
 
 /// A handle to one open bidirectional subscription. Writing to the wire is the
@@ -98,6 +102,16 @@ pub struct BidiConnection {
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<BidiEvent>,
     probe_nonce: AtomicU64,
+    /// Latched `true` once a `finish` has *delivered* `Command::Finish` to the
+    /// actor; monotonic — set once on delivery, never cleared. Lets `mutate`/
+    /// `probe` observe `Closed` without racing the actor's teardown of the
+    /// command channel: after `finish` returns, `Command::Finish` is still in
+    /// flight and the receiver lives until the actor drains it, so a
+    /// FIFO-following `mutate` would otherwise be accepted into the buffer and
+    /// then silently dropped. Latching only on delivery (not before the send) is
+    /// what makes a cancelled `finish` harmless and concurrent `finish` calls
+    /// race-free — there is no reset to race.
+    finished: AtomicBool,
     /// The server's advertised keepalive cadence (ms), learned from `Started`;
     /// `0` until then. Shared with the actor, which sets it. Drives the default
     /// probe deadline so `probe` can self-bound without the caller re-deriving it.
@@ -149,6 +163,7 @@ impl BidiConnection {
             commands: commands_tx,
             events,
             probe_nonce: AtomicU64::new(0),
+            finished: AtomicBool::new(false),
             keepalive_ms,
             actor: actor.abort_handle(),
         })
@@ -158,10 +173,48 @@ impl BidiConnection {
     /// (backpressure is right for a state change); returns `Closed` once the
     /// actor has stopped — the command receiver dies with it.
     pub async fn mutate(&self, mutate: Mutate) -> Result<(), BidiError> {
+        if self.finished.load(Ordering::Acquire) {
+            return Err(BidiError::Closed);
+        }
         self.commands
             .send(Command::Mutate(mutate))
             .await
             .map_err(|_| BidiError::Closed)
+    }
+
+    /// Half-close the request half — signal that we are done sending. The
+    /// outbound stream ends, so `mutate` and `probe` thereafter return `Closed`;
+    /// any live delivery already in flight keeps arriving until the server closes
+    /// its side. Opened with `Mutate::history_only`, this is the bounded-sync
+    /// trigger (XIP-83): the server finishes the in-flight catch-up wave, emits
+    /// its `TopicsLive` / `CatchUpComplete` markers, and closes the stream, so the
+    /// consumer drains [`Self::next`] to `None` and stops. Returns `Closed` if the
+    /// actor has already stopped.
+    ///
+    /// Draining to `None` relies on the server actually closing its side. After
+    /// `finish` there is no `probe` escape hatch (it returns `Closed`), so a
+    /// consumer that doesn't trust the peer to honor the half-close should bound
+    /// its post-`finish` [`Self::next`] with a timeout rather than awaiting `None`
+    /// indefinitely.
+    ///
+    /// Not meant to race a concurrent `mutate`/`probe` from another task on the
+    /// same handle: ordering between two tasks' channel sends is undefined, so a
+    /// `mutate` racing `finish` may still report `Ok` and then be dropped. The
+    /// guarantee is for the sequential caller — once `finish` *returns*, a later
+    /// `mutate`/`probe` from that caller sees `Closed`.
+    pub async fn finish(&self) -> Result<(), BidiError> {
+        // Latch closed only *after* the send is delivered. A cancelled `finish`
+        // (future dropped mid-send) never delivered `Finish`, so it must not
+        // wedge the handle — leaving the latch untouched is exactly right. And
+        // because the latch is monotonic (set on delivery, never cleared), two
+        // concurrent `finish` calls can't race a reset. The same-caller contract
+        // still holds: a FIFO-following `mutate`/`probe` runs after this store.
+        self.commands
+            .send(Command::Finish)
+            .await
+            .map_err(|_| BidiError::Closed)?;
+        self.finished.store(true, Ordering::Release);
+        Ok(())
     }
 
     /// Probe the link (e.g. right after the process resumes) with the default
@@ -191,6 +244,9 @@ impl BidiConnection {
     }
 
     async fn probe_inner(&self) -> Result<(), BidiError> {
+        if self.finished.load(Ordering::Acquire) {
+            return Err(BidiError::Closed);
+        }
         let nonce = self
             .probe_nonce
             .fetch_add(1, Ordering::Relaxed)
@@ -314,6 +370,10 @@ async fn run_actor<S, E>(
     // `select!` arm blocks the whole loop, so a backed-up wire would stall inbound
     // reads and delay auto-pongs (getting us reaped on an otherwise healthy link).
     let mut pending: VecDeque<SubscribeRequest> = VecDeque::new();
+    // Set by `Command::Finish`: leave the main loop and drain inbound to close,
+    // rather than tear everything down. Distinguishes a deliberate half-close
+    // from the wire/handle-gone breaks, which fall straight through to teardown.
+    let mut finished = false;
 
     loop {
         tokio::select! {
@@ -362,6 +422,12 @@ async fn run_actor<S, E>(
                             request_frame(subscribe_request::v1::Request::Ping(Ping { nonce })),
                         )
                     }
+                    Command::Finish => {
+                        // Half-close: stop accepting new commands, then flush the
+                        // backlog and drain inbound to close (in `drain_after_finish`).
+                        finished = true;
+                        break;
+                    }
                 };
                 if !queued {
                     break; // wire wedged past the backlog cap — give up
@@ -388,6 +454,8 @@ async fn run_actor<S, E>(
                 };
                 use subscribe_response::v1::Response;
                 match v1.response {
+                    // Liveness is internal: auto-pong / probe-correlate here, never
+                    // surface it to the consumer.
                     Some(Response::Ping(ping)) => {
                         // Auto-pong: hand it to the wire (or queue it FIFO behind a
                         // backlog). A busy wire delays but never drops the pong, and
@@ -411,73 +479,171 @@ async fn run_actor<S, E>(
                             let _ = ack.send(());
                         }
                     }
-                    Some(Response::Started(started)) => {
-                        // Record the server's cadence before surfacing `Started`,
-                        // so a consumer that probes in reaction to it already gets
-                        // the keepalive-derived default deadline.
-                        keepalive_ms.store(started.keepalive_interval_ms, Ordering::Relaxed);
-                        if emit(&events, BidiEvent::Started {
-                            keepalive_interval_ms: started.keepalive_interval_ms,
-                            capabilities: started.capabilities,
-                        }).await {
+                    // Everything else is consumer-facing (or a skippable
+                    // future-revision frame). The same emitter feeds the live loop
+                    // and the post-`finish` drain, so their event semantics match.
+                    other => {
+                        if emit_response_events(&events, &keepalive_ms, other).await {
                             break;
                         }
                     }
-                    Some(Response::CatchupComplete(complete)) => {
-                        if emit(&events, BidiEvent::CatchUpComplete {
-                            mutate_id: complete.mutate_id,
-                        }).await {
-                            break;
-                        }
-                    }
-                    Some(Response::TopicsLive(live)) => {
-                        // Parse kind-prefixed wire bytes into typed `Topic`s,
-                        // validating each kind byte. A malformed topic is a
-                        // server bug on an informational frame, so skip it (with
-                        // a warn) rather than kill the connection.
-                        let topics = live
-                            .topics
-                            .into_iter()
-                            .filter_map(|bytes| match Topic::try_from(bytes) {
-                                Ok(topic) => Some(topic),
-                                Err(e) => {
-                                    tracing::warn!("skipping malformed TopicsLive topic: {e}");
-                                    None
-                                }
-                            })
-                            .collect();
-                        if emit(&events, BidiEvent::TopicsLive { topics }).await {
-                            break;
-                        }
-                    }
-                    Some(Response::Messages(messages)) => {
-                        if !messages.group_messages.is_empty()
-                            && emit(&events, BidiEvent::GroupMessages(messages.group_messages)).await
-                        {
-                            break;
-                        }
-                        if !messages.welcome_messages.is_empty()
-                            && emit(
-                                &events,
-                                BidiEvent::WelcomeMessages(messages.welcome_messages),
-                            )
-                            .await
-                        {
-                            break;
-                        }
-                    }
-                    // An arm a future server revision added: informational frames
-                    // are safe to skip (delivery correctness never depends on them).
-                    None => continue,
                 }
             }
         }
     }
-    // One exit log for every reason (wire ended/errored, or handle gone). The
-    // error a caller sees is just `Closed`; the "why" lives here in the logs.
+    // Resolve any in-flight probes now: dropping the probe-ack senders makes each
+    // waiting `probe()` see `Closed`. Must happen *before* `drain_after_finish`,
+    // which can block on `inbound` for a while on a half-open link — a probe must
+    // never hang on a connection that has already left the live loop.
+    drop(probes);
+    // A deliberate half-close drains inbound to close rather than tearing down;
+    // every other exit reason falls straight through to teardown.
+    if finished {
+        drain_after_finish(inbound, wire_out, pending, commands, &events, &keepalive_ms).await;
+    }
+    // One exit log for every reason (wire ended/errored, handle gone, or finished
+    // draining). The error a caller sees is just `Closed`; the "why" lives here.
     tracing::debug!("bidi subscription actor stopped");
-    // `wire_out`, `commands`, `events`, `probes`, and the `pending` queue drop
-    // here — that *is* the teardown in both directions.
+    // `wire_out`, `commands`, `events`, and the `pending` queue drop here — that
+    // *is* the teardown in both directions.
+}
+
+/// Translate a non-liveness server response into consumer events, returning true
+/// if the consumer is gone (the actor should stop). `Ping`/`Pong` are handled by
+/// the caller — they need the wire and the probe map; everything routed here is
+/// informational or message data. Shared by the live loop and the post-`finish`
+/// drain so both deliver identical events.
+async fn emit_response_events(
+    events: &mpsc::Sender<BidiEvent>,
+    keepalive_ms: &Arc<AtomicU32>,
+    response: Option<subscribe_response::v1::Response>,
+) -> bool {
+    use subscribe_response::v1::Response;
+    match response {
+        Some(Response::Started(started)) => {
+            // Record the server's cadence before surfacing `Started`, so a consumer
+            // that probes in reaction to it already gets the keepalive-derived
+            // default deadline.
+            keepalive_ms.store(started.keepalive_interval_ms, Ordering::Relaxed);
+            emit(
+                events,
+                BidiEvent::Started {
+                    keepalive_interval_ms: started.keepalive_interval_ms,
+                    capabilities: started.capabilities,
+                },
+            )
+            .await
+        }
+        Some(Response::CatchupComplete(complete)) => {
+            emit(
+                events,
+                BidiEvent::CatchUpComplete {
+                    mutate_id: complete.mutate_id,
+                },
+            )
+            .await
+        }
+        Some(Response::TopicsLive(live)) => {
+            // Parse kind-prefixed wire bytes into typed `Topic`s, validating each
+            // kind byte. A malformed topic should never reach us — it means a
+            // server or wire-format bug — so log the offending bytes (a topic is
+            // at most 33 bytes: a 1-byte kind + a 32-byte id) and skip it rather
+            // than kill the connection.
+            let topics = live
+                .topics
+                .into_iter()
+                .filter_map(|bytes| {
+                    let preview = hex::encode(&bytes[..bytes.len().min(33)]);
+                    match Topic::try_from(bytes) {
+                        Ok(topic) => Some(topic),
+                        Err(e) => {
+                            tracing::warn!(
+                                topic = %preview,
+                                "skipping malformed TopicsLive topic (server/wire-format bug): {e}"
+                            );
+                            None
+                        }
+                    }
+                })
+                .collect();
+            emit(events, BidiEvent::TopicsLive { topics }).await
+        }
+        Some(Response::Messages(messages)) => {
+            if !messages.group_messages.is_empty()
+                && emit(events, BidiEvent::GroupMessages(messages.group_messages)).await
+            {
+                return true;
+            }
+            if !messages.welcome_messages.is_empty()
+                && emit(
+                    events,
+                    BidiEvent::WelcomeMessages(messages.welcome_messages),
+                )
+                .await
+            {
+                return true;
+            }
+            false
+        }
+        // Ping/Pong are handled by the caller (and during the drain we cannot pong
+        // anyway — the wire is gone); `None` is a future-revision frame. All safe
+        // to skip: delivery correctness never depends on them.
+        Some(Response::Ping(_)) | Some(Response::Pong(_)) | None => false,
+    }
+}
+
+/// Drain inbound to completion after a half-close. First make a best-effort flush
+/// of any frames the caller already had accepted (a `mutate` it got `Ok` for, an
+/// auto-pong, a probe ping queued under backpressure) so half-close doesn't
+/// silently discard them. Then dropping `wire_out` ends the outbound stream (the
+/// server sees the half-close, finishes the wave, and closes its side); dropping
+/// `commands` makes any late `mutate`/`probe` see `Closed`. We keep surfacing
+/// events until the server closes inbound (`next` -> `None`) or the consumer goes
+/// away. Outstanding probes are not answered post-finish — they drop with the
+/// actor and resolve to `Closed`.
+async fn drain_after_finish<S, E>(
+    mut inbound: S,
+    wire_out: mpsc::Sender<SubscribeRequest>,
+    mut pending: VecDeque<SubscribeRequest>,
+    commands: mpsc::Receiver<Command>,
+    events: &mpsc::Sender<BidiEvent>,
+    keepalive_ms: &Arc<AtomicU32>,
+) where
+    S: futures::Stream<Item = Result<SubscribeResponse, E>> + Unpin,
+    E: std::fmt::Display,
+{
+    // Best-effort flush of the accepted-but-unsent backlog before closing the
+    // request half. Non-blocking on purpose: `try_reserve` sends each frame only
+    // if the wire has room right now and stops otherwise. We must NOT `await` a
+    // reserve here — if the transport has stalled (wire full, server no longer
+    // reading the request stream) it would block forever, so `drop(wire_out)`
+    // would never run and the half-close would never reach the server. Frames we
+    // can't place are lost, but the consumer re-syncs from durable cursors on
+    // re-open, so a wedged actor is the strictly worse outcome.
+    while let Some(frame) = pending.pop_front() {
+        match wire_out.try_reserve() {
+            Ok(permit) => permit.send(frame),
+            Err(_) => break, // wire full or gone — close rather than block
+        }
+    }
+    drop(wire_out);
+    drop(commands);
+    while let Some(frame) = inbound.next().await {
+        let response = match frame {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("bidi stream errored during finish drain: {e}");
+                break;
+            }
+        };
+        let Some(subscribe_response::Version::V1(v1)) = response.version else {
+            tracing::warn!("bidi received unknown response version during finish drain");
+            continue;
+        };
+        if emit_response_events(events, keepalive_ms, v1.response).await {
+            break; // consumer gone
+        }
+    }
 }
 
 /// Send an event to the consumer; awaits a free slot (the backpressure that
@@ -1040,5 +1206,105 @@ mod tests {
             conn.mutate(Mutate::default()).await,
             Err(BidiError::Closed)
         ));
+    }
+
+    /// After `finish`, the request half is half-closed: `mutate`/`probe` must
+    /// report `Closed` synchronously. Without the handle-side flag they would
+    /// race the actor — `Command::Finish` is still in flight, the command receiver
+    /// is briefly alive, and a FIFO-following `mutate` would be accepted into the
+    /// buffer (returning `Ok`) only to be dropped unread when the actor drains.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn mutate_and_probe_report_closed_after_finish() {
+        let (api, mut server) = mock_pair();
+        let conn = BidiConnection::open(&api, Mutate::default()).await?;
+        server.next_request().await; // initial mutate
+
+        conn.finish().await?;
+
+        assert!(
+            matches!(conn.mutate(Mutate::default()).await, Err(BidiError::Closed)),
+            "mutate after finish must report Closed, not land in the buffer"
+        );
+        assert!(
+            matches!(conn.probe().await, Err(BidiError::Closed)),
+            "probe after finish must report Closed"
+        );
+    }
+
+    /// A `probe` in flight when `finish` half-closes must resolve to `Closed`, not
+    /// hang: the actor drops the probe-ack senders before the (possibly long)
+    /// inbound drain. Put the probe's ping on the wire, then half-close, and assert
+    /// the probe resolves `Closed` rather than waiting out its timeout.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn finish_resolves_in_flight_probe_to_closed() {
+        let (api, mut server) = mock_pair();
+        let conn = BidiConnection::open(&api, Mutate::default()).await?;
+        server.next_request().await; // initial mutate
+
+        // Once the probe's ping reaches the actor (registered, awaiting a pong that
+        // never comes), half-close. A generous bound keeps a regression — a probe
+        // that hangs through the drain — from waiting out the keepalive default.
+        let driver = async {
+            let req = server.next_request().await;
+            assert!(
+                matches!(req, subscribe_request::v1::Request::Ping(_)),
+                "probe must put a ping on the wire"
+            );
+            conn.finish().await
+        };
+        let (probe_res, finish_res) =
+            futures::join!(conn.probe_within(Duration::from_secs(5)), driver);
+        assert!(
+            matches!(probe_res, Err(BidiError::Closed)),
+            "an in-flight probe must resolve Closed when finish half-closes, got {probe_res:?}"
+        );
+        assert!(finish_res.is_ok());
+    }
+
+    /// `finish` is a half-close, not an abort: frames the caller already had
+    /// accepted under backpressure (sitting in the actor's `pending` queue, not
+    /// yet on the wire) must be flushed before the request half closes. Drive
+    /// `drain_after_finish` directly with a pre-seeded `pending` and an
+    /// already-closed inbound, so the flush is the only behaviour under test.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn finish_flushes_pending_frames_before_closing() {
+        let (wire_out, mut wire_rx) = mpsc::channel::<SubscribeRequest>(WIRE_BUFFER);
+        let (_commands_tx, commands_rx) = mpsc::channel::<Command>(COMMAND_BUFFER);
+        let (events, _events_rx) = mpsc::channel::<BidiEvent>(EVENT_BUFFER);
+        let keepalive = Arc::new(AtomicU32::new(0));
+
+        // A distinctively-tagged frame queued as if wire backpressure had parked
+        // it before the caller half-closed.
+        let marker = wire_topic(TopicKind::GroupMessagesV1, b"flushed");
+        let mut pending = VecDeque::new();
+        pending.push_back(request_frame(subscribe_request::v1::Request::Mutate(
+            Mutate {
+                removes: vec![marker.clone()],
+                ..Default::default()
+            },
+        )));
+
+        // Inbound is already closed, so the drain has nothing to read and returns
+        // as soon as the pending flush completes.
+        let inbound = futures::stream::empty::<Result<SubscribeResponse, ApiClientError>>();
+        drain_after_finish(inbound, wire_out, pending, commands_rx, &events, &keepalive).await;
+
+        // The queued frame reached the wire instead of being dropped on close.
+        let sent = wire_rx
+            .recv()
+            .await
+            .expect("the pending frame must be flushed to the wire");
+        let Some(subscribe_request::Version::V1(v1)) = sent.version else {
+            panic!("flushed frame must be a v1 request");
+        };
+        let Some(subscribe_request::v1::Request::Mutate(m)) = v1.request else {
+            panic!("flushed frame must be the queued mutate");
+        };
+        assert_eq!(m.removes, vec![marker]);
+        // Nothing else, and the wire is closed (the actor dropped its sender).
+        assert!(
+            wire_rx.recv().await.is_none(),
+            "the wire closes once the flush is done"
+        );
     }
 }

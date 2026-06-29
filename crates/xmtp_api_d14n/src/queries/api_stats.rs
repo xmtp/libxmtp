@@ -200,6 +200,31 @@ where
     }
 }
 
+xmtp_common::if_native! {
+    use xmtp_proto::api_client::XmtpMlsBidiStreams;
+
+    // `XmtpMlsBidiStreams` is native-only, so this forward is gated like the
+    // trait. It carries no per-call stat (the bidi stream is opened once and
+    // mutated in place, not counted per RPC like the unary/stream calls above);
+    // it exists so the stats wrapper is bidi-capable, letting the standard
+    // feature-switched test client open a `BidiConnection`.
+    #[xmtp_common::async_trait]
+    impl<C> XmtpMlsBidiStreams for TrackedStatsClient<C>
+    where
+        C: XmtpMlsBidiStreams,
+    {
+        type SubscribeStream = <C as XmtpMlsBidiStreams>::SubscribeStream;
+        type Error = <C as XmtpMlsBidiStreams>::Error;
+
+        async fn subscribe_bidi(
+            &self,
+            requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            self.inner.subscribe_bidi(requests).await
+        }
+    }
+}
+
 impl<C> HasStats for TrackedStatsClient<C> {
     fn aggregate_stats(&self) -> AggregateStats {
         AggregateStats {
