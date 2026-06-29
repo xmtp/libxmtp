@@ -16,43 +16,6 @@ impl ::prost::Name for DeleteMessage {
         "/xmtp.mls.message_contents.content_types.DeleteMessage".into()
     }
 }
-/// EditMessage message type
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EditMessage {
-    /// ID of the message to edit
-    #[prost(string, tag = "1")]
-    pub message_id: ::prost::alloc::string::String,
-    /// The new content for the message
-    #[prost(message, optional, tag = "2")]
-    pub edited_content: ::core::option::Option<super::EncodedContent>,
-}
-impl ::prost::Name for EditMessage {
-    const NAME: &'static str = "EditMessage";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.content_types.EditMessage".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.content_types.EditMessage".into()
-    }
-}
-/// LeaveRequest message type
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct LeaveRequest {
-    /// A serialized AuthenticatedNote containing the sender's signed, member-only verifiable statement
-    #[prost(bytes = "vec", optional, tag = "1")]
-    pub authenticated_note: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
-}
-impl ::prost::Name for LeaveRequest {
-    const NAME: &'static str = "LeaveRequest";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.content_types.LeaveRequest".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.content_types.LeaveRequest".into()
-    }
-}
 /// MultiRemoteAttachment message type
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MultiRemoteAttachment {
@@ -105,6 +68,26 @@ impl ::prost::Name for RemoteAttachmentInfo {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.message_contents.content_types.RemoteAttachmentInfo".into()
+    }
+}
+/// EditMessage message type
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EditMessage {
+    /// ID of the message to edit
+    #[prost(string, tag = "1")]
+    pub message_id: ::prost::alloc::string::String,
+    /// The new content for the message
+    #[prost(message, optional, tag = "2")]
+    pub edited_content: ::core::option::Option<super::EncodedContent>,
+}
+impl ::prost::Name for EditMessage {
+    const NAME: &'static str = "EditMessage";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.EditMessage".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.EditMessage".into()
     }
 }
 /// Reaction message type
@@ -198,6 +181,23 @@ impl ReactionSchema {
             "REACTION_SCHEMA_CUSTOM" => Some(Self::Custom),
             _ => None,
         }
+    }
+}
+/// LeaveRequest message type
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LeaveRequest {
+    /// A serialized AuthenticatedNote containing the sender's signed, member-only verifiable statement
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub authenticated_note: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+impl ::prost::Name for LeaveRequest {
+    const NAME: &'static str = "LeaveRequest";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.LeaveRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.LeaveRequest".into()
     }
 }
 /// WalletSendCalls represents parameters for sending wallet calls
