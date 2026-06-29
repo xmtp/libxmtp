@@ -3,6 +3,7 @@ use crate::{
     worker::{
         NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
         device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
+        key_package_maintenance::KeyPackageMaintenance,
     },
 };
 use prost::Message;
@@ -15,6 +16,21 @@ use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
     xmtp::mls::database::Task as TaskProto,
 };
+
+/// What `run_task` decided should happen to the task row after it ran.
+///
+/// One-shot tasks resolve to [`TaskOutcome::Done`] (the row is deleted).
+/// The recurring `KpMaintenance` singleton resolves to
+/// [`TaskOutcome::Reschedule`], carrying the fallback next-deadline so the
+/// caller can atomically re-arm the row instead of deleting it.
+#[derive(Debug)]
+enum TaskOutcome {
+    /// The task is finished; delete its row.
+    Done,
+    /// The task is recurring; re-arm its row. The `i64` is the fallback next
+    /// deadline (ns) used if a fresher in-txn deadline isn't found.
+    Reschedule(i64),
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum TaskWorkerError {
@@ -40,6 +56,8 @@ pub enum TaskWorkerError {
     MissingMetrics,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    #[error("key package maintenance error: {0}")]
+    KeyPackageMaintenance(#[from] crate::worker::key_package_cleaner::KeyPackagesCleanerError),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
@@ -58,8 +76,25 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::ReceiverLocked => false,
             TaskWorkerError::MissingMetrics => false,
             TaskWorkerError::Conversion(_) => false,
+            // Forward through KeyPackagesCleanerError's own classifier so a
+            // dropped pool surfacing during delete/rotate restarts the worker.
+            TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
         }
     }
+}
+
+/// Is this a recurring task (the `KpMaintenance` singleton)? Recurring tasks are
+/// never reaped — they are re-armed in place instead of deleted. Returns false
+/// on a decode error (treat an undecodable row as a one-shot so it can be reaped).
+fn task_is_recurring(task: &DbTask) -> bool {
+    matches!(
+        TaskProto::decode(task.data.as_slice())
+            .ok()
+            .and_then(|t| t.task),
+        Some(xmtp_proto::xmtp::mls::database::task::Task::KpMaintenance(
+            _
+        ))
+    )
 }
 
 /// Message to the TaskRunner loop.
@@ -200,9 +235,29 @@ where
         context: &Context,
     ) -> Result<(), TaskWorkerError> {
         let now = xmtp_common::time::now_ns();
+        let recurring = task_is_recurring(&task);
+
         if task.expires_at_ns < now || task.attempts >= task.max_attempts {
-            context.db().delete_task(task.id)?;
-            return Ok(());
+            if recurring {
+                // The recurring singleton is NEVER deleted. If it looks dead
+                // (expired or attempts exhausted), renew it in place via the
+                // atomic re-arm, then FALL THROUGH so it still dispatches this
+                // turn. Because the fetched `task` value we keep using below was
+                // already due/dead (next_attempt_at_ns <= now), the
+                // `task.next_attempt_at_ns > now` guard further down won't
+                // early-return, so a dead/overdue recurring task runs now.
+                let fallback = KeyPackageMaintenance::next_deadline(context)?.max(now);
+                context.db().reschedule_kp_task(
+                    task.id,
+                    fallback,
+                    fallback + xmtp_common::NS_IN_DAY,
+                )?;
+                // fall through to dispatch
+            } else {
+                // one-shot: reap it
+                context.db().delete_task(task.id)?;
+                return Ok(());
+            }
         }
         if task.next_attempt_at_ns > now {
             // This will get called again
@@ -214,11 +269,29 @@ where
             return Ok(());
         }
         match Self::run_task(&task, context).await {
-            Ok(()) => {
+            Ok(TaskOutcome::Done) => {
                 context.db().delete_task(task.id)?;
             }
+            Ok(TaskOutcome::Reschedule(fallback)) => {
+                // Atomic floor-re-read closes the nudge race: reschedule_kp_task
+                // re-reads the live KP deadline inside the same txn and writes
+                // MIN(fallback, fresh), so a rotation queued during the run is
+                // never clobbered to the far fallback deadline.
+                context.db().reschedule_kp_task(
+                    task.id,
+                    fallback,
+                    fallback + xmtp_common::NS_IN_DAY,
+                )?;
+            }
             Err(error) => {
-                let attempts = task.attempts + 1;
+                // Cap a recurring task's attempts strictly below max_attempts so
+                // the reaper (attempts >= max_attempts) can never delete the
+                // singleton. One-shot tasks keep the plain +1 so they can age out.
+                let attempts = if recurring {
+                    (task.attempts + 1).min(task.max_attempts - 1)
+                } else {
+                    task.attempts + 1
+                };
                 let attempt_scaling_factor = (task.backoff_scaling_factor as f64).powi(attempts);
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
@@ -242,7 +315,7 @@ where
         }
         Ok(())
     }
-    async fn run_task(task: &DbTask, context: &Context) -> Result<(), TaskWorkerError> {
+    async fn run_task(task: &DbTask, context: &Context) -> Result<TaskOutcome, TaskWorkerError> {
         let data_hash = xmtp_common::sha256_bytes(&task.data);
         if task.data_hash != data_hash {
             let expected = hex::encode(&data_hash);
@@ -257,7 +330,7 @@ where
             Err(e) => {
                 context.db().delete_task(task.id)?;
                 tracing::warn!("Task {} data decode error: {}", task.id, e);
-                return Ok(());
+                return Ok(TaskOutcome::Done);
             }
         };
         match task_proto.task {
@@ -276,7 +349,7 @@ where
                     tracing::warn!(
                         "SendSyncArchive task has no archive options. Unable to process."
                     );
-                    return Ok(());
+                    return Ok(TaskOutcome::Done);
                 };
                 let options: ArchiveOptions = proto_options.into();
 
@@ -312,12 +385,21 @@ where
             )) => {
                 Self::process_pending_self_remove(task, pending, context).await?;
             }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpMaintenance(_)) => {
+                KeyPackageMaintenance::delete_expired(context)?;
+                KeyPackageMaintenance::rotate_if_needed(context).await?;
+                // next_deadline is read LAST (after the work) so a rotation
+                // queued during this run is reflected; reschedule_kp_task
+                // re-reads it atomically inside the re-arm txn anyway.
+                let fallback = KeyPackageMaintenance::next_deadline(context)?;
+                return Ok(TaskOutcome::Reschedule(fallback));
+            }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
                 context.db().delete_task(task.id)?;
             }
         }
-        Ok(())
+        Ok(TaskOutcome::Done)
     }
     fn next_wakeup(
         next_attempt_at_ns: Option<i64>,
@@ -398,5 +480,138 @@ where
                 .ok();
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+mod tests {
+    use super::*;
+    use crate::tester;
+    use xmtp_db::tasks::NewTask as DbNewTask;
+    use xmtp_proto::xmtp::mls::database::{
+        ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind,
+    };
+
+    /// Seed a task row with `proto` payload that is immediately due
+    /// (`next_attempt_at_ns = now`) and pull it back out as a `DbTask`.
+    fn seed_task<C: XmtpSharedContext>(context: &C, proto: TaskProto) -> DbTask {
+        let now = xmtp_common::time::now_ns();
+        let new_task = DbNewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .next_attempt_at_ns(now)
+            .expires_at_ns(now + xmtp_common::NS_IN_DAY)
+            .build(proto)
+            .unwrap();
+        context.db().create_task(new_task).unwrap()
+    }
+
+    /// Existing arms keep their behavior: a `ProcessPendingSelfRemove` task with a
+    /// malformed group_id is a drop-case — `run_task` deletes the row and returns
+    /// `Ok(TaskOutcome::Done)`, and `run_and_reschedule_task` reaps it (no row
+    /// left, no reschedule). Only the return-type wrapping changed.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn existing_arms_return_done() {
+        tester!(alix, disable_workers);
+        let context = alix.context.clone();
+
+        // A 3-byte group_id can never convert to a GroupId -> the arm drops it.
+        let proto = TaskProto {
+            task: Some(TaskKind::ProcessPendingSelfRemove(
+                ProcessPendingSelfRemove {
+                    group_id: vec![1, 2, 3],
+                },
+            )),
+        };
+        let task = seed_task(&context, proto);
+        assert!(!task_is_recurring(&task), "self-remove is not recurring");
+
+        let outcome = TaskWorker::run_task(&task, &context).await?;
+        assert!(
+            matches!(outcome, TaskOutcome::Done),
+            "malformed self-remove resolves to Done"
+        );
+        // The drop-arm already deleted the row inside run_task.
+        assert!(
+            !context.db().get_tasks()?.iter().any(|t| t.id == task.id),
+            "malformed self-remove row was deleted by the arm"
+        );
+    }
+
+    /// Load-bearing regression guard: the recurring KpMaintenance singleton is
+    /// NEVER reaped. Forced dead (attempts >= max_attempts), it is re-armed in
+    /// place (still present, attempts reset to 0). A non-recurring task in the
+    /// same dead state IS deleted.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn recurring_task_is_never_reaped() {
+        tester!(alix, disable_workers);
+        let context = alix.context.clone();
+
+        // --- recurring: forced dead, must survive ---
+        context.db().ensure_kp_maintenance_task()?;
+        let kp = context
+            .db()
+            .get_tasks()?
+            .into_iter()
+            .find(task_is_recurring)
+            .expect("ensure_kp_maintenance_task seeded a KP row");
+        assert!(task_is_recurring(&kp));
+
+        // Force it dead: attempts == max_attempts (the reaper's kill condition).
+        let now = xmtp_common::time::now_ns();
+        let dead_kp = context.db().update_task(kp.id, kp.max_attempts, now, now)?;
+        assert!(
+            dead_kp.expires_at_ns < now || dead_kp.attempts >= dead_kp.max_attempts,
+            "KP task is in a dead state before the run"
+        );
+
+        TaskWorker::run_and_reschedule_task(dead_kp, &context).await?;
+
+        let after = context
+            .db()
+            .get_tasks()?
+            .into_iter()
+            .find(task_is_recurring)
+            .expect("recurring KP task must NOT be reaped");
+        assert_eq!(after.attempts, 0, "re-armed KP task has attempts reset");
+
+        // --- non-recurring: same dead state, IS deleted ---
+        let proto = TaskProto {
+            task: Some(TaskKind::ProcessPendingSelfRemove(
+                ProcessPendingSelfRemove {
+                    group_id: vec![9, 9, 9],
+                },
+            )),
+        };
+        let oneshot = seed_task(&context, proto);
+        let dead_oneshot = context
+            .db()
+            .update_task(oneshot.id, oneshot.max_attempts, now, now)?;
+        assert!(!task_is_recurring(&dead_oneshot));
+
+        TaskWorker::run_and_reschedule_task(dead_oneshot, &context).await?;
+        assert!(
+            !context.db().get_tasks()?.iter().any(|t| t.id == oneshot.id),
+            "dead one-shot task was reaped"
+        );
+    }
+
+    /// The KpMaintenance arm runs delete/rotate and resolves to
+    /// `Reschedule(_)` (never `Done`), so the recurring row is re-armed, not
+    /// deleted. A fresh client needs no rotation, so this stays DB-only.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn kp_maintenance_arm_reschedules() {
+        tester!(alix, disable_workers);
+        let context = alix.context.clone();
+
+        let task = seed_task(&context, xmtp_db::tasks::kp_maintenance_task_proto());
+        assert!(task_is_recurring(&task));
+
+        let outcome = TaskWorker::run_task(&task, &context).await?;
+        assert!(
+            matches!(outcome, TaskOutcome::Reschedule(_)),
+            "KpMaintenance arm resolves to Reschedule, got {outcome:?}"
+        );
     }
 }
