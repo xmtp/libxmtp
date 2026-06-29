@@ -530,21 +530,28 @@ async fn test_welcome_pointer_task_retry_resolution() {
     xmtp_common::time::sleep(std::time::Duration::from_secs(1)).await;
 
     tracing::info!("Getting tasks for bo");
-    let tasks = bo.context.db().get_tasks().unwrap();
+    // Filter to ProcessWelcomePointer tasks: every client also seeds a recurring
+    // KpMaintenance singleton (key-package maintenance on the TaskRunner), so
+    // get_tasks() returns it alongside the welcome-pointer task.
+    let expected_data = xmtp_proto::xmtp::mls::database::Task {
+        task: Some(
+            xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
+                welcome_pointer.clone(),
+            ),
+        ),
+    }
+    .encode_to_vec();
+    let tasks: Vec<_> = bo
+        .context
+        .db()
+        .get_tasks()
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.data == expected_data)
+        .collect();
     assert_eq!(tasks.len(), 1, "{tasks:#?}");
     let task = tasks.into_iter().next().unwrap();
-    assert_eq!(
-        task.data,
-        xmtp_proto::xmtp::mls::database::Task {
-            task: Some(
-                xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
-                    welcome_pointer.clone()
-                )
-            )
-        }
-        .encode_to_vec()
-    );
-    assert_eq!(task.id, 1);
+    assert_eq!(task.data, expected_data);
     assert_eq!(
         task.originating_message_sequence_id,
         welcome_from_api.sequence_id() as i64
