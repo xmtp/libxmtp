@@ -123,6 +123,18 @@ pub trait QueryTasks {
     /// seed: a live row is left untouched (dedup), a dead row is cleared+replaced.
     fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError>;
 
+    /// Re-arm the recurring KP task ATOMICALLY: in ONE transaction, re-read the live
+    /// KP deadline (MIN of identity.next_key_package_rotation_ns and
+    /// MIN(key_package_history.delete_at_ns)) and write
+    /// next_attempt_at_ns = MIN(fallback_next_ns, fresh), plus attempts = 0 and
+    /// renewed expires_at_ns. Closes the read->write lost-rotation race.
+    fn reschedule_kp_task(
+        &self,
+        id: i32,
+        fallback_next_ns: i64,
+        expires_at_ns: i64,
+    ) -> Result<Task, StorageError>;
+
     fn update_task(
         &self,
         id: i32,
@@ -157,6 +169,15 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
 
     fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError> {
         (**self).ensure_kp_maintenance_task()
+    }
+
+    fn reschedule_kp_task(
+        &self,
+        id: i32,
+        fallback_next_ns: i64,
+        expires_at_ns: i64,
+    ) -> Result<Task, StorageError> {
+        (**self).reschedule_kp_task(id, fallback_next_ns, expires_at_ns)
     }
 
     fn update_task(
@@ -282,6 +303,60 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                     .values(task)
                     .execute(conn)?;
                 Ok(())
+            })
+        })
+        .map_err(Into::into)
+    }
+
+    fn reschedule_kp_task(
+        &self,
+        id: i32,
+        fallback_next_ns: i64,
+        expires_at_ns: i64,
+    ) -> Result<Task, StorageError> {
+        let now = now_ns();
+        self.raw_query(|conn| {
+            conn.transaction(|conn| {
+                // Re-read the LIVE KP deadline INSIDE the same txn as the write.
+                // We deliberately use inline diesel against this txn's `conn`
+                // rather than the public readers (next_key_package_rotation_ns /
+                // min_key_package_delete_at_ns): those re-enter `raw_query` and
+                // grab a SECOND pooled connection, which would deadlock and read
+                // outside this transaction's isolation. Doing the read here means
+                // a rotation queued just before this txn is included in `fresh`
+                // and cannot be clobbered to the far fallback deadline.
+                use crate::schema::identity::dsl as id_dsl;
+                use crate::schema::key_package_history::dsl as kph_dsl;
+                use diesel::dsl::min;
+
+                // The identity table may have zero rows in some states; `.optional()`
+                // maps the empty-table NotFound to Ok(None) and `.flatten()` collapses
+                // a present-but-NULL column, so `rotation` is None (never an error).
+                let rotation: Option<i64> = id_dsl::identity
+                    .select(id_dsl::next_key_package_rotation_ns)
+                    .first::<Option<i64>>(conn)
+                    .optional()?
+                    .flatten();
+                let delete: Option<i64> = kph_dsl::key_package_history
+                    .filter(kph_dsl::delete_at_ns.is_not_null())
+                    .select(min(kph_dsl::delete_at_ns))
+                    .first::<Option<i64>>(conn)?;
+
+                let fresh = [rotation, delete]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .unwrap_or(fallback_next_ns);
+                let next = fallback_next_ns.min(fresh);
+
+                diesel::update(tasks::table.filter(tasks::id.eq(id)))
+                    .set((
+                        tasks::attempts.eq(0),
+                        tasks::last_attempted_at_ns.eq(now),
+                        tasks::expires_at_ns.eq(expires_at_ns),
+                        tasks::next_attempt_at_ns.eq(next),
+                    ))
+                    .get_result::<Task>(conn)
             })
         })
         .map_err(Into::into)
@@ -521,6 +596,101 @@ pub(crate) mod tests {
             assert!(
                 tasks[0].expires_at_ns > now_ns(),
                 "dead row should have been replaced by a fresh live one"
+            );
+        })
+    }
+
+    #[xmtp_common::test]
+    fn reschedule_kp_task_floors_to_in_txn_deadline() {
+        use crate::Store;
+        use crate::identity::QueryIdentity;
+        use crate::key_package_history::QueryKeyPackageHistory;
+        use crate::test_utils::with_connection;
+        use xmtp_common::time::now_ns;
+
+        with_connection(|conn| {
+            conn.ensure_kp_maintenance_task().unwrap();
+            let id = conn.get_next_task().unwrap().unwrap().id;
+            let now = now_ns();
+            let far = now + 30 * xmtp_common::NS_IN_DAY;
+
+            // (i) nothing pending -> stored next_attempt == far (advances).
+            // There is no identity row and nothing queued for deletion, so the
+            // live deadline is empty and `next` falls back to `far`. This proves
+            // the re-arm ADVANCES instead of getting stuck on a past value.
+            conn.reschedule_kp_task(id, far, far + xmtp_common::NS_IN_DAY)
+                .unwrap();
+            assert_eq!(
+                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                far
+            );
+
+            // (ii) rotation pending sooner -> stored == near rotation (MIN(far, near)).
+            // Seed the identity row exactly as `next_key_package_rotation_ns_reads_queue`
+            // does (far-future deadline), then queue a rotation so the in-txn read
+            // sees a NEAR deadline. The reschedule must floor to it.
+            let near = now + xmtp_common::NS_IN_DAY; // sooner than `far`
+            crate::identity::StoredIdentity::builder()
+                .inbox_id(String::new())
+                .installation_keys(xmtp_common::rand_vec::<24>())
+                .credential_bytes(xmtp_common::rand_vec::<24>())
+                .next_key_package_rotation_ns(Some(near))
+                .build()
+                .unwrap()
+                .store(conn)
+                .unwrap();
+            assert_eq!(
+                conn.next_key_package_rotation_ns().unwrap(),
+                Some(near),
+                "sanity: identity row seeded with near rotation deadline"
+            );
+
+            let task = conn
+                .reschedule_kp_task(id, far, far + xmtp_common::NS_IN_DAY)
+                .unwrap();
+            assert_eq!(
+                task.next_attempt_at_ns, near,
+                "reschedule must floor to the live rotation deadline read in-txn"
+            );
+            assert_ne!(
+                task.next_attempt_at_ns, far,
+                "must NOT store the far fallback when a sooner rotation is live"
+            );
+            // attempts reset + expires renewed.
+            assert_eq!(task.attempts, 0);
+            assert_eq!(task.expires_at_ns, far + xmtp_common::NS_IN_DAY);
+
+            // (iii) delete pending sooner than rotation -> stored == delete_at.
+            // Store key packages and mark them for deletion; their `delete_at_ns`
+            // is ~24h out. Re-seed the rotation deadline far in the future so the
+            // delete deadline is the soonest, and assert the reschedule floors to
+            // exactly that delete deadline.
+            conn.raw_query(|conn| {
+                use crate::schema::identity::dsl;
+                diesel::update(dsl::identity)
+                    .set(dsl::next_key_package_rotation_ns.eq(Some(far)))
+                    .execute(conn)
+            })
+            .unwrap();
+            conn.store_key_package_history_entry(xmtp_common::rand_vec::<24>(), None)
+                .unwrap();
+            conn.store_key_package_history_entry(xmtp_common::rand_vec::<24>(), None)
+                .unwrap();
+            // High id marks all existing entries; sets `delete_at_ns` ~24h out.
+            conn.mark_key_package_before_id_to_be_deleted(i32::MAX)
+                .unwrap();
+            let delete_at = conn.min_key_package_delete_at_ns().unwrap().unwrap();
+            assert!(
+                delete_at < far,
+                "sanity: delete deadline must be sooner than the far fallback/rotation"
+            );
+
+            let task = conn
+                .reschedule_kp_task(id, far, far + xmtp_common::NS_IN_DAY)
+                .unwrap();
+            assert_eq!(
+                task.next_attempt_at_ns, delete_at,
+                "reschedule must floor to the soonest live deadline (the delete deadline)"
             );
         })
     }

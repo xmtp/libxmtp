@@ -740,6 +740,8 @@ mock! {
 
         fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError>;
 
+        fn reschedule_kp_task(&self, id: i32, fallback_next_ns: i64, expires_at_ns: i64) -> Result<crate::tasks::Task, StorageError>;
+
         fn update_task(
             &self,
             id: i32,
