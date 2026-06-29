@@ -80,7 +80,7 @@ public struct MultiRemoteAttachment {
 			return RemoteAttachmentInfo(
 				url: url.absoluteString,
 				filename: encryptedEncodedContent.filename ?? "",
-				contentLength: encryptedEncodedContent.contentLength ?? 0,
+				contentLength: encryptedEncodedContent.contentLength ?? UInt32(encryptedEncodedContent.payload.count),
 				contentDigest: encryptedEncodedContent.digest,
 				nonce: encryptedEncodedContent.nonce,
 				scheme: url.scheme ?? "https",
