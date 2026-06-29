@@ -547,6 +547,8 @@ mock! {
             &self,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
 
+        fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
+
         fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
 
         fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
