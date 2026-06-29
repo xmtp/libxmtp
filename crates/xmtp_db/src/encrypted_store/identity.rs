@@ -52,6 +52,8 @@ pub trait QueryIdentity {
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError>;
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+    /// Absolute ns of the next scheduled key-package rotation, or None if not queued.
+    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
 }
 
 impl<T> QueryIdentity for &T
@@ -71,6 +73,10 @@ where
 
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         (**self).is_identity_needs_rotation()
+    }
+
+    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).next_key_package_rotation_ns()
     }
 }
 
@@ -124,13 +130,61 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
             None => true,
         })
     }
+
+    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+        use crate::schema::identity::dsl;
+
+        let v: Option<i64> = self.raw_query(|conn| {
+            dsl::identity
+                .select(dsl::next_key_package_rotation_ns)
+                .first::<Option<i64>>(conn)
+        })?;
+        Ok(v)
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::StoredIdentity;
+    use crate::identity::QueryIdentity;
     use crate::{Store, XmtpTestDb};
     use xmtp_common::rand_vec;
+
+    #[xmtp_common::test]
+    fn next_key_package_rotation_ns_reads_queue() {
+        use crate::test_utils::with_connection;
+        use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
+        use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
+
+        with_connection(|conn| {
+            // Seed the single identity row with a far-future rotation deadline,
+            // as registration does. `queue_key_package_rotation` only moves the
+            // deadline *earlier* (its filter requires the existing value be
+            // greater than the queued time), so the row must exist with a
+            // future value for the queue to fire.
+            let far_future = now_ns() + NS_IN_30_DAYS;
+            StoredIdentity::builder()
+                .inbox_id("".to_string())
+                .installation_keys(rand_vec::<24>())
+                .credential_bytes(rand_vec::<24>())
+                .next_key_package_rotation_ns(Some(far_future))
+                .build()
+                .unwrap()
+                .store(conn)
+                .unwrap();
+
+            // Reader returns the currently-scheduled deadline.
+            assert_eq!(conn.next_key_package_rotation_ns().unwrap(), Some(far_future));
+
+            // Queuing a rotation pulls the deadline earlier (~5s out).
+            conn.queue_key_package_rotation().unwrap();
+            let queued = conn.next_key_package_rotation_ns().unwrap();
+            assert!(queued.is_some());
+            let queued = queued.unwrap();
+            assert!(queued < far_future);
+            assert!(queued <= now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS);
+        })
+    }
 
     #[xmtp_common::test]
     async fn can_only_store_one_identity() {
