@@ -312,6 +312,12 @@ where
             )) => {
                 Self::process_pending_self_remove(task, pending, context).await?;
             }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpMaintenance(_)) => {
+                // Key-package maintenance is implemented in the follow-up PR; this
+                // no-op arm only keeps the match exhaustive against the new proto
+                // variant so this PR builds standalone.
+                context.db().delete_task(task.id)?;
+            }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
                 context.db().delete_task(task.id)?;
