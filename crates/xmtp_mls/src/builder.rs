@@ -9,7 +9,6 @@ use crate::{
     worker::{WorkerRunner, tasks::TaskWorker},
     worker::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
-        key_package_cleaner::KeyPackagesCleanerWorker,
     },
 };
 use futures::FutureExt;
@@ -402,12 +401,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     context.clone(),
                 );
             }
-            if enabled(WorkerKind::KeyPackageCleaner) {
-                workers
-                    .register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
-                        context.clone(),
-                    );
-            }
             if enabled(WorkerKind::DisappearingMessages) {
                 workers
                     .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
@@ -424,7 +417,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 _,
                 >(context.clone());
             }
-            if enabled(WorkerKind::TaskRunner) {
+            // The recurring KP-maintenance task runs on the TaskRunner now, so the
+            // TaskRunner must be registered if EITHER its own gate or the
+            // KeyPackageCleaner gate is on. Seeding the KP task is gated solely on
+            // KeyPackageCleaner.
+            if enabled(WorkerKind::TaskRunner) || enabled(WorkerKind::KeyPackageCleaner) {
                 workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
@@ -440,6 +437,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     tracing::warn!(
                         "pending-self-remove backfill failed (will rely on next sync): {e}"
                     );
+                }
+                // Seed the recurring KP-maintenance task only when the
+                // KeyPackageCleaner gate is on. Best-effort: if it fails here the
+                // TaskRunner re-seeds it on next start.
+                if enabled(WorkerKind::KeyPackageCleaner)
+                    && let Err(e) = context.db().ensure_kp_maintenance_task()
+                {
+                    tracing::warn!("kp-maintenance task seed failed (will rely on next start): {e}");
                 }
             }
         }
@@ -775,9 +780,12 @@ mod worker_registration_tests {
             !kinds.contains(&WorkerKind::DisappearingMessages),
             "disabled worker must not be registered, got {kinds:?}"
         );
+        // KeyPackage maintenance now runs on the TaskRunner: an enabled
+        // KeyPackageCleaner gate registers the TaskRunner (no standalone
+        // KeyPackageCleaner worker exists anymore).
         assert!(
-            kinds.contains(&WorkerKind::KeyPackageCleaner),
-            "un-disabled worker must still be registered, got {kinds:?}"
+            kinds.contains(&WorkerKind::TaskRunner),
+            "KeyPackageCleaner-enabled must register the TaskRunner, got {kinds:?}"
         );
     }
 }
