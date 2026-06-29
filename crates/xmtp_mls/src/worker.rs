@@ -1,6 +1,7 @@
 pub mod device_sync;
 pub mod disappearing_messages;
 pub mod key_package_cleaner;
+pub mod key_package_maintenance;
 pub mod metrics;
 pub mod tasks;
 
