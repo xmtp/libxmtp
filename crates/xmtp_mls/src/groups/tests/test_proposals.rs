@@ -4169,3 +4169,110 @@ async fn test_enable_proposals_no_wire_commit_on_already_migrated() {
         "third enable_proposals with different options must STILL NOT advance the epoch"
     );
 }
+
+/// `membership_capabilities` reports raw per-installation extension support
+/// plus the group context's extension types — generic facts the app filters.
+/// This exercises the *app-side* derivation of the proposal-migration answers:
+/// "already migrated?" = context has `AppDataDictionary`; "eligible / who
+/// blocks?" = each installation's extensions has it. After `enable_proposals`,
+/// the context advertises `AppDataDictionary`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_membership_capabilities() {
+    use crate::groups::{InstallationCapabilities, MlsExtensionType};
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    caro.sync_welcomes().await?;
+
+    // How an app turns the generic snapshot into the proposal question.
+    let supports_proposals = |inst: &InstallationCapabilities| {
+        inst.capabilities_known
+            && inst
+                .supported_extensions
+                .contains(&MlsExtensionType::AppDataDictionary)
+    };
+
+    let caps = alix_group.membership_capabilities().await?;
+
+    // A fresh group is not migrated: its context lacks AppDataDictionary.
+    assert!(
+        !caps
+            .context_extensions
+            .contains(&MlsExtensionType::AppDataDictionary),
+        "a fresh group's context is not migrated"
+    );
+
+    assert_eq!(caps.members.len(), 3, "alix, bo, and caro");
+
+    // Every member inbox is represented exactly once.
+    let reported: std::collections::HashSet<&str> =
+        caps.members.iter().map(|m| m.inbox_id.as_str()).collect();
+    assert_eq!(reported.len(), caps.members.len(), "no duplicate inboxes");
+    for inbox in [alix.inbox_id(), bo.inbox_id(), caro.inbox_id()] {
+        assert!(reported.contains(inbox), "capabilities cover {inbox}");
+    }
+
+    // Exactly one installation — the local one (alix's) — is flagged is_own.
+    let own_count = caps
+        .members
+        .iter()
+        .flat_map(|m| &m.installations)
+        .filter(|i| i.is_own)
+        .count();
+    assert_eq!(own_count, 1, "only the local installation is marked is_own");
+
+    // All current-code installations advertise AppDataDictionary.
+    for member in &caps.members {
+        assert!(
+            !member.installations.is_empty(),
+            "{} should have at least one installation",
+            member.inbox_id
+        );
+        for inst in &member.installations {
+            assert!(
+                inst.capabilities_known,
+                "capabilities known for {}",
+                member.inbox_id
+            );
+            assert!(!inst.installation_id.is_empty());
+            assert!(
+                supports_proposals(inst),
+                "{} advertises AppDataDictionary",
+                member.inbox_id
+            );
+        }
+    }
+
+    // App-side aggregation: nobody blocks migration.
+    let blocking: Vec<&str> = caps
+        .members
+        .iter()
+        .filter(|m| m.installations.iter().any(|i| !supports_proposals(i)))
+        .map(|m| m.inbox_id.as_str())
+        .collect();
+    assert!(
+        blocking.is_empty(),
+        "no inbox blocks migration: {blocking:?}"
+    );
+
+    // After enabling proposals, the context advertises AppDataDictionary —
+    // how an app detects the group is now migrated.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    let migrated = alix_group.membership_capabilities().await?;
+    assert!(
+        migrated
+            .context_extensions
+            .contains(&MlsExtensionType::AppDataDictionary),
+        "context advertises AppDataDictionary after enable_proposals"
+    );
+    assert_eq!(migrated.members.len(), 3);
+}

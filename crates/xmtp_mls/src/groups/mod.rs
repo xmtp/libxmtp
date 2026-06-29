@@ -344,6 +344,89 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
     }
 }
 
+/// An MLS extension type advertised by an installation's key package or
+/// present in a group's context.
+///
+/// Mirrors openmls [`ExtensionType`]; unknown/forward-compatibility variants
+/// are preserved verbatim so callers can match on what they understand and
+/// ignore the rest. This is a generic capability primitive — callers filter
+/// it to answer specific questions (e.g. "is this group migrated to the
+/// proposal flow?" = a list contains [`MlsExtensionType::AppDataDictionary`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlsExtensionType {
+    ApplicationId,
+    RatchetTree,
+    RequiredCapabilities,
+    ExternalPub,
+    ExternalSenders,
+    LastResort,
+    ImmutableMetadata,
+    AppDataDictionary,
+    /// An extension type this build does not have a named variant for.
+    Unknown(u16),
+    /// A GREASE value used to exercise extensibility.
+    Grease(u16),
+}
+
+impl From<ExtensionType> for MlsExtensionType {
+    fn from(value: ExtensionType) -> Self {
+        match value {
+            ExtensionType::ApplicationId => MlsExtensionType::ApplicationId,
+            ExtensionType::RatchetTree => MlsExtensionType::RatchetTree,
+            ExtensionType::RequiredCapabilities => MlsExtensionType::RequiredCapabilities,
+            ExtensionType::ExternalPub => MlsExtensionType::ExternalPub,
+            ExtensionType::ExternalSenders => MlsExtensionType::ExternalSenders,
+            ExtensionType::LastResort => MlsExtensionType::LastResort,
+            ExtensionType::ImmutableMetadata => MlsExtensionType::ImmutableMetadata,
+            ExtensionType::AppDataDictionary => MlsExtensionType::AppDataDictionary,
+            ExtensionType::Unknown(id) => MlsExtensionType::Unknown(id),
+            ExtensionType::Grease(id) => MlsExtensionType::Grease(id),
+        }
+    }
+}
+
+/// Capability snapshot for a single installation (device) of a member.
+#[derive(Debug, Clone)]
+pub struct InstallationCapabilities {
+    pub installation_id: Vec<u8>,
+    /// True for the local (this device's) installation.
+    pub is_own: bool,
+    /// The MLS extension types this installation advertises, taken from its
+    /// *latest published* key package. Empty when `capabilities_known` is
+    /// false.
+    pub supported_extensions: Vec<MlsExtensionType>,
+    /// Whether capabilities were determined. `false` means the key package
+    /// could not be fetched or failed verification — distinct from an
+    /// installation that advertises no extensions.
+    pub capabilities_known: bool,
+}
+
+/// Per-inbox grouping of installation capabilities. Callers map `inbox_id`
+/// back to a profile to attribute capabilities to a person.
+#[derive(Debug, Clone)]
+pub struct InboxCapabilities {
+    pub inbox_id: InboxId,
+    pub installations: Vec<InstallationCapabilities>,
+}
+
+/// A generic membership/capability snapshot for a group.
+///
+/// This intentionally reports raw facts rather than answers, so callers can
+/// filter it to whatever question they care about. For the proposal
+/// (app-data-dictionary) migration specifically: the group is already
+/// migrated when `context_extensions` contains
+/// [`MlsExtensionType::AppDataDictionary`], it is eligible to migrate when
+/// every installation's `supported_extensions` contains it, and the inboxes
+/// blocking migration are those with an installation that does not.
+#[derive(Debug, Clone)]
+pub struct GroupMembershipCapabilities {
+    /// Extension types present in the group's context.
+    pub context_extensions: Vec<MlsExtensionType>,
+    /// Per-inbox, per-installation capability breakdown — one entry per member
+    /// inbox, in no particular order.
+    pub members: Vec<InboxCapabilities>,
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
@@ -523,6 +606,180 @@ where
         }
 
         Ok(true)
+    }
+
+    /// Snapshot this group's membership capabilities: the extension types in
+    /// the group context, plus the extension types each member installation
+    /// advertises.
+    ///
+    /// This reports raw capability facts rather than answers — callers filter
+    /// it to whatever question they care about. For the proposal
+    /// (app-data-dictionary) migration specifically, a caller checks for
+    /// [`MlsExtensionType::AppDataDictionary`] in `context_extensions` (already
+    /// migrated?) and in each installation's `supported_extensions` (eligible /
+    /// who is blocking?).
+    ///
+    /// Every installation's capabilities — the local one included — come from
+    /// its *latest published* key package, not its in-group leaf node: a leaf
+    /// is frozen when the installation joins and is never updated, so it would
+    /// understate a client that upgraded afterward (the same reason
+    /// [`Self::all_members_support_proposals`] falls back to key packages). An
+    /// installation whose key package has not been published or fails
+    /// verification is reported with `capabilities_known == false` and an empty
+    /// extension list, so callers can distinguish "unknown" from "advertises
+    /// nothing". Transient failures (network, auth, db) surface as an `Err`
+    /// rather than masquerading as unknown capabilities.
+    pub async fn membership_capabilities(&self) -> Result<GroupMembershipCapabilities, GroupError> {
+        // Read the group context's extension types under lock. The member list
+        // (below) is read in a separate lock acquisition, so this is a
+        // best-effort snapshot rather than a single atomic view — fine for a
+        // debug surface.
+        let context_extensions = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                Ok::<_, GroupError>(
+                    mls_group
+                        .extensions()
+                        .iter()
+                        .map(|ext| MlsExtensionType::from(ext.extension_type()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .await?;
+
+        let members = self.members().await?;
+        let own_installation_id = self.context.installation_id();
+
+        // Capabilities for every installation come from its latest published
+        // key package. We intentionally include our own installation rather
+        // than reading its in-group leaf, which is frozen at join and would
+        // understate an upgraded local client.
+        let query_ids: Vec<Vec<u8>> = members
+            .iter()
+            .flat_map(|member| member.installation_ids.iter().cloned())
+            .collect();
+
+        let extensions_by_installation = self.installation_extensions(query_ids).await?;
+
+        let installation_capabilities = |installation_id: Vec<u8>| -> InstallationCapabilities {
+            let is_own = installation_id.as_slice() == own_installation_id.as_slice();
+            match extensions_by_installation.get(installation_id.as_slice()) {
+                Some(extensions) => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: extensions.clone(),
+                    capabilities_known: true,
+                },
+                None => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: Vec::new(),
+                    capabilities_known: false,
+                },
+            }
+        };
+
+        let member_caps: Vec<InboxCapabilities> = members
+            .into_iter()
+            .map(|member| InboxCapabilities {
+                inbox_id: member.inbox_id,
+                installations: member
+                    .installation_ids
+                    .into_iter()
+                    .map(installation_capabilities)
+                    .collect(),
+            })
+            .collect();
+
+        Ok(GroupMembershipCapabilities {
+            context_extensions,
+            members: member_caps,
+        })
+    }
+
+    /// Fetch the latest published key package for each given installation and
+    /// return the MLS extension types it advertises, keyed by installation id.
+    ///
+    /// An installation with no published key package (e.g. an old client — what
+    /// this surface exists to flag) or whose key package fails verification is
+    /// simply absent from the returned map; callers treat absence as
+    /// "capabilities unknown". Transient/infrastructure failures (network,
+    /// auth, db) are NOT swallowed — they propagate as `Err`, so a snapshot can
+    /// tell "this installation has nothing published" apart from "we couldn't
+    /// reach the server".
+    ///
+    /// A single batch round-trip is attempted first; the batch fetch fails
+    /// wholesale when *any* requested installation has no published key package,
+    /// so on that specific error we fall back to bounded per-installation
+    /// fetches that tolerate the gaps.
+    async fn installation_extensions(
+        &self,
+        query_ids: Vec<Vec<u8>>,
+    ) -> Result<HashMap<Vec<u8>, Vec<MlsExtensionType>>, GroupError> {
+        if query_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let store = crate::mls_store::MlsStore::new(self.context.clone());
+
+        // Cap the fallback fan-out: this path fires when the group holds
+        // installations without published key packages, and large groups can
+        // hold hundreds of installations.
+        const MAX_CONCURRENT_KEY_PACKAGE_FETCHES: usize = 16;
+
+        let verified = match store
+            .get_key_packages_for_installation_ids(query_ids.clone())
+            .await
+        {
+            Ok(key_packages) => key_packages,
+            Err(e) if Self::is_missing_key_package(&e) => {
+                use futures::stream::{StreamExt, TryStreamExt};
+                futures::stream::iter(query_ids.into_iter().map(|id| {
+                    let store = &store;
+                    async move {
+                        match store
+                            .get_key_packages_for_installation_ids(vec![id.clone()])
+                            .await
+                        {
+                            Ok(mut found) => Ok(found.remove(id.as_slice()).map(|kp| (id, kp))),
+                            Err(e) if Self::is_missing_key_package(&e) => Ok(None),
+                            Err(e) => Err(GroupError::from(e)),
+                        }
+                    }
+                }))
+                .buffer_unordered(MAX_CONCURRENT_KEY_PACKAGE_FETCHES)
+                .try_filter_map(|entry| async move { Ok(entry) })
+                .try_collect()
+                .await?
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(verified
+            .into_iter()
+            .filter_map(|(id, result)| {
+                let extensions = result
+                    .ok()?
+                    .inner
+                    .leaf_node()
+                    .capabilities()
+                    .extensions()
+                    .iter()
+                    .copied()
+                    .map(MlsExtensionType::from)
+                    .collect();
+                Some((id, extensions))
+            })
+            .collect())
+    }
+
+    /// True when a key-package fetch failed specifically because an installation
+    /// has no published key package — the batch API reports this as a count
+    /// mismatch. Distinct from transient/infrastructure failures, which callers
+    /// want surfaced rather than silently reported as "unknown capabilities".
+    fn is_missing_key_package(err: &crate::mls_store::MlsStoreError) -> bool {
+        matches!(
+            err,
+            crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::MismatchedKeyPackages { .. })
+        )
     }
 
     /// Check if the group has proposals enabled (proposal-by-reference flow).

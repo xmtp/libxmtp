@@ -18,6 +18,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.GroupMembershipCapabilities
 import org.xmtp.android.library.libxmtp.GroupMembershipResult
 import org.xmtp.android.library.libxmtp.GroupMembershipState
 import org.xmtp.android.library.libxmtp.Member
@@ -655,6 +656,28 @@ class Group(
             throw XMTPException("Unable to enable proposals on group", e)
         }
     }
+
+    /**
+     * Snapshot this group's membership capabilities: the group context's
+     * extension types plus, per member inbox and installation, the extension
+     * types each advertises.
+     *
+     * These are generic facts you filter to a specific question. For the
+     * proposal (app-data-dictionary) migration: the group is migrated when
+     * [GroupMembershipCapabilities.contextExtensions] contains
+     * [org.xmtp.android.library.libxmtp.MlsExtensionType.AppDataDictionary],
+     * and an inbox blocks migration when one of its installations'
+     * [org.xmtp.android.library.libxmtp.InstallationCapabilities.supportedExtensions]
+     * does not. Pair with [enableProposals].
+     */
+    suspend fun membershipCapabilities(): GroupMembershipCapabilities =
+        withContext(Dispatchers.IO) {
+            try {
+                GroupMembershipCapabilities(libXMTPGroup.membershipCapabilities())
+            } catch (e: Exception) {
+                throw XMTPException("Unable to read membership capabilities on group", e)
+            }
+        }
 
     suspend fun clearDisappearingMessageSettings() =
         withContext(Dispatchers.IO) {
