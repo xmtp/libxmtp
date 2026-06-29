@@ -17,6 +17,13 @@ pub fn kp_maintenance_task_proto() -> TaskProto {
     }
 }
 
+/// The constant `data_hash` of the singleton `KpMaintenance` task. Because the
+/// payload is constant, this hash is constant, so it can be used to target the
+/// singleton row directly without first loading it by id.
+fn kp_maintenance_data_hash() -> Vec<u8> {
+    xmtp_common::sha256_bytes(&kp_maintenance_task_proto().encode_to_vec())
+}
+
 #[derive(Queryable, Identifiable, Debug, Clone)]
 #[diesel(table_name = tasks)]
 #[diesel(primary_key(id))]
@@ -135,6 +142,10 @@ pub trait QueryTasks {
         expires_at_ns: i64,
     ) -> Result<Task, StorageError>;
 
+    /// Nudge the KP maintenance task to run at `at` — only when it is NOT mid-backoff
+    /// (attempts == 0). If no KP row exists (a prior seed failed), lazily ensure one.
+    fn bump_kp_maintenance_task(&self, at: i64) -> Result<(), StorageError>;
+
     fn update_task(
         &self,
         id: i32,
@@ -178,6 +189,10 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
         expires_at_ns: i64,
     ) -> Result<Task, StorageError> {
         (**self).reschedule_kp_task(id, fallback_next_ns, expires_at_ns)
+    }
+
+    fn bump_kp_maintenance_task(&self, at: i64) -> Result<(), StorageError> {
+        (**self).bump_kp_maintenance_task(at)
     }
 
     fn update_task(
@@ -357,6 +372,60 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                         tasks::next_attempt_at_ns.eq(next),
                     ))
                     .get_result::<Task>(conn)
+            })
+        })
+        .map_err(Into::into)
+    }
+
+    fn bump_kp_maintenance_task(&self, at: i64) -> Result<(), StorageError> {
+        let now = now_ns();
+        let data_hash = kp_maintenance_data_hash();
+        // Build the lazy-seed task up front so its StorageError-typed `?` happens
+        // here, not inside the diesel txn closure (whose error is diesel::Error).
+        let seed = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .next_attempt_at_ns(at)
+            .expires_at_ns(now + NS_IN_DAY)
+            .build(kp_maintenance_task_proto())?;
+        self.raw_query(|conn| {
+            conn.transaction(|conn| {
+                // Find the singleton KP row by its constant data_hash. Read its
+                // current (id, attempts, next_attempt_at_ns) so we can decide
+                // whether to pull the deadline in, all inside this txn so a
+                // concurrent backoff write can't slip between read and write.
+                let existing: Option<(i32, i32, i64)> = tasks::table
+                    .filter(tasks::data_hash.eq(&data_hash))
+                    .select((
+                        tasks::id,
+                        tasks::attempts,
+                        tasks::next_attempt_at_ns,
+                    ))
+                    .first::<(i32, i32, i64)>(conn)
+                    .optional()?;
+                match existing {
+                    // Live row, idle: pull next_attempt in to MIN(existing, at).
+                    // We never push it OUT, so a sooner deadline is preserved.
+                    Some((id, 0, next)) => {
+                        diesel::update(tasks::table.filter(tasks::id.eq(id)))
+                            .set(tasks::next_attempt_at_ns.eq(next.min(at)))
+                            .execute(conn)?;
+                    }
+                    // Row exists but is mid-backoff (attempts > 0): no-op, so a
+                    // flood of welcomes can't trample an upload-outage schedule.
+                    Some((_id, _attempts, _next)) => {}
+                    // Missing (a prior startup seed failed): lazily insert a fresh
+                    // singleton scheduled at `at`. Inlined here (not via
+                    // ensure_kp_maintenance_task) to avoid nesting a second
+                    // raw_query/connection inside this transaction. The fresh row
+                    // has attempts == 0, so the same idle pull-in semantics apply.
+                    None => {
+                        diesel::insert_or_ignore_into(tasks::table)
+                            .values(&seed)
+                            .execute(conn)?;
+                    }
+                }
+                Ok(())
             })
         })
         .map_err(Into::into)
@@ -691,6 +760,30 @@ pub(crate) mod tests {
             assert_eq!(
                 task.next_attempt_at_ns, delete_at,
                 "reschedule must floor to the soonest live deadline (the delete deadline)"
+            );
+        })
+    }
+
+    #[xmtp_common::test]
+    fn bump_kp_maintenance_task_pulls_in_only_when_idle_and_lazy_seeds() {
+        use crate::test_utils::with_connection;
+        use xmtp_common::time::now_ns;
+        with_connection(|conn| {
+            let at = now_ns() + 5 * xmtp_common::NS_IN_SEC;
+            // No row yet -> lazy seed creates exactly one.
+            conn.bump_kp_maintenance_task(at).unwrap();
+            assert_eq!(conn.get_tasks().unwrap().len(), 1);
+            // attempts == 0 -> pulls next_attempt in to <= at.
+            let t = conn.get_next_task().unwrap().unwrap();
+            assert!(t.next_attempt_at_ns <= at);
+            // Mid-backoff (attempts > 0, far next) -> bump is a no-op.
+            let far = now_ns() + xmtp_common::NS_IN_DAY;
+            conn.update_task(t.id, 3, now_ns(), far).unwrap();
+            conn.bump_kp_maintenance_task(now_ns() + 5 * xmtp_common::NS_IN_SEC)
+                .unwrap();
+            assert_eq!(
+                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                far
             );
         })
     }

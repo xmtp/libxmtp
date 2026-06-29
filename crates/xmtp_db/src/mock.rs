@@ -742,6 +742,8 @@ mock! {
 
         fn reschedule_kp_task(&self, id: i32, fallback_next_ns: i64, expires_at_ns: i64) -> Result<crate::tasks::Task, StorageError>;
 
+        fn bump_kp_maintenance_task(&self, at: i64) -> Result<(), StorageError>;
+
         fn update_task(
             &self,
             id: i32,
