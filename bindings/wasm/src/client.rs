@@ -364,7 +364,7 @@ pub(crate) async fn build_store(
   };
 
   if encryption_key.is_some() {
-    tracing::warn!("encryption_key is not supported in WASM and will be ignored");
+    return Err(JsError::new("encryption_key is not supported in WASM builds"));
   }
 
   let db = WasmDb::new(&storage_option).await?;
