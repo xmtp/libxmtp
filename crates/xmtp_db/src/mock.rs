@@ -738,6 +738,8 @@ mock! {
 
         fn upsert_pending_self_remove_task(&self, group_id: &GroupId, task: crate::tasks::NewTask) -> Result<(), StorageError>;
 
+        fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError>;
+
         fn update_task(
             &self,
             id: i32,

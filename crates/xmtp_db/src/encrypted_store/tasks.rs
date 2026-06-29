@@ -5,7 +5,17 @@ use diesel::prelude::*;
 use prost::Message;
 use xmtp_common::{NS_IN_DAY, NS_IN_SEC, time::now_ns};
 use xmtp_proto::types::GroupId;
-use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+use xmtp_proto::xmtp::mls::database::{KpMaintenance, Task as TaskProto, task::Task as TaskKind};
+
+/// The single constant `KpMaintenance` task payload (an empty message). Because
+/// the payload is constant and empty, its `data_hash` is constant, so the
+/// `UNIQUE(data_hash)` constraint on `tasks` makes insert-or-ignore a natural
+/// singleton seed.
+pub fn kp_maintenance_task_proto() -> TaskProto {
+    TaskProto {
+        task: Some(TaskKind::KpMaintenance(KpMaintenance {})),
+    }
+}
 
 #[derive(Queryable, Identifiable, Debug, Clone)]
 #[diesel(table_name = tasks)]
@@ -105,6 +115,14 @@ pub trait QueryTasks {
         task: NewTask,
     ) -> Result<(), StorageError>;
 
+    /// Ensure exactly one live `KpMaintenance` task exists. In one txn: delete any
+    /// DEAD KP row (`expires_at_ns < now` OR `attempts >= max_attempts`), then
+    /// insert-or-ignore a fresh one (`next_attempt_at_ns = now`,
+    /// `expires_at_ns = now + NS_IN_DAY`). The constant empty payload's constant
+    /// `data_hash` plus `UNIQUE(data_hash)` makes this a self-healing singleton
+    /// seed: a live row is left untouched (dedup), a dead row is cleared+replaced.
+    fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError>;
+
     fn update_task(
         &self,
         id: i32,
@@ -135,6 +153,10 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
         task: NewTask,
     ) -> Result<(), StorageError> {
         (**self).upsert_pending_self_remove_task(group_id, task)
+    }
+
+    fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError> {
+        (**self).ensure_kp_maintenance_task()
     }
 
     fn update_task(
@@ -209,6 +231,50 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                     );
                     let is_dead = expires_at_ns < now || attempts >= max_attempts;
                     if is_self_remove && is_dead {
+                        diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)?;
+                    }
+                }
+                diesel::insert_or_ignore_into(tasks::table)
+                    .values(task)
+                    .execute(conn)?;
+                Ok(())
+            })
+        })
+        .map_err(Into::into)
+    }
+
+    fn ensure_kp_maintenance_task(&self) -> Result<(), StorageError> {
+        let now = now_ns();
+        let task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .next_attempt_at_ns(now)
+            .expires_at_ns(now + NS_IN_DAY)
+            .build(kp_maintenance_task_proto())?;
+        self.raw_query(|conn| {
+            conn.transaction(|conn| {
+                // Clear only DEAD KpMaintenance rows (expired or attempts
+                // exhausted), then insert-or-ignore a fresh one. A LIVE row is left
+                // untouched so its TaskRunner backoff is never reset out from under
+                // the worker; the constant empty payload shares the same data_hash,
+                // so the unique constraint dedups against a live row, and clearing
+                // dead rows first frees that hash for a fresh retry to take over.
+                let rows: Vec<(i32, i32, i32, i64, Vec<u8>)> = tasks::table
+                    .select((
+                        tasks::id,
+                        tasks::attempts,
+                        tasks::max_attempts,
+                        tasks::expires_at_ns,
+                        tasks::data,
+                    ))
+                    .load(conn)?;
+                for (id, attempts, max_attempts, expires_at_ns, data) in rows {
+                    let is_kp_maintenance = matches!(
+                        TaskProto::decode(data.as_slice()).ok().and_then(|t| t.task),
+                        Some(TaskKind::KpMaintenance(_))
+                    );
+                    let is_dead = expires_at_ns < now || attempts >= max_attempts;
+                    if is_kp_maintenance && is_dead {
                         diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)?;
                     }
                 }
@@ -428,6 +494,34 @@ pub(crate) mod tests {
             // 15. Verify delete returns false for non-existent task
             let deleted_again = conn.delete_task(task1_id).unwrap();
             assert!(!deleted_again);
+        })
+    }
+
+    #[xmtp_common::test]
+    fn ensure_kp_maintenance_task_is_singleton_and_self_heals() {
+        use crate::test_utils::with_connection;
+        with_connection(|conn| {
+            conn.ensure_kp_maintenance_task().unwrap();
+            conn.ensure_kp_maintenance_task().unwrap();
+            assert_eq!(conn.get_tasks().unwrap().len(), 1); // idempotent singleton
+
+            // Self-heal: force the single live row to be DEAD by expiring it in the
+            // past, then re-ensure. The dead row must be cleared+replaced (not
+            // ignored), leaving exactly one fresh, live row.
+            conn.raw_query(|conn| {
+                diesel::update(tasks::table)
+                    .set(tasks::expires_at_ns.eq(now_ns() - 1))
+                    .execute(conn)
+            })
+            .unwrap();
+
+            conn.ensure_kp_maintenance_task().unwrap();
+            let tasks = conn.get_tasks().unwrap();
+            assert_eq!(tasks.len(), 1);
+            assert!(
+                tasks[0].expires_at_ns > now_ns(),
+                "dead row should have been replaced by a fresh live one"
+            );
         })
     }
 
