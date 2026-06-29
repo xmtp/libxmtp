@@ -124,15 +124,16 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
             return Ok(vec![]);
         }
 
-        let (inbox_ids, sequence_ids): (Vec<String>, Vec<i64>) = identifiers.into_iter().unzip();
-
-        let query = dsl::association_state
+        let mut query = dsl::association_state
             .select((dsl::inbox_id, dsl::sequence_id, dsl::state))
-            .filter(
-                dsl::inbox_id
-                    .eq_any(inbox_ids)
-                    .and(dsl::sequence_id.eq_any(sequence_ids)),
-            );
+            .into_boxed();
+
+        for (inbox_id, sequence_id) in &identifiers {
+            let predicate = dsl::inbox_id
+                .eq(inbox_id.clone())
+                .and(dsl::sequence_id.eq(*sequence_id));
+            query = query.or_filter(predicate);
+        }
 
         let association_states =
             self.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
