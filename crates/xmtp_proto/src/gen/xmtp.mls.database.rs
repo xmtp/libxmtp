@@ -783,7 +783,7 @@ impl PermissionPolicyOption {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Task {
-    #[prost(oneof = "task::Task", tags = "1, 2, 3")]
+    #[prost(oneof = "task::Task", tags = "1, 2, 3, 4")]
     pub task: ::core::option::Option<task::Task>,
 }
 /// Nested message and enum types in `Task`.
@@ -796,6 +796,8 @@ pub mod task {
         SendSyncArchive(super::SendSyncArchive),
         #[prost(message, tag = "3")]
         ProcessPendingSelfRemove(super::ProcessPendingSelfRemove),
+        #[prost(message, tag = "4")]
+        KpMaintenance(super::KpMaintenance),
     }
 }
 impl ::prost::Name for Task {
@@ -806,6 +808,22 @@ impl ::prost::Name for Task {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.database.Task".into()
+    }
+}
+/// Durable singleton TaskRunner intent: run key-package maintenance (delete
+/// expired key packages, rotate the local key package when due) and reschedule
+/// itself to the next rotation/deletion deadline. Empty payload — exactly one
+/// such task exists per installation (enforced by the tasks UNIQUE(data_hash)).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct KpMaintenance {}
+impl ::prost::Name for KpMaintenance {
+    const NAME: &'static str = "KpMaintenance";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.KpMaintenance".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.KpMaintenance".into()
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
