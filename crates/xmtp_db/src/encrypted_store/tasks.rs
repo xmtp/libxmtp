@@ -142,8 +142,13 @@ pub trait QueryTasks {
         expires_at_ns: i64,
     ) -> Result<Task, StorageError>;
 
-    /// Nudge the KP maintenance task to run at `at` — only when it is NOT mid-backoff
-    /// (attempts == 0). If no KP row exists (a prior seed failed), lazily ensure one.
+    /// Nudge the KP maintenance task to run at `at`. A live, idle row (attempts == 0)
+    /// has its `next_attempt_at_ns` pulled in to `MIN(existing, at)`. A live row that is
+    /// legitimately mid-backoff (attempts > 0 and not dead) is left alone so a flood of
+    /// nudges can't trample an upload-outage schedule. A DEAD row (`expires_at_ns < now`
+    /// OR `attempts >= max_attempts`) is not backing off — it's stuck — so it is
+    /// deleted+reseeded to unstick maintenance. If no KP row exists (a prior seed
+    /// failed), lazily ensure one.
     fn bump_kp_maintenance_task(&self, at: i64) -> Result<(), StorageError>;
 
     fn update_task(
@@ -391,25 +396,44 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         self.raw_query(|conn| {
             conn.transaction(|conn| {
                 // Find the singleton KP row by its constant data_hash. Read its
-                // current (id, attempts, next_attempt_at_ns) so we can decide
-                // whether to pull the deadline in, all inside this txn so a
-                // concurrent backoff write can't slip between read and write.
-                let existing: Option<(i32, i32, i64)> = tasks::table
+                // current (id, attempts, next_attempt_at_ns, expires_at_ns,
+                // max_attempts) so we can decide whether to pull the deadline in,
+                // leave a legitimate backoff alone, or unstick a dead row — all
+                // inside this txn so a concurrent backoff write can't slip between
+                // read and write.
+                let existing: Option<(i32, i32, i64, i64, i32)> = tasks::table
                     .filter(tasks::data_hash.eq(&data_hash))
-                    .select((tasks::id, tasks::attempts, tasks::next_attempt_at_ns))
-                    .first::<(i32, i32, i64)>(conn)
+                    .select((
+                        tasks::id,
+                        tasks::attempts,
+                        tasks::next_attempt_at_ns,
+                        tasks::expires_at_ns,
+                        tasks::max_attempts,
+                    ))
+                    .first::<(i32, i32, i64, i64, i32)>(conn)
                     .optional()?;
                 match existing {
                     // Live row, idle: pull next_attempt in to MIN(existing, at).
                     // We never push it OUT, so a sooner deadline is preserved.
-                    Some((id, 0, next)) => {
+                    Some((id, 0, next, _expires, _max)) => {
                         diesel::update(tasks::table.filter(tasks::id.eq(id)))
                             .set(tasks::next_attempt_at_ns.eq(next.min(at)))
                             .execute(conn)?;
                     }
-                    // Row exists but is mid-backoff (attempts > 0): no-op, so a
+                    // DEAD row (expired or attempts-exhausted): NOT legitimately
+                    // backing off — it's stuck. Delete and re-seed (same as the
+                    // None arm) so a nudge can unstick maintenance.
+                    Some((id, attempts, _next, expires, max))
+                        if expires < now || attempts >= max =>
+                    {
+                        diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)?;
+                        diesel::insert_or_ignore_into(tasks::table)
+                            .values(&seed)
+                            .execute(conn)?;
+                    }
+                    // Alive but mid-backoff (attempts > 0 and not dead): no-op, so a
                     // flood of welcomes can't trample an upload-outage schedule.
-                    Some((_id, _attempts, _next)) => {}
+                    Some(_) => {}
                     // Missing (a prior startup seed failed): lazily insert a fresh
                     // singleton scheduled at `at`. Inlined here (not via
                     // ensure_kp_maintenance_task) to avoid nesting a second
@@ -772,14 +796,58 @@ pub(crate) mod tests {
             // attempts == 0 -> pulls next_attempt in to <= at.
             let t = conn.get_next_task().unwrap().unwrap();
             assert!(t.next_attempt_at_ns <= at);
-            // Mid-backoff (attempts > 0, far next) -> bump is a no-op.
+
+            // Mid-backoff (attempts > 0, far next) but ALIVE (future expiry) ->
+            // bump is a no-op so a flood of nudges can't trample the backoff.
             let far = now_ns() + xmtp_common::NS_IN_DAY;
             conn.update_task(t.id, 3, now_ns(), far).unwrap();
+            // Belt-and-suspenders: ensure the row's expiry is in the FUTURE so the
+            // dead-row reseed branch does NOT fire here (otherwise the no-op below
+            // would not hold).
+            conn.raw_query(|conn| {
+                diesel::update(tasks::table.filter(tasks::id.eq(t.id)))
+                    .set(tasks::expires_at_ns.eq(now_ns() + xmtp_common::NS_IN_DAY))
+                    .execute(conn)
+            })
+            .unwrap();
             conn.bump_kp_maintenance_task(now_ns() + 5 * xmtp_common::NS_IN_SEC)
                 .unwrap();
             assert_eq!(
                 conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
                 far
+            );
+            assert_eq!(conn.get_tasks().unwrap().len(), 1);
+
+            // DEAD row that is also mid-backoff (attempts > 0 AND expires_at_ns in
+            // the past) is NOT legitimately backing off — it's stuck. A nudge must
+            // delete+reseed it (attempts reset to 0, next_attempt == at), leaving
+            // exactly one row.
+            conn.raw_query(|conn| {
+                diesel::update(tasks::table.filter(tasks::id.eq(t.id)))
+                    .set((
+                        tasks::attempts.eq(5),
+                        tasks::expires_at_ns.eq(now_ns() - 1),
+                        tasks::next_attempt_at_ns.eq(now_ns() + xmtp_common::NS_IN_DAY),
+                    ))
+                    .execute(conn)
+            })
+            .unwrap();
+            let bump_at = now_ns() + 5 * xmtp_common::NS_IN_SEC;
+            conn.bump_kp_maintenance_task(bump_at).unwrap();
+            let tasks = conn.get_tasks().unwrap();
+            assert_eq!(
+                tasks.len(),
+                1,
+                "dead row should be reseeded, not duplicated"
+            );
+            assert_eq!(tasks[0].attempts, 0, "reseeded row resets attempts");
+            assert_eq!(
+                tasks[0].next_attempt_at_ns, bump_at,
+                "reseeded row is scheduled at the nudge time"
+            );
+            assert!(
+                tasks[0].expires_at_ns > now_ns(),
+                "reseeded row has a fresh future expiry"
             );
         })
     }
