@@ -1,0 +1,5 @@
+error: expected `true`, `false`, `inherit`, `when = <expr>`, or `default = <bool>`
+ --> tests/ui/retryable/unknown_key.rs:5:13
+  |
+5 |     #[retry(sometimes)]
+  |             ^^^^^^^^^

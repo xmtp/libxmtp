@@ -1,0 +1,5 @@
+error: conflicting `#[retry(...)]` keys: use exactly one of `true`, `false`, `inherit`, or `when`
+ --> tests/ui/retryable/conflicting_keys.rs:5:5
+  |
+5 |     #[retry(true, false)]
+  |     ^

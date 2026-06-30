@@ -7,6 +7,7 @@ mod error_code;
 mod log_macros;
 mod logging;
 mod parse_logs_macro;
+mod retryable;
 mod span_macro;
 mod test_macro;
 mod timeout_macro;
@@ -199,6 +200,83 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro_derive(ErrorCode, attributes(error_code))]
 pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     error_code::derive_error_code(input)
+}
+
+/// Derive macro for the `xmtp_common::RetryableError` trait.
+///
+/// Generates an `is_retryable(&self) -> bool` implementation. By default every
+/// variant is **not** retryable; annotate the ones that are. `#[from]` carries
+/// **no** retry semantics — forwarding to a wrapped error is always explicit
+/// via `#[retry(inherit)]`. (A workspace census found ~3× more `#[from]`
+/// variants needing a hardcoded value than forwarding ones, so auto-forwarding
+/// produced noise, not savings.)
+///
+/// # Example
+///
+/// ```ignore
+/// use thiserror::Error;
+/// use xmtp_common::Retryable;
+///
+/// #[derive(Debug, Error, Retryable)]
+/// pub enum MyError {
+///     // not retryable (the default) — including #[from] wrappers
+///     #[error("bad input")]
+///     BadInput,
+///     #[error(transparent)]
+///     Decode(#[from] prost::DecodeError),
+///
+///     // always retryable
+///     #[error("server busy")]
+///     #[retry]
+///     ServerBusy,
+///
+///     // forwards to StorageError::is_retryable() — explicit
+///     #[error(transparent)]
+///     #[retry(inherit)]
+///     Storage(#[from] StorageError),
+///
+///     // finer-grained: inspect the payload
+///     #[error("generic: {0}")]
+///     #[retry(when = this.contains("database is locked"))]
+///     Generic(String),
+/// }
+/// ```
+///
+/// # Attributes
+///
+/// Container attribute (on the enum/struct):
+///
+/// - `#[retry(default = true)]` / `#[retry(default = false)]` — set the baseline
+///   retryability for any variant with no rule of its own. Omitted ⇒ `false`.
+///   On an *enum* container, `default` is the only valid key (anything else is a
+///   compile error). A struct container additionally accepts exactly one of
+///   `true`/`false`/`when`.
+///
+/// Generic types are supported — the impl carries the type's declared generics
+/// and where-clause. Forwarding a generic field requires bounding it yourself
+/// (e.g. `T: RetryableError`).
+///
+/// Variant attributes (first match wins, top to bottom):
+///
+/// - `#[retry(when = EXPR)]` — run an arbitrary `bool` expression with the
+///   variant's fields in scope. A single tuple field binds to `this`; named
+///   fields bind to their own names; multi-field tuples bind to `this0`, `this1`,
+///   …  Only fields the expression references are bound (the rest pattern as
+///   `..`/`_`), so unused fields never trip `-D warnings`. Bindings are
+///   **shared references** (`&Field`), so `Copy`/numeric comparisons need an
+///   explicit deref (e.g. `*latency > 500`). `EXPR` must be total — a
+///   `panic!`/`unwrap` here would crash the retry path.
+/// - `#[retry(false)]` — never retryable (e.g. an exception under `default = true`).
+/// - `#[retry(true)]` or bare `#[retry]` — always retryable.
+/// - `#[retry(inherit)]` — forward to the single inner field's `is_retryable()`.
+///   The only way a variant forwards; `#[from]` alone does nothing.
+/// - Anything else — falls back to the container `default` baseline.
+///
+/// On a struct, `#[derive(Retryable)]` returns the container baseline (or a
+/// `#[retry(when = EXPR)]` expression evaluated against `self`).
+#[proc_macro_derive(Retryable, attributes(retry))]
+pub fn derive_retryable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    retryable::derive_retryable(input)
 }
 
 /// Attribute macro that wraps an async test body with a WASM-compatible timeout.
