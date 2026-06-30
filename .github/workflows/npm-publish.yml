@@ -98,13 +98,21 @@ jobs:
 
       - name: Determine NPM tag
         id: npm-tag
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if [[ "${{ inputs.version }}" == *"nightly"* ]]; then
-            echo "tag=nightly" >> $GITHUB_OUTPUT
-          elif [[ "${{ inputs.version }}" == *"dev"* || "${{ inputs.version }}" == *"rc"* ]]; then
-            echo "tag=prerelease" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          # Each prerelease channel gets its own dist-tag so consumers can pin
+          # @nightly / @dev / @rc independently. Check nightly first (a nightly
+          # string contains neither "dev" nor "rc"). A plain release -> latest.
+          if [[ "$VERSION" == *"nightly"* ]]; then
+            echo "tag=nightly" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-dev"* ]]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-rc"* ]]; then
+            echo "tag=rc" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Update npm to latest
