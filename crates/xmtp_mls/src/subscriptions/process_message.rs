@@ -94,6 +94,64 @@ where
     }
 }
 
+/// Outcome of running a single raw group message through the processing pipeline,
+/// independent of any stream/poll machinery.
+///
+/// Dedup (skipping already-seen cursors) and cursor bookkeeping are intentionally
+/// **not** handled here — they are the caller's responsibility, because different
+/// consumers track them differently. The live [`super::stream_messages`] stream uses
+/// a per-stream `GroupList`; the XIP-83 bidi multiplexing manager keeps central
+/// per-topic high-water marks plus per-subscriber in-flight cursors. This seam is
+/// only the decode half (DB fast-path, then decrypt/store + recovery-sync), so both
+/// consumers decode identically.
+#[derive(Debug)]
+pub struct Processed {
+    /// The decrypted message to deliver, if this envelope produced one. `None` means
+    /// the envelope was processed but surfaced nothing (e.g. a commit); the caller
+    /// should still advance its cursor to `next_cursor`.
+    pub message: Option<StoredGroupMessage>,
+    /// The group this envelope belongs to.
+    pub group_id: Vec<u8>,
+    /// The cursor the caller should advance this group to after handling the result.
+    pub next_cursor: Cursor,
+    /// The cursor of the envelope we attempted to process (for tracking/logging).
+    pub tried: Cursor,
+}
+
+/// Run a single raw group message through the shared processing pipeline.
+///
+/// 1. **Fast path:** if the message is already stored locally (e.g. a replayed
+///    envelope after a cursor'd re-add — see XIP-83 client integration), return it
+///    without decrypting.
+/// 2. Otherwise run the full decrypt/store pipeline (which may trigger a recovery
+///    sync for out-of-order / commit-dependent messages) and surface whatever it
+///    produced.
+///
+/// The caller owns dedup and cursor advancement (see [`Processed`]). This mirrors the
+/// orchestration in [`super::stream_messages`]'s `on_waiting`/`resolve_futures`, lifted
+/// out of the poll state-machine so the bidi manager can reuse it from an async task.
+pub async fn process_one<'a>(
+    factory: &impl ProcessFutureFactory<'a>,
+    msg: xmtp_proto::types::GroupMessage,
+) -> Result<Processed> {
+    // Fast path: already stored locally — no decrypt, advance to the message's cursor.
+    if let Some(stored) = factory.retrieve(&msg)? {
+        return Ok(Processed {
+            message: Some(stored),
+            group_id: msg.group_id.to_vec(),
+            next_cursor: msg.cursor,
+            tried: msg.cursor,
+        });
+    }
+    let processed = factory.create(msg).await?;
+    Ok(Processed {
+        message: processed.message,
+        group_id: processed.group_id,
+        next_cursor: processed.next_message,
+        tried: processed.tried_to_process,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::groups::mls_sync::GroupMessageProcessingError;
@@ -293,5 +351,90 @@ mod tests {
         if message.is_some() {
             assert!(processed.unwrap().message.is_some())
         }
+    }
+
+    // A minimal in-test [`ProcessFutureFactory`] so we can drive `process_one` without
+    // a real client: `retrieve` returns a canned DB hit/miss, `create` returns a canned
+    // `ProcessedMessage` (and asserts it is only reached on a fast-path miss).
+    struct StubFactory {
+        retrieve: Option<StoredGroupMessage>,
+        create_message: Option<StoredGroupMessage>,
+        create_group: Vec<u8>,
+        create_next: Cursor,
+        create_tried: Cursor,
+        allow_create: bool,
+    }
+
+    impl<'a> ProcessFutureFactory<'a> for StubFactory {
+        fn create(
+            &self,
+            _msg: xmtp_proto::types::GroupMessage,
+        ) -> xmtp_common::BoxDynFuture<'a, Result<ProcessedMessage>> {
+            assert!(
+                self.allow_create,
+                "process_one called create() on a DB fast-path hit"
+            );
+            let processed = ProcessedMessage {
+                message: self.create_message.clone(),
+                group_id: self.create_group.clone(),
+                next_message: self.create_next,
+                tried_to_process: self.create_tried,
+            };
+            Box::pin(async move { Ok(processed) })
+        }
+
+        fn retrieve(
+            &self,
+            _msg: &xmtp_proto::types::GroupMessage,
+        ) -> Result<Option<StoredGroupMessage>> {
+            Ok(self.retrieve.clone())
+        }
+    }
+
+    /// A locally-stored message is returned without decrypting, and `create()` is
+    /// never reached. The cursor advances to the message's own cursor.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn process_one_uses_db_fast_path_without_decrypting() {
+        use xmtp_common::Generate as _;
+        let gid = GroupId::generate();
+        let msg = generate_message(55, &gid);
+        let oid = msg.originator_id();
+        let factory = StubFactory {
+            retrieve: Some(generate_stored_msg(Cursor::new(55, oid), gid.clone())),
+            create_message: None,
+            create_group: gid.to_vec(),
+            create_next: Cursor::new(0, oid),
+            create_tried: Cursor::new(0, oid),
+            allow_create: false,
+        };
+        let processed = process_one(&factory, msg.clone()).await?;
+        assert!(processed.message.is_some());
+        assert_eq!(processed.next_cursor, msg.cursor);
+        assert_eq!(processed.tried, msg.cursor);
+        assert_eq!(processed.group_id, gid.to_vec());
+    }
+
+    /// On a fast-path miss, `process_one` runs the full pipeline and surfaces the
+    /// processed message and its post-processing cursor.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn process_one_runs_pipeline_on_fast_path_miss() {
+        use xmtp_common::Generate as _;
+        let gid = GroupId::generate();
+        let msg = generate_message(10, &gid);
+        let oid = msg.originator_id();
+        let next = Cursor::new(11, oid);
+        let factory = StubFactory {
+            retrieve: None,
+            create_message: Some(generate_stored_msg(next, gid.clone())),
+            create_group: gid.to_vec(),
+            create_next: next,
+            create_tried: msg.cursor,
+            allow_create: true,
+        };
+        let processed = process_one(&factory, msg.clone()).await?;
+        assert!(processed.message.is_some());
+        assert_eq!(processed.next_cursor, next);
+        assert_eq!(processed.tried, msg.cursor);
+        assert_eq!(processed.group_id, gid.to_vec());
     }
 }
