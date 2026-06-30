@@ -258,7 +258,9 @@ where
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: delivered_cursor,
-                group_id: new_msg.group_id.to_vec(),
+                // `lookup_stored_from_sync` only returns same-group rows, so
+                // the wire message's typed id is the stored message's group.
+                group_id: msg.group_id,
                 tried_to_process: msg.cursor,
             })
         } else {
@@ -266,7 +268,7 @@ where
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,
-                group_id: msg.group_id.to_vec(),
+                group_id: msg.group_id,
                 tried_to_process: msg.cursor,
             })
         }

@@ -423,11 +423,19 @@ where
 /// result. The decode half of the conversation stream, lifted out of the poll machinery
 /// so the XIP-83 bidi multiplexing manager can reuse it from an async task.
 ///
-/// The caller owns dedup: pass the current known-welcome set in, and record
-/// [`WelcomeOutcome::seen`] back into it after handling the outcome.
+/// `known_welcome_ids` is borrowed from the caller's authoritative dedup set and
+/// snapshotted for the pipeline (an already-seen cursor short-circuits into an
+/// ignore outcome). The borrow makes the safe pattern the default: a caller
+/// processing welcomes sequentially — check, call, record
+/// [`WelcomeOutcome::seen`] — gets correct dedup by construction, because the
+/// set cannot be mutated while a call borrows it. A caller that wants
+/// concurrent calls must clone the set explicitly, and then owns the
+/// consequence: two in-flight calls for the same cursor will each see it as
+/// unseen and both surface the conversation. Serialize same-cursor decisions
+/// (the XIP-83 router routes from a single task for exactly this reason).
 pub async fn process_welcome_one<Context>(
     context: Context,
-    known_welcome_ids: HashSet<Cursor>,
+    known_welcome_ids: &HashSet<Cursor>,
     welcome: WelcomeMessage,
     conversation_type: Option<ConversationType>,
     include_duplicate_dms: bool,
@@ -437,7 +445,7 @@ where
     Context: XmtpSharedContext,
 {
     let result = ProcessWelcomeFuture::new(
-        known_welcome_ids,
+        known_welcome_ids.clone(),
         context,
         WelcomeOrGroup::Welcome(welcome),
         conversation_type,
