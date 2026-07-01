@@ -87,8 +87,26 @@ impl NewTaskBuilder {
 
 // impl_store_or_ignore!(Task, tasks);
 
+/// A task row's identity: sha256 of the prost-encoded payload, exactly as
+/// `NewTaskBuilder::build` computes it.
+pub fn data_hash_for(task: &TaskProto) -> Vec<u8> {
+    xmtp_common::sha256_bytes(&task.encode_to_vec())
+}
+
 pub trait QueryTasks {
     fn create_task(&self, task: NewTask) -> Result<Task, StorageError>;
+
+    /// Idempotent enqueue: a payload-identical duplicate is a no-op (the existing
+    /// row wins; OR IGNORE swallows any constraint hit, not just data_hash UNIQUE).
+    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError>;
+
+    /// Lower a task's `next_attempt_at_ns` to `MIN(current, at_ns)` — never raises;
+    /// missing target is a no-op. TaskWorker dispatch thread only (sole rescheduler).
+    fn pull_in_task_deadline(
+        &self,
+        target_data_hash: &[u8],
+        at_ns: i64,
+    ) -> Result<(), StorageError>;
 
     fn get_tasks(&self) -> Result<Vec<Task>, StorageError>;
 
@@ -119,6 +137,18 @@ pub trait QueryTasks {
 impl<T: QueryTasks> QueryTasks for &'_ T {
     fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
         (**self).create_task(task)
+    }
+
+    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
+        (**self).create_or_ignore_task(task)
+    }
+
+    fn pull_in_task_deadline(
+        &self,
+        target_data_hash: &[u8],
+        at_ns: i64,
+    ) -> Result<(), StorageError> {
+        (**self).pull_in_task_deadline(target_data_hash, at_ns)
     }
 
     fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
@@ -160,6 +190,35 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                 .get_result::<Task>(conn)
         })
         .map_err(Into::into)
+    }
+
+    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
+        // A single INSERT OR IGNORE is atomic; no explicit transaction needed.
+        self.raw_query(|conn| {
+            diesel::insert_or_ignore_into(tasks::table)
+                .values(task)
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
+    fn pull_in_task_deadline(
+        &self,
+        target_data_hash: &[u8],
+        at_ns: i64,
+    ) -> Result<(), StorageError> {
+        use diesel::dsl::sql;
+        use diesel::sql_types::BigInt;
+        self.raw_query(|conn| {
+            diesel::update(tasks::table.filter(tasks::data_hash.eq(target_data_hash)))
+                .set(
+                    tasks::next_attempt_at_ns.eq(sql::<BigInt>("MIN(next_attempt_at_ns, ")
+                        .bind::<BigInt, _>(at_ns)
+                        .sql(")")),
+                )
+                .execute(conn)
+        })?;
+        Ok(())
     }
 
     fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
@@ -428,6 +487,73 @@ pub(crate) mod tests {
             // 15. Verify delete returns false for non-existent task
             let deleted_again = conn.delete_task(task1_id).unwrap();
             assert!(!deleted_again);
+        })
+    }
+
+    #[xmtp_common::test]
+    fn data_hash_for_matches_builder() {
+        let proto = gen_task_data();
+        let task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .build(proto.clone())
+            .unwrap();
+        assert_eq!(task.data_hash, data_hash_for(&proto));
+    }
+
+    #[xmtp_common::test]
+    fn create_or_ignore_task_is_idempotent() {
+        with_connection(|conn| {
+            let proto = gen_task_data();
+            let mk = || {
+                NewTask::builder()
+                    .originating_message_sequence_id(0)
+                    .originating_message_originator_id(0)
+                    .build(proto.clone())
+                    .unwrap()
+            };
+            conn.create_or_ignore_task(mk()).unwrap();
+            // Second byte-identical insert must be a silent no-op, NOT a
+            // unique-constraint error (plain create_task would error here).
+            conn.create_or_ignore_task(mk()).unwrap();
+            assert_eq!(conn.get_tasks().unwrap().len(), 1);
+        })
+    }
+
+    #[xmtp_common::test]
+    fn pull_in_lowers_deadline() {
+        with_connection(|conn| {
+            let proto = gen_task_data();
+            let now = now_ns();
+            let task = NewTask::builder()
+                .originating_message_sequence_id(0)
+                .originating_message_originator_id(0)
+                .next_attempt_at_ns(now + NS_IN_DAY)
+                .build(proto.clone())
+                .unwrap();
+            conn.create_or_ignore_task(task).unwrap();
+            let hash = data_hash_for(&proto);
+
+            // Lowers a far-out deadline.
+            conn.pull_in_task_deadline(&hash, now + 5).unwrap();
+            assert_eq!(
+                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                now + 5
+            );
+
+            // Never raises (MIN): a later ceiling is a no-op.
+            conn.pull_in_task_deadline(&hash, now + NS_IN_DAY).unwrap();
+            assert_eq!(
+                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                now + 5
+            );
+
+            // Missing target: silent no-op, no error.
+            conn.pull_in_task_deadline(b"no-such-hash", now).unwrap();
+            assert_eq!(
+                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                now + 5
+            );
         })
     }
 
