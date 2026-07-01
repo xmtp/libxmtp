@@ -22,9 +22,10 @@ use xmtp_proto::{
 pub(crate) enum TaskOutcome {
     Done,
     // Constructed only by the cfg(test) hook until the first real recurring
-    // task variant lands; without the allow, the non-test lib build flags
-    // dead_code and `just lint` (-Dwarnings) fails.
-    #[allow(dead_code)]
+    // task variant lands. cfg_attr(expect) self-cleans: when non-test code
+    // first constructs RescheduleAt, the unfulfilled expectation becomes a
+    // compiler warning that forces removal of this attribute.
+    #[cfg_attr(not(test), expect(dead_code))]
     RescheduleAt(i64),
 }
 
@@ -32,7 +33,7 @@ pub(crate) enum TaskOutcome {
 pub(crate) mod test_hooks {
     use std::sync::Mutex;
     /// `(target_data_hash, deadline)` → `run_task` returns `RescheduleAt(deadline)`
-    /// for the matching task. Reset to `None` at test end (shared wasm process).
+    /// for the matching task. Reset at test end; assumes process-per-test isolation.
     pub(crate) static RESCHEDULE_OVERRIDE: Mutex<Option<(Vec<u8>, i64)>> = Mutex::new(None);
 }
 
@@ -124,6 +125,39 @@ impl TaskWorkerChannels {
             .send(TaskMessage::Wake)
             .expect("Task receiver is owned by same struct");
     }
+}
+
+/// Durably enqueue a `PullInDeadline` for `target_data_hash`, then wake the loop.
+/// Row is committed before the wake; duplicates coalesce on data_hash. Lifetime is
+/// bounded by `expires_at_ns` alone (pass `i64::MAX` for delivery-critical nudges).
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "KP-consumer plan adds production callers")
+)]
+pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
+    context: &Context,
+    target_data_hash: Vec<u8>,
+    not_later_than_ns: i64,
+    expires_at_ns: i64,
+) -> Result<(), xmtp_db::StorageError> {
+    let now = xmtp_common::time::now_ns();
+    let task = xmtp_db::tasks::NewTask::builder()
+        .originating_message_sequence_id(0)
+        .originating_message_originator_id(0)
+        .next_attempt_at_ns(now) // the pull-in itself is due immediately
+        .expires_at_ns(expires_at_ns)
+        .max_attempts(i32::MAX) // lifetime bounded by expires_at_ns, not retries
+        .build(xmtp_proto::xmtp::mls::database::Task {
+            task: Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(
+                xmtp_proto::xmtp::mls::database::PullInDeadline {
+                    target_data_hash,
+                    not_later_than_ns,
+                },
+            )),
+        })?;
+    context.db().create_or_ignore_task(task)?;
+    context.task_channels().wake();
+    Ok(())
 }
 
 pub struct Factory<Context> {
@@ -350,8 +384,10 @@ where
                 Self::process_pending_self_remove(task, pending, context).await?;
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(p)) => {
-                // Runs on the worker thread — the sole writer of task scheduling
-                // state — so no transaction is needed (see the recurrence design).
+                // Runs on the worker thread — the sole rescheduler of existing
+                // rows' deadlines — so no transaction is needed (inserts happen
+                // off-thread; the precise invariant is over `next_attempt_at_ns`
+                // mutation; see the recurrence design).
                 context
                     .db()
                     .pull_in_task_deadline(&p.target_data_hash, p.not_later_than_ns)?;
@@ -545,10 +581,12 @@ mod tests {
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
+        let after = db.get_tasks()?;
+        assert_eq!(after.len(), 1, "never-expire seed must not be reaped");
         assert_eq!(
-            db.get_tasks()?.len(),
-            1,
-            "never-expire seed must not be reaped"
+            after[0].next_attempt_at_ns,
+            now + xmtp_common::NS_IN_DAY,
+            "seed must have been rescheduled to the target deadline"
         );
     }
 
@@ -570,6 +608,83 @@ mod tests {
         assert_eq!(
             after.next_attempt_at_ns, far,
             "not-yet-due task must not run on a 1-day-cap wake"
+        );
+        assert_eq!(
+            after.attempts, 0,
+            "not-yet-due task must not have its attempts incremented"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn pull_in_arm_lowers_existing_target() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        // Far-future recurring target.
+        let target_proto = unique_proto();
+        let target_hash = data_hash_for(&target_proto);
+        let far = now + 30 * xmtp_common::NS_IN_DAY;
+        seed(&db, target_proto, far, i64::MAX, 0, i32::MAX);
+        // Due pull-in aimed at it.
+        enqueue_pull_in(&alix.context, target_hash.clone(), now + 1_000, i64::MAX)?;
+        let pull_in_row = db
+            .get_tasks()?
+            .into_iter()
+            .find(|t| t.data_hash != target_hash)
+            .expect("pull-in row exists");
+
+        TaskWorker::run_and_reschedule_task(pull_in_row, &alix.context).await?;
+
+        let rows = db.get_tasks()?;
+        let target = rows
+            .iter()
+            .find(|t| t.data_hash == target_hash)
+            .expect("target survives");
+        assert_eq!(
+            target.next_attempt_at_ns,
+            now + 1_000,
+            "arm must lower the target to the ceiling"
+        );
+        assert_eq!(rows.len(), 1, "applied pull-in must self-delete");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn pull_in_task_runs_and_pulls_in() {
+        tester!(alix); // live TaskRunner
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        // Ceiling 1 day out: the exact-equality assert below proves lowering
+        // regardless of magnitude, and a generous ceiling means the target can't
+        // become due (and get dispatched/deleted) even on a pathologically slow
+        // CI runner — only constraints are "> test wall time" and "!= far".
+        let ceiling = now + xmtp_common::NS_IN_DAY;
+        let far = now + 30 * xmtp_common::NS_IN_DAY;
+        seed(&db, proto.clone(), far, i64::MAX, 0, i32::MAX);
+        let hash = data_hash_for(&proto);
+
+        enqueue_pull_in(&alix.context, hash.clone(), ceiling, i64::MAX)?;
+
+        // Poll up to ~10s (wasm-safe): the worker dispatches the due pull-in,
+        // which lowers the target and self-deletes.
+        let mut pulled = false;
+        for _ in 0..50u32 {
+            xmtp_common::time::sleep(std::time::Duration::from_millis(200)).await;
+            let rows = db.get_tasks()?;
+            let target_ok = rows
+                .iter()
+                .any(|t| t.data_hash == hash && t.next_attempt_at_ns == ceiling);
+            let pull_in_gone = !rows.iter().any(|t| {
+                t.data_hash != hash && t.next_attempt_at_ns <= xmtp_common::time::now_ns()
+            });
+            if target_ok && pull_in_gone {
+                pulled = true;
+                break;
+            }
+        }
+        assert!(
+            pulled,
+            "worker must apply the pull-in and lower the target deadline"
         );
     }
 }
