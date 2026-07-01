@@ -31,6 +31,17 @@ impl<C> TrackedStatsClient<C> {
             identity_stats: Default::default(),
         }
     }
+
+    /// The wrapped client — a test-stage escape hatch so the bidi integration
+    /// tests can reach the concrete `D14nClient` and open a `Connection`.
+    /// Test-gated on purpose: it bypasses everything this wrapper tracks, and it
+    /// cannot serve production anyway — the production stack holds a type-erased
+    /// `Arc<dyn FullXmtpApiT>`, which has no bidi surface. The client-integration
+    /// phase adds the real production route instead of widening this hole.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn inner(&self) -> &C {
+        &self.inner
+    }
 }
 
 #[xmtp_common::async_trait]
