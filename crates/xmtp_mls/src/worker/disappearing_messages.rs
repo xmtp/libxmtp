@@ -2,7 +2,6 @@ use crate::context::XmtpSharedContext;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::TryFutureExt;
-use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
@@ -16,42 +15,9 @@ use xmtp_db::{StorageError, prelude::*};
 const FALLBACK_INTERVAL: Duration = Duration::from_secs(24 * 3600);
 
 /// Dedicated wake channel for the disappearing-messages worker.
-///
-/// A **capacity-1** mpsc carrying unit `()` "recompute the next expiry deadline"
-/// nudges. Capacity 1 is deliberate: the worker drains and re-queries the DB on
-/// every wake, so a single pending nudge already captures "something changed" —
-/// more would be redundant. It also bounds memory to one slot even when no worker
-/// is consuming the channel (e.g. the disappearing worker is disabled or
-/// `disable_workers` is set), so `rearm()` can never accumulate without bound.
-#[derive(Clone)]
-pub struct DisappearingChannels {
-    sender: tokio::sync::mpsc::Sender<()>,
-    pub receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<()>>>,
-}
-
-impl Default for DisappearingChannels {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DisappearingChannels {
-    pub fn new() -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(1);
-        Self {
-            sender,
-            receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
-        }
-    }
-
-    /// Wake the worker to recompute its next-expiry deadline. Best-effort and
-    /// non-blocking: if a nudge is already queued (slot full) or no worker is
-    /// consuming, the send is dropped — the worker recomputes from the DB on its
-    /// next wake regardless, so a dropped duplicate nudge changes nothing.
-    pub fn rearm(&self) {
-        let _ = self.sender.try_send(());
-    }
-}
+/// Re-uses the shared [`RearmChannel`] type — see its docs for the capacity-1
+/// rationale.
+pub type DisappearingChannels = crate::worker::rearm_channel::RearmChannel;
 
 #[derive(Debug, Error)]
 pub enum DisappearingMessagesCleanerError {
@@ -197,18 +163,5 @@ where
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn rearm_delivers_a_signal() {
-        let ch = DisappearingChannels::new();
-        ch.rearm();
-        let mut rx = ch.receiver.lock().await;
-        assert!(rx.recv().await.is_some());
     }
 }

@@ -78,11 +78,37 @@ where
     }
 }
 
+/// Split `duration` into whole `max`-sized chunks plus a remainder.
+/// Returns `(number_of_full_chunks, remainder)`. Pure; used for wasm-safe sleeping.
+///
+/// JS `setTimeout` (via gloo-timers) casts the millisecond value to `i32`,
+/// so any duration > ~24.8 days overflows and fires immediately. Chunking into
+/// at-most-1-day pieces lets callers sleep the full requested duration.
+///
+/// Only the wasm `sleep` path needs this; compiled for wasm (real use) and under
+/// `test` (native coverage of the pure arithmetic), so it is never dead code.
+#[cfg(any(all(target_family = "wasm", target_os = "unknown"), test))]
+fn sleep_chunks(duration: Duration, max: Duration) -> (u64, Duration) {
+    let max_ns = max.as_nanos().max(1);
+    let full = (duration.as_nanos() / max_ns) as u64;
+    let rem = Duration::from_nanos((duration.as_nanos() % max_ns) as u64);
+    (full, rem)
+}
+
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
-        wasm => {gloo_timers::future::sleep(duration).await},
+        wasm => {
+            // JS setTimeout (via gloo-timers) caps near i32::MAX ms; chunk so a
+            // multi-day sleep elapses fully instead of wrapping to ~0.
+            const MAX_CHUNK: Duration = Duration::from_secs(60 * 60 * 24); // 1 day
+            let (full, rem) = sleep_chunks(duration, MAX_CHUNK);
+            for _ in 0..full {
+                gloo_timers::future::sleep(MAX_CHUNK).await;
+            }
+            gloo_timers::future::sleep(rem).await;
+        }
     }
 }
 
@@ -204,6 +230,24 @@ mod tests {
     fn test_now_secs_returns_positive() {
         let secs = now_secs();
         assert!(secs > 0, "now_secs should return a positive value");
+    }
+
+    #[test]
+    fn sleep_chunks_splits_correctly() {
+        let day = Duration::from_secs(86400);
+        assert_eq!(
+            sleep_chunks(Duration::from_secs(30 * 86400), day),
+            (30, Duration::ZERO)
+        );
+        assert_eq!(
+            sleep_chunks(Duration::from_secs(5), day),
+            (0, Duration::from_secs(5))
+        );
+        assert_eq!(
+            sleep_chunks(day + Duration::from_secs(5), day),
+            (1, Duration::from_secs(5))
+        );
+        assert_eq!(sleep_chunks(Duration::ZERO, day), (0, Duration::ZERO));
     }
 
     // Jitter tests rely on tokio's paused virtual clock, native-only.

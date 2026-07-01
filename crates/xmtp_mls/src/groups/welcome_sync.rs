@@ -161,6 +161,7 @@ where
         // rotation interval.
         if num_envelopes > 0 {
             self.context.identity().queue_key_rotation(&db).await?;
+            self.context.wake_key_package_worker();
         }
 
         Ok(groups)

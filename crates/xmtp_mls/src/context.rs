@@ -6,6 +6,7 @@ use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::disappearing_messages::DisappearingChannels;
 use crate::worker::metrics::WorkerMetrics;
+use crate::worker::rearm_channel::RearmChannel;
 use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
 use crate::{
@@ -55,6 +56,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
     pub(crate) disappearing_channels: DisappearingChannels,
+    pub(crate) key_package_channels: RearmChannel,
     pub(crate) cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
     // disconnected). The cancellation token tracks "shutdown initiated";
@@ -129,6 +131,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
             disappearing_channels: self.disappearing_channels,
+            key_package_channels: self.key_package_channels,
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
         }
@@ -247,7 +250,18 @@ where
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
     fn task_channels(&self) -> &TaskWorkerChannels;
     fn disappearing_channels(&self) -> &DisappearingChannels;
+    fn key_package_channels(&self) -> &RearmChannel;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
+
+    /// Nudge the KeyPackageCleaner worker (best-effort; no-op if disabled).
+    fn wake_key_package_worker(&self) {
+        if self
+            .worker_config()
+            .worker_enabled(crate::worker::WorkerKind::KeyPackageCleaner)
+        {
+            self.key_package_channels().rearm();
+        }
+    }
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
     fn cancellation_token(&self) -> &CancellationToken;
@@ -337,6 +351,10 @@ where
 
     fn disappearing_channels(&self) -> &DisappearingChannels {
         &self.disappearing_channels
+    }
+
+    fn key_package_channels(&self) -> &RearmChannel {
+        &self.key_package_channels
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -434,6 +452,10 @@ where
 
     fn disappearing_channels(&self) -> &DisappearingChannels {
         <T as XmtpSharedContext>::disappearing_channels(self)
+    }
+
+    fn key_package_channels(&self) -> &RearmChannel {
+        <T as XmtpSharedContext>::key_package_channels(self)
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
