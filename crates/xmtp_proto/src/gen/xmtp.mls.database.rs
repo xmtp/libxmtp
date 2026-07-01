@@ -783,7 +783,7 @@ impl PermissionPolicyOption {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Task {
-    #[prost(oneof = "task::Task", tags = "1, 2, 3")]
+    #[prost(oneof = "task::Task", tags = "1, 2, 3, 4, 5, 6")]
     pub task: ::core::option::Option<task::Task>,
 }
 /// Nested message and enum types in `Task`.
@@ -796,6 +796,12 @@ pub mod task {
         SendSyncArchive(super::SendSyncArchive),
         #[prost(message, tag = "3")]
         ProcessPendingSelfRemove(super::ProcessPendingSelfRemove),
+        #[prost(message, tag = "4")]
+        PullInDeadline(super::PullInDeadline),
+        #[prost(message, tag = "5")]
+        KpRotation(super::KpRotation),
+        #[prost(message, tag = "6")]
+        KpDeletion(super::KpDeletion),
     }
 }
 impl ::prost::Name for Task {
@@ -806,6 +812,55 @@ impl ::prost::Name for Task {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.database.Task".into()
+    }
+}
+/// Lower a target task's next-attempt deadline so it runs sooner. One-shot:
+/// applied by the TaskWorker, then deleted.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PullInDeadline {
+    /// The UNIQUE data_hash identifying the target task row.
+    #[prost(bytes = "vec", tag = "1")]
+    pub target_data_hash: ::prost::alloc::vec::Vec<u8>,
+    /// Target's next_attempt_at_ns is set to MIN(current, this).
+    #[prost(int64, tag = "2")]
+    pub not_later_than_ns: i64,
+}
+impl ::prost::Name for PullInDeadline {
+    const NAME: &'static str = "PullInDeadline";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.PullInDeadline".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.PullInDeadline".into()
+    }
+}
+/// Recurring singleton: rotate + upload a fresh key package when the identity's
+/// rotation deadline is due. Empty payload => stable data_hash for pull-ins.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct KpRotation {}
+impl ::prost::Name for KpRotation {
+    const NAME: &'static str = "KpRotation";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.KpRotation".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.KpRotation".into()
+    }
+}
+/// Recurring singleton: delete superseded local key-package material whose
+/// delete_at_ns has passed. Empty payload => stable data_hash for pull-ins.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct KpDeletion {}
+impl ::prost::Name for KpDeletion {
+    const NAME: &'static str = "KpDeletion";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.KpDeletion".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.KpDeletion".into()
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
