@@ -16,6 +16,26 @@ use xmtp_proto::{
     xmtp::mls::database::Task as TaskProto,
 };
 
+/// `Done` = one-shot, row deleted. `RescheduleAt(ns)` = recurring, row kept and
+/// advanced to that absolute deadline.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum TaskOutcome {
+    Done,
+    // Constructed only by the cfg(test) hook until the first real recurring
+    // task variant lands; without the allow, the non-test lib build flags
+    // dead_code and `just lint` (-Dwarnings) fails.
+    #[allow(dead_code)]
+    RescheduleAt(i64),
+}
+
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::sync::Mutex;
+    /// `(target_data_hash, deadline)` → `run_task` returns `RescheduleAt(deadline)`
+    /// for the matching task. Reset to `None` at test end (shared wasm process).
+    pub(crate) static RESCHEDULE_OVERRIDE: Mutex<Option<(Vec<u8>, i64)>> = Mutex::new(None);
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum TaskWorkerError {
     #[error("generic storage error: {0}")]
@@ -195,7 +215,7 @@ where
         }
     }
     #[tracing::instrument(skip_all, fields(worker = "TaskRunner", operation = "worker_turn"))]
-    async fn run_and_reschedule_task(
+    pub(crate) async fn run_and_reschedule_task(
         task: DbTask,
         context: &Context,
     ) -> Result<(), TaskWorkerError> {
@@ -214,8 +234,19 @@ where
             return Ok(());
         }
         match Self::run_task(&task, context).await {
-            Ok(()) => {
+            Ok(TaskOutcome::Done) => {
                 context.db().delete_task(task.id)?;
+            }
+            Ok(TaskOutcome::RescheduleAt(t)) => {
+                // Plain advance + attempts=0. A MIN floor here would pin a just-run
+                // (past-due) row and hot-loop it.
+                match context.db().update_task(task.id, 0, now, t) {
+                    Ok(_) => {}
+                    Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {
+                        tracing::debug!("Task {} vanished before reschedule; skipping", task.id);
+                    }
+                    Err(e) => return Err(e.into()),
+                }
             }
             Err(error) => {
                 let attempts = task.attempts + 1;
@@ -242,7 +273,13 @@ where
         }
         Ok(())
     }
-    async fn run_task(task: &DbTask, context: &Context) -> Result<(), TaskWorkerError> {
+    async fn run_task(task: &DbTask, context: &Context) -> Result<TaskOutcome, TaskWorkerError> {
+        #[cfg(test)]
+        if let Some((hash, t)) = test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap().clone()
+            && task.data_hash == hash
+        {
+            return Ok(TaskOutcome::RescheduleAt(t));
+        }
         let data_hash = xmtp_common::sha256_bytes(&task.data);
         if task.data_hash != data_hash {
             let expected = hex::encode(&data_hash);
@@ -257,7 +294,7 @@ where
             Err(e) => {
                 context.db().delete_task(task.id)?;
                 tracing::warn!("Task {} data decode error: {}", task.id, e);
-                return Ok(());
+                return Ok(TaskOutcome::Done);
             }
         };
         match task_proto.task {
@@ -276,7 +313,7 @@ where
                     tracing::warn!(
                         "SendSyncArchive task has no archive options. Unable to process."
                     );
-                    return Ok(());
+                    return Ok(TaskOutcome::Done);
                 };
                 let options: ArchiveOptions = proto_options.into();
 
@@ -313,15 +350,11 @@ where
                 Self::process_pending_self_remove(task, pending, context).await?;
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(p)) => {
-                // Minimal arm so this proto-only change compiles standalone; the
-                // real handler lands with the recurrence implementation. An
-                // unapplied pull-in is advisory, so dropping it is safe.
-                tracing::warn!(
-                    target_data_hash = hex::encode(&p.target_data_hash),
-                    "PullInDeadline task {} received before handler landed; dropping",
-                    task.id
-                );
-                context.db().delete_task(task.id)?;
+                // Runs on the worker thread — the sole writer of task scheduling
+                // state — so no transaction is needed (see the recurrence design).
+                context
+                    .db()
+                    .pull_in_task_deadline(&p.target_data_hash, p.not_later_than_ns)?;
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_))
             | Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
@@ -338,7 +371,7 @@ where
                 context.db().delete_task(task.id)?;
             }
         }
-        Ok(())
+        Ok(TaskOutcome::Done)
     }
     fn next_wakeup(
         next_attempt_at_ns: Option<i64>,
@@ -419,5 +452,134 @@ where
                 .ok();
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester;
+    use crate::worker::{WorkerConfig, WorkerKind};
+    use xmtp_db::tasks::{NewTask, data_hash_for};
+    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+
+    /// A unique one-shot payload: a PullInDeadline aimed at a random, nonexistent
+    /// target. Applying it is a no-op; its data_hash is unique per call.
+    fn unique_proto() -> TaskProto {
+        TaskProto {
+            task: Some(TaskKind::PullInDeadline(
+                xmtp_proto::xmtp::mls::database::PullInDeadline {
+                    target_data_hash: xmtp_common::rand_vec::<32>(),
+                    not_later_than_ns: 0,
+                },
+            )),
+        }
+    }
+
+    fn no_runner_cfg() -> WorkerConfig {
+        let mut cfg = WorkerConfig::default();
+        cfg.enabled.insert(WorkerKind::TaskRunner, false);
+        cfg
+    }
+
+    /// Insert a task row and return the stored row (found by its data_hash).
+    fn seed(
+        db: &impl QueryTasks,
+        proto: TaskProto,
+        next: i64,
+        expires: i64,
+        attempts: i32,
+        max: i32,
+    ) -> xmtp_db::tasks::Task {
+        let hash = data_hash_for(&proto);
+        let task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .next_attempt_at_ns(next)
+            .expires_at_ns(expires)
+            .attempts(attempts)
+            .max_attempts(max)
+            .build(proto)
+            .unwrap();
+        db.create_or_ignore_task(task).unwrap();
+        db.get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.data_hash == hash)
+            .unwrap()
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn done_deletes() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let row = seed(&db, unique_proto(), now - 1, i64::MAX, 0, i32::MAX);
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        assert!(db.get_tasks()?.is_empty(), "Done task must be deleted");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn recurring_task_advances_and_does_not_hot_loop() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        let row = seed(&db, proto.clone(), now - 1, i64::MAX, 5, i32::MAX);
+        let target = now + xmtp_common::NS_IN_DAY;
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = Some((data_hash_for(&proto), target));
+
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
+        let after = db.get_tasks()?.pop().expect("recurring row must survive");
+        assert_eq!(
+            after.next_attempt_at_ns, target,
+            "deadline must ADVANCE, not stay past-due"
+        );
+        assert_eq!(after.attempts, 0, "success resets the backoff counter");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn never_expire_seed_survives_reaper() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        // High attempts + past-due: only the i64::MAX/i32::MAX seed keeps the
+        // reaper (expires < now || attempts >= max) from deleting it.
+        let row = seed(&db, proto.clone(), now - 1, i64::MAX, 1_000_000, i32::MAX);
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
+            Some((data_hash_for(&proto), now + xmtp_common::NS_IN_DAY));
+
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
+        assert_eq!(
+            db.get_tasks()?.len(),
+            1,
+            "never-expire seed must not be reaped"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn not_yet_due_task_is_not_run_early() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = unique_proto();
+        let far = now + 30 * xmtp_common::NS_IN_DAY;
+        let row = seed(&db, proto.clone(), far, i64::MAX, 0, i32::MAX);
+        // If the guard failed and the task ran, the hook would rewrite next_attempt.
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = Some((data_hash_for(&proto), now));
+
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
+        let after = db.get_tasks()?.pop().unwrap();
+        assert_eq!(
+            after.next_attempt_at_ns, far,
+            "not-yet-due task must not run on a 1-day-cap wake"
+        );
     }
 }
