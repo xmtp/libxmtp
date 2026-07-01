@@ -10,6 +10,7 @@ pub fn content_type_markdown() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_markdown(text: String) -> Result<EncodedContent> {
   Ok(
     MarkdownCodec::encode(text)

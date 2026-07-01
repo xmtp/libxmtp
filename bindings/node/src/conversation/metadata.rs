@@ -50,6 +50,7 @@ impl GroupMetadata {
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn group_metadata(&self) -> Result<GroupMetadata> {
     let group = self.create_mls_group();
     let metadata = group.metadata().await.map_err(ErrorWrapper::from)?;
@@ -58,6 +59,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn group_name(&self) -> Result<String> {
     let group = self.create_mls_group();
     let group_name = group.group_name().map_err(ErrorWrapper::from)?;
@@ -66,6 +68,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn update_group_name(&self, group_name: String) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -85,6 +88,7 @@ impl Conversation {
   /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
   /// way: migrated groups cannot return to the legacy path.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<()> {
     let group = self.create_mls_group();
     group
@@ -94,6 +98,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn group_description(&self) -> Result<String> {
     let group = self.create_mls_group();
     let group_description = group.group_description().map_err(ErrorWrapper::from)?;
@@ -102,6 +107,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn update_group_description(&self, group_description: String) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -114,6 +120,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn group_image_url_square(&self) -> Result<String> {
     let group = self.create_mls_group();
 
@@ -123,6 +130,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn update_group_image_url_square(&self, group_image_url_square: String) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -135,6 +143,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn app_data(&self) -> Result<String> {
     let group = self.create_mls_group();
     let app_data = group.app_data().map_err(ErrorWrapper::from)?;
@@ -143,6 +152,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn update_app_data(&self, app_data: String) -> Result<()> {
     let group = self.create_mls_group();
 

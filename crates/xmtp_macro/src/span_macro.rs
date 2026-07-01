@@ -68,6 +68,25 @@ pub fn span(
     expand_with_prefix(&args.prefix, input_fn).into()
 }
 
+/// `#[err_span]` → `#[tracing::instrument(level = "trace", skip_all, err)]`,
+/// except on `extern`-ABI fns, which pass through untouched: napi-rs clones
+/// method attributes onto the raw-`napi_value`-returning `extern "C"` wrapper
+/// it generates, where `err` would not compile.
+pub fn err_span(
+    _attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input_fn = parse_macro_input!(body as syn::ItemFn);
+    if input_fn.sig.abi.is_some() {
+        return quote! { #input_fn }.into();
+    }
+    quote! {
+        #[tracing::instrument(level = "trace", skip_all, err)]
+        #input_fn
+    }
+    .into()
+}
+
 /// Parses the `prefix = "..."` argument of `#[span(...)]`.
 struct SpanArgs {
     prefix: String,

@@ -120,6 +120,7 @@ impl From<xmtp_logging::Error> for crate::GenericError {
 /// i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn enter_debug_writer(
     directory: String,
     log_level: FfiLogLevel,
@@ -135,6 +136,7 @@ pub fn enter_debug_writer(
 /// i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn enter_debug_writer_with_level(
     directory: String,
     rotation: FfiLogRotation,
@@ -166,6 +168,7 @@ pub fn enter_debug_writer_with_level(
 /// This should be called before the program exits, to ensure all the logs in memory have been
 /// written. this ends the writer thread.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn exit_debug_writer() -> Result<(), FfiError> {
     if let Some(h) = handle() {
         h.disable_file()?;
@@ -178,6 +181,7 @@ pub fn exit_debug_writer() -> Result<(), FfiError> {
 /// Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
 /// activity in Console.app / Instruments. No-op on non-mobile builds.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
     if let Some(h) = handle() {
         h.set_native_level(log_level.into())?;

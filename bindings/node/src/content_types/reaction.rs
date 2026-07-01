@@ -48,6 +48,7 @@ pub fn content_type_reaction() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent> {
   let reaction_v2: ReactionV2 = reaction.into();
   Ok(

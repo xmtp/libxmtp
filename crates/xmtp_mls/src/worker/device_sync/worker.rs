@@ -588,7 +588,7 @@ where
             }
         }
 
-        Err(DeviceSyncError::MissingPayload(pin.map(str::to_string)))
+        Err(DeviceSyncError::MissingPayload(pin.is_some()))
     }
 
     pub fn list_available_archives(

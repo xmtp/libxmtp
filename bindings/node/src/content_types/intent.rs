@@ -41,6 +41,7 @@ pub fn content_type_intent() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_intent(intent: Intent) -> Result<EncodedContent> {
   Ok(
     IntentCodec::encode(intent.into())

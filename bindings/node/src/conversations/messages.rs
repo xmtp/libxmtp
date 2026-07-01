@@ -10,6 +10,7 @@ use std::ops::Deref;
 #[napi]
 impl Conversations {
   #[napi]
+  #[xmtp_common::err_span]
   pub fn get_message_by_id(&self, message_id: String) -> Result<Message> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
@@ -22,6 +23,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn get_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
@@ -34,6 +36,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
@@ -46,6 +49,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,

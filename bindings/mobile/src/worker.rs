@@ -8,6 +8,7 @@ pub struct FfiSyncWorker {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSyncWorker {
+    #[xmtp_common::err_span]
     pub async fn wait(&self, metric: FfiSyncMetric, count: u64) -> Result<(), FfiError> {
         let Some(handle) = self.handle.clone() else {
             tracing::warn!("Tried to wait on a worker without a handle.");

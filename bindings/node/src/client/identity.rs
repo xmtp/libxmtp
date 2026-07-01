@@ -35,6 +35,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn register_identity(
     &self,
     signature_request: &SignatureRequestHandle,
@@ -67,6 +68,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn get_inbox_id_by_identity(&self, identifier: Identifier) -> Result<Option<String>> {
     let conn = self.inner_client().context.store().db();
 

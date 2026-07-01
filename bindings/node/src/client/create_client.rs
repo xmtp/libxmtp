@@ -100,6 +100,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
 ///
 /// `async` is load-bearing: it runs on napi's Tokio runtime so the OTLP tonic exporter build has a reactor (a sync `#[napi] pub fn` runs reactor-less on the JS thread and panics).
 #[napi(js_name = "initLogging")]
+#[xmtp_common::err_span]
 pub async fn init_logging_export(options: Option<LogOptions>) -> Result<()> {
   init_logging(options.unwrap_or_default())
 }
@@ -269,6 +270,7 @@ async fn create_client_inner(
  */
 #[allow(clippy::too_many_arguments)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn create_client(
   v3_host: String,
   gateway_host: Option<String>,
@@ -324,6 +326,7 @@ pub async fn create_client(
 /// This function only needs identity and database configuration.
 #[allow(clippy::too_many_arguments)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn create_client_with_backend(
   backend: &Backend,
   db: DbOptions,

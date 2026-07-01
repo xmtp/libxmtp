@@ -10,6 +10,7 @@ use std::sync::Arc;
 #[napi]
 impl Client {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn create_inbox_signature_request(&self) -> Result<Option<SignatureRequestHandle>> {
     let Some(signature_request) = self.inner_client().identity().signature_request() else {
       return Ok(None);
@@ -22,6 +23,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_identifier_signature_request(
     &self,
     new_identifier: Identifier,
@@ -42,6 +44,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn revoke_identifier_signature_request(
     &self,
     identifier: Identifier,
@@ -64,6 +67,7 @@ impl Client {
   // Returns Some SignatureRequestHandle if we have installations to revoke.
   // If we have no other installations to revoke, returns None.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn revoke_all_other_installations_signature_request(
     &self,
   ) -> Result<Option<SignatureRequestHandle>> {
@@ -99,6 +103,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn revoke_installations_signature_request(
     &self,
     installation_ids: Vec<Uint8Array>,
@@ -122,6 +127,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn change_recovery_identifier_signature_request(
     &self,
     new_recovery_identifier: Identifier,
@@ -140,6 +146,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn apply_signature_request(
     &self,
     signature_request: &SignatureRequestHandle,
@@ -157,6 +164,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array> {
     let result = self
       .inner_client()
@@ -168,6 +176,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn verify_signed_with_installation_key(
     &self,
     signature_text: String,

@@ -50,6 +50,7 @@ pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
 pub use xmtp_macro::db_span;
+pub use xmtp_macro::err_span;
 pub use xmtp_macro::log_event;
 pub use xmtp_macro::mls_span;
 pub use xmtp_macro::parser;

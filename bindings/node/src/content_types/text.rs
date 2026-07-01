@@ -10,6 +10,7 @@ pub fn content_type_text() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_text(text: String) -> Result<EncodedContent> {
   Ok(TextCodec::encode(text).map_err(ErrorWrapper::from)?.into())
 }
