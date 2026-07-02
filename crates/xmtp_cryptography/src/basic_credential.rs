@@ -126,6 +126,9 @@ impl XmtpInstallationCredential {
         });
 
         let signing_key = SigningKey::from_keypair_bytes(&keypair)?;
+        if signing_key.verifying_key().as_bytes() != public {
+            return Err(ed25519_dalek::SignatureError::new());
+        }
         Ok(Self(Box::new(signing_key)))
     }
 
