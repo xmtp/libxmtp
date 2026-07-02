@@ -1,4 +1,7 @@
 mod api_stats;
+// Backend-agnostic XIP-83 bidi connection core (native-only — full-duplex HTTP/2).
+#[cfg(not(target_arch = "wasm32"))]
+mod bidi;
 mod boxed_streams;
 mod builder;
 mod client_bundle;
@@ -9,6 +12,8 @@ pub mod stream;
 mod v3;
 
 pub use api_stats::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use bidi::*;
 pub use boxed_streams::*;
 pub use builder::*;
 pub use client_bundle::*;

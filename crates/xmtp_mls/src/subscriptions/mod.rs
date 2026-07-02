@@ -15,11 +15,14 @@ use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-// Live integration test for the XIP-83 bidi connection. v3-only (the bidi
-// transport is implemented for the v3 client) and native-only (full-duplex
-// HTTP/2 is unavailable on the wasm gRPC-Web transport).
+// Live integration tests for the XIP-83 bidi connection (native-only —
+// full-duplex HTTP/2 is unavailable on the wasm gRPC-Web transport). The v3 and
+// d14n backends have distinct wire types, so each has its own module gated on
+// the backend feature switch.
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
 mod bidi_tests;
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "d14n"))]
+mod d14n_bidi_tests;
 pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
