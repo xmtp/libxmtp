@@ -1,0 +1,19 @@
+#:schema https://code-factory-action.xmtp.team/schema.json
+
+[sandbox]
+size = "large"
+docker = true
+
+[[sandbox.volumes]]
+path = "/nix/store"
+size = "25gb"
+
+# [harness]
+# default: provider = "claude_code"
+
+# default: scheduled_jobs = []
+
+# [[on_event.failed_run]]
+# workflows = []
+# branches = []
+# prompt_additions = ""
