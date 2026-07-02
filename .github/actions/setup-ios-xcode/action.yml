@@ -28,6 +28,9 @@ runs:
           p=/Applications/Xcode_26.3.app
         fi
         echo "path=$p" >> "$GITHUB_OUTPUT"
+        # requireFile fixed-output path: moves only if the pinned sha256 for
+        # xcode_26_3 changes, never with nixpkgs/flake.lock bumps.
+        echo "nix-path=/nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app" >> "$GITHUB_OUTPUT"
     # On a NAR-cache miss the action imports the runner bundle, which is a
     # pruned image that never hashes to the pin — its export step then fails.
     # Tolerate that: builds substitute from xmtp.cachix and swift steps use
@@ -36,17 +39,16 @@ runs:
       continue-on-error: true
       with:
         xcode-path: ${{ steps.xcode-path.outputs.path }}
-        # requireFile fixed-output path: moves only if the pinned sha256 for
-        # xcode_26_3 changes, never with nixpkgs/flake.lock bumps.
-        xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+        xcode-nix-path: ${{ steps.xcode-path.outputs.nix-path }}
     # Point non-nix tool invocations (raw xcodebuild/swift steps) at the
     # pinned store Xcode when it materialized, else at the version-verified
     # runner bundle — runner images are pruned and never hash to the pin.
     - name: Export DEVELOPER_DIR
       shell: bash
       run: |
-        dev=/nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+        dev="${{ steps.xcode-path.outputs.nix-path }}"
         if ! nix path-info "$dev" >/dev/null 2>&1; then
+          echo "::warning::Pinned Xcode not in the store (expected on a cold NAR cache); swift steps use the runner bundle."
           dev="${{ steps.xcode-path.outputs.path }}"
         fi
         echo "DEVELOPER_DIR=$dev/Contents/Developer" >> "$GITHUB_ENV"

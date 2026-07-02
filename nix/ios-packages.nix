@@ -10,22 +10,29 @@
     let
       iosCommon = {
         darwinSdkVersion = "26";
-        darwinMinVersion = "16";
+        # Deployment floor, not SDK version — asserted below to match the
+        # floors advertised in Package.swift and the podspec.
+        darwinMinVersion = "14";
         xcodeVer = "26.3";
         # Wrap builder-host Xcode (iosSdkPkgs) instead of building the Darwin
         # toolchain from source (~94 drvs vs ~2500). Comment out to fall back
         # to the hermetic apple-sdk source path.
         useiOSPrebuilt = true;
       };
+      # macOS deployment floor for the mac slices, same contract as
+      # iosCommon.darwinMinVersion.
+      macMinVersion = "11.0";
       # Single source of truth: ABI name → target config
       iosTargets = {
         "aarch64-darwin" = {
           config = "arm64-apple-darwin";
           xcodeVer = "26.3";
+          darwinMinVersion = macMinVersion;
         };
         "x86_64-darwin" = {
           config = "x86_64-apple-darwin";
           xcodeVer = "26.3";
+          darwinMinVersion = macMinVersion;
         };
         "iphone64" = {
           config = "arm64-apple-ios";
@@ -54,7 +61,23 @@
       # Per-target dylibs keyed by ABI name
       iosDylibs = lib.mapAttrs (_: p: (mkIosBindings p { }).dylib) crossPkgs;
 
-      inherit (mkIosBindings pkgs { }) swift-bindings version;
+      # The native build only feeds uniffi bindings generation — it never
+      # ships, so skip the from-source static openssl.
+      inherit (mkIosBindings pkgs { staticOpenssl = false; }) swift-bindings version;
+
+      # The floors advertised to SPM/CocoaPods must match what the binaries
+      # are built with (LC_BUILD_VERSION minos); catch drift at eval time.
+      iosMinVersion =
+        assert lib.assertMsg (lib.hasInfix ".iOS(.v${iosCommon.darwinMinVersion})" (
+          builtins.readFile "${self}/Package.swift"
+        )) "Package.swift .iOS floor doesn't match darwinMinVersion ${iosCommon.darwinMinVersion}";
+        assert lib.assertMsg (lib.hasInfix "deployment_target = '${iosCommon.darwinMinVersion}.0'" (
+          builtins.readFile "${self}/sdks/ios/XMTP.podspec"
+        )) "XMTP.podspec deployment_target doesn't match darwinMinVersion ${iosCommon.darwinMinVersion}";
+        assert lib.assertMsg (lib.hasInfix ".macOS(.v${lib.versions.major macMinVersion})" (
+          builtins.readFile "${self}/Package.swift"
+        )) "Package.swift .macOS floor doesn't match macMinVersion ${macMinVersion}";
+        iosCommon.darwinMinVersion + ".0";
 
       fastAbi =
         if pkgs.stdenv.hostPlatform.isx86_64 then
@@ -84,11 +107,7 @@
         abis = allAbis;
         dylibs = iosDylibs;
         swiftBindings = swift-bindings;
-        iosMinVersion = iosCommon.darwinMinVersion + ".0";
-        # Pinned constant (matches the darwin toolchain default) so the
-        # advertised floor doesn't vary with the build host's architecture.
-        macMinVersion = "14.0";
-        inherit version;
+        inherit iosMinVersion macMinVersion version;
       };
       ios-xcframework-static-fast = xcframework.mkStatic {
         abis = fastAbis;

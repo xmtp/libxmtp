@@ -16,43 +16,19 @@
   macMinVersion,
 }:
 let
-  inherit (helpers.classifyTargets abis)
-    deviceAbis
-    simAbis
-    macAbis
-    expectedSlices
-    ;
+  inherit (helpers.classifyTargets abis) simAbis macAbis;
   headerDir = "${swiftBindings}/swift/include/libxmtp";
 
-  slices =
-    lib.optional (deviceAbis != [ ]) (
-      helpers.mkSlice {
-        platform = "ios";
-        abis = deviceAbis;
-      }
-      // {
-        srcFw = "$TMPDIR/fw_ios/xmtpv3FFI.framework";
-      }
-    )
-    ++ lib.optional (simAbis != [ ]) (
-      helpers.mkSlice {
-        platform = "ios";
-        abis = simAbis;
-        variant = "simulator";
-      }
-      // {
-        srcFw = "$TMPDIR/fw_sim/xmtpv3FFI.framework";
-      }
-    )
-    ++ lib.optional (macAbis != [ ]) (
-      helpers.mkSlice {
-        platform = "macos";
-        abis = macAbis;
-      }
-      // {
-        srcFw = "$TMPDIR/fw_mac/xmtpv3FFI.framework";
-      }
-    );
+  slices = helpers.mkSlices abis (group: "$TMPDIR/fw_${group}/xmtpv3FFI.framework");
+
+  # Source dylib for each slice's framework bundle: the device slice ships
+  # the store artifact directly, sim/mac ship the lipo'd fat binary.
+  srcDylib =
+    group:
+    if group == "device" then
+      "${dylibs.iphone64}/libxmtpv3.dylib"
+    else
+      "$TMPDIR/lipo_${group}/libxmtpv3.dylib";
 
   infoPlist = helpers.mkXCFrameworkPlist (
     map (
@@ -95,45 +71,30 @@ stdenv.mkDerivation {
       abis = macAbis;
     }}
 
-    ${lib.optionalString (deviceAbis != [ ]) (
+    ${lib.concatMapStrings (
+      s:
       helpers.mkFrameworkBundle {
-        name = "fw_ios";
-        dylibPath = "${dylibs.iphone64}/libxmtpv3.dylib";
-        minOSVersion = iosMinVersion;
+        name = "fw_${s.group}";
+        dylibPath = srcDylib s.group;
+        minOSVersion = if s.platform == "macos" then macMinVersion else iosMinVersion;
+        isMacOS = s.platform == "macos";
         inherit headerDir;
       }
-    )}
-    ${lib.optionalString (simAbis != [ ]) (
-      helpers.mkFrameworkBundle {
-        name = "fw_sim";
-        dylibPath = "$TMPDIR/lipo_sim/libxmtpv3.dylib";
-        minOSVersion = iosMinVersion;
-        inherit headerDir;
-      }
-    )}
-    ${lib.optionalString (macAbis != [ ]) (
-      helpers.mkFrameworkBundle {
-        name = "fw_mac";
-        dylibPath = "$TMPDIR/lipo_macos/libxmtpv3.dylib";
-        minOSVersion = macMinVersion;
-        isMacOS = true;
-        inherit headerDir;
-      }
-    )}
+    ) slices}
 
-    # Assembled by hand: an xcframework is one directory per slice plus a
-    # manifest. `xcodebuild -create-xcframework` does the same job but
-    # dlopens host Xcode first-launch frameworks, which can't be sandboxed.
+    # Assembled by hand — see default.nix for why xcodebuild is avoided.
     # cp -R (not -rL) so the macOS bundle's Versions/ symlinks survive.
     XCF=$out/LibXMTPSwiftFFIDynamic.xcframework
     ${lib.concatMapStrings (s: ''
       mkdir -p $XCF/${s.id}
-      cp -R ${s.srcFw} $XCF/${s.id}/
+      cp -R ${s.src} $XCF/${s.id}/
     '') slices}
     cp ${infoPlist} $XCF/Info.plist
 
     echo "Validating dynamic xcframework..."
-    test -f $XCF/Info.plist || { echo "FAIL: Missing xcframework Info.plist"; exit 1; }
+    ${lib.concatMapStrings (
+      s: helpers.checkPlatformSnippet s "$XCF/${s.id}/xmtpv3FFI.framework/xmtpv3FFI"
+    ) slices}
     FOUND=0
     for fw in $XCF/*/xmtpv3FFI.framework; do
       test -d "$fw" || continue
@@ -159,8 +120,8 @@ stdenv.mkDerivation {
         { echo "FAIL: Bad install name '$INSTALL_NAME' in $fw (want $WANT_ID)"; exit 1; }
       echo "  dynamic OK: $(basename $(dirname $fw))"
     done
-    [ "$FOUND" -ge ${toString expectedSlices} ] || \
-      { echo "FAIL: Expected >= ${toString expectedSlices} dynamic slices, found $FOUND"; exit 1; }
+    [ "$FOUND" -ge ${toString (lib.length slices)} ] || \
+      { echo "FAIL: Expected >= ${toString (lib.length slices)} dynamic slices, found $FOUND"; exit 1; }
     echo "Dynamic xcframework validation passed ($FOUND slices)"
   '';
 }

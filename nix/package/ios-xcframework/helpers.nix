@@ -43,6 +43,65 @@ rec {
       );
     };
 
+  # The xcframework slice list for a set of ABIs. `srcFor` maps a group key
+  # ("device" | "sim" | "macos") to that slice's source artifact path.
+  mkSlices =
+    abis: srcFor:
+    let
+      inherit (classifyTargets abis) deviceAbis simAbis macAbis;
+    in
+    lib.optional (deviceAbis != [ ]) (
+      mkSlice {
+        platform = "ios";
+        abis = deviceAbis;
+      }
+      // {
+        group = "device";
+        src = srcFor "device";
+      }
+    )
+    ++ lib.optional (simAbis != [ ]) (
+      mkSlice {
+        platform = "ios";
+        abis = simAbis;
+        variant = "simulator";
+      }
+      // {
+        group = "sim";
+        src = srcFor "sim";
+      }
+    )
+    ++ lib.optional (macAbis != [ ]) (
+      mkSlice {
+        platform = "macos";
+        abis = macAbis;
+      }
+      // {
+        group = "macos";
+        src = srcFor "macos";
+      }
+    );
+
+  # Device and simulator arm64 share an arch string; only LC_BUILD_VERSION
+  # tells them apart. 1=macOS 2=iOS 7=iOS-simulator (numeric or symbolic
+  # depending on the otool flavor).
+  checkPlatformSnippet =
+    slice: path:
+    let
+      want =
+        if slice.platform == "macos" then
+          "1|MACOS"
+        else if slice.variant != null then
+          "7|IOSSIMULATOR"
+        else
+          "2|IOS";
+    in
+    ''
+      GOT_PLAT=$(otool -l ${path} | awk '/LC_BUILD_VERSION/{f=1} f && $1=="platform"{print $2; exit}')
+      echo "$GOT_PLAT" | grep -qxE '${want}' || \
+        { echo "FAIL: ${slice.id} has platform '$GOT_PLAT' (want ${want})"; exit 1; }
+    '';
+
   # Top-level xcframework manifest — the only thing
   # `xcodebuild -create-xcframework` adds beyond copying slices into place.
   mkXCFrameworkPlist =

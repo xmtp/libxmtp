@@ -8,8 +8,8 @@
 #
 #   Local dev: imports the matching /Applications/Xcode*.app on first run
 #              (~5 min). Installs via `xcodes` (with consent) if missing.
-#   CI:        the xmtp-cache-apple action pre-imports Xcode; this script
-#              only verifies and fails fast with a pointer if it didn't.
+#   CI:        the xmtp-cache-apple action pre-imports Xcode; if it
+#              couldn't, warn and defer to the binary cache.
 #
 # XCODE_VERSION must match xcodeVer in nix/ios-packages.nix.
 

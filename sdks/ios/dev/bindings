@@ -30,8 +30,10 @@ if [[ "${1:-}" == "--release" ]]; then
     nix build "${ROOT}#${ATTR_PREFIX}ios-release" --out-link "${ROOT}/bindings/mobile/build/release"
     rm -rf "$SWIFT_OUT"
     mkdir -p "$SWIFT_OUT"
-    cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
-    cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFIDynamic/LibXMTPSwiftFFIDynamic.xcframework" "$SWIFT_OUT/"
+    # cp -R (not -rL): the macOS dynamic framework's Versions/ symlinks are
+    # part of the signed bundle; dereferencing invalidates the signature.
+    cp -R "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
+    cp -R "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFIDynamic/LibXMTPSwiftFFIDynamic.xcframework" "$SWIFT_OUT/"
     chmod -R u+w "$SWIFT_OUT"
     cp -f "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/Sources/LibXMTP/xmtpv3.swift" \
         "${ROOT}/sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"

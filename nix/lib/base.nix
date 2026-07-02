@@ -74,12 +74,18 @@ let
     "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
     "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
 
-    # Use nixpkgs' pre-built openssl instead of letting openssl-sys vendor and build from source
-    # (which calls xcrun for the SDK and fails in cross sandboxes).
+  }
+  # Use nixpkgs' pre-built openssl instead of letting openssl-sys vendor and build from source
+  # (which calls xcrun for the SDK and fails in cross sandboxes).
+  // opensslEnv openssl;
+
+  # openssl-sys env for a given openssl package — shared by the dynamic
+  # default above and per-package static overrides (e.g. iOS artifacts).
+  opensslEnv = openssl': {
     OPENSSL_NO_VENDOR = "1";
-    OPENSSL_DIR = "${openssl.dev}";
-    OPENSSL_LIB_DIR = "${openssl.out}/lib";
-    OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
+    OPENSSL_DIR = "${openssl'.dev}";
+    OPENSSL_LIB_DIR = "${openssl'.out}/lib";
+    OPENSSL_INCLUDE_DIR = "${openssl'.dev}/include";
   };
 
   # Make cargo artifacts for a derivation building rust code
@@ -114,6 +120,7 @@ in
     bindingsFileset
     commonArgs
     mkCargoArtifacts
+    opensslEnv
     runtimeLibPath
     ;
 }

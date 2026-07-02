@@ -11,43 +11,13 @@
   version,
 }:
 let
-  inherit (helpers.classifyTargets abis)
-    deviceAbis
-    simAbis
-    macAbis
-    expectedSlices
-    ;
+  inherit (helpers.classifyTargets abis) simAbis macAbis;
   headerDir = "${swiftBindings}/swift/include/libxmtp";
 
-  slices =
-    lib.optional (deviceAbis != [ ]) (
-      helpers.mkSlice {
-        platform = "ios";
-        abis = deviceAbis;
-      }
-      // {
-        srcLib = "${dylibs.iphone64}/libxmtpv3.a";
-      }
-    )
-    ++ lib.optional (simAbis != [ ]) (
-      helpers.mkSlice {
-        platform = "ios";
-        abis = simAbis;
-        variant = "simulator";
-      }
-      // {
-        srcLib = "$TMPDIR/lipo_sim/libxmtpv3.a";
-      }
-    )
-    ++ lib.optional (macAbis != [ ]) (
-      helpers.mkSlice {
-        platform = "macos";
-        abis = macAbis;
-      }
-      // {
-        srcLib = "$TMPDIR/lipo_macos/libxmtpv3.a";
-      }
-    );
+  slices = helpers.mkSlices abis (
+    group:
+    if group == "device" then "${dylibs.iphone64}/libxmtpv3.a" else "$TMPDIR/lipo_${group}/libxmtpv3.a"
+  );
 
   infoPlist = helpers.mkXCFrameworkPlist (
     map (
@@ -84,19 +54,17 @@ stdenv.mkDerivation {
       abis = macAbis;
     }}
 
-    # Assembled by hand: an xcframework is one directory per slice plus a
-    # manifest. `xcodebuild -create-xcframework` does the same job but
-    # dlopens host Xcode first-launch frameworks, which can't be sandboxed.
+    # Assembled by hand — see default.nix for why xcodebuild is avoided.
     XCF=$out/LibXMTPSwiftFFI.xcframework
     ${lib.concatMapStrings (s: ''
       mkdir -p $XCF/${s.id}/Headers
-      cp ${s.srcLib} $XCF/${s.id}/libxmtpv3.a
+      cp ${s.src} $XCF/${s.id}/libxmtpv3.a
       cp -r ${headerDir}/. $XCF/${s.id}/Headers/
     '') slices}
     cp ${infoPlist} $XCF/Info.plist
 
     echo "Validating static xcframework..."
-    test -f $XCF/Info.plist || { echo "FAIL: Missing xcframework Info.plist"; exit 1; }
+    ${lib.concatMapStrings (s: helpers.checkPlatformSnippet s "$XCF/${s.id}/libxmtpv3.a") slices}
     FOUND=0
     for slice in $XCF/*/; do
       [ -d "$slice/Headers" ] || continue
@@ -108,8 +76,8 @@ stdenv.mkDerivation {
         { echo "FAIL: Bad modulemap in $slice"; exit 1; }
       echo "  static OK: $(basename $slice)"
     done
-    [ "$FOUND" -ge ${toString expectedSlices} ] || \
-      { echo "FAIL: Expected >= ${toString expectedSlices} static slices, found $FOUND"; exit 1; }
+    [ "$FOUND" -ge ${toString (lib.length slices)} ] || \
+      { echo "FAIL: Expected >= ${toString (lib.length slices)} static slices, found $FOUND"; exit 1; }
     echo "Static xcframework validation passed ($FOUND slices)"
   '';
 }
