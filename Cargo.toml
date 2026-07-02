@@ -203,7 +203,6 @@ xmtp_configuration = { path = "crates/xmtp_configuration" }
 xmtp_content_types = { path = "crates/xmtp_content_types" }
 xmtp_cryptography = { path = "crates/xmtp_cryptography" }
 xmtp_db = { path = "crates/xmtp_db" }
-xmtp_db_test = { path = "crates/xmtp_db_test" }
 xmtp_id = { path = "crates/xmtp_id" }
 xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }

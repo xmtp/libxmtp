@@ -175,7 +175,6 @@ xmtp_content_types = { path = "../xmtp_content_types", features = [
   "test-utils",
 ] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
-xmtp_db_test.workspace = true
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 # Required for traced_test! macro
@@ -226,11 +225,6 @@ required-features = ["bench"]
 harness = false
 name = "sync_conversations"
 required-features = ["bench"]
-
-[[test]]
-harness = true
-name = "chaos"
-required-features = ["test-utils"]
 
 doctest = false
 #[[bench]]

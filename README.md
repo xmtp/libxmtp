@@ -52,9 +52,9 @@ Start Docker Desktop.
 
   Specifically, this command creates and runs an XMTP node in Docker Desktop.
 
-- This project uses [`just`](https://github.com/casey/just) as a command
-  runner. Run `just` to list all available recipes, including submodules for
-  Android, iOS, Node.js, and WASM:
+- This project uses [`just`](https://github.com/casey/just) as a command runner.
+  Run `just` to list all available recipes, including submodules for Android,
+  iOS, Node.js, and WASM:
 
   ```bash
   just          # List all recipes
@@ -83,11 +83,15 @@ Start Docker Desktop.
   just wasm test
   ```
 
- Note: If the tests fail with "bind() failed: Cannot assign requested address," Chrome is unable to bind to IPv6 and will fall back to IPv4. Although this should be a warning, Chromedriver currently logs this message as SEVERE, which halts the wasm-bindgen-test. You can optionally disable the Chromedriver logs output to prevent this.
+Note: If the tests fail with "bind() failed: Cannot assign requested address,"
+Chrome is unable to bind to IPv6 and will fall back to IPv4. Although this
+should be a warning, Chromedriver currently logs this message as SEVERE, which
+halts the wasm-bindgen-test. You can optionally disable the Chromedriver logs
+output to prevent this.
 
-  ```bash
-  CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
-  ```
+```bash
+CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
+```
 
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
 
@@ -195,10 +199,9 @@ libxmtp/
 
 ├ apps/
 
-│ ├ [`android`](./apps/android): Example Android app (in progress)
-
-│ ├ [`cli`](./apps/cli): Example XMTP console client. Use the CLI to try out
-sending double ratchet messages on the XMTP `dev` network.
+│ ├ [`android`](./apps/android): Example Android app (in progress) │ ├
+[`xdbg`](./apps/xmtp_debug): comprehensive CLI for sending/load testing XMTP
+clients & network
 
 │ └ [`mls_validation_service`](./apps/mls_validation_service): MLS validation
 service

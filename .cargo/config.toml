@@ -1,6 +1,5 @@
 [alias]
 xdbg = "run -p xdbg --"
-xli = "run -p xmtp_cli --"
 update-schema = "run --bin update-schema --features update-schema"
 bindgen = "run --bin ffi-uniffi-bindgen --features uniffi/cli"
 bindgen-swift = "run --bin ffi-uniffi-bindgen-swift --features uniffi/cli"
