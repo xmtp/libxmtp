@@ -702,6 +702,8 @@ impl Identity {
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
+    /// Callers must follow with `key_package_maintenance::nudge_rotation` — the
+    /// column write alone leaves the KpRotation task parked until next restart.
     pub(crate) async fn queue_key_rotation(
         &self,
         conn: &impl DbQuery,

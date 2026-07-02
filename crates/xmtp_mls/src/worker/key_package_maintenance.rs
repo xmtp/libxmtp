@@ -79,6 +79,19 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext + 'static>(
     cleaner.delete_expired_key_packages()
 }
 
+/// Post-welcome nudge: after queue_key_package_rotation lowers the column,
+/// durably pull the KpRotation task in to match. Never expires — losing it
+/// re-parks rotation ~30d out (the 5s debounce is a security property).
+pub(crate) fn nudge_rotation<Context: XmtpSharedContext>(
+    context: &Context,
+) -> Result<(), StorageError> {
+    let at = context
+        .db()
+        .next_key_package_rotation_ns()?
+        .unwrap_or_else(xmtp_common::time::now_ns);
+    enqueue_pull_in(context, kp_rotation_hash(), at, NEVER_EXPIRES)
+}
+
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to
 /// the live DB columns, repairing rows stranded by a crash mid-nudge.
 pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
@@ -296,10 +309,55 @@ mod tests {
             row_by_hash(&db, &kp_deletion_hash()).is_none(),
             "must not seed deletion"
         );
+        assert!(db.min_key_package_delete_at_ns()?.is_none());
         let after = row_by_hash(&db, &kp_rotation_hash()).unwrap();
         assert_eq!(
             after.next_attempt_at_ns,
             db.next_key_package_rotation_ns()?.unwrap()
         );
+    }
+
+    /// Regression: welcome nudge must pull the parked rotation task in even when
+    /// the seed dispatched BEFORE the column was lowered (the startup race).
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn welcome_nudge_pulls_in_parked_rotation() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        // Simulate the seed having already dispatched not-due: park it on the column (~+30d).
+        let parked = row_by_hash(&db, &kp_rotation_hash()).unwrap();
+        TaskWorker::run_and_reschedule_task(parked, &alix.context).await?;
+        let parked_at = row_by_hash(&db, &kp_rotation_hash())
+            .unwrap()
+            .next_attempt_at_ns;
+        assert!(
+            parked_at > now + xmtp_common::NS_IN_DAY,
+            "precondition: parked far out"
+        );
+
+        db.queue_key_package_rotation()?; // welcome lowers column to now+5s
+        nudge_rotation(&alix.context)?;
+
+        let pull_in = db
+            .get_tasks()?
+            .into_iter()
+            .find(|t| {
+                matches!(
+                    TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+                    Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_rotation_hash()
+                )
+            })
+            .expect("nudge must enqueue a durable pull-in");
+        TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
+
+        let after = row_by_hash(&db, &kp_rotation_hash()).unwrap();
+        let col = db.next_key_package_rotation_ns()?.unwrap();
+        assert_eq!(
+            after.next_attempt_at_ns, col,
+            "rotation row must be pulled in to the lowered column"
+        );
+        // 5s queue debounce + 2s slack for local ops between `now` and the queue call.
+        assert!(after.next_attempt_at_ns <= now + 7 * xmtp_common::NS_IN_SEC);
     }
 }
