@@ -446,6 +446,10 @@ mod disconnect_propagation_tests {
             !CommitLogError::Connection(ConnectionError::DisconnectInTransaction)
                 .needs_db_reconnect()
         );
+        // A dropped pool wrapped in a SyncSummary (was `SyncError(_) => false`).
+        let mut summary = crate::groups::summary::SyncSummary::default();
+        summary.add_other(GroupError::Db(disconnect_connection()));
+        assert!(CommitLogError::SyncError(summary).needs_db_reconnect());
     }
 
     #[xmtp_common::test]
@@ -463,6 +467,10 @@ mod disconnect_propagation_tests {
             DeviceSyncError::Subscribe(SubscribeError::Db(disconnect_connection()))
                 .needs_db_reconnect()
         );
+        // A dropped pool wrapped in a SyncSummary (was caught by `_ => false`).
+        let mut summary = crate::groups::summary::SyncSummary::default();
+        summary.add_other(GroupError::Db(disconnect_connection()));
+        assert!(DeviceSyncError::Sync(Box::new(summary)).needs_db_reconnect());
         assert!(!DeviceSyncError::Storage(benign_storage()).needs_db_reconnect());
         assert!(!DeviceSyncError::InvalidPayload.needs_db_reconnect());
     }
@@ -482,6 +490,128 @@ mod disconnect_propagation_tests {
                 .needs_db_reconnect()
         );
         assert!(!KeyPackagesCleanerError::Storage(benign_storage()).needs_db_reconnect());
+    }
+
+    // SyncSummary previously had no NeedsDbReconnect impl, so a dropped pool in
+    // any of its four error sources hot-looped the worker via `_ => false`.
+    #[xmtp_common::test]
+    fn sync_summary_forwards_disconnect() {
+        use crate::groups::mls_sync::GroupMessageProcessingError;
+        use crate::groups::summary::{ProcessSummary, SyncSummary};
+        use xmtp_proto::types::Cursor;
+
+        // 1. disconnect in publish_errors
+        let mut s = SyncSummary::default();
+        s.add_publish_err(GroupError::Storage(disconnect_storage()));
+        assert!(s.needs_db_reconnect(), "publish_errors disconnect");
+
+        // 2. disconnect in post_commit_errors
+        let mut s = SyncSummary::default();
+        s.add_post_commit_err(GroupError::Db(disconnect_connection()));
+        assert!(s.needs_db_reconnect(), "post_commit_errors disconnect");
+
+        // 3. disconnect in `other`
+        let mut s = SyncSummary::default();
+        s.add_other(GroupError::Storage(disconnect_storage()));
+        assert!(s.needs_db_reconnect(), "other disconnect");
+
+        // 4. disconnect in a per-message processing error (process.errored) —
+        //    the source is_retryable() deliberately skips.
+        let mut process = ProcessSummary::default();
+        process.errored.push((
+            Cursor::new(1, 1u32),
+            GroupMessageProcessingError::Db(disconnect_connection()),
+        ));
+        let mut s = SyncSummary::default();
+        s.add_process(process);
+        assert!(s.needs_db_reconnect(), "process.errored disconnect");
+
+        // A benign sync error must NOT trip the contract (else the worker tears
+        // down the pool needlessly on an ordinary per-message failure).
+        let mut s = SyncSummary::default();
+        s.add_publish_err(GroupError::Storage(benign_storage()));
+        assert!(!s.needs_db_reconnect(), "benign publish error");
+
+        // And the forwarding must survive the GroupError wrappers the worker
+        // actually inspects.
+        let mut s = SyncSummary::default();
+        s.add_publish_err(GroupError::Db(disconnect_connection()));
+        assert!(
+            GroupError::Sync(Box::new(s)).needs_db_reconnect(),
+            "GroupError::Sync"
+        );
+
+        let mut s = SyncSummary::default();
+        s.add_other(GroupError::Storage(disconnect_storage()));
+        assert!(
+            GroupError::SyncFailedToWait(Box::new(s)).needs_db_reconnect(),
+            "GroupError::SyncFailedToWait"
+        );
+    }
+
+    // OpenMLS state-I/O wrappers carry a pool drop as
+    // `StorageError(SqlKeyStoreError::Connection(_))`; previously `_ => false`.
+    #[xmtp_common::test]
+    fn group_message_processing_error_forwards_openmls_disconnect() {
+        use crate::groups::mls_sync::GroupMessageProcessingError;
+        use openmls::group::MergeCommitError;
+        use openmls::prelude::ProcessMessageError;
+        use xmtp_db::sql_key_store::SqlKeyStoreError;
+
+        let disconnect_sql = || SqlKeyStoreError::Connection(disconnect_connection());
+        let benign_sql = || SqlKeyStoreError::Connection(ConnectionError::DisconnectInTransaction);
+
+        // OpenMlsProcessMessage(StorageError(Connection(PoolNeedsConnection)))
+        assert!(
+            GroupMessageProcessingError::OpenMlsProcessMessage(ProcessMessageError::StorageError(
+                disconnect_sql()
+            ))
+            .needs_db_reconnect()
+        );
+        // MergeStagedCommit(StorageError(Connection(PoolNeedsConnection)))
+        assert!(
+            GroupMessageProcessingError::MergeStagedCommit(MergeCommitError::StorageError(
+                disconnect_sql()
+            ))
+            .needs_db_reconnect()
+        );
+        // A non-pool-drop connection error inside the same wrapper must NOT trip it.
+        assert!(
+            !GroupMessageProcessingError::OpenMlsProcessMessage(ProcessMessageError::StorageError(
+                benign_sql()
+            ))
+            .needs_db_reconnect()
+        );
+        // The directly-wrapped paths still work.
+        assert!(GroupMessageProcessingError::Db(disconnect_connection()).needs_db_reconnect());
+        assert!(!GroupMessageProcessingError::Storage(benign_storage()).needs_db_reconnect());
+    }
+
+    // A disconnect can reach the task worker as Group(Db)/DeviceSync(Db), not
+    // only as the structurally-matched ::Storage; previously those were `false`.
+    #[xmtp_common::test]
+    fn task_worker_error_forwards_disconnect() {
+        use crate::worker::tasks::TaskWorkerError;
+        assert!(
+            TaskWorkerError::Group(GroupError::Db(disconnect_connection())).needs_db_reconnect(),
+            "Group(Db) disconnect"
+        );
+        assert!(
+            TaskWorkerError::Group(GroupError::MlsStore(MlsStoreError::Connection(
+                disconnect_connection()
+            )))
+            .needs_db_reconnect(),
+            "Group(MlsStore) disconnect"
+        );
+        assert!(
+            TaskWorkerError::DeviceSync(DeviceSyncError::Db(disconnect_connection()))
+                .needs_db_reconnect(),
+            "DeviceSync(Db) disconnect"
+        );
+        assert!(
+            !TaskWorkerError::Group(GroupError::InvalidGroupMembership).needs_db_reconnect(),
+            "benign group error"
+        );
     }
 }
 

@@ -214,6 +214,8 @@ impl NeedsDbReconnect for DeviceSyncError {
             Self::Group(e) => e.needs_db_reconnect(),
             Self::MlsStore(e) => e.needs_db_reconnect(),
             Self::Subscribe(e) => e.needs_db_reconnect(),
+            // A dropped pool can be wrapped inside a SyncSummary; forward.
+            Self::Sync(s) => s.needs_db_reconnect(),
             _ => false,
         }
     }
