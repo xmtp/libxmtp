@@ -93,6 +93,10 @@ pub fn data_hash_for(task: &TaskProto) -> Vec<u8> {
     xmtp_common::sha256_bytes(&task.encode_to_vec())
 }
 
+/// Never reaped by expiry: the row's lifetime is bounded by other means (a
+/// recurring row lives forever; an applied pull-in self-deletes).
+pub const NEVER_EXPIRES: i64 = i64::MAX;
+
 pub trait QueryTasks {
     fn create_task(&self, task: NewTask) -> Result<Task, StorageError>;
 

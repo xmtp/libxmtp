@@ -16,6 +16,8 @@ use xmtp_mls_common::mls_ext::payload_encryption::{
 };
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
+use xmtp_proto::xmtp::mls::database::Task as DbTask;
+use xmtp_proto::xmtp::mls::database::task::Task as DbTaskKind;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointer as WelcomePointerProto,
@@ -530,21 +532,27 @@ async fn test_welcome_pointer_task_retry_resolution() {
     xmtp_common::time::sleep(std::time::Duration::from_secs(1)).await;
 
     tracing::info!("Getting tasks for bo");
-    let tasks = bo.context.db().get_tasks().unwrap();
+    // Filter to ProcessWelcomePointer only: KP seed tasks (KpRotation, KpDeletion)
+    // are also present when TaskRunner is enabled.
+    let all_tasks = bo.context.db().get_tasks().unwrap();
+    let tasks: Vec<_> = all_tasks
+        .into_iter()
+        .filter(|t| {
+            matches!(
+                DbTask::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+                Some(DbTaskKind::ProcessWelcomePointer(_))
+            )
+        })
+        .collect();
     assert_eq!(tasks.len(), 1, "{tasks:#?}");
     let task = tasks.into_iter().next().unwrap();
     assert_eq!(
         task.data,
-        xmtp_proto::xmtp::mls::database::Task {
-            task: Some(
-                xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
-                    welcome_pointer.clone()
-                )
-            )
+        DbTask {
+            task: Some(DbTaskKind::ProcessWelcomePointer(welcome_pointer.clone()))
         }
         .encode_to_vec()
     );
-    assert_eq!(task.id, 1);
     assert_eq!(
         task.originating_message_sequence_id,
         welcome_from_api.sequence_id() as i64

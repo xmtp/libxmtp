@@ -161,6 +161,7 @@ where
         // rotation interval.
         if num_envelopes > 0 {
             self.context.identity().queue_key_rotation(&db).await?;
+            crate::worker::key_package_maintenance::nudge_rotation(&self.context)?;
         }
 
         Ok(groups)
