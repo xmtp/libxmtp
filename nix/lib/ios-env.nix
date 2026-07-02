@@ -1,5 +1,5 @@
 # Shared iOS cross-compilation environment configuration.
-# Used by both nix/ios.nix (dev shell) and nix/package/ios.nix (build derivation).
+# Used by the iOS dev shell (nix/shells/ios.nix).
 #
 # All Xcode paths are resolved dynamically at shell time via /usr/bin/xcode-select.
 # This ensures CI runners using setup-xcode (which installs to versioned paths like
@@ -58,14 +58,16 @@ let
   # We detect this by checking if the result starts with /nix/ and skip it.
   resolveXcode = ''
     _XCODE_DEV="${defaultDeveloperDir}"
-    # Unset DEVELOPER_DIR before querying xcode-select, because:
-    #   1. Nix's apple-sdk sets DEVELOPER_DIR to a Nix store path
-    #   2. xcode-select -p honors DEVELOPER_DIR over the system setting
-    #   3. We want the system setting (set by setup-xcode on CI)
-    if DEVELOPER_DIR= /usr/bin/xcode-select -p &>/dev/null; then
+    # An explicitly exported non-Nix DEVELOPER_DIR wins — CI's setup action
+    # points it at the version-verified Xcode, which may differ from the
+    # runner's xcode-select default.
+    if [[ -n "''${DEVELOPER_DIR:-}" && "''${DEVELOPER_DIR}" != /nix/* ]]; then
+      _XCODE_DEV="$DEVELOPER_DIR"
+    # Otherwise query xcode-select with DEVELOPER_DIR unset — Nix's
+    # apple-sdk hook sets it to a store path that xcode-select would echo
+    # back, and a store apple-sdk lacks the real Xcode toolchain.
+    elif DEVELOPER_DIR= /usr/bin/xcode-select -p &>/dev/null; then
       _XCODE_SELECT=$(DEVELOPER_DIR= /usr/bin/xcode-select -p)
-      # Skip Nix store paths — inside build sandboxes, xcode-select returns
-      # a Nix apple-sdk path that lacks the real Xcode toolchain.
       if [[ "$_XCODE_SELECT" != /nix/* ]]; then
         _XCODE_DEV="$_XCODE_SELECT"
       fi

@@ -46,5 +46,25 @@
       });
     }
   )
-
+  # Content-address the iOS SDK extracted from Xcode (from-scratch
+  # apple-sdk path only; no-op for useiOSPrebuilt). The SDK output is
+  # keyed on its contents, not on darwin.xcode's store hash — Apple
+  # ships minor Xcode bundle revisions whose .xip hash drifts while the
+  # embedded iPhoneOS.sdk stays byte-identical. Without CA every such
+  # drift rebuilds the SDK and the entire iOS chain behind it. Requires
+  # ca-derivations on the local daemon + Darwin builders. Upstream
+  # nixpkgs keeps the derivation input-addressed by default, so this
+  # stays an overlay.
+  (
+    final: prev:
+    prev.lib.optionalAttrs prev.stdenv.hostPlatform.isiOS {
+      apple-sdk = prev.apple-sdk.overrideAttrs (old: {
+        src = old.src.overrideAttrs (_: {
+          __contentAddressed = true;
+          outputHashAlgo = "sha256";
+          outputHashMode = "recursive";
+        });
+      });
+    }
+  )
 ]

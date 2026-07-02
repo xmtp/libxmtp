@@ -29,5 +29,9 @@ rust.buildPackage (
     NIX_GIT_COMMIT_DATE = xmtp.gitCommitDate;
     pname = "xnet-cli";
     cargoExtraArgs = "-p xnet-cli";
+    # Record the dynamic-openssl rpath so the binary runs outside a dev shell.
+    postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+      patchelf --add-rpath ${base.runtimeLibPath} $out/bin/xnet-cli
+    '';
   }
 )

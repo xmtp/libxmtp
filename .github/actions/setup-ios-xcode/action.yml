@@ -1,0 +1,54 @@
+name: Setup iOS Xcode
+description: >
+  Materialize the pinned Xcode at its /nix/store path via xmtp-cache-apple
+  (Apple's license forbids serving Xcode from a binary cache). Single source
+  of truth for the Xcode version and store path used by the iOS workflows —
+  keep in sync with xcodeVer in nix/ios-packages.nix.
+
+runs:
+  using: composite
+  steps:
+    # The local bundle is only needed for the cold-cache bootstrap import;
+    # warm runs restore a NAR and never touch it. A runner with no local
+    # Xcode still works warm — and on a cold cache it fails in the
+    # bootstrap step with a clear missing-bundle cause (nothing can
+    # conjure Xcode there anyway).
+    - name: Resolve Xcode bundle path
+      id: xcode-path
+      shell: bash
+      run: |
+        p=""
+        for c in /Applications/Xcode_26.3*.app /Applications/Xcode-26.3*.app /Applications/Xcode.app; do
+          [ -d "$c" ] || continue
+          v=$(defaults read "$c/Contents/version" CFBundleShortVersionString 2>/dev/null || true)
+          case "$v" in 26.3|26.3.*) p="$c"; break ;; esac
+        done
+        if [ -z "$p" ]; then
+          echo "::warning::No local Xcode 26.3 bundle found; OK on a warm cache, the cold-cache bootstrap will fail."
+          p=/Applications/Xcode_26.3.app
+        fi
+        echo "path=$p" >> "$GITHUB_OUTPUT"
+        # requireFile fixed-output path: moves only if the pinned sha256 for
+        # xcode_26_3 changes, never with nixpkgs/flake.lock bumps.
+        echo "nix-path=/nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app" >> "$GITHUB_OUTPUT"
+    # On a NAR-cache miss the action imports the runner bundle, which is a
+    # pruned image that never hashes to the pin — its export step then fails.
+    # Tolerate that: builds substitute from xmtp.cachix and swift steps use
+    # the runner bundle via the DEVELOPER_DIR fallback below.
+    - uses: xmtplabs/xmtp-cache-apple@v1.0.3
+      continue-on-error: true
+      with:
+        xcode-path: ${{ steps.xcode-path.outputs.path }}
+        xcode-nix-path: ${{ steps.xcode-path.outputs.nix-path }}
+    # Point non-nix tool invocations (raw xcodebuild/swift steps) at the
+    # pinned store Xcode when it materialized, else at the version-verified
+    # runner bundle — runner images are pruned and never hash to the pin.
+    - name: Export DEVELOPER_DIR
+      shell: bash
+      run: |
+        dev="${{ steps.xcode-path.outputs.nix-path }}"
+        if ! nix path-info "$dev" >/dev/null 2>&1; then
+          echo "::warning::Pinned Xcode not in the store (expected on a cold NAR cache); swift steps use the runner bundle."
+          dev="${{ steps.xcode-path.outputs.path }}"
+        fi
+        echo "DEVELOPER_DIR=$dev/Contents/Developer" >> "$GITHUB_ENV"
