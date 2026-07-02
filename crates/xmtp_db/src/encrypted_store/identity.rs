@@ -52,8 +52,9 @@ pub trait QueryIdentity {
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError>;
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
-    /// The identity's absolute rotation deadline (`next_key_package_rotation_ns`),
-    /// or `None` if NULL or if no identity row exists yet (both mean "due now").
+    /// The identity's absolute rotation deadline (`next_key_package_rotation_ns`).
+    /// `None` if NULL or if no identity row exists yet (indistinguishable to callers;
+    /// treat as "no scheduled deadline").
     fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
 }
 

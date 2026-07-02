@@ -1079,7 +1079,7 @@ where
         self.identity()
             .queue_key_rotation(&self.context.db())
             .await?;
-
+        crate::worker::key_package_maintenance::nudge_rotation(&self.context)?;
         Ok(())
     }
 
