@@ -135,14 +135,8 @@ async fn test_proposals_enabled_default_false() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let proposals_enabled = alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&mls_group))
-        })
-        .await?;
-
     assert!(
-        !proposals_enabled,
+        !alix_group.is_proposals_enabled()?,
         "Proposals should not be enabled by default"
     );
 }
@@ -181,6 +175,7 @@ async fn test_e2e_propose_add_member_flow() {
     alix_group
         .enable_proposals(EnableProposalsOptions::test_default())
         .await?;
+    assert!(alix_group.is_proposals_enabled()?);
     bo_group.sync().await?;
 
     // 2. Alix proposes to add caro

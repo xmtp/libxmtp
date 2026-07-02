@@ -691,6 +691,16 @@ impl Conversation {
       .map_err(ErrorWrapper::js)
   }
 
+  /// Whether this group has migrated to AppData-proposal-based
+  /// metadata updates (the `AppDataDictionary` group-context
+  /// extension is present). `false` means the group is still on
+  /// the legacy GroupContextExtensions path.
+  #[wasm_bindgen(js_name = proposalsEnabled)]
+  pub fn proposals_enabled(&self) -> Result<bool, JsError> {
+    let group = self.to_mls_group();
+    group.is_proposals_enabled().map_err(ErrorWrapper::js)
+  }
+
   #[wasm_bindgen(js_name = groupName)]
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();

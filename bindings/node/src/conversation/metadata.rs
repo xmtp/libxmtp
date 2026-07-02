@@ -97,6 +97,17 @@ impl Conversation {
       .map_err(|e| ErrorWrapper::from(e).into())
   }
 
+  /// Whether this group has migrated to AppData-proposal-based
+  /// metadata updates (the `AppDataDictionary` group-context
+  /// extension is present). `false` means the group is still on
+  /// the legacy GroupContextExtensions path.
+  #[napi]
+  #[xmtp_common::err_span]
+  pub fn proposals_enabled(&self) -> Result<bool> {
+    let group = self.create_mls_group();
+    Ok(group.is_proposals_enabled().map_err(ErrorWrapper::from)?)
+  }
+
   #[napi]
   #[xmtp_common::err_span]
   pub fn group_description(&self) -> Result<String> {

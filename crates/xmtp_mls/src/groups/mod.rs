@@ -799,6 +799,15 @@ where
         check_proposals_enabled(mls_group.extensions())
     }
 
+    /// Like [`Self::proposals_enabled`], but loads the group from storage
+    /// instead of taking a caller-held `OpenMlsGroup`. The convenience
+    /// shape bindings need for a plain "is this group migrated?" read.
+    pub fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+            Ok(self.proposals_enabled(&mls_group))
+        })
+    }
+
     /// Enable proposals on this group (proposal-by-reference flow).
     ///
     /// Runs the bootstrap commit that migrates the group's state out
