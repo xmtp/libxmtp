@@ -10,6 +10,10 @@ default-filter = "not (test(test_stream_all_messages_does_not_lose_messages)|tes
 failure-output = "immediate-final"
 fail-fast = false
 
+# consumed by .github/workflows/ignored-tests-tracker.yml
+[profile.ci.junit]
+path = "junit.xml"
+
 [[profile.ci.overrides]]
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
 slow-timeout = "1m"
@@ -29,6 +33,10 @@ default-filter = "not (test(/\\w*commit_log*/))"
 # inherits = "ci" not supported until latest nextest release
 failure-output = "never"
 fail-fast = false
+
+# consumed by .github/workflows/ignored-tests-tracker.yml
+[profile.ci-d14n.junit]
+path = "junit.xml"
 
 [[profile.ci-d14n.overrides]]
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
