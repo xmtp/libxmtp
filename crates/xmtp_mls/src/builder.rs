@@ -338,7 +338,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             for kind in [
                 crate::worker::WorkerKind::DeviceSync,
                 crate::worker::WorkerKind::DisappearingMessages,
-                crate::worker::WorkerKind::KeyPackageCleaner,
                 crate::worker::WorkerKind::CommitLog,
                 crate::worker::WorkerKind::TaskRunner,
             ] {

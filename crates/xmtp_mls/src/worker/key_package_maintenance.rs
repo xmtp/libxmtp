@@ -75,7 +75,7 @@ pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
 pub(crate) fn sweep_expired<Context: XmtpSharedContext + 'static>(
     context: &Context,
 ) -> Result<(), KeyPackagesCleanerError> {
-    let mut cleaner = KeyPackagesCleanerWorker::new(context.clone());
+    let cleaner = KeyPackagesCleanerWorker::new(context.clone());
     cleaner.delete_expired_key_packages()
 }
 

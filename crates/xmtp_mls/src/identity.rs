@@ -709,7 +709,7 @@ impl Identity {
         conn: &impl DbQuery,
     ) -> Result<(), IdentityError> {
         conn.queue_key_package_rotation()?;
-        tracing::info!("Last key package not ready for rotation, queued for rotation");
+        tracing::debug!("key package rotation queued (<=5s debounce)");
         Ok(())
     }
 
