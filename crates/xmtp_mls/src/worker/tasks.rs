@@ -61,6 +61,10 @@ pub enum TaskWorkerError {
     MissingMetrics,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    #[error("identity error: {0}")]
+    Identity(#[from] crate::identity::IdentityError),
+    #[error("key package maintenance error: {0}")]
+    KeyPackageMaintenance(#[from] crate::worker::key_package_cleaner::KeyPackagesCleanerError),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
@@ -79,6 +83,8 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::ReceiverLocked => false,
             TaskWorkerError::MissingMetrics => false,
             TaskWorkerError::Conversion(_) => false,
+            TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
+            TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
         }
     }
 }
@@ -129,11 +135,7 @@ impl TaskWorkerChannels {
 
 /// Durably enqueue a `PullInDeadline` for `target_data_hash`, then wake the loop.
 /// Row is committed before the wake; duplicates coalesce on data_hash. Lifetime is
-/// bounded by `expires_at_ns` alone (pass `i64::MAX` for delivery-critical nudges).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "KP-consumer plan adds production callers")
-)]
+/// bounded by `expires_at_ns` alone (pass `NEVER_EXPIRES` for critical nudges).
 pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
     context: &Context,
     target_data_hash: Vec<u8>,

@@ -157,7 +157,7 @@ where
     }
 
     /// Delete all the expired keys
-    fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
+    pub(crate) fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let conn = self.context.db();
 
         // Propagate (don't swallow): a swallowed fetch error never triggered the supervisor's
