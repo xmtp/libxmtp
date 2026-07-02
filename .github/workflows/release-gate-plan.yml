@@ -30,7 +30,7 @@ jobs:
       sha: ${{ steps.sha.outputs.sha }}
       gate-skip: ${{ steps.gate.outputs.gate-skip }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
@@ -78,7 +78,7 @@ jobs:
       # legitimate "nothing to release" nightly that downstream jobs skip.
       nothing-pending: ${{ steps.pending.outputs.nothing-pending }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
