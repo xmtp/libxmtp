@@ -111,8 +111,8 @@ in
           src = inputs.nixpkgs;
           patches = [
             (hostPkgs.fetchpatch2 {
-              url = "https://github.com/NixOS/nixpkgs/compare/2f51ad37d9416828be4be7f48e7617b01cdf0641...insipx:nixpkgs:4f8f394b62476598617a085acda285902d5998ce.patch";
-              hash = "sha256-QzRz77CLCzm+xKAezYctSL7hHQF2IBKt6iqMOD2avg8=";
+              url = "https://github.com/NixOS/nixpkgs/compare/af9204149566f50f1c12f1b9522b1d606a404f0c...insipx:nixpkgs:e550a4f3a5e0fa9c1c7b06519a5369873b90b4e4.patch";
+              hash = "sha256-qkT2/kVBr9I+WeMSJ4l6aiDmrA/mz/+8snW5bCbc76Y=";
             })
           ];
         };
