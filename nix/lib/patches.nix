@@ -8,45 +8,6 @@
       };
     }
   )
-  # atf 0.23's configure.ac uses AC_RUN_IFELSE for three probes that
-  # cannot execute a compiled test binary during cross-compilation,
-  # aborting with:
-  #   "configure: error: cannot run test program while cross compiling"
-  #
-  # This breaks the aarch64-apple-darwin cross-build chain:
-  #   atf → libiconv → apple-sdk-14.4 → bindings-node-js-napi-*
-  # See https://github.com/xmtp/libxmtp/issues/3470
-  # and https://github.com/xmtp/libxmtp/issues/3476.
-  #
-  # The three AC_RUN_IFELSE cache variables and their justifications:
-  #
-  #   kyua_cv_getopt_plus (m4/module-application.m4)
-  #     Tests whether getopt(3) accepts a leading '+' for POSIX
-  #     behavior. All target platforms (Darwin, glibc, musl) honour '+'.
-  #
-  #   kyua_cv_attribute_noreturn (m4/module-defs.m4)
-  #     Tests whether __attribute__((__noreturn__)) is supported by
-  #     checking GCC version >= 2.5. All modern GCC/Clang satisfy this.
-  #
-  #   kyua_cv_getcwd_works (m4/module-fs.m4)
-  #     Tests whether getcwd(NULL, 0) dynamically allocates. Both
-  #     Darwin and Linux (glibc and musl) support this.
-  #
-  # Pre-seeding all three is safe for every target in this flake.
-  # Gated on cross-compilation so native builds keep pulling from
-  # cache.nixos.org unchanged.
-  (
-    final: prev:
-    prev.lib.optionalAttrs (prev.stdenv.buildPlatform != prev.stdenv.hostPlatform) {
-      atf = prev.atf.overrideAttrs (old: {
-        configureFlags = (old.configureFlags or [ ]) ++ [
-          "kyua_cv_getopt_plus=yes"
-          "kyua_cv_attribute_noreturn=yes"
-          "kyua_cv_getcwd_works=yes"
-        ];
-      });
-    }
-  )
   # tcl 8.6.16 (pinned via nixpkgs 09061f74...) has multiple
   # cross-compile bugs when targeting *-unknown-linux-musl, and the
   # Hydra build farm only caches the x86_64-linux build host (not

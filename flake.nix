@@ -22,7 +22,7 @@
       url = "github:ipetkov/crane";
     };
     rust-manifest = {
-      url = "https://static.rust-lang.org/dist/channel-rust-1.95.0.toml";
+      url = "https://static.rust-lang.org/dist/channel-rust-1.96.1.toml";
       flake = false;
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
