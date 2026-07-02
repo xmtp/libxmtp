@@ -81,7 +81,6 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext + 'static>(
 
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to
 /// the live DB columns, repairing rows stranded by a crash mid-nudge.
-#[expect(dead_code, reason = "wired by builder seeding (Task 5)")]
 pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
@@ -89,8 +88,11 @@ pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
     let now = xmtp_common::time::now_ns();
     db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
     db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
-    let rot = db.next_key_package_rotation_ns()?.unwrap_or(now); // NULL = due now
-    enqueue_pull_in(context, kp_rotation_hash(), rot, NEVER_EXPIRES)?;
+    // None = pre-registration (no identity row): the seed row already fires at
+    // startup; a pull-in to `now` would be redundant noise.
+    if let Some(rot) = db.next_key_package_rotation_ns()? {
+        enqueue_pull_in(context, kp_rotation_hash(), rot, NEVER_EXPIRES)?;
+    }
     if let Some(del) = db.min_key_package_delete_at_ns()? {
         enqueue_pull_in(context, kp_deletion_hash(), del, NEVER_EXPIRES)?;
     }
@@ -122,9 +124,6 @@ mod tests {
     fn no_runner_cfg() -> WorkerConfig {
         let mut cfg = WorkerConfig::default();
         cfg.enabled.insert(WorkerKind::TaskRunner, false);
-        // Disable the KP cleaner so it does not race with the manually-driven
-        // task handler and rotate the key package before our arm runs.
-        cfg.enabled.insert(WorkerKind::KeyPackageCleaner, false);
         cfg
     }
 
@@ -234,6 +233,73 @@ mod tests {
         assert!(
             after.next_attempt_at_ns > xmtp_common::time::now_ns(),
             "deletion reschedules to next pending deadline or far-future"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn kp_tasks_seeded_when_workers_run_absent_when_passive() {
+        tester!(alix); // default: TaskRunner on -> seeds present
+        let db = alix.context.db();
+        assert!(row_by_hash(&db, &kp_rotation_hash()).is_some());
+        assert!(row_by_hash(&db, &kp_deletion_hash()).is_some());
+
+        tester!(bo, worker_config: no_runner_cfg()); // no TaskRunner -> no seeds
+        let db = bo.context.db();
+        assert!(row_by_hash(&db, &kp_rotation_hash()).is_none());
+        assert!(row_by_hash(&db, &kp_deletion_hash()).is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn startup_reconcile_pulls_in_far_scheduled_row() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        // Stale persisted row 30d out while the column says due-in-5s
+        // (crash-between-writes scenario).
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        let row = row_by_hash(&db, &kp_rotation_hash()).unwrap();
+        db.update_task(row.id, 0, now, now + 30 * xmtp_common::NS_IN_DAY)?;
+        db.queue_key_package_rotation()?; // column := now + 5s
+
+        seed_and_reconcile_kp_tasks(&alix.context)?;
+
+        let pull_in = db
+            .get_tasks()?
+            .into_iter()
+            .find(|t| {
+                matches!(
+                    TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+                    Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_rotation_hash()
+                )
+            })
+            .expect("reconcile must enqueue a rotation pull-in");
+        TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
+
+        let after = row_by_hash(&db, &kp_rotation_hash()).unwrap();
+        let col = db.next_key_package_rotation_ns()?.unwrap();
+        assert_eq!(after.next_attempt_at_ns, col);
+    }
+
+    /// KpRotation firing while NOT due must not rotate or seed deletion — it just
+    /// re-syncs its deadline to the column (spurious-wake safety).
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rotation_task_not_due_reschedules_without_rotating() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        // Post-registration column is ~now+30d: not due.
+        let row = row_by_hash(&db, &kp_rotation_hash()).unwrap();
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+
+        assert!(
+            row_by_hash(&db, &kp_deletion_hash()).is_none(),
+            "must not seed deletion"
+        );
+        let after = row_by_hash(&db, &kp_rotation_hash()).unwrap();
+        assert_eq!(
+            after.next_attempt_at_ns,
+            db.next_key_package_rotation_ns()?.unwrap()
         );
     }
 }
