@@ -392,6 +392,16 @@ where
                     .db()
                     .pull_in_task_deadline(&p.target_data_hash, p.not_later_than_ns)?;
             }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_))
+            | Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
+                // Minimal arms: real handlers land with the KP-consumer impl.
+                // Nothing seeds these singletons yet, so dropping is safe.
+                tracing::warn!(
+                    "KP task {} received before handler landed; dropping",
+                    task.id
+                );
+                context.db().delete_task(task.id)?;
+            }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
                 context.db().delete_task(task.id)?;
