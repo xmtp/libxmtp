@@ -728,6 +728,10 @@ mock! {
     impl QueryTasks for DbQuery {
         fn create_task(&self, task: crate::tasks::NewTask) -> Result<crate::tasks::Task, StorageError>;
 
+        fn create_or_ignore_task(&self, task: crate::tasks::NewTask) -> Result<(), StorageError>;
+
+        fn pull_in_task_deadline(&self, target_data_hash: &[u8], at_ns: i64) -> Result<(), StorageError>;
+
         fn get_tasks(&self) -> Result<Vec<crate::tasks::Task>, StorageError>;
 
         fn get_next_task(&self) -> Result<Option<crate::tasks::Task>, StorageError>;
