@@ -35,7 +35,7 @@ runs:
         # xcode_26_3 changes, never with nixpkgs/flake.lock bumps.
         xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
     # Point non-nix tool invocations (raw xcodebuild/swift steps) at the
-    # pinned Xcode too; nix builds get this via the xcode-tools setup hook.
+    # pinned Xcode; nix builds resolve it through the flake instead.
     - name: Export DEVELOPER_DIR
       shell: bash
       run: echo "DEVELOPER_DIR=/nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app/Contents/Developer" >> "$GITHUB_ENV"

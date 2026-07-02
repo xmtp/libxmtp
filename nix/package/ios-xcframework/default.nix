@@ -1,20 +1,21 @@
 # iOS xcframework assembly — static, dynamic, release, and dev outputs.
 #
-# Hermetic: no __noChroot. mk-static and mk-dynamic depend on xcode-tools
-# (Xcode + cctools + rcodesign); xcode-tools is passed in via callPackage from
-# ios-packages.nix using a cross-pkgs whose system config sets xcodeVer.
+# Hermetic: the xcframework bundle is assembled by hand (one directory per
+# slice plus an Info.plist manifest) instead of via
+# `xcodebuild -create-xcframework`, which dlopens host Xcode first-launch
+# frameworks and so can't run inside the build sandbox. Only cctools
+# (lipo/install_name_tool/otool) and rcodesign are needed — no Xcode.
 # See docs/specs/2026-05-06-ios-xcframework-redesign.md.
 {
   lib,
   pkgs,
   callPackage,
-  xcode-tools,
 }:
 let
   helpers = callPackage ./helpers.nix { };
-  # Inject xcode-tools and helpers into the callPackage scope so each mk-*.nix
-  # can request them by name without explicit `inherit` plumbing at every call.
-  callPackage' = lib.callPackageWith (pkgs // { inherit xcode-tools helpers; });
+  # Inject helpers into the callPackage scope so each mk-*.nix can request
+  # it by name without explicit `inherit` plumbing at every call.
+  callPackage' = lib.callPackageWith (pkgs // { inherit helpers; });
 in
 {
   mkStatic = callPackage' ./mk-static.nix { };

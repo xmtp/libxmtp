@@ -1,7 +1,8 @@
 {
   lib,
   stdenv,
-  xcode-tools,
+  cctools,
+  rcodesign,
   helpers,
 }:
 {
@@ -22,17 +23,61 @@ let
     expectedSlices
     ;
   headerDir = "${swiftBindings}/swift/include/libxmtp";
+
+  slices =
+    lib.optional (deviceAbis != [ ]) (
+      helpers.mkSlice {
+        platform = "ios";
+        abis = deviceAbis;
+      }
+      // {
+        srcFw = "$TMPDIR/fw_ios/xmtpv3FFI.framework";
+      }
+    )
+    ++ lib.optional (simAbis != [ ]) (
+      helpers.mkSlice {
+        platform = "ios";
+        abis = simAbis;
+        variant = "simulator";
+      }
+      // {
+        srcFw = "$TMPDIR/fw_sim/xmtpv3FFI.framework";
+      }
+    )
+    ++ lib.optional (macAbis != [ ]) (
+      helpers.mkSlice {
+        platform = "macos";
+        abis = macAbis;
+      }
+      // {
+        srcFw = "$TMPDIR/fw_mac/xmtpv3FFI.framework";
+      }
+    );
+
+  infoPlist = helpers.mkXCFrameworkPlist (
+    map (
+      s:
+      s
+      // {
+        libraryPath = "xmtpv3FFI.framework";
+        binaryPath =
+          if s.platform == "macos" then
+            "xmtpv3FFI.framework/Versions/A/xmtpv3FFI"
+          else
+            "xmtpv3FFI.framework/xmtpv3FFI";
+      }
+    ) slices
+  );
 in
 stdenv.mkDerivation {
   pname = "xmtpv3-dynamic-xcframework";
   inherit version;
   dontUnpack = true;
   dontFixup = true;
-  nativeBuildInputs = [ xcode-tools ];
-  # xcodebuild dlopens plugins linked against /Library/Developer
-  # PrivateFrameworks (installed by Xcode's first-launch on the builder);
-  # bind just that path into the sandbox instead of going __noChroot.
-  __impureHostDeps = [ "/Library/Developer/PrivateFrameworks" ];
+  nativeBuildInputs = [
+    cctools
+    rcodesign
+  ];
   installPhase = ''
     set -euo pipefail
     echo "=== Building dynamic xcframework ==="
@@ -76,25 +121,21 @@ stdenv.mkDerivation {
       }
     )}
 
-    XCF_ARGS=""
-    ${lib.optionalString (deviceAbis != [ ]) ''
-      XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_ios/xmtpv3FFI.framework"
-    ''}
-    ${lib.optionalString (simAbis != [ ]) ''
-      XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_sim/xmtpv3FFI.framework"
-    ''}
-    ${lib.optionalString (macAbis != [ ]) ''
-      XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_mac/xmtpv3FFI.framework"
-    ''}
-
-    mkdir -p $out
-    xcodebuild -create-xcframework \
-      $XCF_ARGS \
-      -output $out/LibXMTPSwiftFFIDynamic.xcframework
+    # Assembled by hand: an xcframework is one directory per slice plus a
+    # manifest. `xcodebuild -create-xcframework` does the same job but
+    # dlopens host Xcode first-launch frameworks, which can't be sandboxed.
+    # cp -R (not -rL) so the macOS bundle's Versions/ symlinks survive.
+    XCF=$out/LibXMTPSwiftFFIDynamic.xcframework
+    ${lib.concatMapStrings (s: ''
+      mkdir -p $XCF/${s.id}
+      cp -R ${s.srcFw} $XCF/${s.id}/
+    '') slices}
+    cp ${infoPlist} $XCF/Info.plist
 
     echo "Validating dynamic xcframework..."
+    test -f $XCF/Info.plist || { echo "FAIL: Missing xcframework Info.plist"; exit 1; }
     FOUND=0
-    for fw in $out/LibXMTPSwiftFFIDynamic.xcframework/*/xmtpv3FFI.framework; do
+    for fw in $XCF/*/xmtpv3FFI.framework; do
       test -d "$fw" || continue
       FOUND=$((FOUND + 1))
       # macOS slices use the versioned bundle layout (Versions/A + symlinks,

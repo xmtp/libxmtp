@@ -18,6 +18,54 @@ rec {
       ];
     };
 
+  # Map an ABI key to its Mach-O architecture name.
+  abiArch = abi: if lib.hasPrefix "x86_64" abi then "x86_64" else "arm64";
+
+  # Slice metadata mirroring xcodebuild's LibraryIdentifier convention:
+  # <platform>-<arch>[_<arch>…][-<variant>], archs sorted alphabetically.
+  mkSlice =
+    {
+      platform,
+      abis,
+      variant ? null,
+    }:
+    let
+      archs = lib.naturalSort (lib.unique (map abiArch abis));
+    in
+    {
+      inherit platform variant archs;
+      id = lib.concatStringsSep "-" (
+        [
+          platform
+          (lib.concatStringsSep "_" archs)
+        ]
+        ++ lib.optional (variant != null) variant
+      );
+    };
+
+  # Top-level xcframework manifest — the only thing
+  # `xcodebuild -create-xcframework` adds beyond copying slices into place.
+  mkXCFrameworkPlist =
+    slices:
+    writeText "xcframework-Info.plist" (
+      lib.generators.toPlist { escape = true; } {
+        AvailableLibraries = map (
+          s:
+          {
+            BinaryPath = s.binaryPath;
+            LibraryIdentifier = s.id;
+            LibraryPath = s.libraryPath;
+            SupportedArchitectures = s.archs;
+            SupportedPlatform = s.platform;
+          }
+          // lib.optionalAttrs (s ? headersPath) { HeadersPath = s.headersPath; }
+          // lib.optionalAttrs (s.variant != null) { SupportedPlatformVariant = s.variant; }
+        ) slices;
+        CFBundlePackageType = "XFWK";
+        XCFrameworkFormatVersion = "1.0";
+      }
+    );
+
   # Lipo a list of per-ABI artifacts (.a or .dylib) into a single fat binary.
   # Emits empty shell when group is empty.
   mkLipoSnippet =
@@ -58,10 +106,10 @@ rec {
       )
     );
 
-  # Wrap a (possibly lipo'd) dylib in a .framework bundle for
-  # xcodebuild -create-xcframework -framework <fw>. iOS frameworks are
-  # flat; macOS frameworks require the versioned Versions/A layout with
-  # top-level symlinks and Info.plist under Resources/.
+  # Wrap a (possibly lipo'd) dylib in a .framework bundle, one per
+  # xcframework slice. iOS frameworks are flat; macOS frameworks require
+  # the versioned Versions/A layout with top-level symlinks and
+  # Info.plist under Resources/.
   mkFrameworkBundle =
     {
       name,

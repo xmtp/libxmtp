@@ -64,14 +64,9 @@
         else
           throw "Unsupported host architecture for ios-libs-fast";
 
-      # xcframework derivations are host-side packaging tools — call them
-      # through NATIVE pkgs (substitutable stdenv) and resolve Xcode
-      # explicitly. A cross pkgset with xcodeVer would rebuild its whole
-      # bootstrap from source just to run lipo/xcodebuild.
-      xcode-tools = pkgs.callPackage ./lib/packages/xcode-tools.nix {
-        inherit (iosCommon) xcodeVer;
-      };
-      xcframework = pkgs.callPackage ./package/ios-xcframework { inherit xcode-tools; };
+      # xcframework derivations are host-side packaging (lipo/plist/sign) —
+      # call them through NATIVE pkgs so their stdenv stays substitutable.
+      xcframework = pkgs.callPackage ./package/ios-xcframework { };
 
       allAbis = lib.attrNames iosDylibs;
       fastAbis = [
