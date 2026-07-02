@@ -7,6 +7,7 @@
   lib,
   mkShell,
   foundry-bin,
+  just,
   sqlcipher,
   corepack,
   xmtp,
@@ -41,6 +42,8 @@ mkShell {
     ++ [
       rust-toolchain
       foundry-bin
+      # .envrc auto-loads this shell, so the repo's `just` workflow must resolve here
+      just
       sqlcipher
       corepack
     ]
