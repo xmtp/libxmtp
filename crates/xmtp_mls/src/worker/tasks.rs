@@ -385,9 +385,8 @@ where
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(p)) => {
                 // Runs on the worker thread — the sole rescheduler of existing
-                // rows' deadlines — so no transaction is needed (inserts happen
-                // off-thread; the precise invariant is over `next_attempt_at_ns`
-                // mutation; see the recurrence design).
+                // rows' `next_attempt_at_ns` — so no transaction is needed
+                // (inserts happen off-thread; only deadline mutation is guarded).
                 context
                     .db()
                     .pull_in_task_deadline(&p.target_data_hash, p.not_later_than_ns)?;
