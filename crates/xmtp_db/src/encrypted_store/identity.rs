@@ -53,9 +53,7 @@ pub trait QueryIdentity {
     ) -> Result<(), StorageError>;
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
     /// The identity's absolute rotation deadline (`next_key_package_rotation_ns`),
-    /// or `None` if NULL (NULL means "rotation due now" — same convention as
-    /// `is_identity_needs_rotation`). Errors (NotFound) if no identity row exists
-    /// yet; consumers run post-registration, where the row is guaranteed.
+    /// or `None` if NULL or if no identity row exists yet (both mean "due now").
     fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
 }
 
@@ -122,26 +120,32 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         use crate::schema::identity::dsl;
 
-        let next_rotation_opt: Option<i64> = self.raw_query(|conn| {
+        let next_rotation_opt: Option<Option<i64>> = self.raw_query(|conn| {
             dsl::identity
                 .select(dsl::next_key_package_rotation_ns)
                 .first::<Option<i64>>(conn)
+                .optional()
         })?;
 
         Ok(match next_rotation_opt {
-            Some(rotate_at) => now_ns() >= rotate_at,
-            None => true,
+            // No identity row (pre-registration): nothing to rotate yet.
+            None => false,
+            // NULL column on an existing row: rotation is due now.
+            Some(None) => true,
+            Some(Some(rotate_at)) => now_ns() >= rotate_at,
         })
     }
 
     fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
         use crate::schema::identity::dsl;
-        let v: Option<i64> = self.raw_query(|conn| {
+        // Use optional() so an empty table (pre-registration) returns Ok(None).
+        let v: Option<Option<i64>> = self.raw_query(|conn| {
             dsl::identity
                 .select(dsl::next_key_package_rotation_ns)
                 .first::<Option<i64>>(conn)
+                .optional()
         })?;
-        Ok(v)
+        Ok(v.flatten())
     }
 }
 

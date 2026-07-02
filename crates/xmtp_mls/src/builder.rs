@@ -7,10 +7,7 @@ use crate::{
     mutex_registry::MutexRegistry,
     utils::{VersionInfo, cleanup_duplicate_updates},
     worker::{WorkerRunner, tasks::TaskWorker},
-    worker::{
-        device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
-        key_package_cleaner::KeyPackagesCleanerWorker,
-    },
+    worker::{device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker},
 };
 use futures::FutureExt;
 use std::sync::Arc;
@@ -402,12 +399,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     context.clone(),
                 );
             }
-            if enabled(WorkerKind::KeyPackageCleaner) {
-                workers
-                    .register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
-                        context.clone(),
-                    );
-            }
             if enabled(WorkerKind::DisappearingMessages) {
                 workers
                     .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
@@ -428,6 +419,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
+                // KP maintenance is a critical MLS function: always on when the
+                // TaskRunner runs (disable_workers disables both, coherently).
+                crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)?;
                 // One-time backfill: pending self-removes recorded before the
                 // worker became event-driven have no LeaveRequest to re-fire, so
                 // seed a ProcessPendingSelfRemove task for each already-flagged
@@ -776,7 +770,7 @@ mod worker_registration_tests {
             "disabled worker must not be registered, got {kinds:?}"
         );
         assert!(
-            kinds.contains(&WorkerKind::KeyPackageCleaner),
+            kinds.contains(&WorkerKind::TaskRunner),
             "un-disabled worker must still be registered, got {kinds:?}"
         );
     }
