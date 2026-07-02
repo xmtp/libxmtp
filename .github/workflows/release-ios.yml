@@ -40,7 +40,7 @@ jobs:
       dynamic-artifact-url: ${{ steps.release.outputs.dynamic-artifact-url }}
       dynamic-checksum: ${{ steps.checksum.outputs.dynamic-checksum }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-release-tools
@@ -122,7 +122,7 @@ jobs:
     outputs:
       version: ${{ needs.build-and-package.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0

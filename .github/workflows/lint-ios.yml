@@ -8,7 +8,7 @@ jobs:
     name: Lint (iOS)
     runs-on: warp-macos-15-arm64-6x
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}

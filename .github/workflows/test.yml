@@ -28,7 +28,7 @@ jobs:
       xdbg: ${{ steps.filter.outputs.xdbg }}
       keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:

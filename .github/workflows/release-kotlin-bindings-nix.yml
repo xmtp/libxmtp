@@ -23,7 +23,7 @@ jobs:
             output_target: arm64-v8a
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -49,7 +49,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
@@ -62,7 +62,7 @@ jobs:
         id: slug
         run: echo "sha7=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
       - name: Create release and upload asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ./bindings/mobile/LibXMTPKotlinFFI.zip
           tag_name: kotlin-bindings-${{ steps.slug.outputs.sha7 }}
