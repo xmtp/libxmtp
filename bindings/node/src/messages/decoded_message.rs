@@ -36,6 +36,7 @@ impl DecodedMessage {
   }
 
   #[napi(getter)]
+  #[xmtp_common::err_span]
   pub fn reactions(&self) -> Result<Vec<DecodedMessage>> {
     self
       .inner
@@ -51,6 +52,7 @@ impl DecodedMessage {
   }
 
   #[napi(getter)]
+  #[xmtp_common::err_span]
   pub fn content(&self) -> Result<DecodedMessageContent> {
     self.inner.content.clone().try_into()
   }

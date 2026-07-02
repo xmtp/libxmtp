@@ -181,9 +181,11 @@ pub enum DeviceSyncError {
     MissingField(MissingField, String),
     /// Missing payload.
     ///
-    /// Sync payload not found for PIN. Retryable.
-    #[error("Could not find payload with pin {0:?}")]
-    MissingPayload(Option<String>),
+    /// Sync payload not found for PIN. Retryable. The PIN itself is a secret
+    /// archive reference token and must never appear in the error (it is
+    /// logged on the FFI error path), only whether one was provided.
+    #[error("Could not find payload (pin provided: {0})")]
+    MissingPayload(bool),
 }
 
 #[derive(Debug)]

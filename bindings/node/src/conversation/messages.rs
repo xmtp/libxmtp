@@ -45,6 +45,7 @@ impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageO
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send(
     &self,
     encoded_content: EncodedContent,
@@ -67,6 +68,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn publish_messages(&self) -> Result<()> {
     let group = self.create_mls_group();
     group.publish_messages().await.map_err(ErrorWrapper::from)?;
@@ -74,6 +76,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn list_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
@@ -89,6 +92,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
@@ -101,6 +105,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,
@@ -116,6 +121,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn list_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
@@ -133,6 +139,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn last_read_times(&self) -> Result<HashMap<String, i64>> {
     let group = self.create_mls_group();
     let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
@@ -142,6 +149,7 @@ impl Conversation {
   /// Prepare a message for later publishing.
   /// Stores the message locally without publishing. Returns the message ID.
   #[napi]
+  #[xmtp_common::err_span]
   pub fn prepare_message(
     &self,
     encoded_content: EncodedContent,
@@ -162,6 +170,7 @@ impl Conversation {
 
   /// Publish a previously prepared message by ID.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn publish_stored_message(&self, message_id: String) -> Result<()> {
     let group = self.create_mls_group();
     let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::from)?;

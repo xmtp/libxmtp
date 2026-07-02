@@ -105,6 +105,7 @@ pub fn content_type_wallet_send_calls() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_wallet_send_calls(wallet_send_calls: WalletSendCalls) -> Result<EncodedContent> {
   let wsc = wallet_send_calls.try_into()?;
   Ok(

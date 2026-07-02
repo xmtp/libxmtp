@@ -43,6 +43,7 @@ impl SendMessageOpts {
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_text(&self, text: String, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(TextCodec::should_push(), opts);
@@ -50,6 +51,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_markdown(&self, markdown: String, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(MarkdownCodec::should_push(), opts);
@@ -57,6 +59,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_reaction(&self, reaction: Reaction, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(ReactionCodec::should_push(), opts);
@@ -64,6 +67,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_reply(&self, reply: Reply, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(ReplyCodec::should_push(), opts);
@@ -71,6 +75,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_read_receipt(&self, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = ReadReceiptCodec::encode(ReadReceipt {}).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(ReadReceiptCodec::should_push(), opts);
@@ -78,6 +83,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_attachment(
     &self,
     attachment: Attachment,
@@ -89,6 +95,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_remote_attachment(
     &self,
     remote_attachment: RemoteAttachment,
@@ -101,6 +108,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_multi_remote_attachment(
     &self,
     multi_remote_attachment: MultiRemoteAttachment,
@@ -113,6 +121,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_transaction_reference(
     &self,
     transaction_reference: TransactionReference,
@@ -125,6 +134,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_wallet_send_calls(
     &self,
     wallet_send_calls: WalletSendCalls,
@@ -137,6 +147,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_actions(&self, actions: Actions, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(ActionsCodec::should_push(), opts);
@@ -144,6 +155,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_intent(&self, intent: Intent, opts: Option<SendOpts>) -> Result<String> {
     let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::from)?;
     let opts = SendMessageOpts::from_send_opts(IntentCodec::should_push(), opts);

@@ -10,6 +10,7 @@ use xmtp_id::associations::MemberIdentifier;
 use xmtp_proto::types::ApiIdentifier;
 
 #[napi]
+#[xmtp_common::err_span]
 pub async fn get_inbox_id_by_identity(
   backend: &Backend,
   identifier: Identifier,
@@ -30,6 +31,7 @@ pub async fn get_inbox_id_by_identity(
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn generate_inbox_id(account_ident: Identifier, nonce: Option<BigInt>) -> Result<String> {
   let nonce = match nonce {
     Some(n) => {
@@ -49,6 +51,7 @@ pub fn generate_inbox_id(account_ident: Identifier, nonce: Option<BigInt>) -> Re
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub async fn is_installation_authorized(
   backend: &Backend,
   inbox_id: String,
@@ -63,6 +66,7 @@ pub async fn is_installation_authorized(
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub async fn is_address_authorized(
   backend: &Backend,
   inbox_id: String,

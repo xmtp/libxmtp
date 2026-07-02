@@ -84,6 +84,7 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 
 #[allow(dead_code)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn fetch_inbox_states_by_inbox_ids(
   backend: &Backend,
   inbox_ids: Vec<String>,

@@ -43,6 +43,7 @@ pub fn content_type_multi_remote_attachment() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_multi_remote_attachment(
   multi_remote_attachment: MultiRemoteAttachment,
 ) -> Result<EncodedContent> {

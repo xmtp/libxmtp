@@ -31,6 +31,7 @@ impl From<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
 #[napi]
 impl Conversations {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream(
     &self,
     callback: ThreadsafeFunction<Conversation, ()>,
@@ -60,6 +61,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_all_messages(
     &self,
     callback: ThreadsafeFunction<Message, ()>,
@@ -135,6 +137,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_consent(
     &self,
     callback: ThreadsafeFunction<Vec<Consent>, ()>,
@@ -170,6 +173,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_preferences(
     &self,
     callback: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ()>,
@@ -209,6 +213,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_message_deletions(
     &self,
     callback: ThreadsafeFunction<DecodedMessage, ()>,

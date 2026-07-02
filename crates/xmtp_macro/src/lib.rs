@@ -285,3 +285,30 @@ pub fn span(
 ) -> proc_macro::TokenStream {
     span_macro::span(attr, body)
 }
+
+/// Error-case-only tracing for an FFI-exported fn:
+/// `#[tracing::instrument(level = "trace", skip_all, err)]`.
+///
+/// The span is `trace`-level, so under normal filters the success path emits
+/// nothing; `err` fires an ERROR event only when the fn returns `Err`, and
+/// `skip_all` keeps arguments (keys, pins, paths) off the span.
+///
+/// Unlike [`span`], this is napi-safe: napi-rs clones every method attribute
+/// onto the `extern "C"` wrapper it generates (which returns a raw
+/// `napi_value`, not `Result`), so a bare `#[tracing::instrument(err)]` on an
+/// exported method fails to compile. This macro detects the wrapper by its
+/// `extern` ABI and passes it through untouched, instrumenting only the real
+/// method.
+///
+/// ```ignore
+/// #[napi]
+/// #[xmtp_common::err_span]
+/// pub async fn sync(&self) -> Result<()> { .. }
+/// ```
+#[proc_macro_attribute]
+pub fn err_span(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    span_macro::err_span(attr, body)
+}

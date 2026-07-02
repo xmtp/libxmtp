@@ -26,6 +26,7 @@ impl CreateDMOptions {
 #[napi]
 impl Conversations {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn create_dm_by_identity(
     &self,
     account_identity: Identifier,
@@ -44,6 +45,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn create_dm(
     &self,
     inbox_id: String,
@@ -59,6 +61,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn get_dm_by_inbox_id(&self, inbox_id: String) -> Result<Conversation> {
     let convo = self
       .inner_client

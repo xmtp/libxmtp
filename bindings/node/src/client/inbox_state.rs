@@ -9,6 +9,7 @@ use xmtp_id::InboxId;
 #[napi]
 impl Client {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn fetch_inbox_states_by_inbox_ids(
     &self,
     inbox_ids: Vec<String>,
@@ -32,6 +33,7 @@ impl Client {
    * Otherwise, the state will be read from the local database.
    */
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState> {
     let state = self
       .inner_client()
@@ -42,6 +44,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn fetch_inbox_updates_count(
     &self,
     inbox_ids: Vec<String>,
@@ -57,6 +60,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn fetch_own_inbox_updates_count(&self, refresh_from_network: bool) -> Result<u32> {
     let res = self
       .inner_client()
@@ -72,6 +76,7 @@ impl Client {
    * Returns a JavaScript Object mapping installation ID strings to KeyPackageStatus objects.
    */
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn fetch_key_package_statuses_by_installation_ids(
     &self,
     installation_ids: Vec<String>,

@@ -13,6 +13,7 @@ use xmtp_mls::{
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn update_permission_policy(
     &self,
     permission_update_type: PermissionUpdateType,

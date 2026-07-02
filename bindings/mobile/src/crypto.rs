@@ -28,6 +28,7 @@ impl From<ethereum::EthereumCryptoError> for FfiCryptoError {
 ///    Returns **65-byte uncompressed** (0x04 || X || Y)
 ///    Private key is automatically zeroized after use for security
 #[uniffi::export]
+#[xmtp_common::err_span]
 fn ethereum_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCryptoError> {
     let zeroizing_key = ethereum::zeroizing_private_key(&private_key32)?;
     let public_key = ethereum::public_key_uncompressed(zeroizing_key)?;
@@ -42,6 +43,7 @@ fn ethereum_generate_public_key(private_key32: Vec<u8>) -> Result<Vec<u8>, FfiCr
 ///    - If `hashing == false`: `msg` must be a **32-byte** prehash (e.g., keccak256/EIP-712 digest).
 ///    - Private key is automatically zeroized after signing for security
 #[uniffi::export]
+#[xmtp_common::err_span]
 fn ethereum_sign_recoverable(
     msg: Vec<u8>,
     private_key32: Vec<u8>,
@@ -55,6 +57,7 @@ fn ethereum_sign_recoverable(
 
 /// 3) Ethereum address from public key (accepts 65-byte 0x04||XY or 64-byte XY).
 #[uniffi::export]
+#[xmtp_common::err_span]
 fn ethereum_address_from_pubkey(pubkey: Vec<u8>) -> Result<String, FfiCryptoError> {
     let address = ethereum::address_from_pubkey(&pubkey)?;
     Ok(address)
@@ -62,6 +65,7 @@ fn ethereum_address_from_pubkey(pubkey: Vec<u8>) -> Result<String, FfiCryptoErro
 
 /// 4) EIP-191 personal message hash: keccak256("\x19Ethereum Signed Message:\n{len}" || message)
 #[uniffi::export]
+#[xmtp_common::err_span]
 fn ethereum_hash_personal(message: String) -> Result<Vec<u8>, FfiCryptoError> {
     Ok(ethereum::hash_personal(&message).to_vec()) // 32 bytes
 }

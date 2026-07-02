@@ -24,6 +24,7 @@ impl FfiAuthHandle {
             handle: AuthHandle::new(),
         }
     }
+    #[xmtp_common::err_span]
     pub async fn set(&self, credential: FfiCredential) -> Result<(), FfiError> {
         let credential = credential.try_into()?;
         self.handle.set(credential).await;

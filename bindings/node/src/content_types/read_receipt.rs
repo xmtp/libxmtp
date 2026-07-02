@@ -26,6 +26,7 @@ pub fn content_type_read_receipt() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_read_receipt(read_receipt: ReadReceipt) -> Result<EncodedContent> {
   Ok(
     ReadReceiptCodec::encode(read_receipt.into())

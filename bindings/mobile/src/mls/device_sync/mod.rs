@@ -15,6 +15,7 @@ use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelect
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     /// Manually trigger a device sync request to sync records from another active device on this account.
+    #[xmtp_common::err_span]
     pub async fn send_sync_request(
         &self,
         options: FfiArchiveOptions,
@@ -29,6 +30,7 @@ impl FfiXmtpClient {
 
     /// Manually send a sync archive to the sync group.
     /// The pin will be later used as a reference when importing.
+    #[xmtp_common::err_span]
     pub async fn send_sync_archive(
         &self,
         options: FfiArchiveOptions,
@@ -44,6 +46,7 @@ impl FfiXmtpClient {
 
     /// Manually process a sync archive that matches the pin given.
     /// If no pin is given, then it will process the last archive sent.
+    #[xmtp_common::err_span]
     pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
@@ -55,6 +58,7 @@ impl FfiXmtpClient {
     /// List the archives available for import in the sync group.
     /// You may need to manually sync the sync group before calling
     /// this function to see recently uploaded archives.
+    #[xmtp_common::err_span]
     pub fn list_available_archives(
         &self,
         days_cutoff: i64,
@@ -68,6 +72,7 @@ impl FfiXmtpClient {
     }
 
     /// Archive application elements to file for later restoration.
+    #[xmtp_common::err_span]
     pub async fn create_archive(
         &self,
         path: String,
@@ -84,6 +89,7 @@ impl FfiXmtpClient {
     }
 
     /// Import a previous archive from file.
+    #[xmtp_common::err_span]
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), FfiError> {
         let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await
@@ -95,6 +101,7 @@ impl FfiXmtpClient {
 
     /// Load the metadata for an archive to see what it contains.
     /// Reads only the metadata without loading the entire file, so this function is quick.
+    #[xmtp_common::err_span]
     pub async fn archive_metadata(
         &self,
         path: String,
@@ -107,6 +114,7 @@ impl FfiXmtpClient {
     }
 
     /// Manually sync all device sync groups.
+    #[xmtp_common::err_span]
     pub async fn sync_all_device_sync_groups(&self) -> Result<FfiGroupSyncSummary, FfiError> {
         self.inner_client.sync_welcomes().await?;
         let summary = self.inner_client.sync_all_device_sync_groups().await?;

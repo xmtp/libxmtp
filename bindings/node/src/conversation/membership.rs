@@ -71,6 +71,7 @@ impl GroupMember {
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn list_members(&self) -> Result<Vec<GroupMember>> {
     let group = self.create_mls_group();
 
@@ -104,6 +105,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn membership_state(&self) -> Result<GroupMembershipState> {
     let group = self.create_mls_group();
     let state = group.membership_state().map_err(ErrorWrapper::from)?;
@@ -111,6 +113,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn list_admins(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
@@ -120,6 +123,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn list_super_admins(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
@@ -129,18 +133,21 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn is_admin(&self, inbox_id: String) -> Result<bool> {
     let admin_list = self.list_admins()?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
     let super_admin_list = self.list_super_admins()?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_members_by_identity(&self, account_identities: Vec<Identifier>) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -153,6 +160,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_admin(&self, inbox_id: String) -> Result<()> {
     let group = self.create_mls_group();
     group
@@ -164,6 +172,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn remove_admin(&self, inbox_id: String) -> Result<()> {
     let group = self.create_mls_group();
     group
@@ -175,6 +184,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_super_admin(&self, inbox_id: String) -> Result<()> {
     let group = self.create_mls_group();
     group
@@ -186,6 +196,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn remove_super_admin(&self, inbox_id: String) -> Result<()> {
     let group = self.create_mls_group();
     group
@@ -197,6 +208,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn group_permissions(&self) -> Result<GroupPermissions> {
     let group = self.create_mls_group();
 
@@ -206,6 +218,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_members(&self, inbox_ids: Vec<String>) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -218,6 +231,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn remove_members_by_identity(
     &self,
     account_identities: Vec<Identifier>,
@@ -233,6 +247,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn remove_members(&self, inbox_ids: Vec<String>) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -251,6 +266,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn added_by_inbox_id(&self) -> Result<String> {
     let group = self.create_mls_group();
 
@@ -258,6 +274,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn leave_group(&self) -> Result<()> {
     let group = self.create_mls_group();
     group.leave_group().await.map_err(ErrorWrapper::from)?;

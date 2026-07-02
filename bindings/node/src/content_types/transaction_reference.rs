@@ -82,6 +82,7 @@ pub fn content_type_transaction_reference() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_transaction_reference(
   transaction_reference: TransactionReference,
 ) -> Result<EncodedContent> {

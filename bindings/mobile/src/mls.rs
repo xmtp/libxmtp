@@ -1117,6 +1117,7 @@ impl FfiXmtpClient {
     ///
     /// `options` controls the quorum, timeout, and polling interval.
     /// Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+    #[xmtp_common::err_span]
     pub async fn wait_for_registration_visible(
         &self,
         options: Option<FfiVisibilityConfirmationOptions>,
@@ -3059,10 +3060,12 @@ impl FfiConversation {
         self.inner.created_at_ns
     }
 
+    #[xmtp_common::err_span]
     pub fn is_active(&self) -> Result<bool, FfiError> {
         self.inner.is_active().map_err(Into::into)
     }
 
+    #[xmtp_common::err_span]
     pub fn paused_for_version(&self) -> Result<Option<String>, FfiError> {
         self.inner.paused_for_version().map_err(Into::into)
     }
@@ -3082,6 +3085,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[xmtp_common::err_span]
     pub fn added_by_inbox_id(&self) -> Result<String, FfiError> {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
@@ -3130,6 +3134,7 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
+    #[xmtp_common::err_span]
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, FfiError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
@@ -3877,6 +3882,7 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
+    #[xmtp_common::err_span]
     pub fn policy_type(&self) -> Result<FfiGroupPermissionsOptions, FfiError> {
         if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
             Ok(preconfigured_policy.into())
@@ -3885,6 +3891,7 @@ impl FfiGroupPermissions {
         }
     }
 
+    #[xmtp_common::err_span]
     pub fn policy_set(&self) -> Result<FfiPermissionPolicySet, FfiError> {
         let policy_set = &self.inner.policies;
         let metadata_policy_map = &policy_set.update_metadata_policy;
