@@ -56,9 +56,11 @@ if nix path-info "$expected" >/dev/null 2>&1; then
 fi
 
 if [[ -n "${CI:-}" ]]; then
-    echo "ERROR: Xcode missing from Nix store in CI: $expected" >&2
-    echo "The xmtp-cache-apple action should import it before this step." >&2
-    exit 1
+    # Runner Xcode bundles are pruned images that never hash to the pinned
+    # store path. Proceed anyway: the bindings substitute from xmtp.cachix,
+    # and a cache miss fails the nix build with the missing path regardless.
+    echo "WARNING: pinned Xcode not in Nix store ($expected); relying on the binary cache." >&2
+    exit 0
 fi
 
 XCODE_APP="${XCODE_APP:-$(find_xcode_bundle || true)}"

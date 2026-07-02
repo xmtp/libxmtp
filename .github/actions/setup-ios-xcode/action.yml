@@ -28,14 +28,25 @@ runs:
           p=/Applications/Xcode_26.3.app
         fi
         echo "path=$p" >> "$GITHUB_OUTPUT"
+    # On a NAR-cache miss the action imports the runner bundle, which is a
+    # pruned image that never hashes to the pin — its export step then fails.
+    # Tolerate that: builds substitute from xmtp.cachix and swift steps use
+    # the runner bundle via the DEVELOPER_DIR fallback below.
     - uses: xmtplabs/xmtp-cache-apple@v1.0.3
+      continue-on-error: true
       with:
         xcode-path: ${{ steps.xcode-path.outputs.path }}
         # requireFile fixed-output path: moves only if the pinned sha256 for
         # xcode_26_3 changes, never with nixpkgs/flake.lock bumps.
         xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
     # Point non-nix tool invocations (raw xcodebuild/swift steps) at the
-    # pinned Xcode; nix builds resolve it through the flake instead.
+    # pinned store Xcode when it materialized, else at the version-verified
+    # runner bundle — runner images are pruned and never hash to the pin.
     - name: Export DEVELOPER_DIR
       shell: bash
-      run: echo "DEVELOPER_DIR=/nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app/Contents/Developer" >> "$GITHUB_ENV"
+      run: |
+        dev=/nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+        if ! nix path-info "$dev" >/dev/null 2>&1; then
+          dev="${{ steps.xcode-path.outputs.path }}"
+        fi
+        echo "DEVELOPER_DIR=$dev/Contents/Developer" >> "$GITHUB_ENV"
