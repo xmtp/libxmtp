@@ -52,7 +52,6 @@ pub use xmtp_cryptography::rand::*;
 pub use xmtp_macro::db_span;
 pub use xmtp_macro::log_event;
 pub use xmtp_macro::mls_span;
-pub use xmtp_macro::parser;
 pub use xmtp_macro::rpc_span;
 pub use xmtp_macro::span;
 pub use xmtp_macro::timeout;

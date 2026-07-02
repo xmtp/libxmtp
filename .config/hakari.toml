@@ -30,8 +30,6 @@ platforms = [
 # Including mio/tokio breaks webassembly builds since net features are mutually exclusive with wasm
 [traversal-excludes]
 workspace-members = [
-  "xmtp_cli",
-  "log_parser",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
@@ -53,8 +51,6 @@ third-party = [
 
 [final-excludes]
 workspace-members = [
-  "xmtp_cli",
-  "log_parser",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
