@@ -8,7 +8,7 @@ use crate::{
 use prost::Message;
 use std::sync::Arc;
 use xmtp_common::Event;
-use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
+use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
 use xmtp_macro::log_event;
 use xmtp_proto::{
@@ -139,7 +139,7 @@ impl TaskWorkerChannels {
 )]
 pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
     context: &Context,
-    target_data_hash: Vec<u8>,
+    target_data_hash: TaskDataHash,
     not_later_than_ns: i64,
     expires_at_ns: i64,
 ) -> Result<(), xmtp_db::StorageError> {
@@ -153,7 +153,7 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
         .build(xmtp_proto::xmtp::mls::database::Task {
             task: Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(
                 xmtp_proto::xmtp::mls::database::PullInDeadline {
-                    target_data_hash,
+                    target_data_hash: target_data_hash.to_vec(),
                     not_later_than_ns,
                 },
             )),
@@ -390,9 +390,12 @@ where
                 // Runs on the worker thread — the sole rescheduler of existing
                 // rows' `next_attempt_at_ns` — so no transaction is needed
                 // (inserts happen off-thread; only deadline mutation is guarded).
-                let matched = context
-                    .db()
-                    .pull_in_task_deadline(&p.target_data_hash, p.not_later_than_ns)?;
+                let matched = match TaskDataHash::try_from(p.target_data_hash.as_slice()) {
+                    Ok(h) => context
+                        .db()
+                        .pull_in_task_deadline(&h, p.not_later_than_ns)?,
+                    Err(_) => false, // malformed length: fall through to the miss log
+                };
                 if !matched {
                     // Completed one-shot target, or a producer broke the
                     // commit-target-first contract. Drop either way (retrying
@@ -555,7 +558,7 @@ mod tests {
         db.get_tasks()
             .unwrap()
             .into_iter()
-            .find(|t| t.data_hash == hash)
+            .find(|t| t.data_hash == hash.as_ref())
             .unwrap()
     }
 
@@ -577,7 +580,8 @@ mod tests {
         let proto = unique_proto();
         let row = seed(&db, proto.clone(), now - 1, i64::MAX, 5, i32::MAX);
         let target = now + xmtp_common::NS_IN_DAY;
-        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = Some((data_hash_for(&proto), target));
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
+            Some((data_hash_for(&proto).to_vec(), target));
 
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
@@ -600,7 +604,7 @@ mod tests {
         // reaper (expires < now || attempts >= max) from deleting it.
         let row = seed(&db, proto.clone(), now - 1, i64::MAX, 1_000_000, i32::MAX);
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
-            Some((data_hash_for(&proto), now + xmtp_common::NS_IN_DAY));
+            Some((data_hash_for(&proto).to_vec(), now + xmtp_common::NS_IN_DAY));
 
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
@@ -623,7 +627,8 @@ mod tests {
         let far = now + 30 * xmtp_common::NS_IN_DAY;
         let row = seed(&db, proto.clone(), far, i64::MAX, 0, i32::MAX);
         // If the guard failed and the task ran, the hook would rewrite next_attempt.
-        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = Some((data_hash_for(&proto), now));
+        *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
+            Some((data_hash_for(&proto).to_vec(), now));
 
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
@@ -650,11 +655,11 @@ mod tests {
         let far = now + 30 * xmtp_common::NS_IN_DAY;
         seed(&db, target_proto, far, i64::MAX, 0, i32::MAX);
         // Due pull-in aimed at it.
-        enqueue_pull_in(&alix.context, target_hash.clone(), now + 1_000, i64::MAX)?;
+        enqueue_pull_in(&alix.context, target_hash, now + 1_000, i64::MAX)?;
         let pull_in_row = db
             .get_tasks()?
             .into_iter()
-            .find(|t| t.data_hash != target_hash)
+            .find(|t| t.data_hash != target_hash.as_ref())
             .expect("pull-in row exists");
 
         TaskWorker::run_and_reschedule_task(pull_in_row, &alix.context).await?;
@@ -662,7 +667,7 @@ mod tests {
         let rows = db.get_tasks()?;
         let target = rows
             .iter()
-            .find(|t| t.data_hash == target_hash)
+            .find(|t| t.data_hash == target_hash.as_ref())
             .expect("target survives");
         assert_eq!(
             target.next_attempt_at_ns,
@@ -687,7 +692,7 @@ mod tests {
         seed(&db, proto.clone(), far, i64::MAX, 0, i32::MAX);
         let hash = data_hash_for(&proto);
 
-        enqueue_pull_in(&alix.context, hash.clone(), ceiling, i64::MAX)?;
+        enqueue_pull_in(&alix.context, hash, ceiling, i64::MAX)?;
 
         // Poll up to ~10s (wasm-safe): the worker dispatches the due pull-in,
         // which lowers the target and self-deletes.
@@ -697,9 +702,9 @@ mod tests {
             let rows = db.get_tasks()?;
             let target_ok = rows
                 .iter()
-                .any(|t| t.data_hash == hash && t.next_attempt_at_ns == ceiling);
+                .any(|t| t.data_hash == hash.as_ref() && t.next_attempt_at_ns == ceiling);
             let pull_in_gone = !rows.iter().any(|t| {
-                t.data_hash != hash && t.next_attempt_at_ns <= xmtp_common::time::now_ns()
+                t.data_hash != hash.as_ref() && t.next_attempt_at_ns <= xmtp_common::time::now_ns()
             });
             if target_ok && pull_in_gone {
                 pulled = true;

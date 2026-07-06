@@ -59,7 +59,7 @@ impl NewTaskBuilder {
         use derive_builder::UninitializedFieldError;
         let err = |s: &'static str| UninitializedFieldError::new(s);
         let data = task.encode_to_vec();
-        let data_hash = xmtp_common::sha256_bytes(&data);
+        let data_hash = xmtp_common::sha256_array(&data).to_vec();
         let new_task = NewTask {
             originating_message_sequence_id: self
                 .originating_message_sequence_id
@@ -87,10 +87,48 @@ impl NewTaskBuilder {
 
 // impl_store_or_ignore!(Task, tasks);
 
-/// A task row's identity: sha256 of the prost-encoded payload, exactly as
-/// `NewTaskBuilder::build` computes it.
-pub fn data_hash_for(task: &TaskProto) -> Vec<u8> {
-    xmtp_common::sha256_bytes(&task.encode_to_vec())
+/// A task row's identity: sha256 over the prost-encoded payload. Payload
+/// encodings must stay canonical — never add protobuf map fields to task
+/// messages (map entry order is nondeterministic); see the pinned-encoding test.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TaskDataHash([u8; 32]);
+
+impl TaskDataHash {
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
+impl AsRef<[u8]> for TaskDataHash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for TaskDataHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TaskDataHash({})", hex::encode(self.0))
+    }
+}
+
+impl TryFrom<&[u8]> for TaskDataHash {
+    type Error = std::array::TryFromSliceError;
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self(v.try_into()?))
+    }
+}
+
+/// Compute a task payload's `data_hash` exactly as `NewTaskBuilder::build` does.
+pub fn data_hash_for(task: &TaskProto) -> TaskDataHash {
+    let bytes = task.encode_to_vec();
+    // Hash-as-identity requires deterministic encoding; a map field in any task
+    // payload would break this (HashMap iteration order varies per process).
+    debug_assert_eq!(
+        bytes,
+        task.encode_to_vec(),
+        "task payload encoding is nondeterministic — hashes cannot identify rows"
+    );
+    TaskDataHash(xmtp_common::sha256_array(&bytes))
 }
 
 pub trait QueryTasks {
@@ -105,7 +143,7 @@ pub trait QueryTasks {
     /// TaskWorker dispatch thread only (sole rescheduler).
     fn pull_in_task_deadline(
         &self,
-        target_data_hash: &[u8],
+        target_data_hash: &TaskDataHash,
         at_ns: i64,
     ) -> Result<bool, StorageError>;
 
@@ -146,7 +184,7 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
 
     fn pull_in_task_deadline(
         &self,
-        target_data_hash: &[u8],
+        target_data_hash: &TaskDataHash,
         at_ns: i64,
     ) -> Result<bool, StorageError> {
         (**self).pull_in_task_deadline(target_data_hash, at_ns)
@@ -205,13 +243,13 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
 
     fn pull_in_task_deadline(
         &self,
-        target_data_hash: &[u8],
+        target_data_hash: &TaskDataHash,
         at_ns: i64,
     ) -> Result<bool, StorageError> {
         use diesel::dsl::sql;
         use diesel::sql_types::BigInt;
         let matched = self.raw_query(|conn| {
-            diesel::update(tasks::table.filter(tasks::data_hash.eq(target_data_hash)))
+            diesel::update(tasks::table.filter(tasks::data_hash.eq(target_data_hash.as_ref())))
                 .set(
                     tasks::next_attempt_at_ns.eq(sql::<BigInt>("MIN(next_attempt_at_ns, ")
                         .bind::<BigInt, _>(at_ns)
@@ -499,7 +537,51 @@ pub(crate) mod tests {
             .originating_message_originator_id(0)
             .build(proto.clone())
             .unwrap();
-        assert_eq!(task.data_hash, data_hash_for(&proto));
+        assert_eq!(task.data_hash, data_hash_for(&proto).as_ref());
+    }
+
+    /// data_hash values live in persisted rows and must match across app
+    /// upgrades. If this test fails, prost's encoding of these payloads drifted:
+    /// that ORPHANS every existing recurring/pull-in row. Do NOT update the
+    /// constants without a row-migration story.
+    #[xmtp_common::test]
+    fn data_hash_encoding_is_pinned() {
+        use xmtp_proto::xmtp::mls::database::{KpDeletion, KpRotation, PullInDeadline};
+        let rotation = TaskProto {
+            task: Some(TaskKind::KpRotation(KpRotation {})),
+        };
+        let deletion = TaskProto {
+            task: Some(TaskKind::KpDeletion(KpDeletion {})),
+        };
+        // Empty singleton payloads: one tag byte + zero length.
+        assert_eq!(rotation.encode_to_vec(), [0x2a, 0x00]);
+        assert_eq!(deletion.encode_to_vec(), [0x32, 0x00]);
+        assert_eq!(
+            hex::encode(data_hash_for(&rotation)),
+            "17d5f5a33ab5f6aed0395d2bc0a4e5df61d92441ea8d77b0952c01bc8aa8bde0"
+        );
+        assert_eq!(
+            hex::encode(data_hash_for(&deletion)),
+            "913da1f8df6f8fd47593840d533ba0458cc9873996bf310460abb495b34c232a"
+        );
+        // Non-empty payload sample (bytes + i64 fields).
+        let pull_in = TaskProto {
+            task: Some(TaskKind::PullInDeadline(PullInDeadline {
+                target_data_hash: vec![0x11; 32],
+                not_later_than_ns: 1_234_567_890,
+            })),
+        };
+        assert_eq!(
+            hex::encode(data_hash_for(&pull_in)),
+            "16b424873a34096e5157ab9f0a31e80dff1d23ebd8b1aab2b948a4732abfc849"
+        );
+        // Determinism under repetition and a decode round-trip.
+        let bytes = pull_in.encode_to_vec();
+        for _ in 0..100 {
+            assert_eq!(pull_in.encode_to_vec(), bytes);
+        }
+        let decoded = TaskProto::decode(bytes.as_slice()).unwrap();
+        assert_eq!(decoded.encode_to_vec(), bytes);
     }
 
     #[xmtp_common::test]
@@ -550,7 +632,8 @@ pub(crate) mod tests {
             );
 
             // Missing target: no-op reported as false, no error.
-            assert!(!conn.pull_in_task_deadline(b"no-such-hash", now).unwrap());
+            let absent = TaskDataHash::try_from([0xAAu8; 32].as_slice()).unwrap();
+            assert!(!conn.pull_in_task_deadline(&absent, now).unwrap());
             assert_eq!(
                 conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
                 now + 5
