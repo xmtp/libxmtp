@@ -631,10 +631,13 @@ pub trait QueryGroupMessage {
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
+    /// Stored messages above each group's cursor, attributed to their group.
+    /// The attribution matters: sequence ids are not scoped per group, so a
+    /// caller folding these into per-group state must never mix groups.
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
     /// Clear messages from the database with optional filtering.
     ///
@@ -799,7 +802,7 @@ where
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         (**self).messages_newer_than(cursors_by_group)
     }
 
@@ -1362,7 +1365,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         use diesel::BoolExpressionMethods;
         use diesel::ExpressionMethods;
         use diesel::prelude::*;
@@ -1426,15 +1429,18 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             }
 
             // Execute the query
-            let messages: Vec<(i64, i64)> = self.raw_query(|conn| {
+            let messages: Vec<(GroupId, i64, i64)> = self.raw_query(|conn| {
                 dsl::group_messages
-                    .select((dsl::originator_id, dsl::sequence_id))
+                    .select((dsl::group_id, dsl::originator_id, dsl::sequence_id))
                     .filter(batch_filter)
                     .load(conn)
             })?;
 
-            for (originator_id, sequence_id) in messages {
-                all_cursors.push(Cursor::new(sequence_id as u64, originator_id as u32));
+            for (group_id, originator_id, sequence_id) in messages {
+                all_cursors.push((
+                    group_id,
+                    Cursor::new(sequence_id as u64, originator_id as u32),
+                ));
             }
         }
 

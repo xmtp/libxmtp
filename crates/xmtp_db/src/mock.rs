@@ -490,7 +490,7 @@ mock! {
         fn messages_newer_than(
             &self,
             cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-        ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+        ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
         fn clear_messages<'a>(
             &self,
