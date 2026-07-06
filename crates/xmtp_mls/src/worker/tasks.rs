@@ -411,10 +411,10 @@ where
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_)) => {
                 let now = xmtp_common::time::now_ns();
-                if kp::rotate_if_needed(context).await? {
-                    // rotate_and_upload marked superseded KPs delete_at=now+grace.
-                    kp::nudge_deletion(context)?;
-                }
+                kp::rotate_if_needed(context).await?;
+                // Unconditional (no-op when nothing is marked): a backoff retry
+                // after rotate-succeeded/nudge-failed must still re-nudge.
+                kp::nudge_deletion(context)?;
                 // Advance to the LIVE rotation column (rotate reset it to +30d; a
                 // welcome nudge may have re-lowered it). Do NOT hardcode +30d.
                 let next = context

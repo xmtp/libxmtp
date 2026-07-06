@@ -94,17 +94,18 @@ pub(crate) fn nudge_rotation<Context: XmtpSharedContext>(
 
 /// After anything marks superseded KPs for deletion: ensure the KpDeletion
 /// singleton exists (pull-in against a missing target is a no-op), then pull
-/// it in to the earliest pending delete_at.
+/// it in to the earliest pending delete_at. No-op when nothing is marked, so
+/// it is safe (and idempotent) to call on every dispatch.
 pub(crate) fn nudge_deletion<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let db = context.db();
     let now = xmtp_common::time::now_ns();
-    db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
-    let at = db
-        .min_key_package_delete_at_ns()?
-        .unwrap_or(now + xmtp_common::NS_IN_DAY);
-    enqueue_pull_in(context, kp_deletion_hash(), at, NEVER_EXPIRES)
+    if let Some(at) = db.min_key_package_delete_at_ns()? {
+        db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
+        enqueue_pull_in(context, kp_deletion_hash(), at, NEVER_EXPIRES)?;
+    }
+    Ok(())
 }
 
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to

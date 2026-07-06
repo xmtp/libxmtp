@@ -161,7 +161,11 @@ where
         // rotation interval.
         if num_envelopes > 0 {
             self.context.identity().queue_key_rotation(&db).await?;
-            crate::worker::key_package_maintenance::nudge_rotation(&self.context)?;
+            // Welcomes are already committed: don't discard `groups` over a failed
+            // nudge — the next welcome or startup reconcile re-nudges.
+            if let Err(e) = crate::worker::key_package_maintenance::nudge_rotation(&self.context) {
+                tracing::warn!("rotation nudge failed after welcome sync: {e}");
+            }
         }
 
         Ok(groups)
