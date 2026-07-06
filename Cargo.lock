@@ -10389,6 +10389,7 @@ dependencies = [
  "bincode",
  "bon",
  "const-hex",
+ "criterion",
  "ctor 0.12.0",
  "derive_builder",
  "diesel",

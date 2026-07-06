@@ -15,6 +15,10 @@ pub use xmtp_openmls_provider::{
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 
+/// Benchmark-only latency-injecting SQLite VFS. Native + `bench` feature only.
+#[cfg(all(not(target_arch = "wasm32"), feature = "bench"))]
+pub mod latency_vfs;
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 #[cfg(any(test, feature = "test-utils"))]
