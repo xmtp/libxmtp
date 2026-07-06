@@ -86,8 +86,14 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+            // NULL (migrated DBs) counts as unscheduled: initialize it here so the
+            // 5s debounce applies and nudge payloads stay stable (coalescing).
             diesel::update(dsl::identity)
-                .filter(dsl::next_key_package_rotation_ns.gt(rotate_at_ns))
+                .filter(
+                    dsl::next_key_package_rotation_ns
+                        .gt(rotate_at_ns)
+                        .or(dsl::next_key_package_rotation_ns.is_null()),
+                )
                 .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
                 .execute(conn)?;
 
@@ -155,6 +161,32 @@ pub(crate) mod tests {
     use super::StoredIdentity;
     use crate::{Store, XmtpTestDb};
     use xmtp_common::rand_vec;
+
+    #[xmtp_common::test]
+    fn queue_initializes_null_rotation_column() {
+        use crate::prelude::QueryIdentity;
+        use crate::test_utils::with_connection;
+        use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
+        with_connection(|conn| {
+            StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
+                .store(conn)
+                .unwrap();
+
+            // Migrated DBs have NULL here; queueing must initialize it (5s
+            // debounce) rather than skip the row.
+            conn.queue_key_package_rotation().unwrap();
+            let v = conn
+                .next_key_package_rotation_ns()
+                .unwrap()
+                .expect("NULL column must be initialized");
+            let now = xmtp_common::time::now_ns();
+            assert!(v > now && v <= now + KEY_PACKAGE_QUEUE_INTERVAL_NS);
+
+            // Lower-only: a later queue call never raises the deadline.
+            conn.queue_key_package_rotation().unwrap();
+            assert_eq!(conn.next_key_package_rotation_ns().unwrap().unwrap(), v);
+        })
+    }
 
     #[xmtp_common::test]
     async fn can_only_store_one_identity() {

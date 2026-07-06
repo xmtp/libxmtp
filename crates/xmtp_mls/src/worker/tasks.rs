@@ -8,7 +8,7 @@ use crate::{
 };
 use prost::Message;
 use std::sync::Arc;
-use xmtp_common::{Event, NS_IN_30_DAYS, NS_IN_DAY};
+use xmtp_common::{Event, NS_IN_30_DAYS};
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
@@ -413,21 +413,7 @@ where
                 let now = xmtp_common::time::now_ns();
                 if kp::rotate_if_needed(context).await? {
                     // rotate_and_upload marked superseded KPs delete_at=now+grace.
-                    // Ensure the deletion singleton EXISTS (a pull-in against a
-                    // missing target is a silent no-op), then pull it in.
-                    context
-                        .db()
-                        .create_or_ignore_task(kp::kp_seed(kp::kp_deletion_proto(), now)?)?;
-                    let at = context
-                        .db()
-                        .min_key_package_delete_at_ns()?
-                        .unwrap_or(now + NS_IN_DAY);
-                    enqueue_pull_in(
-                        context,
-                        kp::kp_deletion_hash(),
-                        at,
-                        xmtp_db::tasks::NEVER_EXPIRES,
-                    )?;
+                    kp::nudge_deletion(context)?;
                 }
                 // Advance to the LIVE rotation column (rotate reset it to +30d; a
                 // welcome nudge may have re-lowered it). Do NOT hardcode +30d.

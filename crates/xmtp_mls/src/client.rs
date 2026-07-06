@@ -1093,6 +1093,9 @@ where
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
             .await?;
+        // The rotation marked superseded KPs delete_at=now+grace; without this
+        // the parked KpDeletion task would sweep them up to ~30d late.
+        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
 
         Ok(())
     }

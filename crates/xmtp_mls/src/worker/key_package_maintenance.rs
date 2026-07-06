@@ -92,6 +92,21 @@ pub(crate) fn nudge_rotation<Context: XmtpSharedContext>(
     enqueue_pull_in(context, kp_rotation_hash(), at, NEVER_EXPIRES)
 }
 
+/// After anything marks superseded KPs for deletion: ensure the KpDeletion
+/// singleton exists (pull-in against a missing target is a no-op), then pull
+/// it in to the earliest pending delete_at.
+pub(crate) fn nudge_deletion<Context: XmtpSharedContext>(
+    context: &Context,
+) -> Result<(), StorageError> {
+    let db = context.db();
+    let now = xmtp_common::time::now_ns();
+    db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
+    let at = db
+        .min_key_package_delete_at_ns()?
+        .unwrap_or(now + xmtp_common::NS_IN_DAY);
+    enqueue_pull_in(context, kp_deletion_hash(), at, NEVER_EXPIRES)
+}
+
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to
 /// the live DB columns, repairing rows stranded by a crash mid-nudge.
 pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
@@ -170,6 +185,28 @@ mod tests {
         assert!(
             !e.needs_db_reconnect(),
             "benign storage errors must back off, not restart the supervisor"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn manual_rotation_nudges_deletion() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        assert!(row_by_hash(&db, kp_deletion_hash()).is_none());
+
+        alix.rotate_and_upload_key_package().await?;
+
+        assert!(
+            row_by_hash(&db, kp_deletion_hash()).is_some(),
+            "manual rotation must self-heal the deletion singleton"
+        );
+        let has_pull_in = db.get_tasks()?.into_iter().any(|t| matches!(
+            TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+            Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_deletion_hash().as_ref()
+        ));
+        assert!(
+            has_pull_in,
+            "manual rotation must enqueue a deletion pull-in"
         );
     }
 
