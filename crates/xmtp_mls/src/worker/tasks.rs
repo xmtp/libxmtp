@@ -130,6 +130,9 @@ impl TaskWorkerChannels {
 /// Durably enqueue a `PullInDeadline` for `target_data_hash`, then wake the loop.
 /// Row is committed before the wake; duplicates coalesce on data_hash. Lifetime is
 /// bounded by `expires_at_ns` alone (pass `i64::MAX` for delivery-critical nudges).
+/// Callers must commit the target row FIRST: a pull-in never waits for its target —
+/// a miss is dropped (debug-logged), since a missing target is normally a completed
+/// one-shot and retrying would spin forever on never-expiring nudges.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "KP-consumer plan adds production callers")
@@ -385,12 +388,23 @@ where
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(p)) => {
                 // Runs on the worker thread — the sole rescheduler of existing
-                // rows' deadlines — so no transaction is needed (inserts happen
-                // off-thread; the precise invariant is over `next_attempt_at_ns`
-                // mutation; see the recurrence design).
-                context
+                // rows' `next_attempt_at_ns` — so no transaction is needed
+                // (inserts happen off-thread; only deadline mutation is guarded).
+                let matched = context
                     .db()
                     .pull_in_task_deadline(&p.target_data_hash, p.not_later_than_ns)?;
+                if !matched {
+                    // Completed one-shot target, or a producer broke the
+                    // commit-target-first contract. Drop either way (retrying
+                    // would spin forever on never-expiring nudges). warn: every
+                    // in-tree pull-in targets a never-deleted singleton, so a
+                    // miss is always anomalous today.
+                    tracing::warn!(
+                        target_data_hash = hex::encode(&p.target_data_hash),
+                        "pull-in target missing; dropping nudge for task {}",
+                        task.id
+                    );
+                }
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_))
             | Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {

@@ -100,13 +100,14 @@ pub trait QueryTasks {
     /// row wins; OR IGNORE swallows any constraint hit, not just data_hash UNIQUE).
     fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError>;
 
-    /// Lower a task's `next_attempt_at_ns` to `MIN(current, at_ns)` — never raises;
-    /// missing target is a no-op. TaskWorker dispatch thread only (sole rescheduler).
+    /// Lower a task's `next_attempt_at_ns` to `MIN(current, at_ns)` — never raises.
+    /// Returns whether a row matched; a missing target is a no-op (`false`).
+    /// TaskWorker dispatch thread only (sole rescheduler).
     fn pull_in_task_deadline(
         &self,
         target_data_hash: &[u8],
         at_ns: i64,
-    ) -> Result<(), StorageError>;
+    ) -> Result<bool, StorageError>;
 
     fn get_tasks(&self) -> Result<Vec<Task>, StorageError>;
 
@@ -147,7 +148,7 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
         &self,
         target_data_hash: &[u8],
         at_ns: i64,
-    ) -> Result<(), StorageError> {
+    ) -> Result<bool, StorageError> {
         (**self).pull_in_task_deadline(target_data_hash, at_ns)
     }
 
@@ -206,10 +207,10 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         &self,
         target_data_hash: &[u8],
         at_ns: i64,
-    ) -> Result<(), StorageError> {
+    ) -> Result<bool, StorageError> {
         use diesel::dsl::sql;
         use diesel::sql_types::BigInt;
-        self.raw_query(|conn| {
+        let matched = self.raw_query(|conn| {
             diesel::update(tasks::table.filter(tasks::data_hash.eq(target_data_hash)))
                 .set(
                     tasks::next_attempt_at_ns.eq(sql::<BigInt>("MIN(next_attempt_at_ns, ")
@@ -218,7 +219,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
                 )
                 .execute(conn)
         })?;
-        Ok(())
+        Ok(matched > 0)
     }
 
     fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
@@ -535,21 +536,21 @@ pub(crate) mod tests {
             let hash = data_hash_for(&proto);
 
             // Lowers a far-out deadline.
-            conn.pull_in_task_deadline(&hash, now + 5).unwrap();
+            assert!(conn.pull_in_task_deadline(&hash, now + 5).unwrap());
             assert_eq!(
                 conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
                 now + 5
             );
 
-            // Never raises (MIN): a later ceiling is a no-op.
-            conn.pull_in_task_deadline(&hash, now + NS_IN_DAY).unwrap();
+            // Never raises (MIN): a later ceiling keeps the row but not the value.
+            assert!(conn.pull_in_task_deadline(&hash, now + NS_IN_DAY).unwrap());
             assert_eq!(
                 conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
                 now + 5
             );
 
-            // Missing target: silent no-op, no error.
-            conn.pull_in_task_deadline(b"no-such-hash", now).unwrap();
+            // Missing target: no-op reported as false, no error.
+            assert!(!conn.pull_in_task_deadline(b"no-such-hash", now).unwrap());
             assert_eq!(
                 conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
                 now + 5
