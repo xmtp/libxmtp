@@ -3,15 +3,52 @@
 //! Recurrence + nudging come from the generic layer (TaskOutcome, PullInDeadline).
 
 use crate::context::XmtpSharedContext;
-use crate::worker::key_package_cleaner::{KeyPackagesCleanerError, KeyPackagesCleanerWorker};
+use crate::identity::IdentityError;
+use crate::worker::NeedsDbReconnect;
 use crate::worker::tasks::enqueue_pull_in;
+use openmls_traits::storage::StorageProvider;
+use thiserror::Error;
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+use xmtp_db::MlsProviderExt;
 use xmtp_db::StorageError;
 use xmtp_db::prelude::*;
+use xmtp_db::sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY};
 use xmtp_db::tasks::{NEVER_EXPIRES, NewTask, TaskDataHash, data_hash_for};
 use xmtp_proto::xmtp::mls::database::{
     KpDeletion, KpRotation, Task as TaskProto, task::Task as TaskKind,
 };
+
+#[derive(Debug, Error)]
+pub enum KeyPackageMaintenanceError {
+    #[error("generic storage error: {0}")]
+    Storage(#[from] StorageError),
+    #[error("generic identity error: {0}")]
+    Identity(#[from] IdentityError),
+    #[error("metadata error: {0}")]
+    Metadata(StorageError),
+    #[error("failed to fetch expired key packages: {0}")]
+    Fetch(StorageError),
+    #[error("failed to delete key package: {0}")]
+    DeleteKeyPackage(IdentityError),
+    #[error("deletion error: {0}")]
+    Deletion(StorageError),
+    #[error("rotation error: {0}")]
+    Rotation(IdentityError),
+}
+
+impl NeedsDbReconnect for KeyPackageMaintenanceError {
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Identity(s) => s.needs_db_reconnect(),
+            Self::Metadata(s) => s.db_needs_connection(),
+            Self::Fetch(s) => s.db_needs_connection(),
+            Self::DeleteKeyPackage(s) => s.needs_db_reconnect(),
+            Self::Deletion(s) => s.db_needs_connection(),
+            Self::Rotation(s) => s.needs_db_reconnect(),
+        }
+    }
+}
 
 pub(crate) fn kp_rotation_proto() -> TaskProto {
     TaskProto {
@@ -50,11 +87,11 @@ pub(crate) fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageErro
 /// rolls the rotation column +30d and marks superseded KPs `delete_at = now+grace`.
 pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
     context: &Context,
-) -> Result<bool, KeyPackagesCleanerError> {
+) -> Result<bool, KeyPackageMaintenanceError> {
     if !context
         .db()
         .is_identity_needs_rotation()
-        .map_err(KeyPackagesCleanerError::Metadata)?
+        .map_err(KeyPackageMaintenanceError::Metadata)?
     {
         return Ok(false);
     }
@@ -66,17 +103,69 @@ pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )
         .await
-        .map_err(KeyPackagesCleanerError::Rotation)?;
+        .map_err(KeyPackageMaintenanceError::Rotation)?;
     Ok(true)
+}
+
+/// Delete one key package's local material (keystore entry + PQ references).
+pub(crate) fn delete_key_package<Context: XmtpSharedContext>(
+    context: &Context,
+    hash_ref: Vec<u8>,
+    pq_pub_key: Option<Vec<u8>>,
+) -> Result<(), IdentityError> {
+    let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(&hash_ref)?;
+    let mls_provider = context.mls_provider();
+    let key_store = mls_provider.key_store();
+
+    key_store.delete_key_package(&openmls_hash_ref)?;
+
+    if let Some(pq_pub_key) = pq_pub_key {
+        key_store.delete(
+            KEY_PACKAGE_REFERENCES,
+            crate::identity::pq_key_package_references_key(&pq_pub_key)?.as_slice(),
+        )?;
+        key_store.delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?;
+    }
+
+    Ok(())
 }
 
 /// Delete expired local key-package material (delete_at_ns <= now). Late execution
 /// is harmless — deletion is local-only; the network copy expires independently.
-pub(crate) fn sweep_expired<Context: XmtpSharedContext + 'static>(
+pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
     context: &Context,
-) -> Result<(), KeyPackagesCleanerError> {
-    let cleaner = KeyPackagesCleanerWorker::new(context.clone());
-    cleaner.delete_expired_key_packages()
+) -> Result<(), KeyPackageMaintenanceError> {
+    let conn = context.db();
+
+    // Propagate (don't swallow) so the supervisor's reconnect path can fire.
+    let expired_kps = conn
+        .get_expired_key_packages()
+        .map_err(KeyPackageMaintenanceError::Fetch)?;
+    if expired_kps.is_empty() {
+        return Ok(());
+    }
+
+    tracing::info!("Deleting {} expired key packages", expired_kps.len());
+    for kp in &expired_kps {
+        delete_key_package(
+            context,
+            kp.key_package_hash_ref.clone(),
+            kp.post_quantum_public_key.clone(),
+        )
+        .map_err(KeyPackageMaintenanceError::DeleteKeyPackage)?;
+    }
+
+    if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
+        conn.delete_key_package_history_up_to_id(max_id)
+            .map_err(KeyPackageMaintenanceError::Deletion)?;
+        tracing::info!(
+            "Deleted {} expired key packages (up to ID {}) from local DB and state",
+            expired_kps.len(),
+            max_id
+        );
+    }
+
+    Ok(())
 }
 
 /// Post-welcome nudge: after queue_key_package_rotation lowers the column,
@@ -172,9 +261,8 @@ mod tests {
     #[xmtp_common::test]
     fn kp_errors_forward_db_reconnect() {
         use crate::worker::NeedsDbReconnect;
-        use crate::worker::key_package_cleaner::KeyPackagesCleanerError;
         use crate::worker::tasks::TaskWorkerError;
-        let e = TaskWorkerError::from(KeyPackagesCleanerError::Storage(disconnect_storage()));
+        let e = TaskWorkerError::from(KeyPackageMaintenanceError::Storage(disconnect_storage()));
         assert!(
             e.needs_db_reconnect(),
             "DB outage during KP work must trigger supervisor reconnect, not plain backoff"
@@ -182,7 +270,7 @@ mod tests {
         let e = TaskWorkerError::from(crate::identity::IdentityError::from(disconnect_storage()));
         assert!(e.needs_db_reconnect());
         // A non-disconnect storage failure must NOT stop the worker.
-        let e = TaskWorkerError::from(KeyPackagesCleanerError::Storage(benign_storage()));
+        let e = TaskWorkerError::from(KeyPackageMaintenanceError::Storage(benign_storage()));
         assert!(
             !e.needs_db_reconnect(),
             "benign storage errors must back off, not restart the supervisor"

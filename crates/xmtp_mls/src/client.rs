@@ -1075,10 +1075,8 @@ where
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub async fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        self.identity()
-            .queue_key_rotation(&self.context.db())
-            .await?;
+    pub fn queue_key_rotation(&self) -> Result<(), ClientError> {
+        self.identity().queue_key_rotation(&self.context.db())?;
         crate::worker::key_package_maintenance::nudge_rotation(&self.context)?;
         Ok(())
     }

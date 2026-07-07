@@ -704,10 +704,7 @@ impl Identity {
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
     /// Callers must follow with `key_package_maintenance::nudge_rotation` — the
     /// column write alone leaves the KpRotation task parked until next restart.
-    pub(crate) async fn queue_key_rotation(
-        &self,
-        conn: &impl DbQuery,
-    ) -> Result<(), IdentityError> {
+    pub(crate) fn queue_key_rotation(&self, conn: &impl DbQuery) -> Result<(), IdentityError> {
         conn.queue_key_package_rotation()?;
         tracing::debug!("key package rotation queued (<=5s debounce)");
         Ok(())
@@ -1063,7 +1060,6 @@ mod tests {
         builder::ClientBuilder,
         identity::{pq_key_package_references_key, serialize_key_package_hash_ref},
         utils::FullXmtpClient,
-        worker::key_package_cleaner::KeyPackagesCleanerWorker,
     };
     use xmtp_id::key_package::VerifiedKeyPackageV2;
 
@@ -1182,15 +1178,14 @@ mod tests {
         client.rotate_and_upload_key_package().await.unwrap();
 
         // Force deletion of the key package, even though it hasn't expired yet
-        let cleaner = KeyPackagesCleanerWorker::new(client.context.clone());
         let serialized_key_package_hash_ref =
             serialize_key_package_hash_ref(key_package_bundle.key_package(), &provider).unwrap();
-        cleaner
-            .delete_key_package(
-                serialized_key_package_hash_ref,
-                Some(pq_public_key_bytes.clone()),
-            )
-            .unwrap();
+        crate::worker::key_package_maintenance::delete_key_package(
+            &client.context,
+            serialized_key_package_hash_ref,
+            Some(pq_public_key_bytes.clone()),
+        )
+        .unwrap();
 
         // Now test to see if the private keys are deleted by doing the same steps as above
         let pq_hash_ref = get_hash_ref(

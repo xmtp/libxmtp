@@ -62,7 +62,9 @@ pub enum TaskWorkerError {
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("key package maintenance error: {0}")]
-    KeyPackageMaintenance(#[from] crate::worker::key_package_cleaner::KeyPackagesCleanerError),
+    KeyPackageMaintenance(
+        #[from] crate::worker::key_package_maintenance::KeyPackageMaintenanceError,
+    ),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {

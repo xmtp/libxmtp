@@ -1,6 +1,5 @@
 pub mod device_sync;
 pub mod disappearing_messages;
-pub mod key_package_cleaner;
 pub mod key_package_maintenance;
 pub mod metrics;
 pub mod tasks;
@@ -370,7 +369,7 @@ mod disconnect_propagation_tests {
     use crate::mls_store::MlsStoreError;
     use crate::subscriptions::SubscribeError;
     use crate::worker::device_sync::DeviceSyncError;
-    use crate::worker::key_package_cleaner::KeyPackagesCleanerError;
+    use crate::worker::key_package_maintenance::KeyPackageMaintenanceError;
     use xmtp_db::{ConnectionError, PlatformStorageError, StorageError};
 
     /// A `StorageError` that signals the connection pool was dropped.
@@ -469,20 +468,20 @@ mod disconnect_propagation_tests {
     }
 
     #[xmtp_common::test]
-    fn key_package_cleaner_error_forwards_disconnect() {
+    fn key_package_maintenance_error_forwards_disconnect() {
         use crate::identity::IdentityError;
-        assert!(KeyPackagesCleanerError::Storage(disconnect_storage()).needs_db_reconnect());
+        assert!(KeyPackageMaintenanceError::Storage(disconnect_storage()).needs_db_reconnect());
         // Per-key-package delete returns an IdentityError; a disconnect must
         // bubble whether it arrives as a StorageError or a bare ConnectionError.
         assert!(
-            KeyPackagesCleanerError::Identity(IdentityError::StorageError(disconnect_storage()))
+            KeyPackageMaintenanceError::Identity(IdentityError::StorageError(disconnect_storage()))
                 .needs_db_reconnect()
         );
         assert!(
-            KeyPackagesCleanerError::Identity(IdentityError::Db(disconnect_connection()))
+            KeyPackageMaintenanceError::Identity(IdentityError::Db(disconnect_connection()))
                 .needs_db_reconnect()
         );
-        assert!(!KeyPackagesCleanerError::Storage(benign_storage()).needs_db_reconnect());
+        assert!(!KeyPackageMaintenanceError::Storage(benign_storage()).needs_db_reconnect());
     }
 }
 
