@@ -20,8 +20,19 @@
 //! - **Every `lease()` is a cursored `Mutate` wave.** The adds are sent even if
 //!   another lease already holds the topic: a cursored re-add is the one
 //!   catch-up/replay mechanism (XIP-83), and the server replays from the given
-//!   cursor. Duplicates that replay causes for other leases are dedup'd by the
-//!   consumer, which tracks delivery high-water marks; the transport does not.
+//!   cursor.
+//! - **The delivery guarantee.** The ledger keeps per-lease per-topic delivery
+//!   positions (seeded at the lease's add cursors). During a lease's catch-up
+//!   window (subscribe → its `CatchUpComplete`) it admits anything above the
+//!   topic's *frozen floor* — never filtering by the advancing position, or an
+//!   early live delivery would swallow the replay behind it. Once caught up, a
+//!   lease receives each trackable message **at most once**: a sibling's
+//!   deeper re-add replays all it wants, the copies are dropped here. What
+//!   this cannot cover: identity duplicates *inside* the window (overlapping
+//!   concurrent replays are untagged on the wire — the consumer keeps an
+//!   exact-identity seen-set until its `CatchUpComplete`), history the client
+//!   already holds in storage (a resuming consumer seeds its own dedup from
+//!   its store), and messages with no extractable cursor (fail open).
 //! - **Delivery order is per-topic wire order, which is NOT cursor-monotonic
 //!   across a cursored re-add** — that is the replay mechanism working as
 //!   designed. In particular, a lease claiming a topic that is already live on
@@ -113,6 +124,20 @@ where
     fn group_topic(msg: &Self::GroupMessage) -> Option<Topic>;
     /// The topic a delivered welcome belongs to (`None` = unroutable).
     fn welcome_topic(msg: &Self::WelcomeMessage) -> Option<Topic>;
+
+    /// The wire resume position a delivered group message represents — feeds
+    /// the per-lease delivery positions behind the module's delivery
+    /// guarantee. `None` = untrackable; such a message fans out unfiltered
+    /// and the consumer's own dedup absorbs it.
+    fn group_cursor(msg: &Self::GroupMessage) -> Option<Self::Cursor>;
+    /// Welcome analog of [`Self::group_cursor`].
+    fn welcome_cursor(msg: &Self::WelcomeMessage) -> Option<Self::Cursor>;
+    /// Fold a delivered position into a tracked one (v3: `max`; d14n:
+    /// per-originator max-merge).
+    fn advance(position: &mut Self::Cursor, delivered: Self::Cursor);
+    /// Whether `position` already covers `delivered` (v3: `delivered <=
+    /// position`).
+    fn covers(position: &Self::Cursor, delivered: &Self::Cursor) -> bool;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -325,6 +350,41 @@ where
 {
     tx: mpsc::Sender<LeaseEvent<B>>,
     topics: Vec<Topic>,
+    /// Frozen at lease time: each topic's add cursor. The catch-up-window
+    /// filter — anything at-or-below it was never this lease's to receive
+    /// (it belongs to a sibling's deeper replay).
+    floors: HashMap<Topic, B::Cursor>,
+    /// Advancing per-topic delivery positions; the post-catch-up filter.
+    positions: HashMap<Topic, B::Cursor>,
+    /// Set when this lease's add wave's `CatchUpComplete` arrives.
+    caught_up: bool,
+}
+
+impl<B: TransportBinding> LeaseState<B>
+where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    /// The delivery guarantee (module docs): during the catch-up window admit
+    /// anything above the topic's frozen floor — filtering by the advancing
+    /// position instead would let an early live delivery swallow the replay
+    /// behind it — and once caught up admit only strictly past the position,
+    /// so a caught-up lease sees each tracked message at most once.
+    fn admit(&mut self, topic: &Topic, cursor: B::Cursor) -> bool {
+        let Some(position) = self.positions.get_mut(topic) else {
+            return true; // untracked topic — fail open
+        };
+        let admit = if self.caught_up {
+            !B::covers(position, &cursor)
+        } else {
+            !self
+                .floors
+                .get(topic)
+                .is_some_and(|floor| B::covers(floor, &cursor))
+        };
+        B::advance(position, cursor);
+        admit
+    }
 }
 
 impl<B: TransportBinding> Default for Ledger<B>
@@ -354,13 +414,27 @@ where
         id
     }
 
-    fn register(&mut self, topics: Vec<Topic>, tx: mpsc::Sender<LeaseEvent<B>>) -> LeaseId {
+    fn register(
+        &mut self,
+        topics: Vec<Topic>,
+        floors: HashMap<Topic, B::Cursor>,
+        tx: mpsc::Sender<LeaseEvent<B>>,
+    ) -> LeaseId {
         let id = LeaseId(self.next_lease);
         self.next_lease += 1;
         for topic in &topics {
             self.by_topic.entry(topic.clone()).or_default().insert(id);
         }
-        self.leases.insert(id, LeaseState { tx, topics });
+        self.leases.insert(
+            id,
+            LeaseState {
+                tx,
+                topics,
+                positions: floors.clone(),
+                floors,
+                caught_up: false,
+            },
+        );
         id
     }
 
@@ -423,10 +497,16 @@ where
                 );
             }
             Event::CatchUpComplete { mutate_id } => {
-                if let Some(lease) = self.pending_waves.remove(&WaveId(mutate_id))
-                    && !self.deliver(lease, LeaseEvent::CatchUpComplete)
-                {
-                    dropped.push(lease);
+                if let Some(lease) = self.pending_waves.remove(&WaveId(mutate_id)) {
+                    if let Some(state) = self.leases.get_mut(&lease) {
+                        // From here the advancing position (now at the live
+                        // edge) takes over from the floor as this lease's
+                        // delivery filter.
+                        state.caught_up = true;
+                    }
+                    if !self.deliver(lease, LeaseEvent::CatchUpComplete) {
+                        dropped.push(lease);
+                    }
                 }
             }
             Event::TopicsLive { topics } => {
@@ -446,7 +526,7 @@ where
                 }
             }
             Event::GroupMessages(batch) => {
-                let per_lease = self.demux(batch, B::group_topic, "group");
+                let per_lease = self.demux(batch, B::group_topic, B::group_cursor, "group");
                 for (lease, messages) in per_lease {
                     if !self.deliver(lease, LeaseEvent::GroupMessages(messages)) {
                         dropped.push(lease);
@@ -454,7 +534,7 @@ where
                 }
             }
             Event::WelcomeMessages(batch) => {
-                let per_lease = self.demux(batch, B::welcome_topic, "welcome");
+                let per_lease = self.demux(batch, B::welcome_topic, B::welcome_cursor, "welcome");
                 for (lease, messages) in per_lease {
                     if !self.deliver(lease, LeaseEvent::WelcomeMessages(messages)) {
                         dropped.push(lease);
@@ -466,11 +546,13 @@ where
     }
 
     /// Group a delivery batch by interested lease, preserving wire order within
-    /// each lease's slice.
+    /// each lease's slice and applying each lease's delivery filter
+    /// ([`LeaseState::admit`]) so the module's delivery guarantee holds.
     fn demux<M: Clone>(
-        &self,
+        &mut self,
         batch: Vec<M>,
         topic_of: impl Fn(&M) -> Option<Topic>,
+        cursor_of: impl Fn(&M) -> Option<B::Cursor>,
         kind: &'static str,
     ) -> HashMap<LeaseId, Vec<M>> {
         let mut per_lease: HashMap<LeaseId, Vec<M>> = HashMap::new();
@@ -486,8 +568,18 @@ where
                 tracing::debug!(%topic, "bidi transport: delivery for an unleased topic");
                 continue;
             };
+            let cursor = cursor_of(&message);
             for lease in holders {
-                per_lease.entry(*lease).or_default().push(message.clone());
+                let admit = match (cursor, self.leases.get_mut(lease)) {
+                    (Some(cursor), Some(state)) => state.admit(&topic, cursor),
+                    // No trackable cursor (or the lease is mid-drop this
+                    // routing pass): fail open — the consumer's own dedup
+                    // absorbs a duplicate, a silent drop loses data.
+                    _ => true,
+                };
+                if admit {
+                    per_lease.entry(*lease).or_default().push(message.clone());
+                }
             }
         }
         per_lease
@@ -567,6 +659,10 @@ async fn run_ledger<B: TransportBinding>(
             Step::Cmd(Some(Cmd::Lease { subs, depth, reply })) => {
                 let wave = ledger.next_wave_id();
                 let topics: Vec<Topic> = subs.iter().map(|(topic, _)| topic.clone()).collect();
+                let floors: HashMap<Topic, B::Cursor> = subs
+                    .iter()
+                    .map(|(topic, cursor)| (topic.clone(), *cursor))
+                    .collect();
                 let mutate = B::build_mutate(subs, None, wave.0);
                 let mut queued = None;
                 if conn.is_none() {
@@ -590,7 +686,7 @@ async fn run_ledger<B: TransportBinding>(
                 // non-monotonic delivery contract (see module docs) —
                 // consumers identity-dedup until they are caught up.
                 let (tx, events) = mpsc::channel(depth.max(1));
-                let id = ledger.register(topics.clone(), tx);
+                let id = ledger.register(topics.clone(), floors, tx);
                 ledger.pending_waves.insert(wave, id);
                 if let Some(mutate) = queued {
                     // Tagged with the lease so a deref can purge it if it never
@@ -1055,6 +1151,145 @@ mod tests {
         match recv(&mut inst).await {
             Some(LeaseEvent::WelcomeMessages(got)) => assert_eq!(got, vec![w]),
             _ => panic!("inst expected its welcome"),
+        }
+    }
+
+    /// Once a lease is caught up, a sibling's deeper cursored re-add replays
+    /// history on the shared wire — and the transport drops the copies: a
+    /// caught-up lease receives each message at most once.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn caught_up_lease_never_sees_a_sibling_replay_twice() {
+        let (transport, servers) = transport();
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+
+        server.send(messages(
+            vec![group_msg(1, b"g1"), group_msg(2, b"g1")],
+            vec![],
+        ));
+        server.send(catchup_complete(first.mutate_id));
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(1, b"g1"), group_msg(2, b"g1")])
+            }
+            _ => panic!("alpha expected its replay"),
+        }
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // A sibling re-adds from zero: the server replays 1..2 plus new 3.
+        let mut beta = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let second = server.next_mutate().await;
+        server.send(messages(
+            vec![
+                group_msg(1, b"g1"),
+                group_msg(2, b"g1"),
+                group_msg(3, b"g1"),
+            ],
+            vec![],
+        ));
+        server.send(catchup_complete(second.mutate_id));
+
+        // The window lease gets the full replay...
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![
+                    group_msg(1, b"g1"),
+                    group_msg(2, b"g1"),
+                    group_msg(3, b"g1"),
+                ]
+            ),
+            _ => panic!("beta expected the full replay"),
+        }
+        // ...the caught-up lease only what it has not seen.
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![group_msg(3, b"g1")],
+                "replayed copies must be dropped for a caught-up lease"
+            ),
+            _ => panic!("alpha expected only the new message"),
+        }
+    }
+
+    /// The window filter is the FROZEN floor, not the advancing position: an
+    /// in-flight live delivery that leapfrogs the lease's own replay must not
+    /// swallow the replay behind it.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn window_admits_the_replay_behind_an_early_live_delivery() {
+        let (transport, servers) = transport();
+        let mut lease = transport.lease(vec![(group_topic(b"g1"), 10)], 8).await?;
+        let mut server = take_server(&servers);
+        let wave = server.next_mutate().await;
+
+        // Live 100 (in flight for the shared topic) lands before the replay.
+        server.send(messages(vec![group_msg(100, b"g1")], vec![]));
+        server.send(messages(vec![group_msg(11, b"g1")], vec![]));
+        server.send(catchup_complete(wave.mutate_id));
+
+        match recv(&mut lease).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(100, b"g1")])
+            }
+            _ => panic!("expected the early live delivery"),
+        }
+        match recv(&mut lease).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![group_msg(11, b"g1")],
+                "the replay behind an early live delivery must still deliver"
+            ),
+            _ => panic!("expected the replay"),
+        }
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+    }
+
+    /// During the window, deliveries at-or-below the lease's own add cursor
+    /// are a sibling's deeper replay — never delivered to this lease.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn below_floor_history_is_not_delivered_during_the_window() {
+        let (transport, servers) = transport();
+        let mut high = transport.lease(vec![(group_topic(b"g1"), 10)], 8).await?;
+        let mut server = take_server(&servers);
+        server.next_mutate().await;
+
+        // A sibling from zero triggers a deep replay on the shared wire.
+        let mut deep = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        server.next_mutate().await;
+        server.send(messages(
+            vec![
+                group_msg(5, b"g1"),
+                group_msg(10, b"g1"),
+                group_msg(11, b"g1"),
+            ],
+            vec![],
+        ));
+
+        match recv(&mut deep).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![
+                    group_msg(5, b"g1"),
+                    group_msg(10, b"g1"),
+                    group_msg(11, b"g1"),
+                ]
+            ),
+            _ => panic!("the deep lease expected the full replay"),
+        }
+        match recv(&mut high).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![group_msg(11, b"g1")],
+                "history at-or-below the lease's own cursor is never its to receive"
+            ),
+            _ => panic!("the high lease expected only above-floor deliveries"),
         }
     }
 
