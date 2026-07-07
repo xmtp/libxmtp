@@ -349,6 +349,8 @@ impl NeedsDbReconnect for IdentityError {
         match self {
             Self::StorageError(s) => s.db_needs_connection(),
             Self::Db(c) => c.db_needs_connection(),
+            // Keystore ops (rotate/delete paths) hit the same pool.
+            Self::OpenMlsStorageError(SqlKeyStoreError::Connection(c)) => c.db_needs_connection(),
             _ => false,
         }
     }

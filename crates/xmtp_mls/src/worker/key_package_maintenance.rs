@@ -270,6 +270,15 @@ mod tests {
         );
         let e = TaskWorkerError::from(crate::identity::IdentityError::from(disconnect_storage()));
         assert!(e.needs_db_reconnect());
+        // Keystore pool loss (rotate/delete paths) must also restart the worker.
+        let e = TaskWorkerError::from(crate::identity::IdentityError::OpenMlsStorageError(
+            xmtp_db::sql_key_store::SqlKeyStoreError::Connection(
+                xmtp_db::ConnectionError::Platform(
+                    xmtp_db::PlatformStorageError::PoolNeedsConnection,
+                ),
+            ),
+        ));
+        assert!(e.needs_db_reconnect());
         // A non-disconnect storage failure must NOT stop the worker.
         let e = TaskWorkerError::from(KeyPackageMaintenanceError::Storage(benign_storage()));
         assert!(
