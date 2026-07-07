@@ -53,6 +53,40 @@ static SYNC_COUNT: AtomicU64 = AtomicU64::new(0);
 static WRITE_COUNT: AtomicU64 = AtomicU64::new(0);
 static READ_COUNT: AtomicU64 = AtomicU64::new(0);
 
+// Per-op-type timing: wall-time spent inside the delegated real call, and call
+// count, for in-scope files. Attributes creation time to op types (create vs
+// truncate vs fsync) on real network storage where the model can't.
+#[derive(Clone, Copy)]
+enum Op {
+    Open,
+    Read,
+    Write,
+    Sync,
+    Truncate,
+    Close,
+    Lock,
+    Unlock,
+    ShmMap,
+    Delete,
+    Access,
+    N,
+}
+const NOP: usize = Op::N as usize;
+const OP_NAMES: [&str; NOP] = [
+    "open", "read", "write", "sync", "truncate", "close", "lock", "unlock", "shm_map", "delete",
+    "access",
+];
+static OP_NS: [AtomicU64; NOP] = [const { AtomicU64::new(0) }; NOP];
+static OP_CT: [AtomicU64; NOP] = [const { AtomicU64::new(0) }; NOP];
+
+#[inline]
+fn record(op: Op, in_scope: bool, elapsed: std::time::Duration) {
+    if in_scope {
+        OP_CT[op as usize].fetch_add(1, Ordering::Relaxed);
+        OP_NS[op as usize].fetch_add(elapsed.as_nanos() as u64, Ordering::Relaxed);
+    }
+}
+
 static SCOPE_PREFIX: RwLock<Option<String>> = RwLock::new(None);
 
 static REGISTER: Once = Once::new();
@@ -144,6 +178,25 @@ pub fn reset_counts() {
     SYNC_COUNT.store(0, Ordering::Relaxed);
     WRITE_COUNT.store(0, Ordering::Relaxed);
     READ_COUNT.store(0, Ordering::Relaxed);
+    for i in 0..NOP {
+        OP_NS[i].store(0, Ordering::Relaxed);
+        OP_CT[i].store(0, Ordering::Relaxed);
+    }
+}
+
+/// Per-op-type `(name, count, total_nanos)` spent inside the delegated real
+/// calls for in-scope files. Read after a fresh-store creation to see which op
+/// type (create/open, truncate, fsync, …) dominates wall-time on a given disk.
+pub fn op_times() -> Vec<(&'static str, u64, u64)> {
+    (0..NOP)
+        .map(|i| {
+            (
+                OP_NAMES[i],
+                OP_CT[i].load(Ordering::Relaxed),
+                OP_NS[i].load(Ordering::Relaxed),
+            )
+        })
+        .collect()
 }
 
 /// Snapshot the in-scope op counters.
@@ -216,7 +269,9 @@ unsafe extern "C" fn x_open(
     let in_scope = name_in_scope(z_name);
     (*p).in_scope = in_scope as c_int;
 
+    let start = std::time::Instant::now();
     let rc = ((*real).xOpen.unwrap())(real, z_name, (*p).real, flags, out_flags);
+    record(Op::Open, in_scope, start.elapsed());
     if rc != ffi::SQLITE_OK {
         (*p).base.pMethods = std::ptr::null();
         return rc;
@@ -241,7 +296,11 @@ unsafe extern "C" fn x_delete(
     sync_dir: c_int,
 ) -> c_int {
     let real = real_vfs(vfs);
-    ((*real).xDelete.unwrap())(real, z_name, sync_dir)
+    let in_scope = name_in_scope(z_name);
+    let start = std::time::Instant::now();
+    let rc = ((*real).xDelete.unwrap())(real, z_name, sync_dir);
+    record(Op::Delete, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn x_access(
@@ -251,7 +310,11 @@ unsafe extern "C" fn x_access(
     res_out: *mut c_int,
 ) -> c_int {
     let real = real_vfs(vfs);
-    ((*real).xAccess.unwrap())(real, z_name, flags, res_out)
+    let in_scope = name_in_scope(z_name);
+    let start = std::time::Instant::now();
+    let rc = ((*real).xAccess.unwrap())(real, z_name, flags, res_out);
+    record(Op::Access, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn x_full_pathname(
@@ -304,8 +367,11 @@ unsafe extern "C" fn x_get_last_error(
 
 unsafe extern "C" fn f_close(file: *mut ffi::sqlite3_file) -> c_int {
     let p = file as *mut LatencyFile;
+    let in_scope = (*p).in_scope != 0;
     let m = real_methods(file);
+    let start = std::time::Instant::now();
     let rc = ((*m).xClose.unwrap())((*p).real);
+    record(Op::Close, in_scope, start.elapsed());
     (*p).base.pMethods = std::ptr::null();
     rc
 }
@@ -317,12 +383,16 @@ unsafe extern "C" fn f_read(
     ofst: ffi::sqlite3_int64,
 ) -> c_int {
     let p = file as *mut LatencyFile;
-    if (*p).in_scope != 0 {
+    let in_scope = (*p).in_scope != 0;
+    if in_scope {
         READ_COUNT.fetch_add(1, Ordering::Relaxed);
         sleep_ns(READ_DELAY_NS.load(Ordering::Relaxed));
     }
     let m = real_methods(file);
-    ((*m).xRead.unwrap())((*p).real, buf, amt, ofst)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xRead.unwrap())((*p).real, buf, amt, ofst);
+    record(Op::Read, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_write(
@@ -332,28 +402,40 @@ unsafe extern "C" fn f_write(
     ofst: ffi::sqlite3_int64,
 ) -> c_int {
     let p = file as *mut LatencyFile;
-    if (*p).in_scope != 0 {
+    let in_scope = (*p).in_scope != 0;
+    if in_scope {
         WRITE_COUNT.fetch_add(1, Ordering::Relaxed);
         sleep_ns(WRITE_DELAY_NS.load(Ordering::Relaxed));
     }
     let m = real_methods(file);
-    ((*m).xWrite.unwrap())((*p).real, buf, amt, ofst)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xWrite.unwrap())((*p).real, buf, amt, ofst);
+    record(Op::Write, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_truncate(file: *mut ffi::sqlite3_file, size: ffi::sqlite3_int64) -> c_int {
     let p = file as *mut LatencyFile;
+    let in_scope = (*p).in_scope != 0;
     let m = real_methods(file);
-    ((*m).xTruncate.unwrap())((*p).real, size)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xTruncate.unwrap())((*p).real, size);
+    record(Op::Truncate, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_sync(file: *mut ffi::sqlite3_file, flags: c_int) -> c_int {
     let p = file as *mut LatencyFile;
-    if (*p).in_scope != 0 {
+    let in_scope = (*p).in_scope != 0;
+    if in_scope {
         SYNC_COUNT.fetch_add(1, Ordering::Relaxed);
         sleep_ns(SYNC_DELAY_NS.load(Ordering::Relaxed));
     }
     let m = real_methods(file);
-    ((*m).xSync.unwrap())((*p).real, flags)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xSync.unwrap())((*p).real, flags);
+    record(Op::Sync, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_file_size(
@@ -367,14 +449,22 @@ unsafe extern "C" fn f_file_size(
 
 unsafe extern "C" fn f_lock(file: *mut ffi::sqlite3_file, lock: c_int) -> c_int {
     let p = file as *mut LatencyFile;
+    let in_scope = (*p).in_scope != 0;
     let m = real_methods(file);
-    ((*m).xLock.unwrap())((*p).real, lock)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xLock.unwrap())((*p).real, lock);
+    record(Op::Lock, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_unlock(file: *mut ffi::sqlite3_file, lock: c_int) -> c_int {
     let p = file as *mut LatencyFile;
+    let in_scope = (*p).in_scope != 0;
     let m = real_methods(file);
-    ((*m).xUnlock.unwrap())((*p).real, lock)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xUnlock.unwrap())((*p).real, lock);
+    record(Op::Unlock, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_check_reserved_lock(
@@ -416,8 +506,12 @@ unsafe extern "C" fn f_shm_map(
     pp: *mut *mut c_void,
 ) -> c_int {
     let p = file as *mut LatencyFile;
+    let in_scope = (*p).in_scope != 0;
     let m = real_methods(file);
-    ((*m).xShmMap.unwrap())((*p).real, i_pg, pgsz, b_extend, pp)
+    let start = std::time::Instant::now();
+    let rc = ((*m).xShmMap.unwrap())((*p).real, i_pg, pgsz, b_extend, pp);
+    record(Op::ShmMap, in_scope, start.elapsed());
+    rc
 }
 
 unsafe extern "C" fn f_shm_lock(
@@ -509,3 +603,157 @@ static METHODS_V3: ffi::sqlite3_io_methods = ffi::sqlite3_io_methods {
     xFetch: Some(f_fetch),
     xUnfetch: Some(f_unfetch),
 };
+
+#[cfg(test)]
+mod attribution {
+    //! Diagnostic: attribute the SQLite write ops of a fresh-store creation to
+    //! individual migrations, so the disk-latency curve can be read as
+    //! "which migrations cost the round-trips."
+    //!
+    //! Run with:
+    //!   cargo test -p xmtp_db --features bench --lib latency_vfs::attribution -- --nocapture
+    use super::{counts, op_times, register, reset_counts, set_delays, set_scope_prefix};
+    use crate::{ConnectionExt, EncryptedMessageStore, MIGRATIONS, NativeDb};
+    use diesel::migration::MigrationSource;
+    use diesel::sqlite::Sqlite;
+    use diesel_migrations::MigrationHarness;
+    use std::time::Duration;
+
+    #[test]
+    fn attribute_init_writes() {
+        register().expect("register vfs");
+        set_delays(Duration::ZERO, Duration::ZERO, Duration::ZERO);
+
+        let dir = std::env::temp_dir().join(format!("xmtp-attr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("inbox.db3").to_string_lossy().into_owned();
+        for sfx in ["", "-wal", "-shm", "-journal", ".sqlcipher_salt"] {
+            let _ = std::fs::remove_file(format!("{path}{sfx}"));
+        }
+        set_scope_prefix(Some("inbox.db3".to_string()));
+        reset_counts();
+
+        // Building the encrypted, single-connection db opens the file and runs
+        // the key + connection pragmas (WAL switch, checkpoint), but not the
+        // migrations (`new_uninit` skips `init()`).
+        let db = NativeDb::builder()
+            .persistent(&path)
+            .key([0u8; 32])
+            .single_connection()
+            .build()
+            .expect("build db");
+        let store = EncryptedMessageStore::new_uninit(db).expect("uninit store");
+        let setup_writes = counts().write;
+
+        let migrations = MigrationSource::<Sqlite>::migrations(&MIGRATIONS).unwrap();
+        let names: Vec<String> = migrations.iter().map(|m| m.name().to_string()).collect();
+
+        let mut per_migration: Vec<(String, u64)> = store
+            .conn()
+            .raw_query(|conn| {
+                let mut out = Vec::new();
+                let mut last = counts().write;
+                for name in &names {
+                    conn.run_next_migration(MIGRATIONS).expect("run migration");
+                    let now = counts().write;
+                    out.push((name.clone(), now - last));
+                    last = now;
+                }
+                Ok(out)
+            })
+            .expect("run migrations");
+
+        let total = counts().write;
+        let migration_writes: u64 = per_migration.iter().map(|(_, w)| *w).sum();
+
+        println!("\n===== fresh-store write attribution =====");
+        println!("setup (open + key + pragmas + initial checkpoint): {setup_writes} writes");
+        println!(
+            "migrations ({} total): {migration_writes} writes",
+            names.len()
+        );
+        println!("grand total in scope: {total} writes\n");
+
+        per_migration.sort_by_key(|m| std::cmp::Reverse(m.1));
+        println!("top migrations by write count:");
+        for (name, w) in per_migration.iter().take(15) {
+            println!("  {w:>5}  {name}");
+        }
+        let zero = per_migration.iter().filter(|(_, w)| *w <= 2).count();
+        println!(
+            "\n{} of {} migrations wrote <= 2 pages (schema-only, cheap)",
+            zero,
+            names.len()
+        );
+
+        set_scope_prefix(None);
+    }
+
+    /// Attribute a full fresh-store creation's wall-time to SQLite op types.
+    /// Point at a real mount to see which ops dominate on that disk:
+    ///   XMTP_BENCH_DIR=/Volumes/bench-disk cargo test -p xmtp_db --features bench \
+    ///     --lib latency_vfs::attribution::attribute_init_op_times -- --nocapture
+    #[test]
+    fn attribute_init_op_times() {
+        register().expect("register vfs");
+        set_delays(Duration::ZERO, Duration::ZERO, Duration::ZERO);
+
+        let base = std::env::var_os("XMTP_BENCH_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let dir = base.join(format!("xmtp-optimes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("inbox.db3").to_string_lossy().into_owned();
+        for sfx in ["", "-wal", "-shm", "-journal", ".sqlcipher_salt"] {
+            let _ = std::fs::remove_file(format!("{path}{sfx}"));
+        }
+        set_scope_prefix(Some("inbox.db3".to_string()));
+        reset_counts();
+
+        // Full init: opens the files, runs the 64 migrations, checkpoints.
+        let t0 = std::time::Instant::now();
+        let db = NativeDb::builder()
+            .persistent(&path)
+            .key([0u8; 32])
+            .single_connection()
+            .build()
+            .expect("build db");
+        let store = EncryptedMessageStore::new(db).expect("create store");
+        let wall = t0.elapsed();
+        let ops = counts();
+        drop(store);
+
+        let mut times = op_times();
+        let total_ns: u64 = times.iter().map(|(_, _, ns)| *ns).sum();
+        times.sort_by_key(|t| std::cmp::Reverse(t.2));
+
+        println!("\n===== fresh-store op-type timing =====");
+        println!("path:              {path}");
+        println!("wall (build+init): {:.1} ms", wall.as_secs_f64() * 1e3);
+        println!(
+            "in-VFS accounted:  {:.1} ms  (writes={} syncs={} reads={})",
+            total_ns as f64 / 1e6,
+            ops.write,
+            ops.sync,
+            ops.read
+        );
+        println!(
+            "\n{:<9} {:>6} {:>10} {:>9}",
+            "op", "count", "total_ms", "avg_us"
+        );
+        for (name, ct, ns) in &times {
+            if *ct == 0 {
+                continue;
+            }
+            println!(
+                "{:<9} {:>6} {:>10.1} {:>9.1}",
+                name,
+                ct,
+                *ns as f64 / 1e6,
+                (*ns as f64 / 1e3) / (*ct as f64)
+            );
+        }
+
+        set_scope_prefix(None);
+    }
+}

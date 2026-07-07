@@ -24,12 +24,22 @@ use xmtp_db::{EncryptedMessageStore, NativeDb, latency_vfs};
 /// Latencies (ms per op) to sweep.
 const LATENCIES_MS: &[u64] = &[0, 1, 5, 10];
 
-/// Returns a fresh, unique DB path under the OS temp dir and best-effort removes
-/// any stale files at that path.
+/// Base directory for the bench DB files. Defaults to the OS temp dir; override
+/// with `XMTP_BENCH_DIR` to benchmark a real mount (e.g. an Archil/EFS volume)
+/// with zero injected latency, so the numbers reflect that disk's true latency.
+fn bench_base_dir() -> std::path::PathBuf {
+    match std::env::var_os("XMTP_BENCH_DIR") {
+        Some(d) => std::path::PathBuf::from(d),
+        None => std::env::temp_dir(),
+    }
+}
+
+/// Returns a fresh, unique DB path under the bench base dir and best-effort
+/// removes any stale files at that path.
 fn fresh_db_path() -> String {
     static N: AtomicU64 = AtomicU64::new(0);
     let n = N.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("xmtp-latbench-{}", std::process::id()));
+    let dir = bench_base_dir().join(format!("xmtp-latbench-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create temp bench dir");
     let path = dir.join(format!("inbox-{n}.db3"));
     for suffix in ["", "-wal", "-shm", "-journal", ".sqlcipher_salt"] {
