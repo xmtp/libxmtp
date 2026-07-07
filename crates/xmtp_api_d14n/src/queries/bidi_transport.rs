@@ -58,14 +58,24 @@
 //! cursored add. This mirrors the consumer-level bounded-channel policy one
 //! layer down.
 //!
+//! ## Reconnect (a wire flap is invisible to leases)
+//!
+//! A dead wire does not close leases. The transport re-opens on a capped
+//! exponential backoff — forever; an offline process resumes when the network
+//! returns — and sends one **resume wave** re-adding every leased topic from
+//! its last-seen delivery position, held down to the floor of any lease still
+//! owed its catch-up replay. That wave's `CatchUpComplete` resolves every
+//! lease that was still catching up when the wire died. Replay overlap is
+//! absorbed by the delivery guarantee above, so consumers never observe the
+//! flap. `next()` → `None` now means only: this consumer fell behind and was
+//! dropped, or the transport itself shut down.
+//!
 //! ## Not yet here (later phases)
 //!
-//! - Transparent reconnect: today a dead wire closes every lease (consumers
-//!   re-lease to re-open). The reconnect phase moves the re-open inside.
 //! - Liveness: a *half-open* wire (the failure probes exist to catch) is not
 //!   detected here yet — nothing probes, so leases on such a wire pend until
-//!   something above notices. The reconnect phase owns probing + re-open;
-//!   until then the consumer keeps its existing watchdog floor.
+//!   something above notices. Until then the consumer keeps its existing
+//!   watchdog floor.
 //! - `Started` capabilities are logged, not consumed (capability gating phase).
 
 use std::collections::{HashMap, HashSet};
@@ -85,6 +95,12 @@ pub const DEFAULT_LEASE_DEPTH: usize = 64;
 /// wire's command buffer momentarily full. Rare: capacity normally frees (and
 /// the ledger normally wakes) through the same event flow that filled it.
 const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
+/// First retry after an unexpected wire death; doubles per failed attempt up
+/// to [`RECONNECT_MAX_DELAY`]. Reconnection is never given up on — an offline
+/// process resumes when the network returns.
+const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+/// Ceiling for the reconnect backoff.
+const RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
 /// How long a graceful close (half-close, then drain inbound to completion)
 /// may take before the connection is dropped outright. After a half-close the
 /// server finishes any in-flight catch-up waves before closing with `OK`
@@ -138,6 +154,10 @@ where
     /// Whether `position` already covers `delivered` (v3: `delivered <=
     /// position`).
     fn covers(position: &Self::Cursor, delivered: &Self::Cursor) -> bool;
+    /// The greatest position covered by both (v3: `min`) — folds multiple
+    /// resume constraints for one topic into a single safe re-add cursor
+    /// (replaying too much is dedup'd; replaying too little loses messages).
+    fn meet(a: Self::Cursor, b: Self::Cursor) -> Self::Cursor;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -285,11 +305,12 @@ where
     ///
     /// Resolves once the lease is registered and its cursored-add wave is
     /// queued for the wire, opening the wire first if this is the first lease.
-    /// Waves reach the wire in issue order, but "queued" is not "delivered":
-    /// if the wire dies before the wave lands, this lease's event stream ends
-    /// (`next()` → `None`) and the consumer re-leases — the same recovery as
-    /// any other wire death. A lease whose adds the server has definitely
-    /// processed is signaled by its [`LeaseEvent::CatchUpComplete`].
+    /// Waves reach the wire in issue order. A wire death at any point is
+    /// invisible here: the transport reconnects and a resume wave re-covers
+    /// this lease (module docs), so `next()` → `None` means only that this
+    /// consumer fell behind and was dropped, or the transport shut down. A
+    /// lease whose adds the server has definitely processed is signaled by
+    /// its [`LeaseEvent::CatchUpComplete`].
     pub async fn lease(
         &self,
         subs: Vec<(Topic, B::Cursor)>,
@@ -327,6 +348,20 @@ type Opener<B> = Box<
         + Send,
 >;
 
+/// What a resume wave restores: every leased topic with its resume cursor,
+/// plus the leases whose `CatchUpComplete` the wave now owes.
+type ResumeWave<C> = (Vec<(Topic, C)>, Vec<LeaseId>);
+
+/// Whose `CatchUpComplete` a wave resolves.
+enum WaveOwner {
+    /// A lease's own add wave.
+    Lease(LeaseId),
+    /// A reconnect's resume wave: resolves every lease that was still
+    /// catching up when the previous wire died (their own waves can never
+    /// complete on the new wire).
+    Resume { pending: Vec<LeaseId> },
+}
+
 /// The topic ledger: which lease holds which topics, and where each in-flight
 /// wave's `CatchUpComplete` should land.
 struct Ledger<B: TransportBinding>
@@ -336,8 +371,12 @@ where
 {
     leases: HashMap<LeaseId, LeaseState<B>>,
     by_topic: HashMap<Topic, HashSet<LeaseId>>,
-    /// Which lease's `CatchUpComplete` each in-flight wave resolves.
-    pending_waves: HashMap<WaveId, LeaseId>,
+    /// The wire-position ledger: the furthest delivery ever seen per leased
+    /// topic (advance-only) — the reconnect resume point. Not a durable
+    /// cursor: it lives and dies with this transport.
+    last_seen: HashMap<Topic, B::Cursor>,
+    /// Whose `CatchUpComplete` each in-flight wave resolves.
+    pending_waves: HashMap<WaveId, WaveOwner>,
     next_lease: u64,
     /// Wave correlation ids start at 1: `0` means "no correlation" on the wire.
     next_wave: u64,
@@ -396,6 +435,7 @@ where
         Self {
             leases: HashMap::new(),
             by_topic: HashMap::new(),
+            last_seen: HashMap::new(),
             pending_waves: HashMap::new(),
             next_lease: 0,
             next_wave: 1,
@@ -445,18 +485,85 @@ where
         let Some(state) = self.leases.remove(&id) else {
             return Vec::new();
         };
-        self.pending_waves.retain(|_, lease| *lease != id);
+        self.pending_waves.retain(|_, owner| match owner {
+            WaveOwner::Lease(lease) => *lease != id,
+            WaveOwner::Resume { pending } => {
+                pending.retain(|lease| *lease != id);
+                true
+            }
+        });
         let mut removes = Vec::new();
         for topic in state.topics {
             if let Some(holders) = self.by_topic.get_mut(&topic) {
                 holders.remove(&id);
                 if holders.is_empty() {
                     self.by_topic.remove(&topic);
+                    // Its wire position matters only while it can be resumed.
+                    self.last_seen.remove(&topic);
                     removes.push(topic);
                 }
             }
         }
         removes
+    }
+
+    /// Mark a lease caught up — its advancing position (now at the live edge)
+    /// takes over from the floor as its delivery filter — and deliver its
+    /// `CatchUpComplete`.
+    fn complete(&mut self, lease: LeaseId, dropped: &mut Vec<LeaseId>) {
+        if let Some(state) = self.leases.get_mut(&lease) {
+            state.caught_up = true;
+        }
+        if !self.deliver(lease, LeaseEvent::CatchUpComplete) {
+            dropped.push(lease);
+        }
+    }
+
+    /// The adds for a resume wave that restores the whole wire: each leased
+    /// topic from the deepest position still owed — `last_seen`, held down by
+    /// the floor of any lease still catching up (its interrupted replay is
+    /// re-owed in full) — plus the leases whose `CatchUpComplete` the wave
+    /// now owes. `None` when nothing is leased.
+    fn resume_adds(&self) -> Option<ResumeWave<B::Cursor>> {
+        if self.by_topic.is_empty() {
+            return None;
+        }
+        let mut adds = Vec::with_capacity(self.by_topic.len());
+        for (topic, holders) in &self.by_topic {
+            let mut resume = self.last_seen.get(topic).copied();
+            let mut fallback = None;
+            for lease in holders {
+                let Some(state) = self.leases.get(lease) else {
+                    continue;
+                };
+                let Some(floor) = state.floors.get(topic).copied() else {
+                    continue;
+                };
+                fallback = Some(match fallback {
+                    Some(other) => B::meet(other, floor),
+                    None => floor,
+                });
+                if !state.caught_up {
+                    resume = Some(match resume {
+                        Some(seen) => B::meet(seen, floor),
+                        None => floor,
+                    });
+                }
+            }
+            // All caught up with nothing delivered yet: the floors are the
+            // only known positions (replaying below one is dedup'd anyway).
+            let Some(cursor) = resume.or(fallback) else {
+                continue;
+            };
+            adds.push((topic.clone(), cursor));
+        }
+        let pending = self
+            .leases
+            .iter()
+            .filter(|(_, state)| !state.caught_up)
+            .map(|(id, _)| *id)
+            .collect();
+        Some((adds, pending))
     }
 
     /// Deliver one event to one lease without blocking the wire. Returns
@@ -497,16 +604,14 @@ where
                 );
             }
             Event::CatchUpComplete { mutate_id } => {
-                if let Some(lease) = self.pending_waves.remove(&WaveId(mutate_id)) {
-                    if let Some(state) = self.leases.get_mut(&lease) {
-                        // From here the advancing position (now at the live
-                        // edge) takes over from the floor as this lease's
-                        // delivery filter.
-                        state.caught_up = true;
+                match self.pending_waves.remove(&WaveId(mutate_id)) {
+                    Some(WaveOwner::Lease(lease)) => self.complete(lease, &mut dropped),
+                    Some(WaveOwner::Resume { pending }) => {
+                        for lease in pending {
+                            self.complete(lease, &mut dropped);
+                        }
                     }
-                    if !self.deliver(lease, LeaseEvent::CatchUpComplete) {
-                        dropped.push(lease);
-                    }
+                    None => {}
                 }
             }
             Event::TopicsLive { topics } => {
@@ -569,6 +674,14 @@ where
                 continue;
             };
             let cursor = cursor_of(&message);
+            if let Some(cursor) = cursor {
+                // The wire-position ledger: the reconnect resume point.
+                if let Some(seen) = self.last_seen.get_mut(&topic) {
+                    B::advance(seen, cursor);
+                } else {
+                    self.last_seen.insert(topic.clone(), cursor);
+                }
+            }
             for lease in holders {
                 let admit = match (cursor, self.leases.get_mut(lease)) {
                     (Some(cursor), Some(state)) => state.admit(&topic, cursor),
@@ -596,6 +709,8 @@ where
     Wire(Option<Event<B::GroupMessage, B::WelcomeMessage>>),
     /// Timer backstop fired to retry a parked outbox.
     Retry,
+    /// The reconnect backoff elapsed on a dead wire with live leases.
+    Reconnect,
 }
 
 /// The ledger task: sole owner of the wire connection and the topic ledger.
@@ -621,9 +736,10 @@ async fn run_ledger<B: TransportBinding>(
 {
     let mut ledger = Ledger::<B>::default();
     let mut conn: Option<Connection<B>> = None;
+    let mut reconnect_delay = RECONNECT_INITIAL_DELAY;
     // Waves accepted but not yet on the wire, in issue order. Invariant:
     // non-empty only while `conn` is `Some` — cleared on every wire close
-    // (stale waves are meaningless to a fresh wire; new leases re-seed it).
+    // (stale waves are meaningless to a fresh wire; the resume wave re-seeds).
     let mut outbox: Outbox<B::Mutate> = Outbox::default();
 
     loop {
@@ -641,7 +757,13 @@ async fn run_ledger<B: TransportBinding>(
                 // was momentarily full and no event arrives to wake us.
                 _ = tokio::time::sleep(OUTBOX_RETRY_INTERVAL), if !outbox.is_empty() => Step::Retry,
             },
-            // No wire: nothing to route, just wait for the next command.
+            // A dead wire with live leases reconnects once the backoff
+            // elapses, still absorbing commands meanwhile.
+            None if !ledger.leases.is_empty() => tokio::select! {
+                cmd = cmds.recv() => Step::Cmd(cmd),
+                _ = tokio::time::sleep(reconnect_delay) => Step::Reconnect,
+            },
+            // No wire, no leases: dormant until the next command.
             None => Step::Cmd(cmds.recv().await),
         };
 
@@ -665,19 +787,27 @@ async fn run_ledger<B: TransportBinding>(
                     .collect();
                 let mutate = B::build_mutate(subs, None, wave.0);
                 let mut queued = None;
-                if conn.is_none() {
-                    // Lazy open, seeded with this lease's adds. Awaiting here
-                    // is safe: with no wire there are no events to drain.
+                if conn.is_none() && ledger.leases.is_empty() {
+                    // Cold open, seeded with this lease's adds. Awaiting here
+                    // is safe: with no wire there are no events to drain. The
+                    // failure is this caller's to see — nobody else is
+                    // waiting on the wire.
                     match opener(mutate).await {
-                        Ok(wire) => conn = Some(wire),
+                        Ok(wire) => {
+                            conn = Some(wire);
+                            reconnect_delay = RECONNECT_INITIAL_DELAY;
+                        }
                         Err(e) => {
                             let _ = reply.send(Err(TransportError::Open(e)));
                             continue;
                         }
                     }
-                } else {
+                } else if conn.is_some() {
                     queued = Some(mutate);
                 }
+                // else: the wire is down but other leases exist — the
+                // reconnect arm re-opens with a resume wave covering this
+                // lease too, so its mutate is deliberately dropped here.
 
                 // Registered for routing immediately, NOT at CatchUpComplete:
                 // the lease's own replay arrives *before* its CatchUpComplete
@@ -687,7 +817,7 @@ async fn run_ledger<B: TransportBinding>(
                 // consumers identity-dedup until they are caught up.
                 let (tx, events) = mpsc::channel(depth.max(1));
                 let id = ledger.register(topics.clone(), floors, tx);
-                ledger.pending_waves.insert(wave, id);
+                ledger.pending_waves.insert(wave, WaveOwner::Lease(id));
                 if let Some(mutate) = queued {
                     // Tagged with the lease so a deref can purge it if it never
                     // reaches the wire.
@@ -714,13 +844,42 @@ async fn run_ledger<B: TransportBinding>(
                 let removes = ledger.deref(id);
                 retire(&mut conn, &mut ledger, &mut outbox, removes);
             }
-            // The wire ended (server close or transport failure). No transparent
-            // reconnect yet (later phase): close every lease so each consumer
-            // re-leases from its durable cursors — the next lease re-opens.
+            // The wire ended (server close or transport failure). Leases
+            // survive: the dead-wire select arm reconnects with a resume wave
+            // (module docs) — no stream ever observes the flap.
             Step::Wire(None) => {
                 outbox.clear();
                 drop(conn.take());
-                close_all_leases(&mut ledger);
+                if !ledger.leases.is_empty() {
+                    tracing::warn!(
+                        "bidi transport: wire died; reconnecting from last-seen positions"
+                    );
+                }
+            }
+            Step::Reconnect => {
+                let Some((adds, pending)) = ledger.resume_adds() else {
+                    continue;
+                };
+                let wave = ledger.next_wave_id();
+                let mutate = B::build_mutate(adds, None, wave.0);
+                // Awaiting is safe: with no wire there are no events to drain.
+                match opener(mutate).await {
+                    Ok(wire) => {
+                        conn = Some(wire);
+                        reconnect_delay = RECONNECT_INITIAL_DELAY;
+                        // Waves from the dead wire can never resolve on this
+                        // one; the resume wave owes every still-pending lease
+                        // its CatchUpComplete instead.
+                        ledger.pending_waves.clear();
+                        ledger
+                            .pending_waves
+                            .insert(wave, WaveOwner::Resume { pending });
+                    }
+                    Err(e) => {
+                        tracing::warn!("bidi transport: reconnect failed ({e}); backing off");
+                        reconnect_delay = (reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
+                    }
+                }
             }
             Step::Wire(Some(event)) => {
                 let mut removes = Vec::new();
@@ -809,17 +968,6 @@ fn retire<B: TransportBinding>(
         return;
     }
     outbox.push(None, B::build_mutate(None, removes, 0));
-}
-
-fn close_all_leases<B: TransportBinding>(ledger: &mut Ledger<B>)
-where
-    B::GroupMessage: Clone,
-    B::WelcomeMessage: Clone,
-{
-    // Dropping the senders ends every lease's event stream (`next()` → None).
-    ledger.leases.clear();
-    ledger.by_topic.clear();
-    ledger.pending_waves.clear();
 }
 
 /// Half-close and drain off-task, so the ledger stays responsive; bounded, so
@@ -1428,23 +1576,181 @@ mod tests {
         );
     }
 
-    /// Wire death (no reconnect phase yet) closes every lease; consumers
-    /// re-lease from durable cursors, which opens a fresh wire.
+    /// A fresh wire session parked by the reconnect (which fires on a timer,
+    /// not synchronously with the death).
+    async fn wait_for_server(servers: &Servers) -> MockServer {
+        tokio::time::timeout(WAIT, async {
+            loop {
+                let next = {
+                    let mut parked = servers.lock().unwrap();
+                    (!parked.is_empty()).then(|| parked.remove(0))
+                };
+                if let Some(server) = next {
+                    return server;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("timed out waiting for a reconnect open")
+    }
+
+    /// A wire flap is invisible to leases: the transport reconnects on its
+    /// own and resumes each topic from its last-seen delivery position — and
+    /// the caught-up lease receives only what it has not seen.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn wire_death_closes_all_leases_and_a_new_lease_reopens() {
+    async fn wire_death_reconnects_from_last_seen_positions() {
         let (transport, servers) = transport();
         let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
-        let server = take_server(&servers);
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(messages(
+            vec![group_msg(1, b"g1"), group_msg(2, b"g1")],
+            vec![],
+        ));
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::GroupMessages(_))
+        ));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
 
-        drop(server); // the wire dies
-        assert!(
-            recv(&mut alpha).await.is_none(),
-            "wire death must close the lease"
+        drop(server); // the wire dies mid-stream
+
+        // The transport re-opens by itself; the resume wave re-adds the topic
+        // from the last delivery the dead wire got to, not the lease's floor.
+        let mut second = wait_for_server(&servers).await;
+        let resume = second.next_mutate().await;
+        assert_eq!(resume.adds.len(), 1);
+        assert_eq!(resume.adds[0].topic, group_topic(b"g1").cloned_vec());
+        assert_eq!(
+            resume.adds[0].id_cursor, 2,
+            "resume from last-seen, not the lease floor"
         );
 
-        let _re = transport.lease(vec![(group_topic(b"g1"), 11)], 8).await?;
-        let mut second = take_server(&servers);
-        assert_eq!(second.next_mutate().await.adds[0].id_cursor, 11);
+        // The lease never ended: the replay overlap is filtered, new flows.
+        second.send(messages(
+            vec![group_msg(2, b"g1"), group_msg(3, b"g1")],
+            vec![],
+        ));
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(3, b"g1")])
+            }
+            _ => panic!("the lease must survive the flap and see only new messages"),
+        }
+    }
+
+    /// A lease still catching up when the wire dies is re-owed its replay:
+    /// the resume cursor is held down to its floor, and the resume wave's
+    /// CatchUpComplete resolves its pending marker.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn interrupted_catch_up_is_re_owed_by_the_resume_wave() {
+        let (transport, servers) = transport();
+        let mut caught = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(messages(vec![group_msg(8, b"g1")], vec![]));
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut caught).await,
+            Some(LeaseEvent::GroupMessages(_))
+        ));
+        assert!(matches!(
+            recv(&mut caught).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // A second lease re-adds from 5 — and the wire dies before its replay.
+        let mut pending = transport.lease(vec![(group_topic(b"g1"), 5)], 8).await?;
+        server.next_mutate().await;
+        drop(server);
+
+        // The resume cursor is held DOWN to the pending lease's floor (5),
+        // not last-seen (8): its interrupted replay is still owed.
+        let mut second = wait_for_server(&servers).await;
+        let resume = second.next_mutate().await;
+        assert_eq!(resume.adds[0].id_cursor, 5);
+
+        second.send(messages(
+            vec![group_msg(6, b"g1"), group_msg(8, b"g1")],
+            vec![],
+        ));
+        second.send(catchup_complete(resume.mutate_id));
+
+        // The pending lease gets its replay AND its marker from the resume
+        // wave...
+        match recv(&mut pending).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(6, b"g1"), group_msg(8, b"g1")])
+            }
+            _ => panic!("pending lease expected its replay"),
+        }
+        assert!(matches!(
+            recv(&mut pending).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        // ...while the caught-up lease skips the resume replay entirely.
+        second.send(messages(vec![group_msg(9, b"g1")], vec![]));
+        match recv(&mut caught).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![group_msg(9, b"g1")],
+                "the caught-up lease must skip the resume replay entirely"
+            ),
+            _ => panic!("caught-up lease expected only the new message"),
+        }
+    }
+
+    /// A lease taken while the wire is down must not cold-open a wire of its
+    /// own — the resume open covers the existing topics and the new lease's
+    /// adds together, and every pending marker resolves from resume waves.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn lease_during_a_dead_wire_rides_the_resume_open() {
+        let (transport, servers) = transport();
+        let _alpha = transport.lease(vec![(group_topic(b"g1"), 3)], 8).await?;
+        let server = take_server(&servers);
+        drop(server);
+
+        let mut beta = transport.lease(vec![(group_topic(b"g2"), 7)], 8).await?;
+        let mut second = wait_for_server(&servers).await;
+
+        // Depending on whether the lease raced the reconnect timer, its adds
+        // ride the resume wave or a follow-up wave — but never a second wire.
+        let mut adds: Vec<(Vec<u8>, u64)> = Vec::new();
+        let mut waves = Vec::new();
+        while adds.len() < 2 {
+            let mutate = second.next_mutate().await;
+            waves.push(mutate.mutate_id);
+            adds.extend(
+                mutate
+                    .adds
+                    .iter()
+                    .map(|add| (add.topic.clone(), add.id_cursor)),
+            );
+        }
+        adds.sort();
+        let mut expected = vec![
+            (group_topic(b"g1").cloned_vec(), 3),
+            (group_topic(b"g2").cloned_vec(), 7),
+        ];
+        expected.sort();
+        assert_eq!(adds, expected);
+        assert!(
+            servers.lock().unwrap().is_empty(),
+            "one wire serves everyone"
+        );
+
+        for wave in waves {
+            second.send(catchup_complete(wave));
+        }
+        assert!(matches!(
+            recv(&mut beta).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
     }
 
     /// A dropped lease's unsent wave is purged from the outbox — it must never

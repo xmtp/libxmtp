@@ -137,6 +137,10 @@ impl TransportBinding for V3Binding {
     fn covers(position: &u64, delivered: &u64) -> bool {
         delivered <= position
     }
+
+    fn meet(a: u64, b: u64) -> u64 {
+        a.min(b)
+    }
 }
 
 impl BidiConnection {
