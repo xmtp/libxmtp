@@ -1076,8 +1076,7 @@ where
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
     pub fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        self.identity().queue_key_rotation(&self.context.db())?;
-        crate::worker::key_package_maintenance::nudge_rotation(&self.context)?;
+        crate::worker::key_package_maintenance::queue_key_rotation(&self.context)?;
         Ok(())
     }
 
@@ -1372,7 +1371,7 @@ pub(crate) mod tests {
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
         // Rotate and fetch again.
-        client.queue_key_rotation().await.unwrap();
+        client.queue_key_rotation().unwrap();
         //check the rotation value has been set
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());

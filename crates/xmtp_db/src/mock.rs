@@ -501,6 +501,7 @@ mock! {
 
     impl QueryIdentity for DbQuery {
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+        fn queue_key_rotation_with_nudge(&self, rotation_task_hash: &crate::tasks::TaskDataHash) -> Result<(), StorageError>;
 
         fn reset_key_package_rotation_queue(&self, rotation_interval: i64) -> Result<(), StorageError>;
 

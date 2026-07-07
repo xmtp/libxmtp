@@ -168,17 +168,18 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
     Ok(())
 }
 
-/// Post-welcome nudge: after queue_key_package_rotation lowers the column,
-/// durably pull the KpRotation task in to match. Never expires — losing it
-/// re-parks rotation ~30d out (the 5s debounce is a security property).
-pub(crate) fn nudge_rotation<Context: XmtpSharedContext>(
+/// Post-welcome rotation queue: atomically lower/init the rotation column (5s
+/// debounce — a security property) AND enqueue its pull-in in one transaction,
+/// then wake the worker. Neither write can land without the other.
+pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
-    let at = context
+    context
         .db()
-        .next_key_package_rotation_ns()?
-        .unwrap_or_else(xmtp_common::time::now_ns);
-    enqueue_pull_in(context, kp_rotation_hash(), at, NEVER_EXPIRES)
+        .queue_key_rotation_with_nudge(&kp_rotation_hash())?;
+    // In-memory only; must stay outside the transaction.
+    context.task_channels().wake();
+    Ok(())
 }
 
 /// After anything marks superseded KPs for deletion: ensure the KpDeletion
@@ -462,8 +463,7 @@ mod tests {
             "precondition: parked far out"
         );
 
-        db.queue_key_package_rotation()?; // welcome lowers column to now+5s
-        nudge_rotation(&alix.context)?;
+        queue_key_rotation(&alix.context)?; // welcome: column + pull-in, atomically
 
         let pull_in = db
             .get_tasks()?

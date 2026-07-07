@@ -704,12 +704,6 @@ impl Identity {
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
     /// Callers must follow with `key_package_maintenance::nudge_rotation` — the
     /// column write alone leaves the KpRotation task parked until next restart.
-    pub(crate) fn queue_key_rotation(&self, conn: &impl DbQuery) -> Result<(), IdentityError> {
-        conn.queue_key_package_rotation()?;
-        tracing::debug!("key package rotation queued (<=5s debounce)");
-        Ok(())
-    }
-
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<
         ApiClient: XmtpApi,

@@ -47,6 +47,14 @@ impl StoredIdentity {
 }
 pub trait QueryIdentity {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+    /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
+    /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
+    /// value — one transaction, so neither write can land without the other.
+    /// Callers wake the TaskWorker AFTER this returns (never inside a tx).
+    fn queue_key_rotation_with_nudge(
+        &self,
+        rotation_task_hash: &crate::tasks::TaskDataHash,
+    ) -> Result<(), StorageError>;
     fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
@@ -64,6 +72,13 @@ where
 {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         (**self).queue_key_package_rotation()
+    }
+
+    fn queue_key_rotation_with_nudge(
+        &self,
+        rotation_task_hash: &crate::tasks::TaskDataHash,
+    ) -> Result<(), StorageError> {
+        (**self).queue_key_rotation_with_nudge(rotation_task_hash)
     }
 
     fn reset_key_package_rotation_queue(
@@ -100,6 +115,61 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
             Ok(())
         })?;
 
+        Ok(())
+    }
+
+    fn queue_key_rotation_with_nudge(
+        &self,
+        rotation_task_hash: &crate::tasks::TaskDataHash,
+    ) -> Result<(), StorageError> {
+        use crate::schema::tasks;
+        use diesel::Connection;
+        use xmtp_proto::xmtp::mls::database::{PullInDeadline, Task as TaskProto, task::Task};
+
+        let hash = rotation_task_hash.to_vec();
+        self.raw_query(|conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+                diesel::update(dsl::identity)
+                    .filter(
+                        dsl::next_key_package_rotation_ns
+                            .gt(rotate_at_ns)
+                            .or(dsl::next_key_package_rotation_ns.is_null()),
+                    )
+                    .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
+                    .execute(conn)?;
+
+                // Read back inside the tx: the column is stable between rotations,
+                // so repeat calls produce byte-identical pull-ins that coalesce.
+                let deadline: Option<Option<i64>> = dsl::identity
+                    .select(dsl::next_key_package_rotation_ns)
+                    .first::<Option<i64>>(conn)
+                    .optional()?;
+                // Pre-registration (no identity row): match the old zero-rows-
+                // matched no-op instead of erroring; nothing to rotate yet.
+                let Some(deadline) = deadline else {
+                    return Ok(());
+                };
+
+                let pull_in = crate::tasks::NewTask::builder()
+                    .originating_message_sequence_id(0)
+                    .originating_message_originator_id(0)
+                    .expires_at_ns(crate::tasks::NEVER_EXPIRES)
+                    .max_attempts(i32::MAX)
+                    .build(TaskProto {
+                        task: Some(Task::PullInDeadline(PullInDeadline {
+                            target_data_hash: hash,
+                            not_later_than_ns: deadline.unwrap_or(rotate_at_ns),
+                        })),
+                    })
+                    // All required builder fields are set above; unreachable.
+                    .map_err(|_| diesel::result::Error::RollbackTransaction)?;
+                diesel::insert_or_ignore_into(tasks::table)
+                    .values(pull_in)
+                    .execute(conn)?;
+                Ok(())
+            })
+        })?;
         Ok(())
     }
 
@@ -161,6 +231,22 @@ pub(crate) mod tests {
     use super::StoredIdentity;
     use crate::{Store, XmtpTestDb};
     use xmtp_common::rand_vec;
+
+    #[xmtp_common::test]
+    fn queue_with_nudge_is_noop_before_registration() {
+        use crate::prelude::{QueryIdentity, QueryTasks};
+        use crate::test_utils::with_connection;
+        with_connection(|conn| {
+            // Empty identity table (pre-registration): must be a no-op like the
+            // old column-only path, not a NotFound error.
+            let hash = crate::tasks::TaskDataHash::try_from([0x11u8; 32].as_slice()).unwrap();
+            conn.queue_key_rotation_with_nudge(&hash).unwrap();
+            assert!(
+                conn.get_tasks().unwrap().is_empty(),
+                "no pull-in without an identity row"
+            );
+        })
+    }
 
     #[xmtp_common::test]
     fn queue_initializes_null_rotation_column() {

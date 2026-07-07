@@ -136,7 +136,6 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
@@ -160,11 +159,13 @@ where
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
         if num_envelopes > 0 {
-            self.context.identity().queue_key_rotation(&db).await?;
-            // Welcomes are already committed: don't discard `groups` over a failed
-            // nudge — the next welcome or startup reconcile re-nudges.
-            if let Err(e) = crate::worker::key_package_maintenance::nudge_rotation(&self.context) {
-                tracing::warn!("rotation nudge failed after welcome sync: {e}");
+            // Atomic (column + pull-in commit together). Welcomes are already
+            // committed: don't discard `groups` over a failed queue — nothing
+            // half-landed, and the next welcome retries the whole thing.
+            if let Err(e) =
+                crate::worker::key_package_maintenance::queue_key_rotation(&self.context)
+            {
+                tracing::warn!("key rotation queue failed after welcome sync: {e}");
             }
         }
 
