@@ -32,10 +32,10 @@ use xmtp_proto::types::{Topic, TopicKind};
 /// until [`MAX_PENDING_FRAMES`] declares the wire wedged and the actor gives up.
 pub(crate) const WIRE_BUFFER: usize = 64;
 /// Caller→actor command depth.
-const COMMAND_BUFFER: usize = 64;
+pub(crate) const COMMAND_BUFFER: usize = 64;
 /// Actor→caller event depth; large enough that a brief consumer stall doesn't
 /// stall wire reads (and thus pong liveness).
-const EVENT_BUFFER: usize = 1024;
+pub(crate) const EVENT_BUFFER: usize = 1024;
 /// XIP-83 client req 2 fallback keepalive, used until the server's `Started`
 /// frame advertises its own cadence.
 pub(crate) const DEFAULT_KEEPALIVE_MS: u32 = 30_000;
@@ -135,6 +135,18 @@ pub enum BidiError {
     Closed,
     #[error("liveness probe timed out; treat the link as dead, drop it, and re-open")]
     ProbeTimedOut,
+}
+
+/// Outcome of a [`Connection::try_mutate`] that could not be accepted; both
+/// variants hand the mutate back to the caller.
+#[derive(Debug)]
+pub enum TryMutateError<M> {
+    /// The command buffer is momentarily full — retry once the actor has
+    /// made progress (e.g. after the caller drains more events).
+    Full(M),
+    /// The connection is finished or its actor is gone; this wave can only be
+    /// re-issued on a fresh connection.
+    Closed(M),
 }
 
 /// Submitted by the handle, performed by the actor (the sole wire writer).
@@ -240,6 +252,37 @@ impl<B: BidiBinding> Connection<B> {
             .send(Command::Mutate(mutate))
             .await
             .map_err(|_| BidiError::Closed)
+    }
+
+    /// Non-blocking [`Self::mutate`]: accept the wave into the command buffer or
+    /// hand it straight back. Exists for callers that must never park on this
+    /// handle — a consumer that is also the sole drainer of [`Self::next`] and
+    /// awaits `mutate` while events back up can deadlock against the actor
+    /// (each side blocked on the channel only the other drains). Such callers
+    /// keep their own retry queue and stay free to drain.
+    ///
+    /// `Full` returns the mutate for the caller to retry; `Closed` returns it
+    /// for a post-mortem (re-open and re-subscribe from durable cursors).
+    pub fn try_mutate(&self, mutate: B::Mutate) -> Result<(), TryMutateError<B::Mutate>> {
+        if self.finished.load(Ordering::Acquire) {
+            return Err(TryMutateError::Closed(mutate));
+        }
+        self.commands
+            .try_send(Command::Mutate(mutate))
+            .map_err(|e| {
+                let (closed, cmd) = match e {
+                    mpsc::error::TrySendError::Full(cmd) => (false, cmd),
+                    mpsc::error::TrySendError::Closed(cmd) => (true, cmd),
+                };
+                let Command::Mutate(mutate) = cmd else {
+                    unreachable!("try_mutate only submits Command::Mutate")
+                };
+                if closed {
+                    TryMutateError::Closed(mutate)
+                } else {
+                    TryMutateError::Full(mutate)
+                }
+            })
     }
 
     /// Half-close the request half — signal that we are done sending. The

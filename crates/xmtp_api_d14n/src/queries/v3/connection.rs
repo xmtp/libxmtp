@@ -5,13 +5,17 @@
 //! `GroupMessage`/`WelcomeMessage` (v3 carries a single id cursor and the
 //! consumer decodes), via the [`BidiBinding`] trait. Native-only.
 
+use crate::protocol::Envelope;
 use crate::queries::bidi::{BidiBinding, Connection, Event, Inbound, parse_topics};
+use crate::queries::bidi_transport::TransportBinding;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
 use xmtp_proto::mls_v1::subscribe_request::v1::Mutate;
+use xmtp_proto::mls_v1::subscribe_request::v1::mutate::Subscription;
 use xmtp_proto::mls_v1::{
     GroupMessage, Ping, Pong, SubscribeRequest, SubscribeResponse, WelcomeMessage,
     subscribe_request, subscribe_response,
 };
+use xmtp_proto::types::Topic;
 
 /// The v3 (MLS API) wire binding for a bidi subscription.
 pub struct V3Binding;
@@ -80,6 +84,43 @@ impl BidiBinding for V3Binding {
     }
 }
 
+impl TransportBinding for V3Binding {
+    /// v3 resumes a topic from a single message id (`Subscription.id_cursor`).
+    type Cursor = u64;
+
+    fn build_mutate(
+        adds: impl IntoIterator<Item = (Topic, u64)>,
+        removes: impl IntoIterator<Item = Topic>,
+        mutate_id: u64,
+    ) -> Mutate {
+        Mutate {
+            adds: adds
+                .into_iter()
+                .map(|(topic, cursor)| Subscription {
+                    topic: topic.to_bytes().into_vec(),
+                    id_cursor: cursor,
+                })
+                .collect(),
+            removes: removes
+                .into_iter()
+                .map(|topic| topic.to_bytes().into_vec())
+                .collect(),
+            history_only: false,
+            mutate_id,
+        }
+    }
+
+    // Topic extraction is the shared [`Envelope`] machinery, which covers
+    // every message shape (including the welcome-pointer variant) in one place.
+    fn group_topic(msg: &GroupMessage) -> Option<Topic> {
+        msg.topic().ok()
+    }
+
+    fn welcome_topic(msg: &WelcomeMessage) -> Option<Topic> {
+        msg.topic().ok()
+    }
+}
+
 impl BidiConnection {
     /// Open the stream and send `initial` as the first Mutate (it names the
     /// initial topic set with per-topic resume cursors; XIP-83 client req 3).
@@ -96,7 +137,8 @@ impl BidiConnection {
 mod tests {
     use super::*;
     use crate::queries::bidi::{
-        BidiError, DEFAULT_KEEPALIVE_MS, MAX_PENDING_FRAMES, PROBE_TIMEOUT_MULTIPLIER, WIRE_BUFFER,
+        BidiError, COMMAND_BUFFER, DEFAULT_KEEPALIVE_MS, EVENT_BUFFER, MAX_PENDING_FRAMES,
+        PROBE_TIMEOUT_MULTIPLIER, TryMutateError, WIRE_BUFFER,
     };
     use futures::StreamExt;
     use futures::stream::BoxStream;
@@ -748,5 +790,69 @@ mod tests {
             "an in-flight probe must resolve Closed when finish half-closes, got {probe_res:?}"
         );
         assert!(finish_res.is_ok());
+    }
+
+    /// `try_mutate` hands the wave back with `Full` once the command buffer
+    /// saturates behind an actor parked on a full event channel, and accepts
+    /// again after the consumer drains. This is the primitive that lets a
+    /// consumer that is also the sole event drainer stay non-blocking on the
+    /// send side (the transport's deadlock discipline).
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn try_mutate_reports_full_and_recovers_after_drain() {
+        let (api, mut server) = mock_pair();
+        let mut conn = BidiConnection::open(&api, initial_mutate()).await?;
+        server.next_request().await; // initial mutate
+
+        // Park the actor: overfill the event buffer so its emit blocks, which
+        // stops command intake.
+        for nonce in 0..(EVENT_BUFFER as u64 + 2) {
+            server.send(catchup_complete(nonce));
+        }
+        // Saturate the command buffer. The actor drains a bounded handful of
+        // these before it parks, so the loop terminates well under the bound.
+        let mut accepted = 0usize;
+        loop {
+            match conn.try_mutate(initial_mutate()) {
+                Ok(()) => {
+                    accepted += 1;
+                    assert!(
+                        accepted <= EVENT_BUFFER + COMMAND_BUFFER + 8,
+                        "actor never parked; try_mutate never reported Full"
+                    );
+                }
+                Err(TryMutateError::Full(_)) => break,
+                Err(TryMutateError::Closed(_)) => panic!("connection died under the flood"),
+            }
+            // Give the actor its chance to make progress between attempts.
+            tokio::task::yield_now().await;
+        }
+
+        // Draining events unparks the actor, which resumes command intake.
+        let mut recovered = false;
+        for _ in 0..(EVENT_BUFFER + COMMAND_BUFFER) {
+            assert!(
+                conn.next().await.is_some(),
+                "flooded events must all arrive"
+            );
+            if conn.try_mutate(initial_mutate()).is_ok() {
+                recovered = true;
+                break;
+            }
+        }
+        assert!(recovered, "try_mutate must accept again after a drain");
+    }
+
+    /// After `finish`, `try_mutate` reports `Closed` and returns the wave.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn try_mutate_reports_closed_after_finish() {
+        let (api, mut server) = mock_pair();
+        let conn = BidiConnection::open(&api, initial_mutate()).await?;
+        server.next_request().await; // initial mutate
+
+        conn.finish().await?;
+        assert!(matches!(
+            conn.try_mutate(initial_mutate()),
+            Err(TryMutateError::Closed(_))
+        ));
     }
 }
