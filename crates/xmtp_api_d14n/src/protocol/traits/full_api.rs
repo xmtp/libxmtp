@@ -6,6 +6,31 @@ use xmtp_proto::{
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
 };
 
+// The XIP-83 bidi requirement, folded into the full API only where it can
+// exist: `Send`-style Maybe* bridge — on native the full API must speak
+// bidi (with the boxed stream, so it stays `dyn`-compatible); on wasm the
+// bound is vacuous (gRPC-Web cannot full-duplex).
+xmtp_common::if_native! {
+    pub trait MaybeBidiStreams<Err>:
+        xmtp_proto::api_client::XmtpMlsBidiStreams<
+            Error = Err,
+            SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<Err>,
+        >
+    {
+    }
+    impl<T, Err> MaybeBidiStreams<Err> for T where
+        T: xmtp_proto::api_client::XmtpMlsBidiStreams<
+                Error = Err,
+                SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<Err>,
+            > + ?Sized
+    {
+    }
+}
+xmtp_common::if_wasm! {
+    pub trait MaybeBidiStreams<Err> {}
+    impl<T, Err> MaybeBidiStreams<Err> for T where T: ?Sized {}
+}
+
 use crate::protocol::XmtpQuery;
 
 /// A type-erased version of the Xmtp Api in a [`Box`]
@@ -32,6 +57,7 @@ where
             GroupMessageStream = BoxedGroupS<Err>,
         > + IsConnectedCheck
         + XmtpQuery<Error = Err>
+        + MaybeBidiStreams<Err>
         + 'static,
 {
 }
@@ -45,6 +71,7 @@ impl<T, Err> FullXmtpApiT<Err> for T where
             GroupMessageStream = BoxedGroupS<Err>,
         > + IsConnectedCheck
         + XmtpQuery<Error = Err>
+        + MaybeBidiStreams<Err>
         + ?Sized
         + 'static
 {

@@ -77,6 +77,7 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls::subscriptions::router_callbacks::bidi_streams_enabled;
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -1615,6 +1616,45 @@ impl From<&FfiMetadataField> for MetadataField {
     }
 }
 
+impl FfiConversations {
+    /// One seam for every conversation stream: route over the shared bidi
+    /// wire when `XMTP_BIDI_STREAMS_ENABLED` is set, legacy otherwise. Lives
+    /// outside the exported impl (uniffi must not see the rust-only types).
+    fn stream_conversations_dispatch(
+        &self,
+        conversation_type: Option<ConversationType>,
+        callback: Arc<dyn FfiConversationCallback>,
+    ) -> FfiStreamCloser {
+        let client = self.inner_client.clone();
+        let close_cb = callback.clone();
+        if bidi_streams_enabled() {
+            // Interim bidi scope — locally-created conversations do not
+            // surface on this stream yet: see the entry point's docs.
+            FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback_bidi(
+                client,
+                conversation_type,
+                false,
+                move |convo| match convo {
+                    Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                    Err(e) => callback.on_error(e.into()),
+                },
+                move || close_cb.on_close(),
+            ))
+        } else {
+            FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback(
+                client,
+                conversation_type,
+                move |convo| match convo {
+                    Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                    Err(e) => callback.on_error(e.into()),
+                },
+                move || close_cb.on_close(),
+                false,
+            ))
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
     #[tracing::instrument(level = "debug", skip_all)]
@@ -1849,55 +1889,16 @@ impl FfiConversations {
         &self,
         callback: Arc<dyn FfiConversationCallback>,
     ) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
-        let close_cb = callback.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            Some(ConversationType::Group),
-            move |convo| match convo {
-                Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-            false,
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_conversations_dispatch(Some(ConversationType::Group), callback)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_dms(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
-        let close_cb = callback.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            Some(ConversationType::Dm),
-            move |convo| match convo {
-                Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-            false,
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_conversations_dispatch(Some(ConversationType::Dm), callback)
     }
 
     pub async fn stream(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
-        let close_cb = callback.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            None,
-            move |convo| match convo {
-                Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-            false,
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_conversations_dispatch(None, callback)
     }
 
     pub async fn stream_all_group_messages(
@@ -1944,18 +1945,31 @@ impl FfiConversations {
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let close_cb = message_callback.clone();
-        let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.context.clone(),
-            conversation_type.map(Into::into),
-            consents,
-            move |msg| match msg {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-        );
-
-        FfiStreamCloser::new(handle)
+        if bidi_streams_enabled() {
+            // Interim bidi scope — covers the groups known at subscribe time:
+            // see the entry point's docs.
+            FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback_bidi(
+                self.inner_client.clone(),
+                conversation_type.map(Into::into),
+                consents,
+                move |msg| match msg {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                },
+                move || close_cb.on_close(),
+            ))
+        } else {
+            FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback(
+                self.inner_client.context.clone(),
+                conversation_type.map(Into::into),
+                consents,
+                move |msg| match msg {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                },
+                move || close_cb.on_close(),
+            ))
+        }
     }
 
     /// Get notified when there is a new consent update either locally or is synced from another device
