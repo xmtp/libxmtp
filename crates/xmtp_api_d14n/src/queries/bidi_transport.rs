@@ -70,12 +70,17 @@
 //! flap. `next()` → `None` now means only: this consumer fell behind and was
 //! dropped, or the transport itself shut down.
 //!
+//! ## Liveness
+//!
+//! A *half-open* wire needs no handling here: the connection actor's silence
+//! watchdog (see `bidi.rs`) tears down a wire with no inbound frames for the
+//! probe budget, which lands in the same wire-death path as any other close —
+//! the reconnect above absorbs it. The transport never probes inline; awaiting
+//! a probe from the ledger loop would stop draining events, park the actor on
+//! a full event channel, and starve the very pong it waits for.
+//!
 //! ## Not yet here (later phases)
 //!
-//! - Liveness: a *half-open* wire (the failure probes exist to catch) is not
-//!   detected here yet — nothing probes, so leases on such a wire pend until
-//!   something above notices. Until then the consumer keeps its existing
-//!   watchdog floor.
 //! - `Started` capabilities are logged, not consumed (capability gating phase).
 
 use std::collections::{HashMap, HashSet};
@@ -1130,6 +1135,21 @@ mod tests {
             }
         }
 
+        /// Resolves at the next client `Ping`, panicking on anything else.
+        async fn next_ping(&mut self) -> u64 {
+            let frame = tokio::time::timeout(WAIT, self.from_client.recv())
+                .await
+                .expect("timed out waiting for a client frame")
+                .expect("client closed the request stream");
+            let Some(subscribe_request::Version::V1(v1)) = frame.version else {
+                panic!("client sent unknown request version");
+            };
+            match v1.request.expect("client sent empty request") {
+                subscribe_request::v1::Request::Ping(ping) => ping.nonce,
+                other => panic!("expected a Ping, got {other:?}"),
+            }
+        }
+
         /// Resolves once the client half-closes its request stream.
         async fn request_stream_ended(&mut self) {
             loop {
@@ -1736,6 +1756,51 @@ mod tests {
         }
     }
 
+    /// A *half-open* wire — silent but never closed — is caught by the
+    /// connection actor's watchdog and lands in the same transparent-reconnect
+    /// path as an outright close: one probe goes out on the dying wire, the
+    /// actor tears down, the transport re-opens, and the lease never notices.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn half_open_wire_is_reaped_and_reconnected() {
+        let (transport, servers) = transport();
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        // Advertise a fast keepalive so the watchdog runs at test speed, then
+        // catch the lease up and go silent — without ever closing the wire.
+        server.send(started(150));
+        server.send(messages(vec![group_msg(1, b"g1")], vec![]));
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::GroupMessages(_))
+        ));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // The watchdog probes the silent wire first; nothing answers. Keep
+        // `server` alive throughout — dropping it would close the wire and
+        // exercise the ordinary flap path instead of the half-open one.
+        server.next_ping().await;
+
+        // The actor gives up and the transport re-opens on its own, resuming
+        // from the last-seen position.
+        let mut second = wait_for_server(&servers).await;
+        let resume = second.next_mutate().await;
+        assert_eq!(resume.adds.len(), 1);
+        assert_eq!(resume.adds[0].id_cursor, 1);
+
+        // The lease rides straight onto the new wire.
+        second.send(messages(vec![group_msg(2, b"g1")], vec![]));
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(2, b"g1")])
+            }
+            _ => panic!("the lease must survive a half-open wire invisibly"),
+        }
+    }
     /// A lease still catching up when the wire dies is re-owed its replay:
     /// the resume cursor is held down to its floor, and the resume wave's
     /// CatchUpComplete resolves its pending marker.

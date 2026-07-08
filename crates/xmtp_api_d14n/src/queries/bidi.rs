@@ -4,7 +4,10 @@
 //! bidi stream end-to-end and is the **sole writer** of the request half. It
 //! auto-answers server `Ping`s, correlates client liveness probes, multiplexes
 //! caller commands onto the wire, and surfaces only real subscription events —
-//! keepalive never reaches the consumer.
+//! keepalive never reaches the consumer. It also polices liveness on its own:
+//! a wire with no inbound frames for the silence budget gets one watchdog ping,
+//! and if that too goes unanswered the actor tears down — so a half-open link
+//! surfaces as end-of-events instead of a stream that hangs forever.
 //!
 //! Everything backend-specific (wire types, frame construction, and turning an
 //! inbound frame into consumer events — including d14n's `OriginatorEnvelope`
@@ -43,7 +46,15 @@ pub(crate) const DEFAULT_KEEPALIVE_MS: u32 = 30_000;
 /// is this many keepalive intervals — generous enough not to false-positive a
 /// slow-but-live link. Latency-sensitive callers (e.g. a notification handler)
 /// pass a much smaller bound to [`Connection::probe_within`].
+///
+/// It is also the actor's total silence budget: after `N - 1` intervals with no
+/// inbound frame the actor sends a watchdog ping, and after the full `N` it
+/// tears down (see [`watchdog_deadline`]).
 pub(crate) const PROBE_TIMEOUT_MULTIPLIER: u32 = 3;
+/// Nonce for the actor's own watchdog pings. Client probe nonces count up from
+/// 1, so they can never collide with this — and the watchdog doesn't correlate
+/// the pong anyway: *any* inbound frame proves the link and resets the window.
+const WATCHDOG_NONCE: u64 = u64::MAX;
 /// Hard cap on the outbound backlog. Past this, the wire has been wedged long
 /// enough that buffering more is pointless — the transport isn't draining the
 /// request half, so the link is effectively dead — and the actor gives up,
@@ -371,12 +382,16 @@ impl<B: BidiBinding> Connection<B> {
     }
 
     /// Next event, in wire order. `None` means the connection ended (server
-    /// close, network death, or reap) — resume from durable cursors on a fresh
-    /// connection.
+    /// close, network death, watchdog teardown, or reap) — resume from durable
+    /// cursors on a fresh connection.
     ///
-    /// Only resolves on an event or end-of-stream: a server that goes quiet
-    /// without closing (a half-open link) leaves this pending. Detect that gap
-    /// out of band with [`Self::probe`] plus a timeout, never by waiting here.
+    /// Only resolves on an event or end-of-stream, but a half-open link cannot
+    /// leave it pending forever: the actor's silence watchdog tears the
+    /// connection down after [`PROBE_TIMEOUT_MULTIPLIER`] keepalive intervals
+    /// with no inbound frame (one watchdog ping in between), and that teardown
+    /// surfaces here as `None`. [`Self::probe`] remains for callers that need
+    /// an answer *faster* than the watchdog budget — e.g. a notification
+    /// handler deciding within seconds whether to reuse the connection.
     pub async fn next(&mut self) -> Option<Event<B::GroupMessage, B::WelcomeMessage>> {
         let event = self.events.recv().await;
         // Record the server's cadence as `Started` passes through, so a probe
@@ -400,6 +415,24 @@ impl<B: BidiBinding> Drop for Connection<B> {
         // request and tearing the stream down in both directions.
         self.actor.end();
     }
+}
+
+/// When the silence watchdog next fires: after `N - 1` keepalive intervals
+/// without an inbound frame it probes, and a probed connection gets the one
+/// remaining interval — the full `N ×` budget of [`PROBE_TIMEOUT_MULTIPLIER`] —
+/// before teardown. Recomputed every `select!` iteration, so any inbound frame
+/// pushes both deadlines out.
+fn watchdog_deadline(
+    last_inbound: tokio::time::Instant,
+    keepalive: Duration,
+    probed: bool,
+) -> tokio::time::Instant {
+    let intervals = if probed {
+        PROBE_TIMEOUT_MULTIPLIER
+    } else {
+        PROBE_TIMEOUT_MULTIPLIER - 1
+    };
+    last_inbound + keepalive * intervals
 }
 
 /// Hand `frame` to the wire if it has room right now, else queue it for the
@@ -458,7 +491,10 @@ fn enqueue<R>(wire_out: &mpsc::Sender<R>, pending: &mut VecDeque<R>, frame: R) -
 /// (so `next` ends), and any outstanding probe acks (so pending `probe`s see
 /// `Closed`). One place, every teardown. It also gives up the same way if the
 /// outbound backlog blows past [`MAX_PENDING_FRAMES`] — a wedged wire that will
-/// never drain, so we tear down and let the consumer re-open.
+/// never drain, so we tear down and let the consumer re-open — or if the wire
+/// goes silent past the watchdog budget (see [`watchdog_deadline`]): a
+/// conformant server keeps pinging, so sustained silence, with one watchdog
+/// ping of grace, means a half-open link that will never speak again.
 async fn run_actor<B, S, E>(
     mut inbound: S,
     wire_out: mpsc::Sender<B::Request>,
@@ -480,6 +516,13 @@ async fn run_actor<B, S, E>(
     // rather than tear everything down. Distinguishes a deliberate half-close
     // from the wire/handle-gone breaks, which fall straight through to teardown.
     let mut finished = false;
+    // Silence-watchdog state. A conformant server pings at `keepalive` cadence,
+    // so a healthy wire always shows *some* inbound frame well inside the
+    // budget; sustained silence is a half-open link. The cadence starts at the
+    // XIP-83 fallback and updates when `Started` advertises the real one.
+    let mut keepalive = Duration::from_millis(DEFAULT_KEEPALIVE_MS.into());
+    let mut last_inbound = tokio::time::Instant::now();
+    let mut watchdog_probed = false;
 
     loop {
         tokio::select! {
@@ -576,10 +619,47 @@ async fn run_actor<B, S, E>(
                     // Consumer-facing frames. The same emit path feeds the live loop
                     // and the post-`finish` drain, so their event semantics match.
                     instruction => {
+                        // Adopt the server's advertised cadence for the watchdog as
+                        // `Started` passes through (0 keeps the fallback).
+                        if let Inbound::Emit(Event::Started {
+                            keepalive_interval_ms,
+                            ..
+                        }) = &instruction
+                            && *keepalive_interval_ms > 0
+                        {
+                            keepalive = Duration::from_millis((*keepalive_interval_ms).into());
+                        }
                         if emit_instruction(&events, instruction).await {
                             break;
                         }
                     }
+                }
+                // Stamp *after* the frame is fully handled, not on receipt: the
+                // emit above can park on consumer backpressure for a long time,
+                // and that stall is the consumer's, not the wire's — inbound
+                // frames may be sitting unread behind it. Restarting the window
+                // when we resume listening keeps a slow consumer from reading
+                // as wire silence and tearing down a healthy link.
+                last_inbound = tokio::time::Instant::now();
+                watchdog_probed = false;
+            }
+            // The silence watchdog. Fires only while the arms above are idle —
+            // exactly the "nothing inbound" condition it exists to detect. One
+            // unanswered ping stands between silence and teardown, so a quiet
+            // but live link (a server between keepalives) is never reaped: any
+            // inbound frame — the pong included — resets the window above.
+            _ = tokio::time::sleep_until(watchdog_deadline(last_inbound, keepalive, watchdog_probed)) => {
+                if watchdog_probed {
+                    tracing::warn!(
+                        silent_for_ms = last_inbound.elapsed().as_millis() as u64,
+                        "bidi wire silent past the watchdog budget (probe unanswered); \
+                         tearing down so the consumer re-opens from cursors"
+                    );
+                    break;
+                }
+                watchdog_probed = true;
+                if !enqueue(&wire_out, &mut pending, B::ping_frame(WATCHDOG_NONCE)) {
+                    break;
                 }
             }
         }
@@ -816,6 +896,186 @@ mod tests {
             wire_rx.recv().await,
             None,
             "the request half must close even when the flush budget expires"
+        );
+    }
+
+    /// Binding for the watchdog tests. A frame under `100_000` is a `Started`
+    /// advertising that many milliseconds of keepalive — so each test picks a
+    /// cadence fast enough to run in real time. [`MSG_FRAME`] delivers one
+    /// group message (to park the actor on consumer backpressure); anything
+    /// else is a no-op frame that still counts as inbound activity.
+    struct WatchdogBinding;
+    const MSG_FRAME: u64 = 1_000_000;
+    const ACTIVITY_FRAME: u64 = 2_000_000;
+    /// Generous ceiling for CI scheduling noise; every wait in these tests
+    /// resolves in well under a second on a healthy run.
+    const WAIT: Duration = Duration::from_secs(5);
+
+    impl BidiBinding for WatchdogBinding {
+        type Request = u64;
+        type Response = u64;
+        type Mutate = u64;
+        type GroupMessage = ();
+        type WelcomeMessage = ();
+
+        fn mutate_frame(mutate: u64) -> u64 {
+            mutate
+        }
+        fn ping_frame(nonce: u64) -> u64 {
+            nonce
+        }
+        fn pong_frame(nonce: u64) -> u64 {
+            nonce
+        }
+        fn handle(response: u64) -> Inbound<(), ()> {
+            match response {
+                ms if ms < 100_000 => Inbound::Emit(Event::Started {
+                    keepalive_interval_ms: ms as u32,
+                    capabilities: vec![],
+                }),
+                MSG_FRAME => Inbound::Messages {
+                    group: vec![()],
+                    welcome: vec![],
+                },
+                _ => Inbound::Skip,
+            }
+        }
+    }
+
+    struct ActorHarness {
+        inbound: mpsc::Sender<Result<u64, BidiError>>,
+        wire: mpsc::Receiver<u64>,
+        events: mpsc::Receiver<Event<(), ()>>,
+        _commands: mpsc::Sender<Command<WatchdogBinding>>,
+    }
+
+    /// Spawn `run_actor` over harness-controlled channels, mirroring
+    /// [`Connection::start`]'s wiring (`poll_fn` stream + `Box::pin`).
+    fn spawn_actor() -> ActorHarness {
+        let (inbound_tx, mut inbound_rx) = mpsc::channel::<Result<u64, BidiError>>(2048);
+        let (wire_out, wire_rx) = mpsc::channel::<u64>(WIRE_BUFFER);
+        let (commands_tx, commands_rx) = mpsc::channel::<Command<WatchdogBinding>>(COMMAND_BUFFER);
+        let (events_tx, events_rx) = mpsc::channel::<Event<(), ()>>(EVENT_BUFFER);
+        let inbound = futures::stream::poll_fn(move |cx| inbound_rx.poll_recv(cx));
+        xmtp_common::spawn(
+            None,
+            run_actor::<WatchdogBinding, _, _>(Box::pin(inbound), wire_out, commands_rx, events_tx),
+        );
+        ActorHarness {
+            inbound: inbound_tx,
+            wire: wire_rx,
+            events: events_rx,
+            _commands: commands_tx,
+        }
+    }
+
+    /// Total silence earns exactly one watchdog ping, then teardown: the
+    /// half-open link surfaces as end-of-events instead of hanging forever.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn watchdog_probes_then_tears_down_a_silent_wire() {
+        let mut actor = spawn_actor();
+        actor.inbound.send(Ok(150)).await?; // Started: 150ms keepalive
+        assert!(matches!(
+            tokio::time::timeout(WAIT, actor.events.recv()).await?,
+            Some(Event::Started { .. })
+        ));
+
+        let ping = tokio::time::timeout(WAIT, actor.wire.recv()).await?;
+        assert_eq!(
+            ping,
+            Some(WATCHDOG_NONCE),
+            "the watchdog must probe before giving up"
+        );
+        assert_eq!(
+            tokio::time::timeout(WAIT, actor.events.recv()).await?,
+            None,
+            "an unanswered watchdog ping must tear the connection down"
+        );
+    }
+
+    /// A quiet-but-live link is never reaped: any inbound frame — a pong or
+    /// otherwise — answers the watchdog ping and resets the window.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_answered_watchdog_probe_keeps_the_wire_alive() {
+        let mut actor = spawn_actor();
+        actor.inbound.send(Ok(150)).await?;
+        tokio::time::timeout(WAIT, actor.events.recv()).await?;
+
+        // Ride out three whole silence windows, answering each probe.
+        for _ in 0..3 {
+            let ping = tokio::time::timeout(WAIT, actor.wire.recv()).await?;
+            assert_eq!(ping, Some(WATCHDOG_NONCE));
+            actor.inbound.send(Ok(ACTIVITY_FRAME)).await?;
+        }
+        assert!(
+            matches!(
+                actor.events.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty)
+            ),
+            "an answered probe must keep the connection alive"
+        );
+
+        // Stop answering: the next unanswered ping tears it down.
+        assert_eq!(tokio::time::timeout(WAIT, actor.events.recv()).await?, None);
+    }
+
+    /// A steady trickle of frames well inside the probe threshold never
+    /// triggers a probe at all.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn inbound_activity_resets_the_watchdog() {
+        let mut actor = spawn_actor();
+        actor.inbound.send(Ok(200)).await?; // probe would fire at 400ms silent
+        tokio::time::timeout(WAIT, actor.events.recv()).await?;
+
+        for _ in 0..20 {
+            actor.inbound.send(Ok(ACTIVITY_FRAME)).await?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            matches!(actor.wire.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+            "no watchdog ping may fire while frames keep arriving"
+        );
+        assert!(matches!(
+            actor.events.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    /// Consumer backpressure must not read as wire silence: while the actor is
+    /// parked emitting into a full event channel, inbound frames sit unread
+    /// behind it — the stall is the consumer's, not the wire's. The silence
+    /// window restarts when the actor resumes listening, so a slow consumer
+    /// never gets a healthy link torn down.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn consumer_backpressure_is_not_wire_silence() {
+        let mut actor = spawn_actor();
+        actor.inbound.send(Ok(200)).await?; // probe at 400ms, teardown at 600ms
+        tokio::time::timeout(WAIT, actor.events.recv()).await?;
+
+        // Fill the event buffer plus one: the actor parks mid-emit.
+        for _ in 0..(EVENT_BUFFER + 1) {
+            actor.inbound.send(Ok(MSG_FRAME)).await?;
+        }
+        // Hold the park well past the full teardown budget, draining nothing.
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        // Drain; the actor unparks with a fresh silence window. If the park
+        // had counted as silence, both watchdog deadlines are long past and
+        // teardown would be immediate.
+        let mut delivered = 0;
+        while delivered < EVENT_BUFFER + 1 {
+            match tokio::time::timeout(WAIT, actor.events.recv()).await? {
+                Some(Event::GroupMessages(_)) => delivered += 1,
+                other => panic!("unexpected event while draining: {other:?}"),
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(
+            matches!(
+                actor.events.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty)
+            ),
+            "a consumer stall must not be read as wire silence"
         );
     }
 }
