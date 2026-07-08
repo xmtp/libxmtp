@@ -978,6 +978,11 @@ async fn run_ledger<B: TransportBinding>(
                 settle_idle_waiters(&mut ledger, &mut resume_notify);
             }
             Step::Cmd(Some(Cmd::Suspend { reply })) => {
+                tracing::info!(
+                    leases = ledger.leases.len(),
+                    had_wire = conn.is_some(),
+                    "bidi transport: suspending — going off the network"
+                );
                 suspended = true;
                 outbox.clear();
                 if let Some(wire) = conn.take() {
@@ -994,6 +999,10 @@ async fn run_ledger<B: TransportBinding>(
                 let _ = reply.send(());
             }
             Step::Cmd(Some(Cmd::Resume { reply })) => {
+                tracing::info!(
+                    leases = ledger.leases.len(),
+                    "bidi transport: resuming — catch up, then done"
+                );
                 suspended = false;
                 if let Some(notify) =
                     ledger
@@ -2190,6 +2199,43 @@ mod tests {
             }
             _ => panic!("the lease must survive suspend/resume invisibly"),
         }
+    }
+
+    /// Two concurrent `resume()` callers join the same in-flight catch-up:
+    /// one wire, one resume wave, and both resolve at its `CatchUpComplete`.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn concurrent_resumes_join_one_catch_up_wave() {
+        let (transport, servers) = transport();
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        transport.suspend().await?;
+        server.request_stream_ended().await;
+
+        let resume_a = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+        let resume_b = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+
+        let mut second = wait_for_server(&servers).await;
+        let resume = second.next_mutate().await;
+        second.send(catchup_complete(resume.mutate_id));
+        tokio::time::timeout(WAIT, resume_a).await?.unwrap()?;
+        tokio::time::timeout(WAIT, resume_b).await?.unwrap()?;
+        assert!(
+            servers.lock().unwrap().is_empty(),
+            "the second resume must join the wave, not dial a second wire"
+        );
     }
 
     /// While suspended the transport stays off the network — no reconnect

@@ -536,6 +536,13 @@ async fn run_actor<B, S, E>(
 
     loop {
         tokio::select! {
+            // Polled in order, so teardown is truly last-resort: the watchdog
+            // arm at the bottom is only reached when no flush, command, or
+            // inbound frame is ready — a pong landing in the same poll as the
+            // deadline always wins the tie and restamps the window. (A command
+            // flood can starve the deadline check, but a silent wire under a
+            // command flood hits `enqueue`'s give-up cap and tears down there.)
+            biased;
             // Hand one queued frame to the wire the moment it has capacity,
             // concurrently with everything else. This is what keeps a busy wire
             // from blocking the loop. Gated on a non-empty queue so we only
@@ -653,8 +660,9 @@ async fn run_actor<B, S, E>(
                 last_inbound = tokio::time::Instant::now();
                 watchdog_probed = false;
             }
-            // The silence watchdog. Fires only while the arms above are idle —
-            // exactly the "nothing inbound" condition it exists to detect. One
+            // The silence watchdog. Fires only while the arms above are idle
+            // (enforced by `biased`) — exactly the "nothing inbound" condition
+            // it exists to detect. One
             // unanswered ping stands between silence and teardown, so a quiet
             // but live link (a server between keepalives) is never reaped: any
             // inbound frame — the pong included — resets the window above.
