@@ -621,6 +621,12 @@ where
                         continue; // raced a deref — nobody cares anymore
                     };
                     for lease in holders {
+                        // Only leases still catching up: a caught-up lease
+                        // already heard this transition, and a resume wave's
+                        // repeat would surface the flap we exist to hide.
+                        if self.leases.get(lease).is_some_and(|state| state.caught_up) {
+                            continue;
+                        }
                         per_lease.entry(*lease).or_default().push(topic.clone());
                     }
                 }
@@ -737,6 +743,11 @@ async fn run_ledger<B: TransportBinding>(
     let mut ledger = Ledger::<B>::default();
     let mut conn: Option<Connection<B>> = None;
     let mut reconnect_delay = RECONNECT_INITIAL_DELAY;
+    // When the next reconnect attempt is due. A fixed deadline, set when the
+    // wire dies and pushed out only by a failed attempt — recreating the
+    // sleep from `reconnect_delay` each loop iteration would let a steady
+    // stream of commands postpone the reconnect forever.
+    let mut reconnect_at = tokio::time::Instant::now();
     // Waves accepted but not yet on the wire, in issue order. Invariant:
     // non-empty only while `conn` is `Some` — cleared on every wire close
     // (stale waves are meaningless to a fresh wire; the resume wave re-seeds).
@@ -758,10 +769,11 @@ async fn run_ledger<B: TransportBinding>(
                 _ = tokio::time::sleep(OUTBOX_RETRY_INTERVAL), if !outbox.is_empty() => Step::Retry,
             },
             // A dead wire with live leases reconnects once the backoff
-            // elapses, still absorbing commands meanwhile.
+            // elapses, still absorbing commands meanwhile (which must not
+            // move the deadline).
             None if !ledger.leases.is_empty() => tokio::select! {
                 cmd = cmds.recv() => Step::Cmd(cmd),
-                _ = tokio::time::sleep(reconnect_delay) => Step::Reconnect,
+                _ = tokio::time::sleep_until(reconnect_at) => Step::Reconnect,
             },
             // No wire, no leases: dormant until the next command.
             None => Step::Cmd(cmds.recv().await),
@@ -850,6 +862,7 @@ async fn run_ledger<B: TransportBinding>(
             Step::Wire(None) => {
                 outbox.clear();
                 drop(conn.take());
+                reconnect_at = tokio::time::Instant::now() + reconnect_delay;
                 if !ledger.leases.is_empty() {
                     tracing::warn!(
                         "bidi transport: wire died; reconnecting from last-seen positions"
@@ -878,6 +891,7 @@ async fn run_ledger<B: TransportBinding>(
                     Err(e) => {
                         tracing::warn!("bidi transport: reconnect failed ({e}); backing off");
                         reconnect_delay = (reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
+                        reconnect_at = tokio::time::Instant::now() + reconnect_delay;
                     }
                 }
             }
@@ -1641,6 +1655,75 @@ mod tests {
                 assert_eq!(got, vec![group_msg(3, b"g1")])
             }
             _ => panic!("the lease must survive the flap and see only new messages"),
+        }
+    }
+
+    /// Command traffic on a dead wire must not move the reconnect deadline:
+    /// the sleep is pinned when the wire dies, not recreated per absorbed
+    /// command.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn command_traffic_does_not_postpone_the_reconnect() {
+        let (transport, servers) = transport();
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        drop(server); // the wire dies
+
+        // Churn lease/deref commands faster than the reconnect delay.
+        let churn = {
+            let transport = transport.clone();
+            tokio::spawn(async move {
+                loop {
+                    let lease = transport.lease(vec![(group_topic(b"g9"), 0)], 4).await;
+                    drop(lease);
+                    tokio::time::sleep(Duration::from_millis(40)).await;
+                }
+            })
+        };
+        // The reconnect still fires on its original deadline.
+        let _second = wait_for_server(&servers).await;
+        churn.abort();
+    }
+
+    /// After a flap, the resume wave's TopicsLive must not reach a lease that
+    /// was already caught up — it already heard that transition once.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_caught_up_lease_hears_no_second_topics_live() {
+        let (transport, servers) = transport();
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        let topic = group_topic(b"g1");
+        server.send(topics_live(vec![&topic]));
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::TopicsLive(_))
+        ));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        drop(server);
+        let mut second = wait_for_server(&servers).await;
+        let resume = second.next_mutate().await;
+        second.send(topics_live(vec![&topic]));
+        second.send(catchup_complete(resume.mutate_id));
+        second.send(messages(vec![group_msg(1, b"g1")], vec![]));
+
+        // The only thing alpha observes across the flap is new payload.
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(1, b"g1")])
+            }
+            _ => panic!("the flap leaked through (TopicsLive or a repeat CatchUpComplete)"),
         }
     }
 
