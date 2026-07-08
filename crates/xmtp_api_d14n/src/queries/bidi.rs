@@ -51,10 +51,23 @@ pub(crate) const DEFAULT_KEEPALIVE_MS: u32 = 30_000;
 /// inbound frame the actor sends a watchdog ping, and after the full `N` it
 /// tears down (see [`watchdog_deadline`]).
 pub(crate) const PROBE_TIMEOUT_MULTIPLIER: u32 = 3;
-/// Nonce for the actor's own watchdog pings. Client probe nonces count up from
-/// 1, so they can never collide with this — and the watchdog doesn't correlate
-/// the pong anyway: *any* inbound frame proves the link and resets the window.
+/// Nonce for the actor's own watchdog pings. Client probes mint their nonces
+/// via [`next_probe_nonce`], which skips this value, so they can never collide
+/// with it — and the watchdog doesn't correlate the pong anyway: *any* inbound
+/// frame proves the link and resets the window.
 const WATCHDOG_NONCE: u64 = u64::MAX;
+
+/// Mint a client probe nonce: counts up from 1, skipping `0` and the reserved
+/// [`WATCHDOG_NONCE`] when the counter wraps. The loop settles within three
+/// steps — there are only two reserved values.
+fn next_probe_nonce(counter: &AtomicU64) -> u64 {
+    loop {
+        let nonce = counter.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        if nonce != WATCHDOG_NONCE && nonce != 0 {
+            return nonce;
+        }
+    }
+}
 /// Hard cap on the outbound backlog. Past this, the wire has been wedged long
 /// enough that buffering more is pointless — the transport isn't draining the
 /// request half, so the link is effectively dead — and the actor gives up,
@@ -361,10 +374,7 @@ impl<B: BidiBinding> Connection<B> {
         if self.finished.load(Ordering::Acquire) {
             return Err(BidiError::Closed);
         }
-        let nonce = self
-            .probe_nonce
-            .fetch_add(1, Ordering::Relaxed)
-            .wrapping_add(1);
+        let nonce = next_probe_nonce(&self.probe_nonce);
         let (ack, ack_rx) = oneshot::channel();
         self.commands
             .send(Command::Probe { nonce, ack })
@@ -832,6 +842,15 @@ mod tests {
         fn handle(_response: u64) -> Inbound<(), ()> {
             Inbound::Skip
         }
+    }
+
+    /// Probe nonces skip the reserved values across the wrap: the counter
+    /// steps over [`WATCHDOG_NONCE`] and `0`, then resumes counting from 1.
+    #[xmtp_common::test]
+    fn probe_nonces_never_mint_the_watchdog_nonce() {
+        let counter = AtomicU64::new(u64::MAX - 2);
+        let minted: Vec<u64> = (0..4).map(|_| next_probe_nonce(&counter)).collect();
+        assert_eq!(minted, vec![u64::MAX - 1, 1, 2, 3]);
     }
 
     /// `finish` is a half-close, not an abort: frames the caller already had
