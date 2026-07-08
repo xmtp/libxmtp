@@ -1007,13 +1007,22 @@ where
 {
     xmtp_common::spawn(None, async move {
         let mut wire = wire;
-        let _ = tokio::time::timeout(GRACEFUL_CLOSE_BUDGET, async {
+        let drained = tokio::time::timeout(GRACEFUL_CLOSE_BUDGET, async {
             if wire.finish().await.is_err() {
                 return; // actor already gone — nothing to drain
             }
             while wire.next().await.is_some() {}
         })
         .await;
+        if drained.is_err() {
+            // Expected-degraded, not an error: a long server-side catch-up
+            // tail (or a process thaw after suspension) can outlive the
+            // budget, and dropping the wire here is the designed ending.
+            tracing::debug!(
+                budget_ms = GRACEFUL_CLOSE_BUDGET.as_millis() as u64,
+                "bidi transport: graceful-close drain budget expired; dropping the wire"
+            );
+        }
     });
 }
 
@@ -1834,6 +1843,36 @@ mod tests {
             recv(&mut beta).await,
             Some(LeaseEvent::CatchUpComplete)
         ));
+    }
+
+    /// A lease dropped while the wire is dead needs no remove wave: deref
+    /// prunes its topic from the ledger, so the resume wave simply never
+    /// re-adds it — the fresh wire starts without the topic at all.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn deref_during_a_dead_wire_keeps_the_topic_off_the_resume_wave() {
+        let (transport, servers) = transport();
+        let _alpha = transport.lease(vec![(group_topic(b"g1"), 3)], 8).await?;
+        let beta = transport.lease(vec![(group_topic(b"g2"), 7)], 8).await?;
+        let server = take_server(&servers);
+        drop(server); // the wire dies
+
+        drop(beta); // deref lands while there is no wire to send a remove on
+
+        let mut second = wait_for_server(&servers).await;
+        let resume = second.next_mutate().await;
+        assert_eq!(
+            resume
+                .adds
+                .iter()
+                .map(|add| (add.topic.clone(), add.id_cursor))
+                .collect::<Vec<_>>(),
+            vec![(group_topic(b"g1").cloned_vec(), 3)],
+            "the dropped lease's topic must not ride the resume wave"
+        );
+        assert!(
+            resume.removes.is_empty(),
+            "nothing to remove on a fresh wire"
+        );
     }
 
     /// A dropped lease's unsent wave is purged from the outbox — it must never
