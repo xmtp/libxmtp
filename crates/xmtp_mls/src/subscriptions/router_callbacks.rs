@@ -114,6 +114,33 @@ where
         .clone()
 }
 
+/// Take the shared bidi wire off the network (the `didEnterBackground` half
+/// of the app-lifecycle pair). Leases and wire positions are kept; nothing
+/// reconnects until [`resume_bidi_streams`]. A no-op when the transport was
+/// never opened (gate off, or nothing ever streamed).
+pub async fn suspend_bidi_streams() -> Result<()> {
+    let Some(transport) = SHARED_TRANSPORT.get() else {
+        return Ok(());
+    };
+    transport
+        .suspend()
+        .await
+        .map_err(|e| super::stream_router::RouterError::Transport(e).into())
+}
+
+/// Bring the shared bidi wire back (`willEnterForeground`), resolving once
+/// its resume wave has caught up — "catch up, then done", the
+/// background-fetch primitive. A no-op when the transport was never opened.
+pub async fn resume_bidi_streams() -> Result<()> {
+    let Some(transport) = SHARED_TRANSPORT.get() else {
+        return Ok(());
+    };
+    transport
+        .resume()
+        .await
+        .map_err(|e| super::stream_router::RouterError::Transport(e).into())
+}
+
 /// Drain a router stream into a callback until it ends or the client shuts
 /// down, then report the close once.
 async fn pump<T>(
