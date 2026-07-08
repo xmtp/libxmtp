@@ -355,7 +355,13 @@ where
     /// lease and wire position is kept, new leases register without touching
     /// the network, and nothing reconnects until [`Self::resume`]. Idempotent,
     /// and a no-op on a wire that is already down (or was never opened).
-    /// Resolves once the wire is down.
+    ///
+    /// Resolves once the transport has **released** the wire: no new work
+    /// will touch it, and a bounded, discard-only half-close drain finishes
+    /// in the background (deliberately not awaited — see the ledger's
+    /// deadlock discipline). A `resume()` right after may briefly overlap
+    /// that dying drain with the fresh wire; the resume wave re-serves
+    /// anything the drain discarded, so nothing is lost.
     pub async fn suspend(&self) -> Result<(), TransportError> {
         let (reply, response) = oneshot::channel();
         self.cmds
@@ -848,6 +854,9 @@ async fn run_ledger<B: TransportBinding>(
     // non-empty only while `conn` is `Some` — cleared on every wire close
     // (stale waves are meaningless to a fresh wire; the resume wave re-seeds).
     let mut outbox: Outbox<B::Mutate> = Outbox::default();
+    // Commands absorbed while a dial was in flight (see [`open_preemptibly`]),
+    // replayed in order before the channel is read again.
+    let mut deferred: std::collections::VecDeque<Cmd<B>> = std::collections::VecDeque::new();
 
     loop {
         // Opportunistic flush: capacity frees when the actor makes progress,
@@ -856,25 +865,29 @@ async fn run_ledger<B: TransportBinding>(
             flush_outbox(wire, &mut outbox);
         }
 
-        let step = match conn.as_mut() {
-            Some(wire) => tokio::select! {
-                cmd = cmds.recv() => Step::Cmd(cmd),
-                event = wire.next() => Step::Wire(event),
-                // Backstop for the rare quiet-wire case: the command buffer
-                // was momentarily full and no event arrives to wake us.
-                _ = tokio::time::sleep(OUTBOX_RETRY_INTERVAL), if !outbox.is_empty() => Step::Retry,
-            },
-            // A dead wire with live leases reconnects once the backoff
-            // elapses, still absorbing commands meanwhile (which must not
-            // move the deadline) — unless suspended, where staying off the
-            // network is the whole point.
-            None if !ledger.leases.is_empty() && !suspended => tokio::select! {
-                cmd = cmds.recv() => Step::Cmd(cmd),
-                _ = tokio::time::sleep_until(reconnect_at) => Step::Reconnect,
-            },
-            // No wire and either nothing leased or suspended: dormant until
-            // the next command.
-            None => Step::Cmd(cmds.recv().await),
+        let step = if let Some(cmd) = deferred.pop_front() {
+            Step::Cmd(Some(cmd))
+        } else {
+            match conn.as_mut() {
+                Some(wire) => tokio::select! {
+                    cmd = cmds.recv() => Step::Cmd(cmd),
+                    event = wire.next() => Step::Wire(event),
+                    // Backstop for the rare quiet-wire case: the command buffer
+                    // was momentarily full and no event arrives to wake us.
+                    _ = tokio::time::sleep(OUTBOX_RETRY_INTERVAL), if !outbox.is_empty() => Step::Retry,
+                },
+                // A dead wire with live leases reconnects once the backoff
+                // elapses, still absorbing commands meanwhile (which must not
+                // move the deadline) — unless suspended, where staying off the
+                // network is the whole point.
+                None if !ledger.leases.is_empty() && !suspended => tokio::select! {
+                    cmd = cmds.recv() => Step::Cmd(cmd),
+                    _ = tokio::time::sleep_until(reconnect_at) => Step::Reconnect,
+                },
+                // No wire and either nothing leased or suspended: dormant until
+                // the next command.
+                None => Step::Cmd(cmds.recv().await),
+            }
         };
 
         match step {
@@ -898,19 +911,28 @@ async fn run_ledger<B: TransportBinding>(
                 let mutate = B::build_mutate(subs, None, wave.0);
                 let mut queued = None;
                 if conn.is_none() && ledger.leases.is_empty() && !suspended {
-                    // Cold open, seeded with this lease's adds. Awaiting here
-                    // is safe: with no wire there are no events to drain. The
-                    // failure is this caller's to see — nobody else is
-                    // waiting on the wire.
-                    match opener.open(mutate).await {
-                        Ok(wire) => {
+                    // Cold open, seeded with this lease's adds. The dial is
+                    // preemptible: commands keep flowing while it runs, and a
+                    // Suspend drops it. The failure is this caller's to see —
+                    // nobody else is waiting on the wire.
+                    match open_preemptibly(&opener, mutate, &mut cmds, &mut deferred).await {
+                        OpenOutcome::Opened(wire) => {
                             conn = Some(wire);
                             reconnect_delay = RECONNECT_INITIAL_DELAY;
                         }
-                        Err(e) => {
+                        OpenOutcome::Failed(e) => {
                             let _ = reply.send(Err(TransportError::Open(e)));
                             continue;
                         }
+                        OpenOutcome::Suspended(ack) => {
+                            // The dial is gone; the lease still registers
+                            // below and rides the resume open, exactly like
+                            // any lease taken while suspended.
+                            suspended = true;
+                            park_deferred_resumes(&mut deferred, &mut resume_notify);
+                            let _ = ack.send(());
+                        }
+                        OpenOutcome::Shutdown => return,
                     }
                 } else if conn.is_some() {
                     queued = Some(mutate);
@@ -953,11 +975,17 @@ async fn run_ledger<B: TransportBinding>(
                 outbox.purge(id);
                 let removes = ledger.deref(id);
                 retire(&mut conn, &mut ledger, &mut outbox, removes);
+                settle_idle_waiters(&mut ledger, &mut resume_notify);
             }
             Step::Cmd(Some(Cmd::Suspend { reply })) => {
                 suspended = true;
                 outbox.clear();
                 if let Some(wire) = conn.take() {
+                    // Detached on purpose: acknowledging must not await the
+                    // wire's bounded command channel (deadlock discipline
+                    // above), and the drain is bounded and discard-only —
+                    // releasing the wire, not finishing its funeral, is what
+                    // "suspended" means.
                     close_gracefully(wire);
                 }
                 // Pending waves stay: their leases are still owed a
@@ -990,15 +1018,26 @@ async fn run_ledger<B: TransportBinding>(
                 } else {
                     resume_notify.push(reply);
                     reconnect_delay = RECONNECT_INITIAL_DELAY;
-                    reopen(
+                    match reopen(
                         &opener,
                         &mut ledger,
                         &mut conn,
                         &mut reconnect_delay,
                         &mut reconnect_at,
                         &mut resume_notify,
+                        &mut cmds,
+                        &mut deferred,
                     )
-                    .await;
+                    .await
+                    {
+                        AfterReopen::Proceed => {}
+                        AfterReopen::Suspended(ack) => {
+                            suspended = true;
+                            park_deferred_resumes(&mut deferred, &mut resume_notify);
+                            let _ = ack.send(());
+                        }
+                        AfterReopen::Shutdown => return,
+                    }
                 }
             }
             // The wire ended (server close or transport failure). Leases
@@ -1013,17 +1052,29 @@ async fn run_ledger<B: TransportBinding>(
                         "bidi transport: wire died; reconnecting from last-seen positions"
                     );
                 }
+                settle_idle_waiters(&mut ledger, &mut resume_notify);
             }
             Step::Reconnect => {
-                reopen(
+                match reopen(
                     &opener,
                     &mut ledger,
                     &mut conn,
                     &mut reconnect_delay,
                     &mut reconnect_at,
                     &mut resume_notify,
+                    &mut cmds,
+                    &mut deferred,
                 )
-                .await;
+                .await
+                {
+                    AfterReopen::Proceed => {}
+                    AfterReopen::Suspended(ack) => {
+                        suspended = true;
+                        park_deferred_resumes(&mut deferred, &mut resume_notify);
+                        let _ = ack.send(());
+                    }
+                    AfterReopen::Shutdown => return,
+                }
             }
             Step::Wire(Some(event)) => {
                 let mut removes = Vec::new();
@@ -1031,9 +1082,114 @@ async fn run_ledger<B: TransportBinding>(
                     removes.extend(ledger.deref(lease));
                 }
                 retire(&mut conn, &mut ledger, &mut outbox, removes);
+                settle_idle_waiters(&mut ledger, &mut resume_notify);
             }
         }
     }
+}
+
+/// What racing a dial against the command channel produced. Non-lifecycle
+/// commands arriving mid-dial are deferred in order (the ledger loop drains
+/// `deferred` before reading the channel again); only `Suspend` — whose whole
+/// point is leaving the network *now* — and shutdown preempt the dial,
+/// dropping the in-flight open future.
+enum OpenOutcome<B: BidiBinding> {
+    Opened(Connection<B>),
+    Failed(OpenError),
+    /// A `Cmd::Suspend` arrived mid-dial and the dial was dropped. Carries
+    /// the suspend reply for the caller to acknowledge once it has marked
+    /// the transport suspended.
+    Suspended(oneshot::Sender<()>),
+    /// Every handle is gone; the ledger should shut down.
+    Shutdown,
+}
+
+async fn open_preemptibly<B: TransportBinding>(
+    opener: &Opener<B>,
+    mutate: B::Mutate,
+    cmds: &mut mpsc::UnboundedReceiver<Cmd<B>>,
+    deferred: &mut std::collections::VecDeque<Cmd<B>>,
+) -> OpenOutcome<B>
+where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    let open = opener.open(mutate);
+    tokio::pin!(open);
+    loop {
+        tokio::select! {
+            result = &mut open => {
+                return match result {
+                    Ok(wire) => OpenOutcome::Opened(wire),
+                    Err(e) => OpenOutcome::Failed(e),
+                };
+            }
+            cmd = cmds.recv() => match cmd {
+                Some(Cmd::Suspend { reply }) => return OpenOutcome::Suspended(reply),
+                Some(cmd) => deferred.push_back(cmd),
+                None => return OpenOutcome::Shutdown,
+            },
+        }
+    }
+}
+
+/// A dial-preempting `Suspend` outranks anything it jumped over: a
+/// `Cmd::Resume` deferred during that dial predates the suspend, and
+/// replaying it later would flip the transport back onto the network against
+/// the caller's newest intent. Park those waiters instead — they ride to the
+/// resume wave a *later* `resume()` completes. (Everything else deferred —
+/// leases, derefs — replays safely under suspension.)
+fn park_deferred_resumes<B: TransportBinding>(
+    deferred: &mut std::collections::VecDeque<Cmd<B>>,
+    resume_notify: &mut Vec<oneshot::Sender<()>>,
+) where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    for cmd in std::mem::take(deferred) {
+        match cmd {
+            Cmd::Resume { reply } => resume_notify.push(reply),
+            other => deferred.push_back(other),
+        }
+    }
+}
+
+/// With nothing leased there is no catch-up left to await: fire every parked
+/// `resume()` waiter — both those riding pending resume waves and those not
+/// yet on a wave — and drop the wave obligations, which can never resolve
+/// (their wire is gone or going, and nothing will re-open it). Called
+/// whenever a deref or wire death may have emptied the ledger; a no-op while
+/// any lease remains.
+fn settle_idle_waiters<B: TransportBinding>(
+    ledger: &mut Ledger<B>,
+    resume_notify: &mut Vec<oneshot::Sender<()>>,
+) where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    if !ledger.leases.is_empty() {
+        return;
+    }
+    for (_, owner) in ledger.pending_waves.drain() {
+        if let WaveOwner::Resume { notify, .. } = owner {
+            for waiter in notify {
+                let _ = waiter.send(());
+            }
+        }
+    }
+    for waiter in resume_notify.drain(..) {
+        let _ = waiter.send(());
+    }
+}
+
+/// How the ledger loop should proceed after a [`reopen`] attempt.
+enum AfterReopen {
+    Proceed,
+    /// `Cmd::Suspend` preempted the dial: acknowledge once the caller has
+    /// marked the transport suspended. Parked waiters stay parked and ride
+    /// to the resume wave that eventually completes.
+    Suspended(oneshot::Sender<()>),
+    Shutdown,
 }
 
 /// Open a fresh wire seeded with the resume wave — every leased topic from
@@ -1041,8 +1197,9 @@ async fn run_ledger<B: TransportBinding>(
 /// wave: leases still owed a `CatchUpComplete`, `resume()` waiters parked in
 /// `notify`, and waiters riding resume waves the previous wire never
 /// completed. On failure the backoff grows and every waiter stays parked for
-/// the next attempt. Awaiting the opener is safe here for the same reason as
-/// the cold open: with no wire there are no events to drain.
+/// the next attempt. The dial is preemptible ([`open_preemptibly`]): commands
+/// keep flowing while it runs, so a `suspend()` never waits on a stuck dial.
+#[allow(clippy::too_many_arguments)]
 async fn reopen<B: TransportBinding>(
     opener: &Opener<B>,
     ledger: &mut Ledger<B>,
@@ -1050,7 +1207,10 @@ async fn reopen<B: TransportBinding>(
     reconnect_delay: &mut std::time::Duration,
     reconnect_at: &mut tokio::time::Instant,
     notify: &mut Vec<oneshot::Sender<()>>,
-) where
+    cmds: &mut mpsc::UnboundedReceiver<Cmd<B>>,
+    deferred: &mut std::collections::VecDeque<Cmd<B>>,
+) -> AfterReopen
+where
     B::GroupMessage: Clone,
     B::WelcomeMessage: Clone,
 {
@@ -1060,12 +1220,12 @@ async fn reopen<B: TransportBinding>(
         for waiter in notify.drain(..) {
             let _ = waiter.send(());
         }
-        return;
+        return AfterReopen::Proceed;
     };
     let wave = ledger.next_wave_id();
     let mutate = B::build_mutate(adds, None, wave.0);
-    match opener.open(mutate).await {
-        Ok(wire) => {
+    match open_preemptibly(opener, mutate, cmds, deferred).await {
+        OpenOutcome::Opened(wire) => {
             *conn = Some(wire);
             *reconnect_delay = RECONNECT_INITIAL_DELAY;
             // Waves from the dead wire can never resolve on this one; the
@@ -1080,12 +1240,16 @@ async fn reopen<B: TransportBinding>(
             ledger
                 .pending_waves
                 .insert(wave, WaveOwner::Resume { pending, notify });
+            AfterReopen::Proceed
         }
-        Err(e) => {
+        OpenOutcome::Failed(e) => {
             tracing::warn!("bidi transport: reconnect failed ({e}); backing off");
             *reconnect_delay = (*reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
             *reconnect_at = tokio::time::Instant::now() + *reconnect_delay;
+            AfterReopen::Proceed
         }
+        OpenOutcome::Suspended(ack) => AfterReopen::Suspended(ack),
+        OpenOutcome::Shutdown => AfterReopen::Shutdown,
     }
 }
 
@@ -2076,6 +2240,165 @@ mod tests {
         // The suspended-time lease was owed its catch-up by the resume wave.
         assert!(matches!(
             recv(&mut beta).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+    }
+
+    /// A `resume()` waiter whose last lease disappears mid-catch-up must
+    /// resolve — with nothing leased there is nothing left to await.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn dropping_the_last_lease_settles_resume_waiters() {
+        let (transport, servers) = transport();
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        transport.suspend().await?;
+        server.request_stream_ended().await;
+
+        // resume() re-opens and parks awaiting the resume wave's catch-up...
+        let resumed = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+        let mut second = wait_for_server(&servers).await;
+        let _resume = second.next_mutate().await;
+        // ...but the last lease goes away before the server answers.
+        drop(alpha);
+        tokio::time::timeout(WAIT, resumed).await?.unwrap()?;
+    }
+
+    /// `suspend()` must preempt a stuck dial: backgrounding during a network
+    /// outage is exactly when dials hang, and leaving the network cannot
+    /// wait on one.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn suspend_preempts_a_stuck_dial() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // The first dial hangs forever; later dials get a scripted session.
+        let servers: Servers = Arc::default();
+        let dials = Arc::new(AtomicUsize::new(0));
+        let transport: BidiTransport<V3Binding> = {
+            let sink = servers.clone();
+            let dials = dials.clone();
+            BidiTransport::new(move |initial| {
+                let n = dials.fetch_add(1, Ordering::SeqCst);
+                let sink = sink.clone();
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                        unreachable!("the hung dial never resolves");
+                    }
+                    let (api, server) = mock_pair();
+                    sink.lock().unwrap().push(server);
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(|e| Box::new(e) as OpenError)
+                }
+            })
+        };
+
+        // The cold open hangs; drive it from a task and wait for the dial
+        // to actually be in flight.
+        let leased = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.lease(vec![(group_topic(b"g1"), 0)], 8).await }
+        });
+        while dials.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        // Suspend preempts the stuck dial promptly...
+        tokio::time::timeout(WAIT, transport.suspend()).await??;
+        // ...and the lease registered anyway, parked for the resume open.
+        let mut alpha = tokio::time::timeout(WAIT, leased).await?.unwrap()?;
+
+        let resumed = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+        let mut server = wait_for_server(&servers).await;
+        let resume = server.next_mutate().await;
+        server.send(catchup_complete(resume.mutate_id));
+        tokio::time::timeout(WAIT, resumed).await?.unwrap()?;
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+    }
+
+    /// A `resume()` deferred while a dial is in flight predates the
+    /// `suspend()` that preempts the dial — replaying it afterwards must not
+    /// put the transport back on the network. Its waiter parks and rides the
+    /// next explicit resume instead.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_preempting_suspend_outranks_a_deferred_resume() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let servers: Servers = Arc::default();
+        let dials = Arc::new(AtomicUsize::new(0));
+        let transport: BidiTransport<V3Binding> = {
+            let sink = servers.clone();
+            let dials = dials.clone();
+            BidiTransport::new(move |initial| {
+                let n = dials.fetch_add(1, Ordering::SeqCst);
+                let sink = sink.clone();
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                        unreachable!("the hung dial never resolves");
+                    }
+                    let (api, server) = mock_pair();
+                    sink.lock().unwrap().push(server);
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(|e| Box::new(e) as OpenError)
+                }
+            })
+        };
+
+        let leased = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.lease(vec![(group_topic(b"g1"), 0)], 8).await }
+        });
+        while dials.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        // FIFO on the command channel: this resume is deferred mid-dial,
+        // then the suspend preempts the dial.
+        let first_resume = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::timeout(WAIT, transport.suspend()).await??;
+        let mut alpha = tokio::time::timeout(WAIT, leased).await?.unwrap()?;
+
+        // The stale resume must not resurrect the network.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(
+            dials.load(Ordering::SeqCst),
+            1,
+            "a resume deferred before the suspend must not redial"
+        );
+
+        // A later, explicit resume brings everything back — including the
+        // parked waiter from before the suspend.
+        let second_resume = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+        let mut server = wait_for_server(&servers).await;
+        let resume = server.next_mutate().await;
+        server.send(catchup_complete(resume.mutate_id));
+        tokio::time::timeout(WAIT, second_resume).await?.unwrap()?;
+        tokio::time::timeout(WAIT, first_resume).await?.unwrap()?;
+        assert!(matches!(
+            recv(&mut alpha).await,
             Some(LeaseEvent::CatchUpComplete)
         ));
     }
