@@ -37,6 +37,13 @@ pub mod stream_router;
 // `bidi_tests` above).
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
 mod stream_router_tests;
+// Callback adapters over the router: the process-shared transport, the
+// `XMTP_BIDI_STREAMS_ENABLED` gate, and the pull→push pumps the bindings
+// call (native-only, like the router).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod router_callbacks;
+#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+mod router_callbacks_tests;
 pub(crate) mod watchdog;
 
 use crate::messages::enrichment::EnrichMessageError;
@@ -194,6 +201,11 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
 
 #[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum SubscribeError {
+    /// Subscribing through the bidi stream router failed. Boxed: RouterError
+    /// itself wraps SubscribeError, so the cycle needs indirection.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error(transparent)]
+    Router(#[from] Box<stream_router::RouterError>),
     /// Group error.
     ///
     /// Group operation failed during subscription. May be retryable.
@@ -283,6 +295,13 @@ impl From<GroupError> for SubscribeError {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl From<stream_router::RouterError> for SubscribeError {
+    fn from(value: stream_router::RouterError) -> Self {
+        SubscribeError::Router(Box::new(value))
+    }
+}
+
 impl From<GroupMessageProcessingError> for SubscribeError {
     fn from(value: GroupMessageProcessingError) -> Self {
         SubscribeError::ReceiveGroup(Box::new(value))
@@ -293,6 +312,14 @@ impl RetryableError for SubscribeError {
     fn is_retryable(&self) -> bool {
         use SubscribeError::*;
         match self {
+            // Re-subscribing recovers from an open failure; a shut-down
+            // router/transport (client teardown) and caller bugs do not.
+            #[cfg(not(target_arch = "wasm32"))]
+            Router(e) => match e.as_ref() {
+                stream_router::RouterError::Closed => false,
+                stream_router::RouterError::Transport(t) => retryable!(t),
+                stream_router::RouterError::Subscribe(inner) => retryable!(inner),
+            },
             Group(e) => retryable!(e),
             GroupMessageNotFound => true,
             ReceiveGroup(e) => retryable!(e),
@@ -321,6 +348,10 @@ impl crate::worker::NeedsDbReconnect for SubscribeError {
             Group(e) => e.needs_db_reconnect(),
             Storage(e) => e.db_needs_connection(),
             Db(c) => c.db_needs_connection(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Router(e) => {
+                matches!(e.as_ref(), stream_router::RouterError::Subscribe(inner) if inner.needs_db_reconnect())
+            }
             GroupMessageNotFound
             | ReceiveGroup(_)
             | Decode(_)

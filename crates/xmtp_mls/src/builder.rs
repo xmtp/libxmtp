@@ -463,6 +463,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             installation_id,
             local_events,
             workers,
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: Default::default(),
         };
 
         // Cleanup old unstitched group updated messages.

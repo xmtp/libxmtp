@@ -193,6 +193,18 @@ pub enum TransportError {
     Empty,
 }
 
+impl xmtp_common::RetryableError for TransportError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // The next `lease()` attempts a fresh open.
+            Self::Open(_) => true,
+            // The transport is gone for good; an empty lease is a caller bug
+            // no retry fixes.
+            Self::Closed | Self::Empty => false,
+        }
+    }
+}
+
 /// Raw wire deliveries for one lease's topics, in wire order. Message payloads
 /// are still encrypted wire shapes — decoding is the consumer's job.
 pub enum LeaseEvent<B: TransportBinding>
