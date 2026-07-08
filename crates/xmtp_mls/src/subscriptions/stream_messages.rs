@@ -188,7 +188,11 @@ where
         // to populate seen messages
         let seen_cursors_vec = db.messages_newer_than(&cursors_by_group)?;
 
-        let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec.into_iter().collect();
+        // Identity dedup is exact, so the flattened set is safe across groups.
+        let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec
+            .into_iter()
+            .map(|(_, cursor)| cursor)
+            .collect();
 
         let mut topic_cursor = TopicCursor::default();
         for group_id in &groups {

@@ -29,6 +29,14 @@ pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
+// XIP-83 client-level router over the process-level bidi transport
+// (native-only, like the transport itself).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod stream_router;
+// Live integration tests for the router (v3 wire; same gating rationale as
+// `bidi_tests` above).
+#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+mod stream_router_tests;
 pub(crate) mod watchdog;
 
 use crate::messages::enrichment::EnrichMessageError;
