@@ -201,24 +201,26 @@ where
 
 /// Dedup for one message stream.
 ///
-/// Steady state (`Live`) is the per-topic position: wire order is
-/// cursor-monotonic, so a high-water mark suffices. During the catch-up
-/// window (`Syncing`) it is not — a live delivery already in flight for a
-/// shared topic can arrive *before* the replay this stream's cursored add
-/// requested (see the transport's delivery-order contract) — so the window
-/// checks the **frozen subscribe-time seed** (anything at-or-below the
-/// durable resume point is never for this stream, including a sibling
-/// lease's replay of older history) plus an exact-identity seen-set. The set
-/// is bounded by the window: it drops at `CatchUpComplete`, when the live
-/// positions (which kept advancing) take over.
-enum StreamDedup {
-    Syncing {
-        /// Per-topic durable positions frozen at subscribe.
-        seeds: HashMap<Topic, GlobalCursor>,
-        /// Exact identities delivered during the window.
-        seen: HashSet<Cursor>,
-    },
-    Live,
+/// Steady state is the per-topic position: wire order is cursor-monotonic,
+/// so a high-water mark suffices. During a topic's catch-up window it is
+/// not — a live delivery already in flight for a shared topic can arrive
+/// *before* the replay this stream's cursored add requested (see the
+/// transport's delivery-order contract) — so the window checks the **frozen
+/// subscribe-time seed** (anything at-or-below the durable resume point is
+/// never for this stream, including a sibling lease's replay of older
+/// history) plus an exact-identity seen-set.
+///
+/// Windows are **per topic**: each lease's `CatchUpComplete` closes exactly
+/// the topics that lease added (a stream that grows mid-flight has one lease
+/// per addition, each with its own window), and the live positions — which
+/// kept advancing — take over per topic. The seen-set is shared across open
+/// windows (exact identity is safe across groups) and drops when the last
+/// window closes.
+struct StreamDedup {
+    /// Topics still inside their catch-up window → their frozen seed.
+    syncing: HashMap<Topic, GlobalCursor>,
+    /// Exact identities delivered while any window is open.
+    seen: HashSet<Cursor>,
 }
 
 impl StreamDedup {
@@ -227,26 +229,44 @@ impl StreamDedup {
     /// delivery floor, because the streaming pipeline stores without
     /// advancing it.
     fn syncing(seeds: HashMap<Topic, GlobalCursor>, seen: HashSet<Cursor>) -> Self {
-        Self::Syncing { seeds, seen }
+        Self {
+            syncing: seeds,
+            seen,
+        }
+    }
+
+    /// Open windows for late-added topics (a growing stream's new lease),
+    /// folding their locally-stored identities into the shared seen-set.
+    fn open_window(
+        &mut self,
+        seeds: HashMap<Topic, GlobalCursor>,
+        seen: impl IntoIterator<Item = Cursor>,
+    ) {
+        self.syncing.extend(seeds);
+        self.seen.extend(seen);
     }
 
     fn has_seen(&self, position: &GlobalCursor, topic: &Topic, cursor: &Cursor) -> bool {
-        match self {
-            Self::Syncing { seeds, seen } => {
-                seeds.get(topic).is_some_and(|seed| seed.has_seen(cursor)) || seen.contains(cursor)
-            }
-            Self::Live => position.has_seen(cursor),
+        match self.syncing.get(topic) {
+            Some(seed) => seed.has_seen(cursor) || self.seen.contains(cursor),
+            None => position.has_seen(cursor),
         }
     }
 
     fn record(&mut self, cursor: Cursor) {
-        if let Self::Syncing { seen, .. } = self {
-            seen.insert(cursor);
+        if !self.syncing.is_empty() {
+            self.seen.insert(cursor);
         }
     }
 
-    fn complete(&mut self) {
-        *self = Self::Live;
+    /// Close the window for `topics` (their lease's `CatchUpComplete`).
+    fn complete(&mut self, topics: &[Topic]) {
+        for topic in topics {
+            self.syncing.remove(topic);
+        }
+        if self.syncing.is_empty() {
+            self.seen = HashSet::new();
+        }
     }
 }
 
@@ -369,7 +389,7 @@ where
         let (tx, items) = mpsc::channel(depth.max(1));
         let consumer = MessageConsumer {
             factory: ProcessMessageFuture::new(self.context.clone()),
-            lease,
+            leases: LeaseSet::new(lease),
             tx,
             dedup: StreamDedup::syncing(floors, seen),
             positions,
@@ -489,12 +509,74 @@ async fn send_or_kill<T>(
     }
 }
 
-/// One message stream: owns its lease, decodes sequentially, delivers on its
+/// A stream's leases, polled as one. A static stream holds exactly its
+/// subscribe-time lease; a growing stream pushes one lease per late
+/// addition — the transport multiplexes them onto the one wire, and a new
+/// lease IS the cursored-add wave for its topics, so each lease's
+/// `CatchUpComplete` closes exactly its own topics' dedup windows.
+struct LeaseSet {
+    feeds: futures::stream::SelectAll<LeaseFeed>,
+    /// idx → the topics that lease holds (for window completion).
+    topics: HashMap<u64, Vec<Topic>>,
+    next_idx: u64,
+}
+
+type LeaseFeed = std::pin::Pin<
+    Box<dyn futures::Stream<Item = (u64, Option<LeaseEvent<V3Binding>>)> + Send + 'static>,
+>;
+
+impl LeaseSet {
+    fn new(lease: TopicLease<V3Binding>) -> Self {
+        let mut set = Self {
+            feeds: futures::stream::SelectAll::new(),
+            topics: HashMap::new(),
+            next_idx: 0,
+        };
+        set.push(lease);
+        set
+    }
+
+    fn push(&mut self, lease: TopicLease<V3Binding>) -> u64 {
+        let idx = self.next_idx;
+        self.next_idx += 1;
+        self.topics.insert(idx, lease.topics().to_vec());
+        // The lease lives inside its feed; a `(idx, None)` marks its death.
+        self.feeds
+            .push(Box::pin(futures::stream::unfold(
+                (idx, Some(lease)),
+                |(idx, lease)| async move {
+                    let mut lease = lease?;
+                    match lease.next().await {
+                        Some(event) => Some(((idx, Some(event)), (idx, Some(lease)))),
+                        None => Some(((idx, None), (idx, None))),
+                    }
+                },
+            )));
+        idx
+    }
+
+    fn topics_of(&self, idx: u64) -> &[Topic] {
+        self.topics.get(&idx).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Next event across every lease. `None` means a lease closed — the wire
+    /// died or the transport dropped this consumer — and the stream ends
+    /// (recovery is a re-subscribe from durable cursors, same as before).
+    async fn next(&mut self) -> Option<(u64, LeaseEvent<V3Binding>)> {
+        use futures::StreamExt;
+        match self.feeds.next().await? {
+            (idx, Some(event)) => Some((idx, event)),
+            (_, None) => None,
+        }
+    }
+}
+
+/// One message stream: owns its leases, decodes sequentially, delivers on its
 /// bounded channel. A stall here (e.g. recovery sync) backs up only this
-/// stream's lease.
+/// stream's leases.
 struct MessageConsumer<Context> {
     factory: ProcessMessageFuture<Context>,
-    lease: TopicLease<V3Binding>,
+    leases: LeaseSet,
     tx: mpsc::Sender<Result<StoredGroupMessage>>,
     /// Live per-topic positions — steady-state dedup; they keep advancing
     /// during the window so they hold the live edge when it closes.
@@ -508,11 +590,11 @@ where
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
         loop {
-            let event = tokio::select! {
-                event = self.lease.next() => match event {
+            let (idx, event) = tokio::select! {
+                event = self.leases.next() => match event {
                     Some(event) => event,
-                    // Wire death or transport backpressure drop: the stream
-                    // ends (tx drops); the consumer re-subscribes.
+                    // Wire death or transport backpressure drop on any lease:
+                    // the stream ends (tx drops); the consumer re-subscribes.
                     None => return,
                 },
                 _ = &mut kill => return,
@@ -525,7 +607,7 @@ where
                 }
                 LeaseEvent::CatchUpComplete => {
                     tracing::debug!("stream router: message stream caught up");
-                    self.dedup.complete();
+                    self.dedup.complete(self.leases.topics_of(idx));
                 }
                 LeaseEvent::TopicsLive(topics) => {
                     tracing::debug!(?topics, "stream router: topics live");
@@ -754,9 +836,41 @@ mod tests {
         assert!(dedup.has_seen(&position, &topic, &replayed));
 
         // Window closes: the position (already at the live edge) takes over.
-        dedup.complete();
+        dedup.complete(std::slice::from_ref(&topic));
         assert!(dedup.has_seen(&position, &topic, &replayed));
         assert!(!dedup.has_seen(&position, &topic, &Cursor::new(101, 0u32)));
+    }
+
+    /// Windows are per topic: one lease's `CatchUpComplete` closes only its
+    /// own topics' windows — a still-syncing sibling keeps its seed and the
+    /// shared seen-set until the last window closes.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn windows_close_per_topic() {
+        let early = Topic::new_group_message([1u8; 16]);
+        let late = Topic::new_group_message([2u8; 16]);
+        let mut seed = GlobalCursor::default();
+        seed.apply(&Cursor::new(50, 0u32));
+        let mut dedup = StreamDedup::syncing(
+            HashMap::from([(early.clone(), GlobalCursor::default())]),
+            HashSet::new(),
+        );
+        dedup.open_window(
+            HashMap::from([(late.clone(), seed)]),
+            [Cursor::new(60, 0u32)],
+        );
+
+        // Closing the early topic flips it to position dedup...
+        dedup.complete(std::slice::from_ref(&early));
+        let position = GlobalCursor::default();
+        assert!(!dedup.has_seen(&position, &early, &Cursor::new(60, 0u32)));
+        // ...while the late topic still dedups by its frozen seed + seen-set.
+        assert!(dedup.has_seen(&position, &late, &Cursor::new(50, 0u32)));
+        assert!(dedup.has_seen(&position, &late, &Cursor::new(60, 0u32)));
+        assert!(!dedup.has_seen(&position, &late, &Cursor::new(61, 0u32)));
+
+        // The last window closing drops the seen-set.
+        dedup.complete(std::slice::from_ref(&late));
+        assert!(!dedup.has_seen(&position, &late, &Cursor::new(60, 0u32)));
     }
 
     /// Sequence ids are not scoped per group: a stored identity in one group
