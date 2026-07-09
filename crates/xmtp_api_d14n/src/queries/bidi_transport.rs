@@ -98,7 +98,7 @@
 use std::collections::{HashMap, HashSet};
 
 use tokio::sync::{mpsc, oneshot};
-use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync};
+use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::types::Topic;
 
 use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
@@ -150,6 +150,9 @@ impl OpenError {
     }
 
     /// An open failure worth redialing (a transient dial or wire error).
+    /// Test-only: production openers use [`Self::new`], whose verdict comes
+    /// from the error itself and cannot contradict it.
+    #[cfg(test)]
     pub fn retryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
             retryable: true,
@@ -158,6 +161,8 @@ impl OpenError {
     }
 
     /// An open failure no redial can fix (the backend refuses the surface).
+    /// Test-only, like [`Self::retryable`].
+    #[cfg(test)]
     pub fn unretryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
             retryable: false,
@@ -1270,6 +1275,14 @@ where
                 AfterReopen::Proceed
             }
             OpenOutcome::Failed(e) => {
+                if !e.is_retryable() {
+                    // The backend refuses the surface outright — no redial
+                    // can succeed. Shutting the ledger down ends every lease,
+                    // so consumers see their streams end and the next
+                    // subscribe carries the refusal to the caller.
+                    tracing::error!("bidi transport: reconnect refused ({e}); closing");
+                    return AfterReopen::Shutdown;
+                }
                 tracing::warn!("bidi transport: reconnect failed ({e}); backing off");
                 self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
                 self.reconnect_at = tokio::time::Instant::now() + self.reconnect_delay;
@@ -2851,6 +2864,12 @@ mod tests {
     #[error("no wire for you")]
     struct Refused;
 
+    impl xmtp_common::RetryableError for Refused {
+        fn is_retryable(&self) -> bool {
+            false
+        }
+    }
+
     /// An opener failure surfaces as `TransportError::Open` and registers
     /// nothing — the transport stays usable for a later attempt.
     #[xmtp_common::test(unwrap_try = true)]
@@ -2864,5 +2883,56 @@ mod tests {
         // same way, proving the ledger task survived the failed open).
         let again = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await;
         assert!(matches!(again, Err(TransportError::Open(_))));
+    }
+
+    /// An unretryable failure on the *reconnect* path closes the transport
+    /// instead of redialing forever: every lease ends (`next()` → `None`),
+    /// and the consumers' re-subscribes carry the refusal to their callers.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn unretryable_reconnect_closes_every_lease() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let servers: Servers = Arc::default();
+        let dials = Arc::new(AtomicUsize::new(0));
+        let transport: BidiTransport<V3Binding> = {
+            let sink = servers.clone();
+            let dials = dials.clone();
+            BidiTransport::new(move |initial| {
+                let n = dials.fetch_add(1, Ordering::SeqCst);
+                let sink = sink.clone();
+                async move {
+                    // The backend accepts the first dial, then refuses the
+                    // surface outright — a server dropping bidi support, not
+                    // a flap.
+                    if n > 0 {
+                        return Err(OpenError::new(Refused));
+                    }
+                    let (api, server) = mock_pair();
+                    sink.lock().unwrap().push(server);
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(OpenError::new)
+                }
+            })
+        };
+
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        drop(server); // the wire dies; the reconnect dial is refused
+
+        assert!(
+            recv(&mut alpha).await.is_none(),
+            "an unretryable reconnect must end every lease, not redial forever"
+        );
+        assert_eq!(dials.load(Ordering::SeqCst), 2, "no dial after the refusal");
+        // The ledger is gone: a fresh lease reports the transport closed.
+        let denied = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await;
+        assert!(matches!(denied, Err(TransportError::Closed)));
     }
 }

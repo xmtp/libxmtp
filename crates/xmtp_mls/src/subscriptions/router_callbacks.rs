@@ -38,7 +38,10 @@
 //! (transport docs), so a natural end means this consumer fell behind and
 //! was dropped, or the client shut down; re-subscribing recovers from
 //! durable cursors. An `end()`ed handle aborts the task without `on_close`,
-//! matching the local-events streams.
+//! matching the local-events streams. The `StreamOpened`/`StreamClosed`
+//! telemetry pair still closes on every ending — including that abort, which
+//! never runs the task's tail but does drop it, so `StreamClosed` rides a
+//! drop guard.
 
 use std::sync::{Arc, LazyLock, OnceLock};
 
@@ -51,12 +54,12 @@ use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::types::GroupId;
+use xmtp_proto::types::{GroupId, InstallationId};
 
 use xmtp_common::Event;
 use xmtp_macro::log_event;
 
-use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterStream, StreamRouter};
+use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterError, RouterStream, StreamRouter};
 use super::{Result, StreamKind, SubscribeError};
 use crate::Client;
 use crate::context::XmtpSharedContext;
@@ -169,6 +172,64 @@ async fn pump<T>(
     on_close();
 }
 
+/// Emits the `StreamClosed` telemetry event when dropped. A guard rather
+/// than a tail call: the bindings' closers end these streams by aborting the
+/// task, and an aborted future never runs its tail — but it is dropped, so
+/// the pair-closing event still fires.
+struct StreamClosedGuard {
+    kind: StreamKind,
+    installation: InstallationId,
+}
+
+impl Drop for StreamClosedGuard {
+    fn drop(&mut self) {
+        log_event!(Event::StreamClosed, self.installation, kind = ?self.kind);
+    }
+}
+
+/// One spawned bidi stream: emit `StreamOpened`, subscribe, signal ready,
+/// then pump into the callback until the stream ends or the client shuts
+/// down. Every entry point is this wrapper plus its subscribe future.
+///
+/// `on_close` fires on the subscribe-failure and natural-end paths only (an
+/// aborted task must not invoke it — the caller asked for the end), exactly
+/// like the local-events streams; `StreamClosed` fires on every ending via
+/// the drop guard.
+fn pump_stream<T, S>(
+    kind: StreamKind,
+    installation: InstallationId,
+    cancel: CancellationToken,
+    subscribe: S,
+    callback: impl FnMut(Result<T>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    T: MaybeSend + 'static,
+    S: Future<Output = std::result::Result<RouterStream<T>, RouterError>> + MaybeSend + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+    xmtp_common::spawn(Some(rx), async move {
+        log_event!(Event::StreamOpened, installation, kind = ?kind);
+        let _closed = StreamClosedGuard { kind, installation };
+        let stream = match subscribe.await {
+            Ok(stream) => stream,
+            Err(e) => {
+                // The subscribe itself failed: warn (the handle's result
+                // carries the error but is rarely read), fire `on_close`
+                // — legacy watchdog semantics — and the caller
+                // re-subscribes from durable cursors.
+                tracing::warn!("bidi {kind:?} stream failed to subscribe: {e}");
+                on_close();
+                return Err(e.into());
+            }
+        };
+        let _ = tx.send(());
+        pump(stream, cancel, callback, on_close).await;
+        tracing::debug!("bidi {kind:?} stream ended");
+        Ok::<_, SubscribeError>(())
+    })
+}
+
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext + 'static,
@@ -198,34 +259,22 @@ where
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-        xmtp_common::spawn(Some(rx), async move {
-            let installation = client.context.installation_id();
-            log_event!(Event::StreamOpened, installation, kind = ?StreamKind::All);
-            let cancel = client.context.cancellation_token().clone();
+        let installation = client.context.installation_id();
+        let cancel = client.context.cancellation_token().clone();
+        let subscribe = async move {
             let router = client.stream_router().await;
-            let stream = match router
+            router
                 .stream_all_messages(conversation_type, consent_states, DEFAULT_STREAM_DEPTH)
                 .await
-            {
-                Ok(stream) => stream,
-                Err(e) => {
-                    // The subscribe itself failed: warn (the handle's result
-                    // carries the error but is rarely read), fire `on_close`
-                    // — legacy watchdog semantics — and the caller
-                    // re-subscribes from durable cursors.
-                    tracing::warn!("bidi `stream_all_messages` failed to subscribe: {e}");
-                    log_event!(Event::StreamClosed, installation, kind = ?StreamKind::All);
-                    on_close();
-                    return Err(e.into());
-                }
-            };
-            let _ = tx.send(());
-            pump(stream, cancel, callback, on_close).await;
-            tracing::debug!("bidi `stream_all_messages` ended");
-            log_event!(Event::StreamClosed, installation, kind = ?StreamKind::All);
-            Ok::<_, SubscribeError>(())
-        })
+        };
+        pump_stream(
+            StreamKind::All,
+            installation,
+            cancel,
+            subscribe,
+            callback,
+            on_close,
+        )
     }
 
     /// Bidi-path counterpart of `stream_conversations_with_callback`: new
@@ -239,13 +288,11 @@ where
         callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-        xmtp_common::spawn(Some(rx), async move {
-            let installation = client.context.installation_id();
-            log_event!(Event::StreamOpened, installation, kind = ?StreamKind::Conversations);
-            let cancel = client.context.cancellation_token().clone();
+        let installation = client.context.installation_id();
+        let cancel = client.context.cancellation_token().clone();
+        let subscribe = async move {
             let router = client.stream_router().await;
-            let stream = match router
+            router
                 .stream_conversations(
                     conversation_type,
                     include_duplicate_dms,
@@ -253,21 +300,15 @@ where
                     DEFAULT_STREAM_DEPTH,
                 )
                 .await
-            {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::warn!("bidi `stream_conversations` failed to subscribe: {e}");
-                    log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Conversations);
-                    on_close();
-                    return Err(e.into());
-                }
-            };
-            let _ = tx.send(());
-            pump(stream, cancel, callback, on_close).await;
-            tracing::debug!("bidi `stream_conversations` ended");
-            log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Conversations);
-            Ok::<_, SubscribeError>(())
-        })
+        };
+        pump_stream(
+            StreamKind::Conversations,
+            installation,
+            cancel,
+            subscribe,
+            callback,
+            on_close,
+        )
     }
 }
 
@@ -291,29 +332,21 @@ where
     Context::ApiClient: XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
     <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
 {
-    let (tx, rx) = oneshot::channel();
-    xmtp_common::spawn(Some(rx), async move {
-        let installation = context.installation_id();
-        log_event!(Event::StreamOpened, installation, kind = ?StreamKind::Messages);
-        let cancel = context.cancellation_token().clone();
+    let installation = context.installation_id();
+    let cancel = context.cancellation_token().clone();
+    let subscribe = async move {
         let api = context.api().api_client.clone();
         let router = StreamRouter::new(context.clone(), shared_transport(api));
-        let stream = match router
+        router
             .stream_messages(vec![group_id], DEFAULT_STREAM_DEPTH)
             .await
-        {
-            Ok(stream) => stream,
-            Err(e) => {
-                tracing::warn!("bidi `stream_conversation_messages` failed to subscribe: {e}");
-                log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Messages);
-                on_close();
-                return Err(e.into());
-            }
-        };
-        let _ = tx.send(());
-        pump(stream, cancel, callback, on_close).await;
-        tracing::debug!("bidi `stream_conversation_messages` ended");
-        log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Messages);
-        Ok::<_, SubscribeError>(())
-    })
+    };
+    pump_stream(
+        StreamKind::Messages,
+        installation,
+        cancel,
+        subscribe,
+        callback,
+        on_close,
+    )
 }

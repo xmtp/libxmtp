@@ -3,7 +3,7 @@
 //! One [`StreamRouter`] per client. Each consumer stream leases its topics
 //! from the process-level [`BidiTransport`], decodes raw wire deliveries
 //! through the shared pipeline seams ([`process_one`] /
-//! [`process_welcome_one`]), and delivers decoded results on a bounded
+//! [`ProcessWelcomeFuture`]), and delivers decoded results on a bounded
 //! channel. Everything here speaks *stream* vocabulary — streams, messages,
 //! conversations, durable cursors — the transport's wire/topic/envelope world
 //! stays below the lease boundary.
@@ -16,6 +16,13 @@
 //! stream's own lease channel (where the transport's drop policy applies to
 //! it alone) and never delays a sibling. The router task itself only seeds,
 //! leases, and spawns; it holds no delivery path.
+//!
+//! Within a stream, message decode stays inline — but welcome processing
+//! does not: joining a group can run a full network sync, and a welcome
+//! inline on the lease-draining loop would wedge the whole stream behind it
+//! (past the lease's channel bound, the transport drops the lease and the
+//! stream ends). Welcomes and local-group events fan out to a capped set of
+//! spawned tasks instead (see [`WelcomeIntake`]).
 //!
 //! ## Cursors and dedup
 //!
@@ -34,10 +41,12 @@
 //! (drop everything at-or-below it — including a sibling's replay of older
 //! history) plus an exact-identity seen-set (see [`StreamDedup`]).
 //!
-//! Welcome dedup is a per-stream known-welcome set, consulted and updated
-//! sequentially inside that stream's task — exactly the serialization
-//! [`process_welcome_one`]'s contract asks for. Exact-identity sets are
-//! immune to the ordering caveat, so welcome streams need no window.
+//! Welcome dedup is a per-stream known-welcome set: consulted at intake on
+//! the stream's own task, snapshotted into each processing task, and
+//! recorded back at completion — the consumers' known/positions guards make
+//! completions idempotent, so concurrent same-cursor flights collapse to one
+//! delivery. Exact-identity sets are immune to the ordering caveat, so
+//! welcome streams need no window.
 //!
 //! ## Backpressure (same policy as every layer below)
 //!
@@ -47,7 +56,8 @@
 //! from durable state. A dead wire ends every affected stream the same way;
 //! transparent reconnect arrives with a later phase.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -55,25 +65,39 @@ use xmtp_api_d14n::v3::{V3ProtoGroupMessage, V3ProtoWelcomeMessage};
 use xmtp_api_d14n::{
     BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, TopicLease, TransportError, V3Binding,
 };
+use xmtp_common::task::JoinSet;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_proto::mls_v1;
-use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, InstallationId, SequenceId, Topic};
 
 use xmtp_db::group::GroupQueryArgs;
 
 use super::process_message::{ProcessMessageFuture, process_one};
-use super::process_welcome::{process_local_group_one, process_welcome_one};
-use super::{LocalEvents, Result, SubscribeError, SyncWorkerEvent};
+use super::process_welcome::{ProcessWelcomeFuture, WelcomeOutcome};
+use super::{LocalEvents, Result, SubscribeError, SyncWorkerEvent, WelcomeOrGroup};
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::welcome_sync::WelcomeService;
 
 /// Default per-stream channel depth (chooseable per stream).
 pub const DEFAULT_STREAM_DEPTH: usize = 16;
+
+/// Cap on in-flight welcome/local-group processing per stream. Enough to
+/// ride out a slow join (each task may run a network sync) without fanning a
+/// replay burst out into unbounded tasks; arrivals past the cap park in the
+/// intake's backlog.
+const MAX_WELCOME_TASKS: usize = 16;
+
+/// Cap on the intake backlog of arrivals parked past [`MAX_WELCOME_TASKS`].
+/// Welcome volume is join-rate-bounded, so this is generous for any
+/// realistic join burst. Overflow means the stream is unrecoverably behind —
+/// end it: the documented re-subscribe recovery replays welcomes from the
+/// durable cursor over the wire lease, so nothing is lost.
+const MAX_WELCOME_BACKLOG: usize = 512;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RouterError {
@@ -92,12 +116,14 @@ pub enum RouterError {
 /// tasks: they survive the last handle dropping, and the router task lingers
 /// only to reap them before exiting.
 pub struct StreamRouter<Context> {
+    context: Context,
     cmds: mpsc::UnboundedSender<Cmd<Context>>,
 }
 
-impl<Context> Clone for StreamRouter<Context> {
+impl<Context: Clone> Clone for StreamRouter<Context> {
     fn clone(&self) -> Self {
         Self {
+            context: self.context.clone(),
             cmds: self.cmds.clone(),
         }
     }
@@ -157,14 +183,14 @@ where
         let (cmds, cmds_rx) = mpsc::unbounded_channel();
         let (ends_tx, ends_rx) = mpsc::unbounded_channel();
         let task = RouterTask {
-            context,
+            context: context.clone(),
             transport,
             consumers: HashMap::new(),
             next_id: 0,
             ends: ends_tx,
         };
         xmtp_common::spawn(None, task.run(cmds_rx, ends_rx));
-        Self { cmds }
+        Self { context, cmds }
     }
 
     /// Stream decoded messages for `group_ids`, resuming each group from its
@@ -195,6 +221,16 @@ where
         consent_states: Option<Vec<ConsentState>>,
         depth: usize,
     ) -> std::result::Result<RouterStream<StoredGroupMessage>, RouterError> {
+        // Close the welcome gap first — same seeding as the legacy stream —
+        // so the subscribe-time set is current when the welcome lease takes
+        // over the live edge. On the caller's task, not the router task: the
+        // router serializes subscribes, and one subscriber's network
+        // round-trip must not stall every sibling subscribe (and reap)
+        // behind it.
+        WelcomeService::new(&self.context)
+            .sync_welcomes()
+            .await
+            .map_err(SubscribeError::from)?;
         let (reply, response) = oneshot::channel();
         self.cmds
             .send(Cmd::AllMessages {
@@ -245,8 +281,9 @@ where
 /// the topics that lease added (a stream that grows mid-flight has one lease
 /// per addition, each with its own window), and the live positions — which
 /// kept advancing — take over per topic. The seen-set is shared across open
-/// windows (exact identity is safe across groups) and drops when the last
-/// window closes.
+/// windows (exact identity is safe across groups), records only for topics
+/// whose own window is open (a closed window's deliveries are already
+/// position-deduped), and drops when the last window closes.
 struct StreamDedup {
     /// Topics still inside their catch-up window → their frozen seed.
     syncing: HashMap<Topic, GlobalCursor>,
@@ -284,8 +321,12 @@ impl StreamDedup {
         }
     }
 
-    fn record(&mut self, cursor: Cursor) {
-        if !self.syncing.is_empty() {
+    /// Record a delivered identity — only while `topic`'s own window is
+    /// open. Once the window closes the position governs that topic, so
+    /// recording would only grow the seen-set for as long as any sibling
+    /// window stays open.
+    fn record(&mut self, topic: &Topic, cursor: Cursor) {
+        if self.syncing.contains_key(topic) {
             self.seen.insert(cursor);
         }
     }
@@ -392,49 +433,20 @@ where
         group_ids: Vec<GroupId>,
         depth: usize,
     ) -> std::result::Result<RouterStream<StoredGroupMessage>, RouterError> {
-        // Seed every group from its durable cursor; the cursored lease makes
-        // the server replay anything past it (catch-up == subscribe).
-        let seeds = self
-            .context
-            .db()
-            .get_last_cursor_for_ids(
-                &group_ids,
-                &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-            )
-            .map_err(SubscribeError::from)?;
+        let db = self.context.db();
+        let seeds = seed_groups(&db, &group_ids)?;
 
-        // The streaming pipeline stores messages WITHOUT advancing the durable
-        // cursor (`allow_cursor_increment=false`), so the cursor alone is not a
-        // delivery floor: everything streamed since the last full sync is
-        // stored but still above it. Those exact identities seed the window's
-        // seen-set (so the server's replay of them is skipped) and fold into
-        // the live positions (so they stay skipped after the window). The wire
-        // cursor and the window floor stay at the durable cursor — a stored
-        // gap (6 and 8 stored, 7 missed) still gets 7 replayed and delivered.
-        let stored = self
-            .context
-            .db()
-            .messages_newer_than(&seeds)
-            .map_err(SubscribeError::from)?;
-
-        let mut subs = Vec::with_capacity(group_ids.len());
-        let mut floors = HashMap::with_capacity(group_ids.len());
-        for group_id in &group_ids {
-            let position = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
-            let topic = Topic::new_group_message(*group_id);
-            subs.push((topic.clone(), position.max()));
-            floors.insert(topic, position);
-        }
-        let (positions, seen) = fold_stored(&floors, stored);
-
-        let lease = self.transport.lease(subs, DEFAULT_LEASE_DEPTH).await?;
+        let lease = self
+            .transport
+            .lease(seeds.subs(), DEFAULT_LEASE_DEPTH)
+            .await?;
         let (tx, items) = mpsc::channel(depth.max(1));
         let consumer = MessageConsumer {
             factory: ProcessMessageFuture::new(self.context.clone()),
             leases: LeaseSet::new(lease),
             tx,
-            dedup: StreamDedup::syncing(floors, seen),
-            positions,
+            dedup: StreamDedup::syncing(seeds.floors, seeds.seen),
+            positions: seeds.positions,
             reflex: None,
         };
         let id = self.spawn(|kill| consumer.run(kill));
@@ -455,14 +467,15 @@ where
         // created in between is either in the query result or buffered on the
         // receiver — never dropped.
         let local_events = self.context.local_events().subscribe();
-        // Close the welcome gap first — same seeding as the legacy stream —
-        // so the subscribe-time set is current when the welcome lease takes
-        // over the live edge.
-        WelcomeService::new(&self.context)
-            .sync_welcomes()
-            .await
-            .map_err(SubscribeError::from)?;
         let db = self.context.db();
+        let installation = self.context.installation_id();
+        // Welcome floor and known set BEFORE the group query: a welcome
+        // processed in between then shows up in the query result AND above
+        // the floor — the positions guard absorbs that overlap. The reverse
+        // order would leave it in neither: not yet a group when queried,
+        // already below the floor when leased.
+        let welcome_floor = welcome_seed(&db, installation)?;
+        let known = known_welcomes_above(&db, welcome_floor)?;
         let groups = db
             .find_groups(GroupQueryArgs {
                 conversation_type,
@@ -483,40 +496,13 @@ where
             .map(|g| g.id)
             .collect();
         let group_ids: Vec<GroupId> = groups.into_iter().map(|g| g.id).collect();
-
-        // Message floors: exactly the static subscribe's seeding.
-        let seeds = db
-            .get_last_cursor_for_ids(
-                &group_ids,
-                &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-            )
-            .map_err(SubscribeError::from)?;
-        let stored = db
-            .messages_newer_than(&seeds)
-            .map_err(SubscribeError::from)?;
-        let installation = self.context.installation_id();
-        let welcome_seed = db
-            .get_last_cursor_for_ids(&[installation], &[EntityKind::Welcome])
-            .map_err(SubscribeError::from)?
-            .get(installation.as_slice())
-            .cloned()
-            .unwrap_or_default()
-            .v3_welcome();
-        let known_welcomes: HashSet<Cursor> =
-            HashSet::from_iter(db.group_cursors().map_err(SubscribeError::from)?);
+        let seeds = seed_groups(&db, &group_ids)?;
 
         // One lease for the subscribe-time set. The welcome topic rides in
         // it, so even an account with no conversations holds a live lease —
         // the stream is simply one that has not grown yet.
-        let mut subs = vec![(Topic::new_welcome_message(installation), welcome_seed)];
-        let mut floors = HashMap::with_capacity(group_ids.len());
-        for group_id in &group_ids {
-            let position = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
-            let topic = Topic::new_group_message(*group_id);
-            subs.push((topic.clone(), position.max()));
-            floors.insert(topic, position);
-        }
-        let (positions, seen) = fold_stored(&floors, stored);
+        let mut subs = seeds.subs();
+        subs.push((Topic::new_welcome_message(installation), welcome_floor));
 
         let lease = self.transport.lease(subs, DEFAULT_LEASE_DEPTH).await?;
         let (tx, items) = mpsc::channel(depth.max(1));
@@ -524,16 +510,19 @@ where
             factory: ProcessMessageFuture::new(self.context.clone()),
             leases: LeaseSet::new(lease),
             tx,
-            dedup: StreamDedup::syncing(floors, seen),
-            positions,
+            dedup: StreamDedup::syncing(seeds.floors, seeds.seen),
+            positions: seeds.positions,
             reflex: Some(Reflex {
-                context: self.context.clone(),
                 transport: self.transport.clone(),
-                known_welcomes,
                 local_events,
-                conversation_type,
-                consent_states,
                 sync_groups,
+                intake: WelcomeIntake::new(
+                    self.context.clone(),
+                    known,
+                    conversation_type,
+                    true,
+                    consent_states,
+                ),
             }),
         };
         let id = self.spawn(|kill| consumer.run(kill));
@@ -559,19 +548,12 @@ where
         // Wire resume point: the durable welcome cursor — every welcome
         // *processed* (stored, ignored, or filtered) advances it, so nothing
         // already handled is replayed.
-        let seed = db
-            .get_last_cursor_for_ids(&[installation], &[EntityKind::Welcome])
-            .map_err(SubscribeError::from)?
-            .get(installation.as_slice())
-            .cloned()
-            .unwrap_or_default()
-            .v3_welcome();
+        let seed = welcome_seed(&db, installation)?;
         // Classification input for the pipeline: the welcome ids that became
         // groups. Per-stream — each stream's dedup is its own, so one
         // stream's delivery never suppresses another's (they may hold
         // different filters).
-        let known: HashSet<Cursor> =
-            HashSet::from_iter(db.group_cursors().map_err(SubscribeError::from)?);
+        let known = known_welcomes_above(&db, seed)?;
 
         let topic = Topic::new_welcome_message(installation);
         let lease = self
@@ -580,14 +562,16 @@ where
             .await?;
         let (tx, items) = mpsc::channel(depth.max(1));
         let consumer = WelcomeConsumer {
-            context: self.context.clone(),
             lease,
             tx,
-            known,
             local_events,
-            conversation_type,
-            include_duplicate_dms,
-            consent_states,
+            intake: WelcomeIntake::new(
+                self.context.clone(),
+                known,
+                conversation_type,
+                include_duplicate_dms,
+                consent_states,
+            ),
         };
         let id = self.spawn(|kill| consumer.run(kill));
         Ok(RouterStream {
@@ -618,6 +602,83 @@ where
         self.consumers.insert(id, ConsumerHandle { _kill: kill });
         id
     }
+}
+
+/// One seeding of a set of group topics from their durable cursors.
+///
+/// The streaming pipeline stores messages WITHOUT advancing the durable
+/// cursor (`allow_cursor_increment=false`), so the cursor alone is not a
+/// delivery floor: everything streamed since the last full sync is stored
+/// but still above it. Those exact identities seed the window's seen-set (so
+/// the server's replay of them is skipped) and fold into the live positions
+/// (so they stay skipped after the window). The wire cursor and the window
+/// floor stay at the durable cursor — a stored gap (6 and 8 stored, 7
+/// missed) still gets 7 replayed and delivered.
+struct GroupSeeds {
+    /// Frozen per-topic window floors: the durable resume points.
+    floors: HashMap<Topic, GlobalCursor>,
+    /// Live per-topic positions: the floors folded with stored identities.
+    positions: HashMap<Topic, GlobalCursor>,
+    /// The window's exact-identity seen-set: the stored identities.
+    seen: HashSet<Cursor>,
+}
+
+impl GroupSeeds {
+    /// The cursored adds for this seeding's lease wave: each topic from its
+    /// frozen floor — the cursored lease makes the server replay anything
+    /// past it (catch-up == subscribe).
+    fn subs(&self) -> Vec<(Topic, SequenceId)> {
+        self.floors
+            .iter()
+            .map(|(topic, floor)| (topic.clone(), floor.max()))
+            .collect()
+    }
+}
+
+/// Seed `group_ids` from their durable cursors (see [`GroupSeeds`]).
+fn seed_groups(
+    db: &(impl QueryRefreshState + QueryGroupMessage),
+    group_ids: &[GroupId],
+) -> Result<GroupSeeds> {
+    let seeds = db.get_last_cursor_for_ids(
+        group_ids,
+        &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+    )?;
+    let stored = db.messages_newer_than(&seeds)?;
+    let mut floors = HashMap::with_capacity(group_ids.len());
+    for group_id in group_ids {
+        let floor = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
+        floors.insert(Topic::new_group_message(*group_id), floor);
+    }
+    let (positions, seen) = fold_stored(&floors, stored);
+    Ok(GroupSeeds {
+        floors,
+        positions,
+        seen,
+    })
+}
+
+/// The durable welcome cursor: this installation's wire resume point for its
+/// welcome topic.
+fn welcome_seed(db: &impl QueryRefreshState, installation: InstallationId) -> Result<SequenceId> {
+    Ok(db
+        .get_last_cursor_for_ids(&[installation], &[EntityKind::Welcome])?
+        .get(installation.as_slice())
+        .cloned()
+        .unwrap_or_default()
+        .v3_welcome())
+}
+
+/// The welcome cursors that already became groups, restricted to those the
+/// wire can still deliver: anything at-or-below the lease floor is filtered
+/// by the transport's delivery guarantee, so seeding it would only bloat the
+/// set every processing task snapshots.
+fn known_welcomes_above(db: &impl QueryGroup, floor: SequenceId) -> Result<HashSet<Cursor>> {
+    Ok(db
+        .group_cursors()?
+        .into_iter()
+        .filter(|cursor| cursor.sequence_id > floor)
+        .collect())
 }
 
 /// Fold locally-stored identities above the durable floors into the live
@@ -658,62 +719,228 @@ async fn send_or_kill<T>(
 /// A stream's leases, polled as one. A static stream holds exactly its
 /// subscribe-time lease; a growing stream pushes one lease per late
 /// addition — the transport multiplexes them onto the one wire, and a new
-/// lease IS the cursored-add wave for its topics, so each lease's
-/// `CatchUpComplete` closes exactly its own topics' dedup windows.
+/// lease IS the cursored-add wave for its topics. Every feed item carries
+/// its lease's topics, so each lease's `CatchUpComplete` closes exactly its
+/// own topics' dedup windows.
 struct LeaseSet {
     feeds: futures::stream::SelectAll<LeaseFeed>,
-    /// idx → the topics that lease holds (for window completion).
-    topics: HashMap<u64, Vec<Topic>>,
-    next_idx: u64,
 }
 
 type LeaseFeed = std::pin::Pin<
-    Box<dyn futures::Stream<Item = (u64, Option<LeaseEvent<V3Binding>>)> + Send + 'static>,
+    Box<dyn futures::Stream<Item = (Arc<[Topic]>, Option<LeaseEvent<V3Binding>>)> + Send + 'static>,
 >;
 
 impl LeaseSet {
     fn new(lease: TopicLease<V3Binding>) -> Self {
         let mut set = Self {
             feeds: futures::stream::SelectAll::new(),
-            topics: HashMap::new(),
-            next_idx: 0,
         };
         set.push(lease);
         set
     }
 
-    fn push(&mut self, lease: TopicLease<V3Binding>) -> u64 {
-        let idx = self.next_idx;
-        self.next_idx += 1;
-        self.topics.insert(idx, lease.topics().to_vec());
-        // The lease lives inside its feed; a `(idx, None)` marks its death.
+    fn push(&mut self, lease: TopicLease<V3Binding>) {
+        // Captured once at push: the topics this lease's `CatchUpComplete`
+        // closes. The lease lives inside its feed; a `None` event marks its
+        // death.
+        let topics: Arc<[Topic]> = lease.topics().into();
         self.feeds.push(Box::pin(futures::stream::unfold(
-            (idx, Some(lease)),
-            |(idx, lease)| async move {
-                let mut lease = lease?;
-                match lease.next().await {
-                    Some(event) => Some(((idx, Some(event)), (idx, Some(lease)))),
-                    None => Some(((idx, None), (idx, None))),
+            Some(lease),
+            move |lease| {
+                let topics = topics.clone();
+                async move {
+                    let mut lease = lease?;
+                    match lease.next().await {
+                        Some(event) => Some(((topics, Some(event)), Some(lease))),
+                        None => Some(((topics, None), None)),
+                    }
                 }
             },
         )));
-        idx
     }
 
-    fn topics_of(&self, idx: u64) -> &[Topic] {
-        self.topics.get(&idx).map(Vec::as_slice).unwrap_or(&[])
-    }
-
-    /// Next event across every lease. `None` means a lease closed — the wire
-    /// died or the transport dropped this consumer — and the stream ends
-    /// (recovery is a re-subscribe from durable cursors, same as before).
-    async fn next(&mut self) -> Option<(u64, LeaseEvent<V3Binding>)> {
+    /// Next event across every lease, tagged with its lease's topics. `None`
+    /// means a lease closed — the wire died or the transport dropped this
+    /// consumer — and the stream ends (recovery is a re-subscribe from
+    /// durable cursors, same as before).
+    async fn next(&mut self) -> Option<(Arc<[Topic]>, LeaseEvent<V3Binding>)> {
         use futures::StreamExt;
         match self.feeds.next().await? {
-            (idx, Some(event)) => Some((idx, event)),
+            (topics, Some(event)) => Some((topics, event)),
             (_, None) => None,
         }
     }
+}
+
+/// What the `LocalEvents` arm woke up for.
+enum LocalWake {
+    Event(LocalEvents),
+    /// The broadcast lapped this receiver: events were dropped unseen.
+    Lagged,
+}
+
+/// The next local event, parking forever on close (the lease side ends the
+/// stream). Lag is surfaced, not absorbed: a dropped `NewGroup` is a group
+/// nothing will re-announce — the message consumer reconciles, the
+/// conversation stream warns (legacy parity: recovery is a re-subscribe).
+async fn next_local_wake(events: &mut broadcast::Receiver<LocalEvents>) -> LocalWake {
+    match events.recv().await {
+        Ok(event) => LocalWake::Event(event),
+        Err(broadcast::error::RecvError::Lagged(n)) => {
+            tracing::warn!("stream router: missed {n} local events");
+            LocalWake::Lagged
+        }
+        Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+    }
+}
+
+/// Shared intake for the two growing consumers: welcomes off the wire and
+/// locally-created groups off the `LocalEvents` broadcast, run through the
+/// same pipeline ([`ProcessWelcomeFuture`]) and filters.
+///
+/// Processing is spawned, not inlined: a welcome can take seconds (joining
+/// runs a network sync), and the intake runs on the lease-draining task —
+/// inline processing would stop the drain and wedge the lease past its
+/// channel bound, ending the whole stream (the transport's backpressure
+/// drop). The legacy conversation stream spawns onto a `JoinSet` for the
+/// same reason; this one is capped, with arrivals past the cap parked in
+/// the backlog.
+///
+/// Each task snapshots the known set at spawn (the pipeline's contract), so
+/// concurrent same-cursor flights are possible; they resolve at completion,
+/// where the consumers' known/positions guards make them idempotent.
+struct WelcomeIntake<Context> {
+    context: Context,
+    /// Welcome dedup: every cursor this stream has resolved (or knew at
+    /// subscribe). Consulted at intake, snapshotted per task, recorded back
+    /// by the consumer at completion.
+    known: HashSet<Cursor>,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+    consent_states: Option<Vec<ConsentState>>,
+    /// In-flight processing, capped at [`MAX_WELCOME_TASKS`]. Dropped with
+    /// the consumer, which aborts every in-flight task.
+    tasks: JoinSet<Result<WelcomeOutcome<Context>>>,
+    /// Arrivals past the cap, in arrival order; capped at
+    /// [`MAX_WELCOME_BACKLOG`].
+    backlog: VecDeque<WelcomeOrGroup>,
+}
+
+impl<Context> WelcomeIntake<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    fn new(
+        context: Context,
+        known: HashSet<Cursor>,
+        conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Self {
+        Self {
+            context,
+            known,
+            conversation_type,
+            include_duplicate_dms,
+            consent_states,
+            tasks: JoinSet::new(),
+            backlog: VecDeque::new(),
+        }
+    }
+
+    /// Wire welcomes: decode, drop the already-known, queue the rest.
+    /// Returns `false` when the backlog overflowed (the stream must end).
+    fn absorb_batch(&mut self, batch: Vec<mls_v1::WelcomeMessage>) -> bool {
+        for proto in batch {
+            let typed = match xmtp_proto::types::WelcomeMessage::try_from(
+                V3ProtoWelcomeMessage::from(proto),
+            ) {
+                Ok(typed) => typed,
+                Err(e) => {
+                    tracing::warn!("stream router: skipping undecodable welcome: {e}");
+                    continue;
+                }
+            };
+            if self.known.contains(&typed.cursor) {
+                // Already a group before subscribe, or already resolved by
+                // this stream. This must NOT fall through to the pipeline —
+                // its known-id path re-surfaces the group from store, which
+                // would re-emit the conversation every time a sibling's
+                // cursored re-add replays this welcome.
+                continue;
+            }
+            if !self.enqueue(WelcomeOrGroup::Welcome(typed)) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// A locally-created group: no welcome will arrive for it, so it takes
+    /// the same pipeline and filters a welcome does (no cursor — dedup is
+    /// the once-per-creation broadcast plus the completion guards).
+    /// Returns `false` when the backlog overflowed (the stream must end).
+    fn absorb_local(&mut self, group_id: GroupId) -> bool {
+        self.enqueue(WelcomeOrGroup::Group(group_id))
+    }
+
+    /// Queues an item, refilling the task set. Returns `false` — without
+    /// queueing — when the backlog is at [`MAX_WELCOME_BACKLOG`] (the stream
+    /// must end).
+    fn enqueue(&mut self, item: WelcomeOrGroup) -> bool {
+        if self.backlog.len() >= MAX_WELCOME_BACKLOG {
+            return false;
+        }
+        self.backlog.push_back(item);
+        self.pump();
+        true
+    }
+
+    /// Refill the task set from the backlog, up to the cap.
+    fn pump(&mut self) {
+        while self.tasks.len() < MAX_WELCOME_TASKS {
+            let Some(item) = self.backlog.pop_front() else {
+                return;
+            };
+            let task = ProcessWelcomeFuture::new(
+                self.known.clone(),
+                self.context.clone(),
+                item,
+                self.conversation_type,
+                self.include_duplicate_dms,
+                self.consent_states.clone(),
+            );
+            self.tasks
+                .spawn(async move { Ok(task?.process().await?.into_outcome()) });
+        }
+    }
+
+    /// The next finished task, parking forever while nothing is in flight
+    /// (the backlog is non-empty only at the cap, so idle means empty).
+    async fn next_outcome(&mut self) -> Result<WelcomeOutcome<Context>> {
+        loop {
+            match self.tasks.join_next().await {
+                Some(Ok(outcome)) => {
+                    self.pump();
+                    return outcome;
+                }
+                // A panicked task: skip it, like the legacy conversation
+                // stream's completion arm does.
+                Some(Err(e)) => {
+                    tracing::warn!("stream router: welcome processing task failed: {e}");
+                    self.pump();
+                }
+                None => return std::future::pending().await,
+            }
+        }
+    }
+}
+
+/// What the growth arms woke up for.
+enum ReflexWake<Context> {
+    Local(LocalWake),
+    /// A spawned welcome/local-group task finished.
+    Outcome(Result<WelcomeOutcome<Context>>),
 }
 
 /// The growth machinery of an all-messages stream. The welcome topic rides
@@ -721,45 +948,48 @@ impl LeaseSet {
 /// group off the `LocalEvents` broadcast, for which no welcome will ever
 /// arrive — leases its group's topic on the same wire; the new lease IS the
 /// cursored-add wave, so catch-up and dedup fall out of the per-topic
-/// windows. The filters are the same ones the legacy conversations
-/// sub-stream applies (which is also why the reflex never adds a *new* sync
-/// group: the filter excludes them, exactly as legacy).
+/// windows. Growth never adds a sync group: the welcome path filters virtual
+/// groups inside the pipeline, and the local-group path — whose pipeline
+/// filter deliberately admits stored virtual groups — is guarded at
+/// completion. Sync-group traffic belongs to the device-sync worker, and
+/// only the subscribe-time interception set carries it there.
 struct Reflex<Context> {
-    context: Context,
     transport: BidiTransport<V3Binding>,
-    /// Welcome dedup — consulted and updated sequentially in this task, the
-    /// serialization `process_welcome_one`'s contract asks for.
-    known_welcomes: HashSet<Cursor>,
     /// Locally-created groups — no welcome will ever arrive for these, so
     /// they grow the stream through the same add-path as welcomes.
     local_events: broadcast::Receiver<LocalEvents>,
-    conversation_type: Option<ConversationType>,
-    consent_states: Option<Vec<ConsentState>>,
     /// Subscribe-time sync groups: their traffic nudges the device-sync
     /// worker instead of surfacing (legacy `StreamAllMessages` parity).
     sync_groups: HashSet<GroupId>,
+    intake: WelcomeIntake<Context>,
 }
 
-impl<Context> Reflex<Context> {
-    /// The next local event, absorbing broadcast lag (missed events warn —
-    /// a lagged NewGroup is recovered by re-subscribe, same as legacy) and
-    /// parking forever on close (the lease side ends the stream).
-    async fn next_local_event(reflex: &mut Option<Self>) -> LocalEvents {
+impl<Context> Reflex<Context>
+where
+    Context: XmtpSharedContext + 'static,
+{
+    /// Both growth arms as one future; a static stream (`None`) parks
+    /// forever — the lease side ends the stream.
+    async fn wake(reflex: &mut Option<Self>) -> ReflexWake<Context> {
         let Some(reflex) = reflex.as_mut() else {
             return std::future::pending().await;
         };
-        loop {
-            match reflex.local_events.recv().await {
-                Ok(event) => return event,
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::warn!("bidi reflex missed {n} local events");
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    return std::future::pending().await;
-                }
-            }
+        tokio::select! {
+            local = next_local_wake(&mut reflex.local_events) => ReflexWake::Local(local),
+            outcome = reflex.intake.next_outcome() => ReflexWake::Outcome(outcome),
         }
     }
+}
+
+/// How [`MessageConsumer::add_group`] left the stream.
+enum AddGroup {
+    /// The group's topic is leased (now, or already was).
+    Tracked,
+    /// Seeding failed: the group is not leased, and its welcome must stay
+    /// unrecorded so a wire replay can retry it.
+    Skipped,
+    /// The stream must end.
+    End,
 }
 
 /// One message stream: owns its leases, decodes sequentially, delivers on its
@@ -783,208 +1013,192 @@ where
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
         loop {
-            enum Wake {
-                Lease(u64, LeaseEvent<V3Binding>),
-                Local(LocalEvents),
-                Done,
+            enum Wake<Context> {
+                Lease(Arc<[Topic]>, LeaseEvent<V3Binding>),
+                Reflex(ReflexWake<Context>),
             }
             let wake = tokio::select! {
                 event = self.leases.next() => match event {
-                    Some((idx, event)) => Wake::Lease(idx, event),
+                    Some((topics, event)) => Wake::Lease(topics, event),
                     // Wire death or transport backpressure drop on any lease:
                     // the stream ends (tx drops); the consumer re-subscribes.
-                    None => Wake::Done,
+                    None => return,
                 },
-                local = Reflex::next_local_event(&mut self.reflex) => Wake::Local(local),
-                _ = &mut kill => Wake::Done,
+                wake = Reflex::wake(&mut self.reflex) => Wake::Reflex(wake),
+                _ = &mut kill => return,
             };
-            let (idx, event) = match wake {
-                Wake::Done => return,
-                Wake::Local(LocalEvents::NewGroup(group_id)) => {
-                    if !self.absorb_local_group(group_id, &mut kill).await {
+            match wake {
+                Wake::Reflex(ReflexWake::Local(LocalWake::Event(LocalEvents::NewGroup(id)))) => {
+                    if !self.absorb_local_group(id) {
                         return;
                     }
-                    continue;
                 }
-                Wake::Local(_) => continue,
-                Wake::Lease(idx, event) => (idx, event),
-            };
-            match event {
-                LeaseEvent::GroupMessages(batch) => {
+                Wake::Reflex(ReflexWake::Local(LocalWake::Event(_))) => {}
+                Wake::Reflex(ReflexWake::Local(LocalWake::Lagged)) => {
+                    if !self.reconcile(&mut kill).await {
+                        return;
+                    }
+                }
+                Wake::Reflex(ReflexWake::Outcome(outcome)) => {
+                    if !self.absorb_outcome(outcome, &mut kill).await {
+                        return;
+                    }
+                }
+                Wake::Lease(_, LeaseEvent::GroupMessages(batch)) => {
                     if !self.deliver_batch(batch, &mut kill).await {
                         return;
                     }
                 }
-                LeaseEvent::CatchUpComplete => {
+                Wake::Lease(topics, LeaseEvent::CatchUpComplete) => {
                     tracing::debug!("stream router: message stream caught up");
-                    self.dedup.complete(self.leases.topics_of(idx));
+                    self.dedup.complete(&topics);
                 }
-                LeaseEvent::TopicsLive(topics) => {
+                Wake::Lease(_, LeaseEvent::TopicsLive(topics)) => {
                     tracing::debug!(?topics, "stream router: topics live");
                 }
-                LeaseEvent::WelcomeMessages(batch) => {
-                    if self.reflex.is_some() {
-                        if !self.absorb_welcomes(batch, &mut kill).await {
+                Wake::Lease(_, LeaseEvent::WelcomeMessages(batch)) => match self.reflex.as_mut() {
+                    Some(reflex) => {
+                        if !reflex.intake.absorb_batch(batch) {
                             return;
                         }
-                    } else {
-                        tracing::warn!("stream router: welcome delivery on a message lease");
                     }
-                }
+                    None => tracing::warn!("stream router: welcome delivery on a message lease"),
+                },
             }
         }
     }
 
-    /// A locally-created group: no welcome will arrive, so the reflex runs
-    /// the id through the same pipeline and filters a welcome takes and
-    /// leases its topic. Returns `false` when the stream must end.
-    async fn absorb_local_group(
-        &mut self,
-        group_id: GroupId,
-        kill: &mut oneshot::Receiver<()>,
-    ) -> bool {
-        let Some(reflex) = self.reflex.as_ref() else {
-            return true;
-        };
+    /// A locally-created group grows the stream through the same processing
+    /// (and filters) a welcome takes — unless its topic is already leased
+    /// (the subscribe-time set, or an earlier growth, got it). Returns
+    /// `false` when the stream must end.
+    fn absorb_local_group(&mut self, group_id: GroupId) -> bool {
         if self
             .positions
             .contains_key(&Topic::new_group_message(group_id))
         {
             return true;
         }
-        let processed = tokio::select! {
-            processed = process_local_group_one(
-                reflex.context.clone(),
-                group_id,
-                reflex.conversation_type,
-                true,
-                reflex.consent_states.clone(),
-            ) => processed,
-            _ = &mut *kill => return false,
-        };
-        match processed {
-            Ok(outcome) => match outcome.group {
-                Some(group) => self.add_group(group.group_id, kill).await,
-                None => true,
-            },
-            Err(e) => send_or_kill(&self.tx, kill, Err(e)).await.is_ok(),
+        match self.reflex.as_mut() {
+            Some(reflex) => reflex.intake.absorb_local(group_id),
+            None => true,
         }
     }
 
-    /// The reflex: each welcome that passes the stream's filters leases its
-    /// group's topic — the stream grows without a re-subscribe. Returns
-    /// `false` when the stream must end.
-    async fn absorb_welcomes(
-        &mut self,
-        batch: Vec<mls_v1::WelcomeMessage>,
-        kill: &mut oneshot::Receiver<()>,
-    ) -> bool {
-        for proto in batch {
-            let typed = match xmtp_proto::types::WelcomeMessage::try_from(
-                V3ProtoWelcomeMessage::from(proto),
-            ) {
-                Ok(typed) => typed,
-                Err(e) => {
-                    tracing::warn!("stream router: skipping undecodable welcome: {e}");
-                    continue;
-                }
-            };
-            let Some(reflex) = self.reflex.as_ref() else {
-                return true;
-            };
-            if reflex.known_welcomes.contains(&typed.cursor) {
-                continue;
+    /// The `LocalEvents` broadcast lapped this stream: any number of
+    /// `NewGroup` announcements are gone for good, and nothing re-announces
+    /// a local group. Recover by re-running the subscribe-time group query
+    /// and adding whatever the stream does not already track — the positions
+    /// guard skips everything it does. Returns `false` when the stream must
+    /// end.
+    async fn reconcile(&mut self, kill: &mut oneshot::Receiver<()>) -> bool {
+        let groups = match self.reflex.as_ref() {
+            Some(reflex) => reflex.intake.context.db().find_groups(GroupQueryArgs {
+                conversation_type: reflex.intake.conversation_type,
+                consent_states: reflex.intake.consent_states.clone(),
+                include_duplicate_dms: true,
+                // Growth never adds sync groups; the subscribe-time
+                // interception set is untouched by a lag.
+                ..Default::default()
+            }),
+            None => return true,
+        };
+        let groups = match groups {
+            Ok(groups) => groups,
+            Err(e) => {
+                // The lapped announcements are unrecoverable in-stream; end
+                // after surfacing so a re-subscribe re-seeds from a fresh
+                // query instead of running with a silent hole.
+                let _ = send_or_kill(&self.tx, kill, Err(e.into())).await;
+                return false;
             }
-            let context = reflex.context.clone();
-            let conversation_type = reflex.conversation_type;
-            let consent_states = reflex.consent_states.clone();
-            // Sequential against this stream's own set — the serialization
-            // `process_welcome_one`'s contract requires. Races the kill so
-            // dropping the stream releases the leases promptly.
-            let processed = tokio::select! {
-                processed = process_welcome_one(
-                    context,
-                    &reflex.known_welcomes,
-                    typed,
-                    conversation_type,
-                    true,
-                    consent_states,
-                ) => processed,
-                _ = &mut *kill => return false,
-            };
-            match processed {
-                Ok(outcome) => {
-                    if let Some(seen) = outcome.seen
-                        && let Some(reflex) = self.reflex.as_mut()
-                    {
-                        reflex.known_welcomes.insert(seen);
-                    }
-                    if let Some(group) = outcome.group
-                        && !self.add_group(group.group_id, kill).await
-                    {
-                        return false;
-                    }
-                }
-                // Welcome-processing errors surface as stream items — the
-                // legacy stream's conversations sub-stream does the same.
-                Err(e) => {
-                    if send_or_kill(&self.tx, kill, Err(e)).await.is_err() {
-                        return false;
-                    }
-                }
+        };
+        for group in groups {
+            match self.add_group(group.id, kill).await {
+                AddGroup::Tracked => {}
+                // A group this pass cannot add has no other way back in —
+                // its announcement is already lost and a local group's
+                // welcome never replays — so end rather than run with a
+                // silent hole (`add_group` already surfaced the error).
+                AddGroup::Skipped | AddGroup::End => return false,
             }
         }
         true
     }
 
+    /// A finished welcome/local-group task: lease the accepted group's
+    /// topic, then record the welcome as known. The order matters twice
+    /// over: recording only after the group is tracked keeps a transiently
+    /// failed add recoverable (the unrecorded welcome replays on the wire),
+    /// and the positions guard inside [`Self::add_group`] collapses
+    /// concurrent same-cursor completions to one lease. Returns `false`
+    /// when the stream must end.
+    async fn absorb_outcome(
+        &mut self,
+        outcome: Result<WelcomeOutcome<Context>>,
+        kill: &mut oneshot::Receiver<()>,
+    ) -> bool {
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            // Welcome-processing errors surface as stream items — the
+            // legacy stream's conversations sub-stream does the same.
+            Err(e) => return send_or_kill(&self.tx, kill, Err(e)).await.is_ok(),
+        };
+        // Growth never adds a sync group (only the local-group path can
+        // carry one this far — see [`Reflex`]) — but its welcome still
+        // becomes known, like any other filtered welcome.
+        let group = outcome
+            .group
+            .filter(|group| !matches!(group.conversation_type, ConversationType::Sync));
+        let tracked = match group {
+            Some(group) => match self.add_group(group.group_id, kill).await {
+                AddGroup::Tracked => true,
+                AddGroup::Skipped => false,
+                AddGroup::End => return false,
+            },
+            None => true,
+        };
+        if tracked
+            && let Some(seen) = outcome.seen
+            && let Some(reflex) = self.reflex.as_mut()
+        {
+            reflex.intake.known.insert(seen);
+        }
+        true
+    }
+
     /// Lease a newly-joined group's topic and open its catch-up window,
-    /// seeding exactly as the subscribe-time set was. Returns `false` when
-    /// the stream must end.
-    async fn add_group(&mut self, group_id: GroupId, kill: &mut oneshot::Receiver<()>) -> bool {
+    /// seeding exactly as the subscribe-time set was.
+    async fn add_group(&mut self, group_id: GroupId, kill: &mut oneshot::Receiver<()>) -> AddGroup {
         let topic = Topic::new_group_message(group_id);
         if self.positions.contains_key(&topic) {
-            return true;
+            return AddGroup::Tracked;
         }
         let Some(reflex) = self.reflex.as_ref() else {
-            return true;
+            // Static streams never grow; nothing routes here without a reflex.
+            return AddGroup::Tracked;
         };
-        let seeded = || -> Result<_> {
-            let db = reflex.context.db();
-            let seeds = db.get_last_cursor_for_ids(
-                &[group_id],
-                &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-            )?;
-            let stored = db.messages_newer_than(&seeds)?;
-            let floor = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
-            // Window seed = the frozen durable floor; live position = the
-            // floor folded with stored identities — same split the
-            // subscribe-time seeding makes.
-            let floors = HashMap::from([(topic.clone(), floor)]);
-            let (positions, seen) = fold_stored(&floors, stored);
-            Ok((floors, positions, seen))
-        };
-        let (floors, positions, seen) = match seeded() {
-            Ok(seeded) => seeded,
+        let seeds = match seed_groups(&reflex.intake.context.db(), &[group_id]) {
+            Ok(seeds) => seeds,
             Err(e) => {
-                // Seeding is local DB work; surface and skip this group (a
-                // re-subscribe recovers it from durable cursors).
-                return send_or_kill(&self.tx, kill, Err(e)).await.is_ok();
+                // Seeding is local DB work; surface and skip this group (its
+                // unrecorded welcome replay — or a re-subscribe — retries it).
+                return match send_or_kill(&self.tx, kill, Err(e)).await {
+                    Ok(()) => AddGroup::Skipped,
+                    Err(()) => AddGroup::End,
+                };
             }
         };
-        let subs = vec![(
-            topic.clone(),
-            floors.get(&topic).cloned().unwrap_or_default().max(),
-        )];
         let lease = tokio::select! {
-            lease = reflex.transport.lease(subs, DEFAULT_LEASE_DEPTH) => lease,
-            _ = &mut *kill => return false,
+            lease = reflex.transport.lease(seeds.subs(), DEFAULT_LEASE_DEPTH) => lease,
+            _ = &mut *kill => return AddGroup::End,
         };
         match lease {
             Ok(lease) => {
-                self.positions.extend(positions);
-                self.dedup.open_window(floors, seen);
+                self.positions.extend(seeds.positions);
+                self.dedup.open_window(seeds.floors, seeds.seen);
                 self.leases.push(lease);
-                true
+                AddGroup::Tracked
             }
             Err(e) => {
                 // A live stream's wire survives flaps (leases ride the resume
@@ -992,7 +1206,7 @@ where
                 // surface it and end; the consumer re-subscribes.
                 let error = SubscribeError::from(RouterError::from(e));
                 let _ = send_or_kill(&self.tx, kill, Err(error)).await;
-                false
+                AddGroup::End
             }
         }
     }
@@ -1036,17 +1250,20 @@ where
                     if let Some(position) = self.positions.get_mut(&topic) {
                         position.apply(&processed.next_cursor);
                     }
-                    self.dedup.record(cursor);
+                    self.dedup.record(&topic, cursor);
                     match processed.message {
                         Some(message) => {
                             // The pipeline may surface a different message
                             // than the envelope named (recovery sync stores
                             // ahead) — record the delivered identity too, or
                             // its own replay envelope would deliver it twice.
-                            self.dedup.record(Cursor::new(
-                                message.sequence_id as u64,
-                                message.originator_id as u32,
-                            ));
+                            self.dedup.record(
+                                &topic,
+                                Cursor::new(
+                                    message.sequence_id as u64,
+                                    message.originator_id as u32,
+                                ),
+                            );
                             if let Some(reflex) = &self.reflex
                                 && reflex.sync_groups.contains(&message.group_id)
                             {
@@ -1054,6 +1271,7 @@ where
                                 // worker; internal payloads never surface
                                 // (legacy `StreamAllMessages` parity).
                                 let _ = reflex
+                                    .intake
                                     .context
                                     .worker_events()
                                     .send(SyncWorkerEvent::NewSyncGroupMsg);
@@ -1085,17 +1303,15 @@ where
 ///
 /// Locally-created conversations merge in from the `LocalEvents` broadcast —
 /// no welcome ever arrives for a group this client created, and legacy
-/// multiplexes the same events. Dedup for those is the broadcast itself:
-/// one event per creation.
+/// multiplexes the same events. Dedup for those is the once-per-creation
+/// broadcast plus the known set: a group created off a welcome pointer
+/// records its welcome cursor, so the wire replay of that welcome does not
+/// surface the conversation a second time.
 struct WelcomeConsumer<Context> {
-    context: Context,
     lease: TopicLease<V3Binding>,
     tx: mpsc::Sender<Result<MlsGroup<Context>>>,
-    known: HashSet<Cursor>,
     local_events: broadcast::Receiver<LocalEvents>,
-    conversation_type: Option<ConversationType>,
-    include_duplicate_dms: bool,
-    consent_states: Option<Vec<ConsentState>>,
+    intake: WelcomeIntake<Context>,
 }
 
 impl<Context> WelcomeConsumer<Context>
@@ -1104,148 +1320,80 @@ where
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
         loop {
-            enum Wake {
+            enum Wake<Context> {
                 Lease(LeaseEvent<V3Binding>),
-                Local(LocalEvents),
-                Done,
+                Local(LocalWake),
+                Outcome(Result<WelcomeOutcome<Context>>),
             }
             let wake = tokio::select! {
                 event = self.lease.next() => match event {
                     Some(event) => Wake::Lease(event),
-                    None => Wake::Done,
+                    None => return,
                 },
-                local = Self::next_local_event(&mut self.local_events) => Wake::Local(local),
-                _ = &mut kill => Wake::Done,
+                local = next_local_wake(&mut self.local_events) => Wake::Local(local),
+                outcome = self.intake.next_outcome() => Wake::Outcome(outcome),
+                _ = &mut kill => return,
             };
-            let event = match wake {
-                Wake::Done => return,
-                Wake::Local(LocalEvents::NewGroup(group_id)) => {
-                    if !self.surface_local_group(group_id, &mut kill).await {
-                        return;
-                    }
-                    continue;
-                }
-                Wake::Local(_) => continue,
-                Wake::Lease(event) => event,
-            };
-            match event {
-                LeaseEvent::WelcomeMessages(batch) => {
-                    if !self.deliver_batch(batch, &mut kill).await {
+            match wake {
+                Wake::Local(LocalWake::Event(LocalEvents::NewGroup(group_id))) => {
+                    if !self.intake.absorb_local(group_id) {
                         return;
                     }
                 }
-                LeaseEvent::CatchUpComplete => {
+                // A lagged broadcast (already warned) loses local groups
+                // only; recovery is a re-subscribe, exactly as legacy.
+                Wake::Local(_) => {}
+                Wake::Outcome(outcome) => {
+                    if !self.deliver_outcome(outcome, &mut kill).await {
+                        return;
+                    }
+                }
+                Wake::Lease(LeaseEvent::WelcomeMessages(batch)) => {
+                    if !self.intake.absorb_batch(batch) {
+                        return;
+                    }
+                }
+                Wake::Lease(LeaseEvent::CatchUpComplete) => {
                     // Exact-identity dedup needs no window; nothing to flip.
                     tracing::debug!("stream router: conversation stream caught up");
                 }
-                LeaseEvent::TopicsLive(_) => {}
-                LeaseEvent::GroupMessages(_) => {
+                Wake::Lease(LeaseEvent::TopicsLive(_)) => {}
+                Wake::Lease(LeaseEvent::GroupMessages(_)) => {
                     tracing::warn!("stream router: group delivery on a welcome lease");
                 }
             }
         }
     }
 
-    /// The next local event, absorbing broadcast lag and parking on close
-    /// (the lease side ends the stream).
-    async fn next_local_event(events: &mut broadcast::Receiver<LocalEvents>) -> LocalEvents {
-        loop {
-            match events.recv().await {
-                Ok(event) => return event,
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::warn!("conversation stream missed {n} local events");
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    return std::future::pending().await;
-                }
-            }
-        }
-    }
-
-    /// A group this client just created: run it through the same pipeline
-    /// and filters a welcome takes, and surface it. Returns `false` when the
-    /// stream must end.
-    async fn surface_local_group(
+    /// A finished welcome/local-group task: record it known, surface the
+    /// conversation. Recording first makes completions idempotent — a
+    /// concurrent same-cursor flight (both spawned before either resolved)
+    /// finds the cursor already known and surfaces nothing. Returns `false`
+    /// when the stream must end.
+    async fn deliver_outcome(
         &mut self,
-        group_id: GroupId,
+        outcome: Result<WelcomeOutcome<Context>>,
         kill: &mut oneshot::Receiver<()>,
     ) -> bool {
-        let processed = tokio::select! {
-            processed = process_local_group_one(
-                self.context.clone(),
-                group_id,
-                self.conversation_type,
-                self.include_duplicate_dms,
-                self.consent_states.clone(),
-            ) => processed,
-            _ = &mut *kill => return false,
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(e) => return send_or_kill(&self.tx, kill, Err(e)).await.is_ok(),
         };
-        let delivered = match processed {
-            Ok(outcome) => match outcome.group {
-                Some(group) => send_or_kill(&self.tx, kill, Ok(group)).await,
-                None => return true,
-            },
-            Err(e) => send_or_kill(&self.tx, kill, Err(e)).await,
-        };
-        delivered.is_ok()
-    }
-
-    async fn deliver_batch(
-        &mut self,
-        batch: Vec<mls_v1::WelcomeMessage>,
-        kill: &mut oneshot::Receiver<()>,
-    ) -> bool {
-        for proto in batch {
-            let typed = match xmtp_proto::types::WelcomeMessage::try_from(
-                V3ProtoWelcomeMessage::from(proto),
-            ) {
-                Ok(typed) => typed,
-                Err(e) => {
-                    tracing::warn!("stream router: skipping undecodable welcome: {e}");
-                    continue;
-                }
-            };
-            if self.known.contains(&typed.cursor) {
-                // Already a group before subscribe, or already delivered by
-                // this stream. This must NOT fall through to
-                // `process_welcome_one` — its known-id path re-surfaces the
-                // group from store, which would re-emit the conversation every
-                // time a sibling's cursored re-add replays this welcome.
-                continue;
-            }
-
-            // Sequential against this stream's own set — exactly the
-            // serialization `process_welcome_one`'s contract requires. Races
-            // the kill so dropping the stream releases the lease promptly
-            // even mid-processing.
-            let processed = tokio::select! {
-                processed = process_welcome_one(
-                    self.context.clone(),
-                    &self.known,
-                    typed,
-                    self.conversation_type,
-                    self.include_duplicate_dms,
-                    self.consent_states.clone(),
-                ) => processed,
-                _ = &mut *kill => return false,
-            };
-            let delivered = match processed {
-                Ok(outcome) => {
-                    if let Some(seen) = outcome.seen {
-                        self.known.insert(seen);
-                    }
-                    match outcome.group {
-                        Some(group) => send_or_kill(&self.tx, kill, Ok(group)).await,
-                        None => continue,
-                    }
-                }
-                Err(e) => send_or_kill(&self.tx, kill, Err(e)).await,
-            };
-            if delivered.is_err() {
-                return false;
-            }
+        if let Some(seen) = outcome.seen
+            && !self.intake.known.insert(seen)
+        {
+            return true;
         }
-        true
+        match outcome.group {
+            // A sync group never surfaces (only the local-group path can
+            // carry one this far — the welcome path filters virtual groups
+            // inside the pipeline): it is the device-sync worker's, not the
+            // subscriber's.
+            Some(group) if !matches!(group.conversation_type, ConversationType::Sync) => {
+                send_or_kill(&self.tx, kill, Ok(group)).await.is_ok()
+            }
+            _ => true,
+        }
     }
 }
 
@@ -1274,7 +1422,7 @@ mod tests {
         // A live message leapfrogs the replay its own wave requested.
         let live = Cursor::new(100, 0u32);
         assert!(!dedup.has_seen(&position, &topic, &live));
-        dedup.record(live);
+        dedup.record(&topic, live);
         position.apply(&live);
 
         // The replay behind it still delivers during the window...
@@ -1283,7 +1431,7 @@ mod tests {
             !dedup.has_seen(&position, &topic, &replayed),
             "the window must not swallow the replay behind an early live delivery"
         );
-        dedup.record(replayed);
+        dedup.record(&topic, replayed);
         // ...while exact duplicates are still skipped.
         assert!(dedup.has_seen(&position, &topic, &replayed));
 
@@ -1360,11 +1508,37 @@ mod tests {
         let position = GlobalCursor::default();
 
         // Envelope 10 errors; recovery surfaces stored message 11.
-        dedup.record(Cursor::new(10, 0u32)); // the envelope
-        dedup.record(Cursor::new(11, 0u32)); // the delivered message
+        dedup.record(&topic, Cursor::new(10, 0u32)); // the envelope
+        dedup.record(&topic, Cursor::new(11, 0u32)); // the delivered message
         assert!(
             dedup.has_seen(&position, &topic, &Cursor::new(11, 0u32)),
             "the replay envelope for the already-delivered message must be skipped"
         );
+    }
+
+    /// Recording is scoped to open windows: an identity delivered on a topic
+    /// whose window is not open (closed, or never had one) is position-deduped
+    /// and must not grow the seen-set kept for a sibling still syncing.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn record_only_tracks_topics_with_open_windows() {
+        let syncing = Topic::new_group_message([1u8; 16]);
+        let live = Topic::new_group_message([2u8; 16]);
+        let mut dedup = StreamDedup::syncing(
+            HashMap::from([(syncing.clone(), GlobalCursor::default())]),
+            HashSet::new(),
+        );
+        let position = GlobalCursor::default();
+
+        // A record for the window-less topic must not land in the shared
+        // seen-set (observable through the still-open sibling window).
+        dedup.record(&live, Cursor::new(10, 0u32));
+        assert!(
+            !dedup.has_seen(&position, &syncing, &Cursor::new(10, 0u32)),
+            "an identity from a window-less topic must not be recorded"
+        );
+
+        // The same identity recorded under the open window is tracked.
+        dedup.record(&syncing, Cursor::new(10, 0u32));
+        assert!(dedup.has_seen(&position, &syncing, &Cursor::new(10, 0u32)));
     }
 }
