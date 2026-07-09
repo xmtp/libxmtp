@@ -287,7 +287,22 @@ async fn test_hmac_and_consent_preference_sync() {
     alix1.sync_welcomes().await?;
     let alix1_group = alix1.group(&bo_group.group_id)?;
     assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
+
+    // Wait for alix1 to publish the consent update to the sync group before
+    // alix2 syncs. `register_interest(ConsentReceived).wait()` only waits
+    // passively on the metric — it does not drive a re-sync — so alix2's
+    // one-shot `sync_all_welcomes_and_groups` below is the only chance to pull
+    // this consent. Without this barrier that sync can run before the consent
+    // message lands on the server, in which case the sync group is filtered out
+    // as "no new activity" and ConsentReceived never reaches 2 (flaky timeout,
+    // see issue #3749). Mirrors the first consent barrier above.
+    alix1.worker().clear_metric(SyncMetric::ConsentSent);
     alix1_group.update_consent_state(ConsentState::Allowed)?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
 
     alix2.sync_all_welcomes_and_groups(None).await?;
 
