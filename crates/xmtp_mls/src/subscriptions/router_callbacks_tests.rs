@@ -372,6 +372,8 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
             match worker_events.recv().await {
                 Ok(SyncWorkerEvent::NewSyncGroupMsg) => break,
                 Ok(_) => continue,
+                // Lagged is recoverable — keep draining for the nudge.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(e) => panic!("worker events channel closed: {e}"),
             }
         }

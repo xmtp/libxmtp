@@ -10,12 +10,14 @@
 //! clients share is subscribed once and fanned out). One client per process —
 //! mobile — makes this invisible; a process running many clients (agents)
 //! gets O(1) wires instead of O(clients). The first client to stream donates
-//! its api client — connection, auth middleware and all — to the opener,
-//! which assumes one backend and one set of wire credentials per process:
-//! true for mobile, agents, and `nextest`'s process-per-test runs. (Client
-//! *identity* is not wire state — sibling clients' topics multiplex fine —
-//! but a process mixing differently-authenticated api clients would ride
-//! the donor's credentials.)
+//! its api client to the opener, which assumes one backend per process: true
+//! for mobile, agents, and `nextest`'s process-per-test runs. Auth is not at
+//! stake — the shared wire is receive-only (publishes keep each client's own
+//! api client and whatever authorization it carries), and on v3 the donated
+//! client attaches only version-attribution headers. The hazard of mixing
+//! backends is misrouting: a sibling client pointed elsewhere would lease
+//! its topics on the donor's wire, subscribe successfully, and receive
+//! nothing — hence the init log below.
 //!
 //! ## The gate
 //!
@@ -29,9 +31,9 @@
 //!
 //! Each stream is one spawned task: subscribe (ready fires once the lease is
 //! registered), then drain the router stream into the callback. A subscribe
-//! failure fires `on_close()` and carries the error out through the handle's
-//! result — legacy watchdog semantics, so `end_and_wait()` distinguishes a
-//! startup failure from a clean end. `on_close` fires once
+//! failure warns, fires `on_close()`, and carries the error out through the
+//! handle's result — legacy watchdog semantics; the warn is the reliable
+//! trace, since the bindings' closers rarely read the result. `on_close` fires once
 //! at natural end — the wire-facing lease survives reconnects and suspends
 //! (transport docs), so a natural end means this consumer fell behind and
 //! was dropped, or the client shut down; re-subscribing recovers from
@@ -51,8 +53,11 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
 use xmtp_proto::types::GroupId;
 
+use xmtp_common::Event;
+use xmtp_macro::log_event;
+
 use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterStream, StreamRouter};
-use super::{Result, SubscribeError};
+use super::{Result, StreamKind, SubscribeError};
 use crate::Client;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
@@ -128,8 +133,12 @@ pub async fn suspend_bidi_streams() -> Result<()> {
 }
 
 /// Bring the shared bidi wire back (`willEnterForeground`), resolving once
-/// its resume wave has caught up — "catch up, then done", the
-/// background-fetch primitive. A no-op when the transport was never opened.
+/// the wire's resume wave has caught up. That is a wire-level mark: replayed
+/// messages may still be decoding and storing in the stream pipeline behind
+/// it, and the wait is unbounded while the network is down — the FFI
+/// exposure (follow-on) owes callers a processing-drain barrier and a
+/// deadline before this can honestly serve as the background-fetch
+/// primitive. A no-op when the transport was never opened.
 pub async fn resume_bidi_streams() -> Result<()> {
     let Some(transport) = SHARED_TRANSPORT.get() else {
         return Ok(());
@@ -191,6 +200,8 @@ where
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
         xmtp_common::spawn(Some(rx), async move {
+            let installation = client.context.installation_id();
+            log_event!(Event::StreamOpened, installation, kind = ?StreamKind::All);
             let cancel = client.context.cancellation_token().clone();
             let router = client.stream_router().await;
             let stream = match router
@@ -199,10 +210,12 @@ where
             {
                 Ok(stream) => stream,
                 Err(e) => {
-                    // The subscribe itself failed: `on_close` fires and the
-                    // handle's result carries the error (legacy watchdog
-                    // semantics); the caller re-subscribes from durable
-                    // cursors.
+                    // The subscribe itself failed: warn (the handle's result
+                    // carries the error but is rarely read), fire `on_close`
+                    // — legacy watchdog semantics — and the caller
+                    // re-subscribes from durable cursors.
+                    tracing::warn!("bidi `stream_all_messages` failed to subscribe: {e}");
+                    log_event!(Event::StreamClosed, installation, kind = ?StreamKind::All);
                     on_close();
                     return Err(e.into());
                 }
@@ -210,6 +223,7 @@ where
             let _ = tx.send(());
             pump(stream, cancel, callback, on_close).await;
             tracing::debug!("bidi `stream_all_messages` ended");
+            log_event!(Event::StreamClosed, installation, kind = ?StreamKind::All);
             Ok::<_, SubscribeError>(())
         })
     }
@@ -227,6 +241,8 @@ where
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
         xmtp_common::spawn(Some(rx), async move {
+            let installation = client.context.installation_id();
+            log_event!(Event::StreamOpened, installation, kind = ?StreamKind::Conversations);
             let cancel = client.context.cancellation_token().clone();
             let router = client.stream_router().await;
             let stream = match router
@@ -240,6 +256,8 @@ where
             {
                 Ok(stream) => stream,
                 Err(e) => {
+                    tracing::warn!("bidi `stream_conversations` failed to subscribe: {e}");
+                    log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Conversations);
                     on_close();
                     return Err(e.into());
                 }
@@ -247,6 +265,7 @@ where
             let _ = tx.send(());
             pump(stream, cancel, callback, on_close).await;
             tracing::debug!("bidi `stream_conversations` ended");
+            log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Conversations);
             Ok::<_, SubscribeError>(())
         })
     }
@@ -274,6 +293,8 @@ where
 {
     let (tx, rx) = oneshot::channel();
     xmtp_common::spawn(Some(rx), async move {
+        let installation = context.installation_id();
+        log_event!(Event::StreamOpened, installation, kind = ?StreamKind::Messages);
         let cancel = context.cancellation_token().clone();
         let api = context.api().api_client.clone();
         let router = StreamRouter::new(context.clone(), shared_transport(api));
@@ -283,6 +304,8 @@ where
         {
             Ok(stream) => stream,
             Err(e) => {
+                tracing::warn!("bidi `stream_conversation_messages` failed to subscribe: {e}");
+                log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Messages);
                 on_close();
                 return Err(e.into());
             }
@@ -290,6 +313,7 @@ where
         let _ = tx.send(());
         pump(stream, cancel, callback, on_close).await;
         tracing::debug!("bidi `stream_conversation_messages` ended");
+        log_event!(Event::StreamClosed, installation, kind = ?StreamKind::Messages);
         Ok::<_, SubscribeError>(())
     })
 }
