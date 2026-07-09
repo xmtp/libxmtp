@@ -77,7 +77,9 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::subscriptions::router_callbacks::bidi_streams_enabled;
+use xmtp_mls::subscriptions::router_callbacks::{
+    bidi_streams_enabled, stream_conversation_messages_with_callback_bidi,
+};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -3057,17 +3059,29 @@ impl FfiConversation {
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let close_cb = message_callback.clone();
-        let handle = MlsGroup::stream_with_callback(
-            self.inner.context.clone(),
-            self.inner.group_id,
-            move |message| match message {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-        );
-
-        FfiStreamCloser::new(handle)
+        if bidi_streams_enabled() {
+            let handle = stream_conversation_messages_with_callback_bidi(
+                self.inner.context.clone(),
+                self.inner.group_id,
+                move |message| match message {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                },
+                move || close_cb.on_close(),
+            );
+            FfiStreamCloser::new(handle)
+        } else {
+            let handle = MlsGroup::stream_with_callback(
+                self.inner.context.clone(),
+                self.inner.group_id,
+                move |message| match message {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                },
+                move || close_cb.on_close(),
+            );
+            FfiStreamCloser::new(handle)
+        }
     }
 
     pub fn created_at_ns(&self) -> i64 {

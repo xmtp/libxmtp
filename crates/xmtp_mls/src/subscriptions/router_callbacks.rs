@@ -50,6 +50,7 @@ use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
+use xmtp_proto::types::GroupId;
 
 use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterStream, StreamRouter};
 use super::{Result, SubscribeError, SyncWorkerEvent};
@@ -305,4 +306,46 @@ where
             Ok::<_, SubscribeError>(())
         })
     }
+}
+
+/// Bidi-path counterpart of [`MlsGroup::stream_with_callback`]: one
+/// conversation's messages, decoded, over the shared wire.
+///
+/// Context-based (a conversation object holds no client), so it cannot reach
+/// the client's cached router; it builds one scoped to this conversation
+/// instead. That is safe by design: router state is per-stream and its task
+/// exits with its last stream, dedup correctness lives in the transport's
+/// per-lease positions, and the wire is the process-shared transport either
+/// way.
+pub fn stream_conversation_messages_with_callback_bidi<Context>(
+    context: Context,
+    group_id: GroupId,
+    callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
+    <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
+{
+    let (tx, rx) = oneshot::channel();
+    xmtp_common::spawn(Some(rx), async move {
+        let cancel = context.cancellation_token().clone();
+        let api = context.api().api_client.clone();
+        let router = StreamRouter::new(context.clone(), shared_transport(api));
+        let stream = match router
+            .stream_messages(vec![group_id], DEFAULT_STREAM_DEPTH)
+            .await
+        {
+            Ok(stream) => stream,
+            Err(e) => {
+                on_close();
+                return Err(e.into());
+            }
+        };
+        let _ = tx.send(());
+        pump(stream, cancel, callback, on_close).await;
+        tracing::debug!("bidi `stream_conversation_messages` ended");
+        Ok::<_, SubscribeError>(())
+    })
 }

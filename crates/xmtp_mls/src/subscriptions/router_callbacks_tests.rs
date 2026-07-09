@@ -7,7 +7,9 @@ use std::time::Duration;
 use xmtp_common::StreamHandle;
 
 use crate::Client;
-use crate::subscriptions::router_callbacks::{resume_bidi_streams, suspend_bidi_streams};
+use crate::subscriptions::router_callbacks::{
+    resume_bidi_streams, stream_conversation_messages_with_callback_bidi, suspend_bidi_streams,
+};
 use crate::tester;
 use crate::utils::MlsGroupExt;
 
@@ -126,6 +128,44 @@ async fn sibling_clients_share_the_process_transport() {
         .expect("timed out waiting for caro's callback")
         .expect("caro callback channel closed")?;
     assert_eq!(to_caro.decrypted_message_bytes, b"for caro");
+}
+
+/// A single-conversation callback stream (the context-based, ephemeral-router
+/// path) delivers that conversation's messages and only those.
+#[xmtp_common::test(unwrap_try = true)]
+async fn single_conversation_callback_is_scoped_to_its_group() {
+    tester!(alix);
+    tester!(bo);
+
+    let streamed = alix.create_group(None, None)?;
+    streamed.invite(&bo).await?;
+    let other = alix.create_group(None, None)?;
+    other.invite(&bo).await?;
+    bo.sync_welcomes().await?;
+    bo.group(&streamed.group_id)?.sync().await?;
+    bo.group(&other.group_id)?.sync().await?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = stream_conversation_messages_with_callback_bidi(
+        bo.client.context.clone(),
+        bo.group(&streamed.group_id)?.group_id,
+        move |message| {
+            let _ = tx.send(message);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    // The sibling group's message must not leak into this stream; sent first
+    // so a leak would arrive ahead of the expected message.
+    other.send_msg(b"for the other stream").await;
+    streamed.send_msg(b"for this stream").await;
+
+    let delivered = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the callback")
+        .expect("callback channel closed")?;
+    assert_eq!(delivered.decrypted_message_bytes, b"for this stream");
 }
 
 /// The app-lifecycle round trip: a message sent while suspended is replayed
