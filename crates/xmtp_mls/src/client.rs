@@ -248,6 +248,17 @@ pub struct Client<Context> {
     pub installation_id: InstallationId,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
+    /// This client's router over the process-shared bidi wire (XIP-83
+    /// streaming path), created on first use. Shared across clones so one
+    /// client never runs two routers.
+    ///
+    /// Lifecycle rides the client's: `close()` ends the streams (their pumps
+    /// watch the cancellation token), after which the router task parks —
+    /// pending on an idle channel, holding no wire state — and exits when
+    /// the last client clone drops this cell.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) stream_router:
+        Arc<tokio::sync::OnceCell<crate::subscriptions::stream_router::StreamRouter<Context>>>,
 }
 
 impl<Context> Drop for Client<Context> {
@@ -269,6 +280,8 @@ impl<Context: Clone> Clone for Client<Context> {
             installation_id: self.installation_id,
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: self.stream_router.clone(),
         }
     }
 }

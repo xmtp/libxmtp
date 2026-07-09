@@ -342,6 +342,8 @@ pub(crate) mod tests {
             installation_id,
             local_events,
             workers,
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: Default::default(),
         };
 
         let group = client.create_group(None, None).unwrap();
@@ -433,6 +435,8 @@ pub(crate) mod tests {
             installation_id,
             local_events,
             workers,
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: Default::default(),
         };
 
         let group = client.create_group(None, None).unwrap();

@@ -9,6 +9,7 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
+use xmtp_mls::subscriptions::router_callbacks::bidi_streams_enabled;
 use xmtp_mls::worker::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 
 #[napi(discriminant = "type")]
@@ -38,10 +39,8 @@ impl Conversations {
     on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
-    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
-      self.inner_client.clone(),
-      conversation_type.map(|ct| ct.into()),
-      move |convo| {
+    let on_conversation =
+      move |convo: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
         let status = callback.call(
           convo
             .map(Conversation::from)
@@ -50,14 +49,32 @@ impl Conversations {
           ThreadsafeFunctionCallMode::Blocking,
         );
         tracing::info!("Stream status: {:?}", status);
-      },
-      move || {
-        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-      false,
-    );
+      };
+    let on_close = move || {
+      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+    };
 
-    Ok(StreamCloser::new(stream_closer))
+    if bidi_streams_enabled() {
+      // Interim bidi scope — locally-created conversations do not surface on
+      // this stream yet: see `stream_conversations_with_callback_bidi`'s docs.
+      let handle = RustXmtpClient::stream_conversations_with_callback_bidi(
+        self.inner_client.clone(),
+        conversation_type.map(|ct| ct.into()),
+        false,
+        on_conversation,
+        on_close,
+      );
+      Ok(StreamCloser::new(handle))
+    } else {
+      let handle = RustXmtpClient::stream_conversations_with_callback(
+        self.inner_client.clone(),
+        conversation_type.map(|ct| ct.into()),
+        on_conversation,
+        on_close,
+        false,
+      );
+      Ok(StreamCloser::new(handle))
+    }
   }
 
   #[napi]
@@ -82,11 +99,8 @@ impl Conversations {
         .collect()
     });
 
-    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
-      self.inner_client.context.clone(),
-      conversation_type.map(Into::into),
-      consents,
-      move |message| {
+    let on_message =
+      move |message: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
         tracing::trace!(
             inbox_id,
             conversation_type = ?conversation_type,
@@ -127,13 +141,32 @@ impl Conversations {
             );
           }
         }
-      },
-      move || {
-        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
+      };
+    let on_close = move || {
+      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+    };
 
-    Ok(StreamCloser::new(stream_closer))
+    if bidi_streams_enabled() {
+      // Interim bidi scope — covers the groups known at subscribe time: see
+      // `stream_all_messages_with_callback_bidi`'s docs.
+      let handle = RustXmtpClient::stream_all_messages_with_callback_bidi(
+        self.inner_client.clone(),
+        conversation_type.map(Into::into),
+        consents,
+        on_message,
+        on_close,
+      );
+      Ok(StreamCloser::new(handle))
+    } else {
+      let handle = RustXmtpClient::stream_all_messages_with_callback(
+        self.inner_client.context.clone(),
+        conversation_type.map(Into::into),
+        consents,
+        on_message,
+        on_close,
+      );
+      Ok(StreamCloser::new(handle))
+    }
   }
 
   #[napi]

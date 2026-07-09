@@ -45,6 +45,8 @@ pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
 xmtp_common::if_native! {
     pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
     pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
+    pub type BoxedSubscribeS<Err> =
+        Pin<Box<dyn Stream<Item = Result<crate::mls_v1::SubscribeResponse, Err>> + Send>>;
 }
 
 xmtp_common::if_wasm! {
