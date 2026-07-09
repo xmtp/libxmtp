@@ -106,7 +106,7 @@ where
                 async move {
                     BidiConnection::open(&api, initial)
                         .await
-                        .map_err(|e| Box::new(e) as OpenError)
+                        .map_err(OpenError::new)
                 }
             })
         })
