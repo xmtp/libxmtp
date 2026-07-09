@@ -170,13 +170,16 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
 
 /// Post-welcome rotation queue: atomically lower/init the rotation column (5s
 /// debounce — a security property) AND enqueue its pull-in in one transaction,
-/// then wake the worker. Neither write can land without the other.
+/// then wake the worker. Neither write can land without the other. The rotation
+/// seed rides along in the same transaction (insert-or-ignore) so the pull-in
+/// always has a live target, even if startup seeding never ran.
 pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
+    let now = xmtp_common::time::now_ns();
     context
         .db()
-        .queue_key_rotation_with_nudge(&kp_rotation_hash())?;
+        .queue_key_rotation_with_nudge(&kp_rotation_hash(), kp_seed(kp_rotation_proto(), now)?)?;
     // In-memory only; must stay outside the transaction.
     context.task_channels().wake();
     Ok(())
@@ -451,6 +454,29 @@ mod tests {
             after.next_attempt_at_ns,
             db.next_key_package_rotation_ns()?.unwrap()
         );
+    }
+
+    /// The welcome nudge must self-heal a missing rotation seed (e.g. startup
+    /// seeding never ran) instead of enqueuing a dropped-on-miss pull-in.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn welcome_nudge_selfheals_missing_rotation_seed() {
+        tester!(alix, worker_config: no_runner_cfg()); // no TaskRunner -> no seeds
+        let db = alix.context.db();
+        assert!(row_by_hash(&db, kp_rotation_hash()).is_none());
+
+        queue_key_rotation(&alix.context)?;
+
+        assert!(
+            row_by_hash(&db, kp_rotation_hash()).is_some(),
+            "nudge must recreate the missing KpRotation singleton"
+        );
+        let has_pull_in = db.get_tasks()?.iter().any(|t| {
+            matches!(
+                TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+                Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_rotation_hash().as_ref()
+            )
+        });
+        assert!(has_pull_in, "nudge must enqueue a rotation pull-in");
     }
 
     /// Regression: welcome nudge must pull the parked rotation task in even when

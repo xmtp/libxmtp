@@ -8,7 +8,7 @@ use crate::{
 };
 use prost::Message;
 use std::sync::Arc;
-use xmtp_common::{Event, NS_IN_30_DAYS};
+use xmtp_common::Event;
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
@@ -428,10 +428,13 @@ where
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
                 kp::sweep_expired(context)?;
                 let now = xmtp_common::time::now_ns();
+                // Nothing pending: park one rotation interval out (deletions only
+                // arise from rotations; same constant as the KpRotation arm — the
+                // exact value isn't load-bearing, nudges pull the task in sooner).
                 let next = context
                     .db()
                     .min_key_package_delete_at_ns()?
-                    .unwrap_or(now + NS_IN_30_DAYS); // nothing pending: far-future
+                    .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
             None => {

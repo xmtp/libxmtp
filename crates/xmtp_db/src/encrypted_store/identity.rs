@@ -50,10 +50,13 @@ pub trait QueryIdentity {
     /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
     /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
     /// value — one transaction, so neither write can land without the other.
+    /// `rotation_seed` is insert-or-ignored first so the pull-in always has a live
+    /// target (commit-target-first), even if startup seeding never ran.
     /// Callers wake the TaskWorker AFTER this returns (never inside a tx).
     fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
+        rotation_seed: crate::tasks::NewTask,
     ) -> Result<(), StorageError>;
     fn reset_key_package_rotation_queue(
         &self,
@@ -77,8 +80,9 @@ where
     fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
+        rotation_seed: crate::tasks::NewTask,
     ) -> Result<(), StorageError> {
-        (**self).queue_key_rotation_with_nudge(rotation_task_hash)
+        (**self).queue_key_rotation_with_nudge(rotation_task_hash, rotation_seed)
     }
 
     fn reset_key_package_rotation_queue(
@@ -121,6 +125,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
+        rotation_seed: crate::tasks::NewTask,
     ) -> Result<(), StorageError> {
         use crate::schema::tasks;
         use diesel::Connection;
@@ -150,6 +155,13 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
                 let Some(deadline) = deadline else {
                     return Ok(());
                 };
+
+                // Ensure the pull-in's target exists (no-op when already seeded):
+                // a client whose startup seeding never ran must not enqueue a
+                // dropped-on-miss nudge.
+                diesel::insert_or_ignore_into(tasks::table)
+                    .values(rotation_seed)
+                    .execute(conn)?;
 
                 let pull_in = crate::tasks::NewTask::builder()
                     .originating_message_sequence_id(0)
@@ -232,19 +244,57 @@ pub(crate) mod tests {
     use crate::{Store, XmtpTestDb};
     use xmtp_common::rand_vec;
 
+    /// A stand-in rotation seed for exercising `queue_key_rotation_with_nudge`
+    /// (the real seed payload lives in xmtp_mls).
+    fn test_rotation_seed() -> crate::tasks::NewTask {
+        use xmtp_proto::xmtp::mls::database::{KpRotation, Task as TaskProto, task::Task};
+        crate::tasks::NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .expires_at_ns(crate::tasks::NEVER_EXPIRES)
+            .max_attempts(i32::MAX)
+            .next_attempt_at_ns(0)
+            .build(TaskProto {
+                task: Some(Task::KpRotation(KpRotation {})),
+            })
+            .unwrap()
+    }
+
     #[xmtp_common::test]
     fn queue_with_nudge_is_noop_before_registration() {
         use crate::prelude::{QueryIdentity, QueryTasks};
         use crate::test_utils::with_connection;
         with_connection(|conn| {
             // Empty identity table (pre-registration): must be a no-op like the
-            // old column-only path, not a NotFound error.
+            // old column-only path, not a NotFound error. The seed must NOT be
+            // inserted either — pre-registration means zero writes.
             let hash = crate::tasks::TaskDataHash::try_from([0x11u8; 32].as_slice()).unwrap();
-            conn.queue_key_rotation_with_nudge(&hash).unwrap();
+            conn.queue_key_rotation_with_nudge(&hash, test_rotation_seed())
+                .unwrap();
             assert!(
                 conn.get_tasks().unwrap().is_empty(),
                 "no pull-in without an identity row"
             );
+        })
+    }
+
+    #[xmtp_common::test]
+    fn queue_with_nudge_selfheals_missing_seed() {
+        use crate::prelude::{QueryIdentity, QueryTasks};
+        use crate::test_utils::with_connection;
+        with_connection(|conn| {
+            StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
+                .store(conn)
+                .unwrap();
+            let seed = test_rotation_seed();
+            let hash = crate::tasks::TaskDataHash::try_from(seed.data_hash.as_slice()).unwrap();
+            conn.queue_key_rotation_with_nudge(&hash, seed).unwrap();
+            let tasks = conn.get_tasks().unwrap();
+            assert!(
+                tasks.iter().any(|t| t.data_hash == hash.as_ref()),
+                "nudge must insert the missing rotation seed (pull-in target)"
+            );
+            assert_eq!(tasks.len(), 2, "seed + pull-in");
         })
     }
 

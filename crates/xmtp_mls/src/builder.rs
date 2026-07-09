@@ -418,8 +418,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
-                // KP maintenance is a critical MLS function: always on when the
-                // TaskRunner runs (disable_workers disables both, coherently).
+                // KP maintenance is deliberately coupled to the TaskRunner (no
+                // standalone fallback): disabling the TaskRunner — per-kind via
+                // WorkerConfig or globally via disable_workers — disables KP
+                // rotation/deletion with it. Seeding failure is fatal to the
+                // build: the DB was already opened/migrated above, so an error
+                // here means it is broken; building a client whose critical
+                // maintenance silently never got seeded would be worse.
                 crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)?;
                 // One-time backfill: pending self-removes recorded before the
                 // worker became event-driven have no LeaveRequest to re-fire, so
