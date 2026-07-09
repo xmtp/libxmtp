@@ -205,14 +205,25 @@ describe("Preferences", () => {
     await client2.conversations.syncAll();
     await sleep(1000);
 
-    setTimeout(() => {
-      void stream.end();
-    }, 100);
-
     const preferences: UserPreferenceUpdate[] = [];
+
+    // Safety net: end the stream if the expected updates never arrive, so the
+    // assertion below fails clearly instead of the test hanging until timeout.
+    // The HmacKeyUpdate events depend on network propagation, so we collect
+    // until we have all 4 expected updates rather than ending on a fixed timer.
+    const endTimeout = setTimeout(() => {
+      void stream.end();
+    }, 10000);
+
     for await (const update of stream) {
       preferences.push(...update);
+      if (preferences.length >= 4) {
+        break;
+      }
     }
+    clearTimeout(endTimeout);
+    await stream.end();
+
     expect(preferences.length).toBe(4);
     const consentUpdate1 = preferences[0] as Extract<
       UserPreferenceUpdate,
