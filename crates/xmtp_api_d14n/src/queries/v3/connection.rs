@@ -110,14 +110,36 @@ impl TransportBinding for V3Binding {
         }
     }
 
-    // Topic extraction is the shared [`Envelope`] machinery, which covers
-    // every message shape (including the welcome-pointer variant) in one place.
+    // Topic and cursor extraction are the shared [`Envelope`] machinery, which
+    // covers every message shape (including the welcome-pointer variant) in
+    // one place.
     fn group_topic(msg: &GroupMessage) -> Option<Topic> {
         msg.topic().ok()
     }
 
     fn welcome_topic(msg: &WelcomeMessage) -> Option<Topic> {
         msg.topic().ok()
+    }
+
+    // v3 sequence ids ARE the wire resume cursor (`Subscription.id_cursor`).
+    fn group_cursor(msg: &GroupMessage) -> Option<u64> {
+        msg.cursor().ok().map(|cursor| cursor.sequence_id)
+    }
+
+    fn welcome_cursor(msg: &WelcomeMessage) -> Option<u64> {
+        msg.cursor().ok().map(|cursor| cursor.sequence_id)
+    }
+
+    fn advance(position: &mut u64, delivered: u64) {
+        *position = (*position).max(delivered);
+    }
+
+    fn covers(position: &u64, delivered: &u64) -> bool {
+        delivered <= position
+    }
+
+    fn meet(a: u64, b: u64) -> u64 {
+        a.min(b)
     }
 }
 
