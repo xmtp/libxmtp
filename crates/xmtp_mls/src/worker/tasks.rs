@@ -3,11 +3,14 @@ use crate::{
     worker::{
         NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
         device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
+        key_package_maintenance as kp,
     },
 };
 use prost::Message;
 use std::sync::Arc;
 use xmtp_common::Event;
+use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
+use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
 use xmtp_macro::log_event;
@@ -21,11 +24,6 @@ use xmtp_proto::{
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TaskOutcome {
     Done,
-    // Constructed only by the cfg(test) hook until the first real recurring
-    // task variant lands. cfg_attr(expect) self-cleans: when non-test code
-    // first constructs RescheduleAt, the unfulfilled expectation becomes a
-    // compiler warning that forces removal of this attribute.
-    #[cfg_attr(not(test), expect(dead_code))]
     RescheduleAt(i64),
 }
 
@@ -61,6 +59,12 @@ pub enum TaskWorkerError {
     MissingMetrics,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    #[error("identity error: {0}")]
+    Identity(#[from] crate::identity::IdentityError),
+    #[error("key package maintenance error: {0}")]
+    KeyPackageMaintenance(
+        #[from] crate::worker::key_package_maintenance::KeyPackageMaintenanceError,
+    ),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
@@ -79,6 +83,8 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::ReceiverLocked => false,
             TaskWorkerError::MissingMetrics => false,
             TaskWorkerError::Conversion(_) => false,
+            TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
+            TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
         }
     }
 }
@@ -129,14 +135,10 @@ impl TaskWorkerChannels {
 
 /// Durably enqueue a `PullInDeadline` for `target_data_hash`, then wake the loop.
 /// Row is committed before the wake; duplicates coalesce on data_hash. Lifetime is
-/// bounded by `expires_at_ns` alone (pass `i64::MAX` for delivery-critical nudges).
+/// bounded by `expires_at_ns` alone (pass `NEVER_EXPIRES` for critical nudges).
 /// Callers must commit the target row FIRST: a pull-in never waits for its target —
 /// a miss is dropped (debug-logged), since a missing target is normally a completed
 /// one-shot and retrying would spin forever on never-expiring nudges.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "KP-consumer plan adds production callers")
-)]
 pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
     context: &Context,
     target_data_hash: TaskDataHash,
@@ -409,15 +411,31 @@ where
                     );
                 }
             }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_))
-            | Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
-                // Minimal arms: real handlers land with the KP-consumer impl.
-                // Nothing seeds these singletons yet, so dropping is safe.
-                tracing::warn!(
-                    "KP task {} received before handler landed; dropping",
-                    task.id
-                );
-                context.db().delete_task(task.id)?;
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_)) => {
+                let now = xmtp_common::time::now_ns();
+                kp::rotate_if_needed(context).await?;
+                // Unconditional (no-op when nothing is marked): a backoff retry
+                // after rotate-succeeded/nudge-failed must still re-nudge.
+                kp::nudge_deletion(context)?;
+                // Advance to the LIVE rotation column (rotate reset it to +30d; a
+                // welcome nudge may have re-lowered it). Do NOT hardcode +30d.
+                let next = context
+                    .db()
+                    .next_key_package_rotation_ns()?
+                    .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
+                return Ok(TaskOutcome::RescheduleAt(next));
+            }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
+                kp::sweep_expired(context)?;
+                let now = xmtp_common::time::now_ns();
+                // Nothing pending: park one rotation interval out (deletions only
+                // arise from rotations; same constant as the KpRotation arm — the
+                // exact value isn't load-bearing, nudges pull the task in sooner).
+                let next = context
+                    .db()
+                    .min_key_package_delete_at_ns()?
+                    .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
+                return Ok(TaskOutcome::RescheduleAt(next));
             }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);

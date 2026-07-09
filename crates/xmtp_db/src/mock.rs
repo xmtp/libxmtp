@@ -501,10 +501,13 @@ mock! {
 
     impl QueryIdentity for DbQuery {
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+        fn queue_key_rotation_with_nudge(&self, rotation_task_hash: &crate::tasks::TaskDataHash, rotation_seed: crate::tasks::NewTask) -> Result<(), StorageError>;
 
         fn reset_key_package_rotation_queue(&self, rotation_interval: i64) -> Result<(), StorageError>;
 
         fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+
+        fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
     }
 
     impl QueryIdentityCache for DbQuery {
@@ -544,6 +547,8 @@ mock! {
         fn get_expired_key_packages(
             &self,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
+
+        fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
 
         fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
 

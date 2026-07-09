@@ -1,10 +1,7 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
-use crate::worker::{
-    device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric},
-    key_package_cleaner::KeyPackagesCleanerWorker,
-};
+use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric};
 use crate::{
     Client, MlsContext,
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
