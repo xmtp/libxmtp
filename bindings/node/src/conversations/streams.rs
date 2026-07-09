@@ -147,8 +147,6 @@ impl Conversations {
     };
 
     if bidi_streams_enabled() {
-      // Interim bidi scope — covers the groups known at subscribe time: see
-      // `stream_all_messages_with_callback_bidi`'s docs.
       let handle = RustXmtpClient::stream_all_messages_with_callback_bidi(
         self.inner_client.clone(),
         conversation_type.map(Into::into),

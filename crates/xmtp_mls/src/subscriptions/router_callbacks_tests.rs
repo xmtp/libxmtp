@@ -15,6 +15,40 @@ use crate::utils::MlsGroupExt;
 
 const WAIT: Duration = Duration::from_secs(20);
 
+/// The reflex headline: a conversation joined AFTER subscribing reaches the
+/// live stream without a re-subscribe — its welcome arrives over the leased
+/// welcome topic and the reflex leases the new group's topic on the same
+/// wire. The message is sent before the reflex could possibly have leased,
+/// so delivery also proves the cursored add replays it (catch-up ==
+/// subscribe).
+#[xmtp_common::test(unwrap_try = true)]
+async fn welcomed_group_joins_the_live_stream() {
+    tester!(alix);
+    tester!(bo);
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = Client::stream_all_messages_with_callback_bidi(
+        Arc::new(bo.client.clone()),
+        None,
+        None,
+        move |message| {
+            let _ = tx.send(message);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    let group = alix.create_group(None, None)?;
+    group.invite(&bo).await?;
+    group.send_msg(b"through the reflex").await;
+
+    let delivered = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the reflex-subscribed delivery")
+        .expect("callback channel closed")?;
+    assert_eq!(delivered.decrypted_message_bytes, b"through the reflex");
+}
+
 /// A message sent after subscribing arrives decoded through the callback.
 #[xmtp_common::test(unwrap_try = true)]
 async fn callback_stream_delivers_live_messages() {

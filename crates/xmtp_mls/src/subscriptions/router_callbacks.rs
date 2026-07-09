@@ -180,87 +180,36 @@ where
     }
 
     /// Bidi-path counterpart of `stream_all_messages_with_callback`: every
-    /// matching conversation's messages, decoded, over the shared wire.
-    ///
-    /// Interim scope: covers the groups known at subscribe time. A
-    /// conversation joined afterwards reaches this stream on re-subscribe,
-    /// until the welcome auto-subscribe reflex lands.
+    /// matching conversation's messages, decoded, over the shared wire. The
+    /// stream grows with new conversations — the router's welcome
+    /// auto-subscribe reflex leases each later-joined group's topic as its
+    /// welcome arrives, no re-subscribe needed.
     pub fn stream_all_messages_with_callback_bidi(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
-        mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+        callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
         xmtp_common::spawn(Some(rx), async move {
             let cancel = client.context.cancellation_token().clone();
-            let subscribed = async {
-                // Same seeding as the legacy stream: close the welcome gap,
-                // then subscribe every matching group. A conversation joined
-                // after this point reaches the stream on re-subscribe (until
-                // the welcome auto-subscribe reflex lands).
-                WelcomeService::new(&client.context).sync_welcomes().await?;
-                let groups = client.context.db().find_groups(GroupQueryArgs {
-                    conversation_type,
-                    consent_states: consent_states.clone(),
-                    include_duplicate_dms: true,
-                    include_sync_groups: conversation_type
-                        .map(|ct| matches!(ct, ConversationType::Sync))
-                        .unwrap_or(true),
-                    ..Default::default()
-                })?;
-                // Sync groups are subscribed (their traffic nudges the
-                // device-sync worker) but their messages are intercepted
-                // below, exactly like the legacy stream — internal payloads
-                // must not surface as conversation messages.
-                let sync_groups: Vec<Vec<u8>> = groups
-                    .iter()
-                    .filter(|g| matches!(g.conversation_type, ConversationType::Sync))
-                    .map(|g| g.id.to_vec())
-                    .collect();
-                let ids: Vec<GroupId> = groups.into_iter().map(|g| g.id).collect();
-                if ids.is_empty() {
-                    // Nothing matches (fresh account, or an empty filter):
-                    // the transport refuses an empty lease, and legacy stays
-                    // open here — so stay open with nothing subscribed.
-                    // Deliveries begin on re-subscribe (interim scope above).
-                    return Ok::<_, SubscribeError>(None);
-                }
-                let router = client.stream_router().await;
-                let stream = router.stream_messages(ids, DEFAULT_STREAM_DEPTH).await?;
-                Ok(Some((stream, sync_groups)))
-            };
-            let (stream, sync_groups) = match subscribed.await {
-                Ok(Some(subscription)) => subscription,
-                Ok(None) => {
-                    let _ = tx.send(());
-                    cancel.cancelled().await;
-                    on_close();
-                    return Ok(());
-                }
+            let router = client.stream_router().await;
+            let stream = match router
+                .stream_all_messages(conversation_type, consent_states, DEFAULT_STREAM_DEPTH)
+                .await
+            {
+                Ok(stream) => stream,
                 Err(e) => {
                     // The subscribe itself failed: `on_close` fires and the
                     // handle's result carries the error (legacy watchdog
                     // semantics); the caller re-subscribes from durable
                     // cursors.
                     on_close();
-                    return Err(e);
+                    return Err(e.into());
                 }
             };
             let _ = tx.send(());
-            let worker_events = client.context.worker_events().clone();
-            let callback = move |message: Result<StoredGroupMessage>| {
-                if let Ok(m) = &message
-                    && sync_groups
-                        .iter()
-                        .any(|id| id.as_slice() == m.group_id.as_slice())
-                {
-                    let _ = worker_events.send(SyncWorkerEvent::NewSyncGroupMsg);
-                    return;
-                }
-                callback(message);
-            };
             pump(stream, cancel, callback, on_close).await;
             tracing::debug!("bidi `stream_all_messages` ended");
             Ok::<_, SubscribeError>(())

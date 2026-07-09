@@ -1948,8 +1948,6 @@ impl FfiConversations {
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let close_cb = message_callback.clone();
         if bidi_streams_enabled() {
-            // Interim bidi scope — covers the groups known at subscribe time:
-            // see the entry point's docs.
             FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback_bidi(
                 self.inner_client.clone(),
                 conversation_type.map(Into::into),
