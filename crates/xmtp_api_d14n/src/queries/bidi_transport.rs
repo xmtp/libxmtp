@@ -1202,6 +1202,11 @@ where
                 tracing::warn!("bidi transport: reconnect failed ({e}); backing off");
                 self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
                 self.reconnect_at = tokio::time::Instant::now() + self.reconnect_delay;
+                // Resumes deferred mid-dial were concurrent with this attempt
+                // and it failed for all of them: park their waiters on the
+                // scheduled retry. Replaying them would grant each the
+                // immediate-dial privilege reserved for a *fresh* resume().
+                self.park_deferred_resumes();
                 AfterReopen::Proceed
             }
             OpenOutcome::Suspended(ack) => AfterReopen::Suspended(ack),
@@ -1234,12 +1239,13 @@ where
         }
     }
 
-    /// A dial-preempting `Suspend` outranks anything it jumped over: a
-    /// `Cmd::Resume` deferred during that dial predates the suspend, and
-    /// replaying it later would flip the transport back onto the network
-    /// against the caller's newest intent. Park those waiters instead — they
-    /// ride to the resume wave a *later* `resume()` completes. (Everything
-    /// else deferred — leases, derefs — replays safely under suspension.)
+    /// A `Cmd::Resume` deferred during a dial must not replay as a fresh
+    /// command. After a dial-preempting `Suspend`, replaying it would flip
+    /// the transport back onto the network against the caller's newest
+    /// intent; after a failed dial, replaying it would grant an immediate
+    /// redial per deferred resume, stampeding the opener past its backoff.
+    /// Park those waiters instead — they ride the next reopen's resume wave.
+    /// (Everything else deferred — leases, derefs — replays safely.)
     fn park_deferred_resumes(&mut self) {
         for cmd in std::mem::take(&mut self.deferred) {
             match cmd {
@@ -2474,6 +2480,104 @@ mod tests {
         assert!(matches!(
             recv(&mut alpha).await,
             Some(LeaseEvent::CatchUpComplete)
+        ));
+    }
+
+    /// A burst of `resume()` calls during an outage collapses into ONE dial.
+    /// The first resume earns the immediate attempt; resumes deferred while
+    /// that dial is in flight rode it and lost with it — replaying each as a
+    /// fresh dial would stampede the opener past its backoff. Their waiters
+    /// park and ride the scheduled retry instead.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_resume_burst_during_an_outage_dials_once() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let servers: Servers = Arc::default();
+        let dials = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let network_down = Arc::new(AtomicBool::new(true));
+        let transport: BidiTransport<V3Binding> = {
+            let sink = servers.clone();
+            let dials = dials.clone();
+            let gate = gate.clone();
+            let network_down = network_down.clone();
+            BidiTransport::new(move |initial| {
+                let n = dials.fetch_add(1, Ordering::SeqCst);
+                let sink = sink.clone();
+                let gate = gate.clone();
+                let network_down = network_down.clone();
+                async move {
+                    // Dial 1 holds until released, then fails — the window
+                    // for the rest of the burst to arrive mid-dial. Later
+                    // dials fail fast until the network comes back.
+                    if n == 1 {
+                        gate.notified().await;
+                        return Err(Box::new(std::io::Error::other("down")) as OpenError);
+                    }
+                    if n >= 2 && network_down.load(Ordering::SeqCst) {
+                        return Err(Box::new(std::io::Error::other("down")) as OpenError);
+                    }
+                    let (api, server) = mock_pair();
+                    sink.lock().unwrap().push(server);
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(|e| Box::new(e) as OpenError)
+                }
+            })
+        };
+
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        tokio::time::timeout(WAIT, transport.suspend()).await??;
+
+        // The burst: the first resume dials immediately; two more land while
+        // that dial is in flight and are deferred.
+        let resumes: Vec<_> = (0..3)
+            .map(|i| {
+                let transport = transport.clone();
+                tokio::spawn(async move {
+                    if i > 0 {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                    transport.resume().await
+                })
+            })
+            .collect();
+        while dials.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        network_down.store(false, Ordering::SeqCst);
+        gate.notify_one();
+
+        // Inside the backoff window (retry is scheduled at +200ms): the
+        // deferred resumes must not have re-dialed on their own.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            dials.load(Ordering::SeqCst),
+            2,
+            "resumes deferred by the failed dial must park, not re-dial"
+        );
+
+        // The scheduled retry carries every parked waiter to catch-up.
+        let mut server = wait_for_server(&servers).await;
+        let resume = server.next_mutate().await;
+        server.send(catchup_complete(resume.mutate_id));
+        for handle in resumes {
+            tokio::time::timeout(WAIT, handle).await?.unwrap()?;
+        }
+        assert_eq!(dials.load(Ordering::SeqCst), 3, "exactly one retry dial");
+
+        // And the lease is live on the new wire.
+        server.send(messages(vec![group_msg(1, b"g1")], vec![]));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::GroupMessages(_))
         ));
     }
 
