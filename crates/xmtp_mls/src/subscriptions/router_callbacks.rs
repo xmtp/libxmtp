@@ -46,18 +46,16 @@ use tokio_util::sync::CancellationToken;
 use xmtp_api_d14n::{BidiConnection, BidiTransport, OpenError, V3Binding};
 use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_db::consent_record::ConsentState;
-use xmtp_db::group::{ConversationType, GroupQueryArgs};
+use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
 use xmtp_proto::types::GroupId;
 
 use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterStream, StreamRouter};
-use super::{Result, SubscribeError, SyncWorkerEvent};
+use super::{Result, SubscribeError};
 use crate::Client;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
-use crate::groups::welcome_sync::WelcomeService;
 
 /// Opt-in env var for the bidi streaming path (`1`/`true`/`yes`/`on`,
 /// case-insensitive). Anything else — including unset — keeps the legacy
@@ -217,12 +215,9 @@ where
     }
 
     /// Bidi-path counterpart of `stream_conversations_with_callback`: new
-    /// conversations from the welcome topic, over the shared wire.
-    ///
-    /// Interim scope: welcome topic only — a conversation created *locally*
-    /// by this client does not surface here (legacy multiplexes
-    /// `LocalEvents::NewGroup` for that). Parity arrives with the reflex
-    /// work, which fans local new-group events into both stream kinds.
+    /// conversations — welcomes from the shared wire, plus this client's own
+    /// locally-created groups via the `LocalEvents` broadcast (legacy
+    /// parity).
     pub fn stream_conversations_with_callback_bidi(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,

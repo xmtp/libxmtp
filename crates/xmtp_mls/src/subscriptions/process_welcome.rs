@@ -457,6 +457,34 @@ where
     Ok(result.into_outcome())
 }
 
+/// Run a locally-created group (a `LocalEvents::NewGroup` id) through the
+/// same pipeline and filters a welcome takes — the local-event analog of
+/// [`process_welcome_one`]. No welcome cursor is involved: dedup is the
+/// event's own once-per-creation broadcast, exactly what the legacy
+/// conversation stream relies on.
+pub async fn process_local_group_one<Context>(
+    context: Context,
+    group_id: xmtp_proto::types::GroupId,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+    consent_states: Option<Vec<ConsentState>>,
+) -> Result<WelcomeOutcome<Context>>
+where
+    Context: XmtpSharedContext,
+{
+    let result = ProcessWelcomeFuture::new(
+        HashSet::new(),
+        context,
+        WelcomeOrGroup::Group(group_id),
+        conversation_type,
+        include_duplicate_dms,
+        consent_states,
+    )?
+    .process()
+    .await?;
+    Ok(result.into_outcome())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

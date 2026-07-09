@@ -49,7 +49,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use xmtp_api_d14n::v3::{V3ProtoGroupMessage, V3ProtoWelcomeMessage};
 use xmtp_api_d14n::{
@@ -66,8 +66,8 @@ use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, Topic};
 use xmtp_db::group::GroupQueryArgs;
 
 use super::process_message::{ProcessMessageFuture, process_one};
-use super::process_welcome::process_welcome_one;
-use super::{Result, SubscribeError, SyncWorkerEvent};
+use super::process_welcome::{process_local_group_one, process_welcome_one};
+use super::{LocalEvents, Result, SubscribeError, SyncWorkerEvent};
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::welcome_sync::WelcomeService;
@@ -451,6 +451,10 @@ where
         consent_states: Option<Vec<ConsentState>>,
         depth: usize,
     ) -> std::result::Result<RouterStream<StoredGroupMessage>, RouterError> {
+        // The local-events receiver subscribes BEFORE the seed query: a group
+        // created in between is either in the query result or buffered on the
+        // receiver — never dropped.
+        let local_events = self.context.local_events().subscribe();
         // Close the welcome gap first — same seeding as the legacy stream —
         // so the subscribe-time set is current when the welcome lease takes
         // over the live edge.
@@ -526,6 +530,7 @@ where
                 context: self.context.clone(),
                 transport: self.transport.clone(),
                 known_welcomes,
+                local_events,
                 conversation_type,
                 consent_states,
                 sync_groups,
@@ -546,6 +551,9 @@ where
         consent_states: Option<Vec<ConsentState>>,
         depth: usize,
     ) -> std::result::Result<RouterStream<MlsGroup<Context>>, RouterError> {
+        // Before the cursor seed, so a group created mid-subscribe is either
+        // past the seed (replayed) or buffered on the receiver.
+        let local_events = self.context.local_events().subscribe();
         let db = self.context.db();
         let installation = self.context.installation_id();
         // Wire resume point: the durable welcome cursor — every welcome
@@ -576,6 +584,7 @@ where
             lease,
             tx,
             known,
+            local_events,
             conversation_type,
             include_duplicate_dms,
             consent_states,
@@ -678,17 +687,16 @@ impl LeaseSet {
         self.next_idx += 1;
         self.topics.insert(idx, lease.topics().to_vec());
         // The lease lives inside its feed; a `(idx, None)` marks its death.
-        self.feeds
-            .push(Box::pin(futures::stream::unfold(
-                (idx, Some(lease)),
-                |(idx, lease)| async move {
-                    let mut lease = lease?;
-                    match lease.next().await {
-                        Some(event) => Some(((idx, Some(event)), (idx, Some(lease)))),
-                        None => Some(((idx, None), (idx, None))),
-                    }
-                },
-            )));
+        self.feeds.push(Box::pin(futures::stream::unfold(
+            (idx, Some(lease)),
+            |(idx, lease)| async move {
+                let mut lease = lease?;
+                match lease.next().await {
+                    Some(event) => Some(((idx, Some(event)), (idx, Some(lease)))),
+                    None => Some(((idx, None), (idx, None))),
+                }
+            },
+        )));
         idx
     }
 
@@ -709,23 +717,49 @@ impl LeaseSet {
 }
 
 /// The growth machinery of an all-messages stream. The welcome topic rides
-/// in the lease set: every accepted welcome leases its group's topic on the
-/// same wire — the new lease IS the cursored-add wave, so catch-up and dedup
-/// fall out of the per-topic windows. The filters are the same ones the
-/// legacy conversations sub-stream applies (which is also why the reflex
-/// never adds a *new* sync group: the filter excludes them, exactly as
-/// legacy).
+/// in the lease set: every accepted welcome — and every locally-created
+/// group off the `LocalEvents` broadcast, for which no welcome will ever
+/// arrive — leases its group's topic on the same wire; the new lease IS the
+/// cursored-add wave, so catch-up and dedup fall out of the per-topic
+/// windows. The filters are the same ones the legacy conversations
+/// sub-stream applies (which is also why the reflex never adds a *new* sync
+/// group: the filter excludes them, exactly as legacy).
 struct Reflex<Context> {
     context: Context,
     transport: BidiTransport<V3Binding>,
     /// Welcome dedup — consulted and updated sequentially in this task, the
     /// serialization `process_welcome_one`'s contract asks for.
     known_welcomes: HashSet<Cursor>,
+    /// Locally-created groups — no welcome will ever arrive for these, so
+    /// they grow the stream through the same add-path as welcomes.
+    local_events: broadcast::Receiver<LocalEvents>,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
     /// Subscribe-time sync groups: their traffic nudges the device-sync
     /// worker instead of surfacing (legacy `StreamAllMessages` parity).
     sync_groups: HashSet<GroupId>,
+}
+
+impl<Context> Reflex<Context> {
+    /// The next local event, absorbing broadcast lag (missed events warn —
+    /// a lagged NewGroup is recovered by re-subscribe, same as legacy) and
+    /// parking forever on close (the lease side ends the stream).
+    async fn next_local_event(reflex: &mut Option<Self>) -> LocalEvents {
+        let Some(reflex) = reflex.as_mut() else {
+            return std::future::pending().await;
+        };
+        loop {
+            match reflex.local_events.recv().await {
+                Ok(event) => return event,
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("bidi reflex missed {n} local events");
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    return std::future::pending().await;
+                }
+            }
+        }
+    }
 }
 
 /// One message stream: owns its leases, decodes sequentially, delivers on its
@@ -749,14 +783,31 @@ where
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
         loop {
-            let (idx, event) = tokio::select! {
+            enum Wake {
+                Lease(u64, LeaseEvent<V3Binding>),
+                Local(LocalEvents),
+                Done,
+            }
+            let wake = tokio::select! {
                 event = self.leases.next() => match event {
-                    Some(event) => event,
+                    Some((idx, event)) => Wake::Lease(idx, event),
                     // Wire death or transport backpressure drop on any lease:
                     // the stream ends (tx drops); the consumer re-subscribes.
-                    None => return,
+                    None => Wake::Done,
                 },
-                _ = &mut kill => return,
+                local = Reflex::next_local_event(&mut self.reflex) => Wake::Local(local),
+                _ = &mut kill => Wake::Done,
+            };
+            let (idx, event) = match wake {
+                Wake::Done => return,
+                Wake::Local(LocalEvents::NewGroup(group_id)) => {
+                    if !self.absorb_local_group(group_id, &mut kill).await {
+                        return;
+                    }
+                    continue;
+                }
+                Wake::Local(_) => continue,
+                Wake::Lease(idx, event) => (idx, event),
             };
             match event {
                 LeaseEvent::GroupMessages(batch) => {
@@ -781,6 +832,42 @@ where
                     }
                 }
             }
+        }
+    }
+
+    /// A locally-created group: no welcome will arrive, so the reflex runs
+    /// the id through the same pipeline and filters a welcome takes and
+    /// leases its topic. Returns `false` when the stream must end.
+    async fn absorb_local_group(
+        &mut self,
+        group_id: GroupId,
+        kill: &mut oneshot::Receiver<()>,
+    ) -> bool {
+        let Some(reflex) = self.reflex.as_ref() else {
+            return true;
+        };
+        if self
+            .positions
+            .contains_key(&Topic::new_group_message(group_id))
+        {
+            return true;
+        }
+        let processed = tokio::select! {
+            processed = process_local_group_one(
+                reflex.context.clone(),
+                group_id,
+                reflex.conversation_type,
+                true,
+                reflex.consent_states.clone(),
+            ) => processed,
+            _ = &mut *kill => return false,
+        };
+        match processed {
+            Ok(outcome) => match outcome.group {
+                Some(group) => self.add_group(group.group_id, kill).await,
+                None => true,
+            },
+            Err(e) => send_or_kill(&self.tx, kill, Err(e)).await.is_ok(),
         }
     }
 
@@ -996,15 +1083,16 @@ where
 /// known-welcome set (per-stream, so streams with different filters never
 /// suppress each other's deliveries).
 ///
-/// Locally-created conversations are not merged in yet: this consumer only
-/// speaks the welcome topic, so a client does not see its own `create_group`
-/// on this stream. That parity arrives with the auto-subscribe reflex work,
-/// which fans local new-group events into both stream kinds.
+/// Locally-created conversations merge in from the `LocalEvents` broadcast —
+/// no welcome ever arrives for a group this client created, and legacy
+/// multiplexes the same events. Dedup for those is the broadcast itself:
+/// one event per creation.
 struct WelcomeConsumer<Context> {
     context: Context,
     lease: TopicLease<V3Binding>,
     tx: mpsc::Sender<Result<MlsGroup<Context>>>,
     known: HashSet<Cursor>,
+    local_events: broadcast::Receiver<LocalEvents>,
     conversation_type: Option<ConversationType>,
     include_duplicate_dms: bool,
     consent_states: Option<Vec<ConsentState>>,
@@ -1016,12 +1104,29 @@ where
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
         loop {
-            let event = tokio::select! {
+            enum Wake {
+                Lease(LeaseEvent<V3Binding>),
+                Local(LocalEvents),
+                Done,
+            }
+            let wake = tokio::select! {
                 event = self.lease.next() => match event {
-                    Some(event) => event,
-                    None => return,
+                    Some(event) => Wake::Lease(event),
+                    None => Wake::Done,
                 },
-                _ = &mut kill => return,
+                local = Self::next_local_event(&mut self.local_events) => Wake::Local(local),
+                _ = &mut kill => Wake::Done,
+            };
+            let event = match wake {
+                Wake::Done => return,
+                Wake::Local(LocalEvents::NewGroup(group_id)) => {
+                    if !self.surface_local_group(group_id, &mut kill).await {
+                        return;
+                    }
+                    continue;
+                }
+                Wake::Local(_) => continue,
+                Wake::Lease(event) => event,
             };
             match event {
                 LeaseEvent::WelcomeMessages(batch) => {
@@ -1039,6 +1144,50 @@ where
                 }
             }
         }
+    }
+
+    /// The next local event, absorbing broadcast lag and parking on close
+    /// (the lease side ends the stream).
+    async fn next_local_event(events: &mut broadcast::Receiver<LocalEvents>) -> LocalEvents {
+        loop {
+            match events.recv().await {
+                Ok(event) => return event,
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("conversation stream missed {n} local events");
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    return std::future::pending().await;
+                }
+            }
+        }
+    }
+
+    /// A group this client just created: run it through the same pipeline
+    /// and filters a welcome takes, and surface it. Returns `false` when the
+    /// stream must end.
+    async fn surface_local_group(
+        &mut self,
+        group_id: GroupId,
+        kill: &mut oneshot::Receiver<()>,
+    ) -> bool {
+        let processed = tokio::select! {
+            processed = process_local_group_one(
+                self.context.clone(),
+                group_id,
+                self.conversation_type,
+                self.include_duplicate_dms,
+                self.consent_states.clone(),
+            ) => processed,
+            _ = &mut *kill => return false,
+        };
+        let delivered = match processed {
+            Ok(outcome) => match outcome.group {
+                Some(group) => send_or_kill(&self.tx, kill, Ok(group)).await,
+                None => return true,
+            },
+            Err(e) => send_or_kill(&self.tx, kill, Err(e)).await,
+        };
+        delivered.is_ok()
     }
 
     async fn deliver_batch(

@@ -1630,8 +1630,6 @@ impl FfiConversations {
         let client = self.inner_client.clone();
         let close_cb = callback.clone();
         if bidi_streams_enabled() {
-            // Interim bidi scope — locally-created conversations do not
-            // surface on this stream yet: see the entry point's docs.
             FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback_bidi(
                 client,
                 conversation_type,
