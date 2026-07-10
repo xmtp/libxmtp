@@ -123,10 +123,15 @@ pub enum Inbound<G, W> {
     Pong(u64),
     /// A single consumer event to surface (handshake / markers).
     Emit(Event<G, W>),
-    /// A delivery batch — the actor emits `GroupMessages(group)` then
-    /// `WelcomeMessages(welcome)`, each only if non-empty. Kept distinct from
-    /// `Emit` so a frame carrying both kinds needs no extra allocation.
-    Messages { group: Vec<G>, welcome: Vec<W> },
+    /// A delivery batch — the actor emits `GroupMessages` then
+    /// `WelcomeMessages`, each only if non-empty, both carrying the frame's
+    /// wave tag. Kept distinct from `Emit` so a frame carrying both kinds
+    /// needs no extra allocation.
+    Messages {
+        group: Vec<G>,
+        welcome: Vec<W>,
+        mutate_id: u64,
+    },
     /// Nothing to do — unknown version or an informational/undecodable frame.
     Skip,
 }
@@ -142,15 +147,14 @@ pub enum Event<G, W> {
         capabilities: Vec<i32>,
     },
     /// A `Mutate`'s adds are fully caught up; echoes the Mutate's `mutate_id`.
-    CatchUpComplete {
-        mutate_id: u64,
-    },
+    CatchUpComplete { mutate_id: u64 },
     /// These topics just crossed from catch-up to live.
-    TopicsLive {
-        topics: Vec<Topic>,
-    },
-    GroupMessages(Vec<G>),
-    WelcomeMessages(Vec<W>),
+    TopicsLive { topics: Vec<Topic> },
+    /// A group-message delivery batch. `mutate_id` is the catch-up wave that
+    /// produced it (`0` = the live stream) — XIP-83 delivery tags.
+    GroupMessages { messages: Vec<G>, mutate_id: u64 },
+    /// A welcome delivery batch; tagged like [`Event::GroupMessages`].
+    WelcomeMessages { messages: Vec<W>, mutate_id: u64 },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -709,11 +713,33 @@ async fn emit_instruction<G, W>(
 ) -> bool {
     match instruction {
         Inbound::Emit(event) => emit(events, event).await,
-        Inbound::Messages { group, welcome } => {
-            if !group.is_empty() && emit(events, Event::GroupMessages(group)).await {
+        Inbound::Messages {
+            group,
+            welcome,
+            mutate_id,
+        } => {
+            if !group.is_empty()
+                && emit(
+                    events,
+                    Event::GroupMessages {
+                        messages: group,
+                        mutate_id,
+                    },
+                )
+                .await
+            {
                 return true;
             }
-            if !welcome.is_empty() && emit(events, Event::WelcomeMessages(welcome)).await {
+            if !welcome.is_empty()
+                && emit(
+                    events,
+                    Event::WelcomeMessages {
+                        messages: welcome,
+                        mutate_id,
+                    },
+                )
+                .await
+            {
                 return true;
             }
             false
@@ -963,6 +989,7 @@ mod tests {
                 MSG_FRAME => Inbound::Messages {
                     group: vec![()],
                     welcome: vec![],
+                    mutate_id: 0,
                 },
                 _ => Inbound::Skip,
             }
@@ -1092,7 +1119,7 @@ mod tests {
         let mut delivered = 0;
         while delivered < EVENT_BUFFER + 1 {
             match tokio::time::timeout(WAIT, actor.events.recv()).await? {
-                Some(Event::GroupMessages(_)) => delivered += 1,
+                Some(Event::GroupMessages { .. }) => delivered += 1,
                 other => panic!("unexpected event while draining: {other:?}"),
             }
         }

@@ -257,10 +257,11 @@ pub async fn suspend_bidi_streams() -> Result<()> {
 }
 
 /// Bring the shared bidi wire back (`willEnterForeground`), resolving once
-/// the wire's resume wave has caught up. That is a wire-level mark: replayed
-/// messages may still be decoding and storing in the stream pipeline behind
-/// it, and the wait is unbounded while the network is down — the FFI
-/// exposure (follow-on) owes callers a processing-drain barrier and a
+/// a live wire has no catch-up wave left in flight. That is a wire-level
+/// mark: replayed messages may still be decoding and storing in the stream
+/// pipeline behind it; the wait is unbounded while the network is down, and
+/// a concurrent fresh subscribe on the shared transport extends it — the
+/// FFI exposure (follow-on) owes callers a processing-drain barrier and a
 /// deadline before this can honestly serve as the background-fetch
 /// primitive. A no-op when the transport was never opened.
 pub async fn resume_bidi_streams() -> Result<()> {
