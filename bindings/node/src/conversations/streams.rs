@@ -9,7 +9,6 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
-use xmtp_mls::subscriptions::router_callbacks::bidi_streams_enabled;
 use xmtp_mls::worker::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 
 #[napi(discriminant = "type")]
@@ -54,25 +53,14 @@ impl Conversations {
       on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
     };
 
-    if bidi_streams_enabled() {
-      let handle = RustXmtpClient::stream_conversations_with_callback_bidi(
-        self.inner_client.clone(),
-        conversation_type.map(|ct| ct.into()),
-        false,
-        on_conversation,
-        on_close,
-      );
-      Ok(StreamCloser::new(handle))
-    } else {
-      let handle = RustXmtpClient::stream_conversations_with_callback(
-        self.inner_client.clone(),
-        conversation_type.map(|ct| ct.into()),
-        on_conversation,
-        on_close,
-        false,
-      );
-      Ok(StreamCloser::new(handle))
-    }
+    let handle = RustXmtpClient::stream_conversations_with_callback_dispatch(
+      self.inner_client.clone(),
+      conversation_type.map(|ct| ct.into()),
+      false,
+      on_conversation,
+      on_close,
+    );
+    Ok(StreamCloser::new(handle))
   }
 
   #[napi]
@@ -144,25 +132,14 @@ impl Conversations {
       on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
     };
 
-    if bidi_streams_enabled() {
-      let handle = RustXmtpClient::stream_all_messages_with_callback_bidi(
-        self.inner_client.clone(),
-        conversation_type.map(Into::into),
-        consents,
-        on_message,
-        on_close,
-      );
-      Ok(StreamCloser::new(handle))
-    } else {
-      let handle = RustXmtpClient::stream_all_messages_with_callback(
-        self.inner_client.context.clone(),
-        conversation_type.map(Into::into),
-        consents,
-        on_message,
-        on_close,
-      );
-      Ok(StreamCloser::new(handle))
-    }
+    let handle = RustXmtpClient::stream_all_messages_with_callback_dispatch(
+      self.inner_client.clone(),
+      conversation_type.map(Into::into),
+      consents,
+      on_message,
+      on_close,
+    );
+    Ok(StreamCloser::new(handle))
   }
 
   #[napi]

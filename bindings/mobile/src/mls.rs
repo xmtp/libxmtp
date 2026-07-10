@@ -77,9 +77,7 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::subscriptions::router_callbacks::{
-    bidi_streams_enabled, stream_conversation_messages_with_callback_bidi,
-};
+use xmtp_mls::subscriptions::router_callbacks::stream_conversation_messages_with_callback_dispatch;
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -1619,39 +1617,25 @@ impl From<&FfiMetadataField> for MetadataField {
 }
 
 impl FfiConversations {
-    /// One seam for every conversation stream: route over the shared bidi
-    /// wire when `XMTP_BIDI_STREAMS_ENABLED` is set, legacy otherwise. Lives
-    /// outside the exported impl (uniffi must not see the rust-only types).
+    /// One seam for every conversation stream: xmtp_mls dispatches between
+    /// the shared bidi wire and the legacy subscriptions. Lives outside the
+    /// exported impl (uniffi must not see the rust-only types).
     fn stream_conversations_dispatch(
         &self,
         conversation_type: Option<ConversationType>,
         callback: Arc<dyn FfiConversationCallback>,
     ) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
         let close_cb = callback.clone();
-        if bidi_streams_enabled() {
-            FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback_bidi(
-                client,
-                conversation_type,
-                false,
-                move |convo| match convo {
-                    Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                    Err(e) => callback.on_error(e.into()),
-                },
-                move || close_cb.on_close(),
-            ))
-        } else {
-            FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback(
-                client,
-                conversation_type,
-                move |convo| match convo {
-                    Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                    Err(e) => callback.on_error(e.into()),
-                },
-                move || close_cb.on_close(),
-                false,
-            ))
-        }
+        FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback_dispatch(
+            self.inner_client.clone(),
+            conversation_type,
+            false,
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => callback.on_error(e.into()),
+            },
+            move || close_cb.on_close(),
+        ))
     }
 }
 
@@ -1945,29 +1929,16 @@ impl FfiConversations {
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let close_cb = message_callback.clone();
-        if bidi_streams_enabled() {
-            FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback_bidi(
-                self.inner_client.clone(),
-                conversation_type.map(Into::into),
-                consents,
-                move |msg| match msg {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => message_callback.on_error(e.into()),
-                },
-                move || close_cb.on_close(),
-            ))
-        } else {
-            FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback(
-                self.inner_client.context.clone(),
-                conversation_type.map(Into::into),
-                consents,
-                move |msg| match msg {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => message_callback.on_error(e.into()),
-                },
-                move || close_cb.on_close(),
-            ))
-        }
+        FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback_dispatch(
+            self.inner_client.clone(),
+            conversation_type.map(Into::into),
+            consents,
+            move |msg| match msg {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
+            move || close_cb.on_close(),
+        ))
     }
 
     /// Get notified when there is a new consent update either locally or is synced from another device
@@ -3055,29 +3026,16 @@ impl FfiConversation {
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let close_cb = message_callback.clone();
-        if bidi_streams_enabled() {
-            let handle = stream_conversation_messages_with_callback_bidi(
-                self.inner.context.clone(),
-                self.inner.group_id,
-                move |message| match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => message_callback.on_error(e.into()),
-                },
-                move || close_cb.on_close(),
-            );
-            FfiStreamCloser::new(handle)
-        } else {
-            let handle = MlsGroup::stream_with_callback(
-                self.inner.context.clone(),
-                self.inner.group_id,
-                move |message| match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => message_callback.on_error(e.into()),
-                },
-                move || close_cb.on_close(),
-            );
-            FfiStreamCloser::new(handle)
-        }
+        let handle = stream_conversation_messages_with_callback_dispatch(
+            self.inner.context.clone(),
+            self.inner.group_id,
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
+            move || close_cb.on_close(),
+        );
+        FfiStreamCloser::new(handle)
     }
 
     pub fn created_at_ns(&self) -> i64 {

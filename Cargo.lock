@@ -10557,6 +10557,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tonic",
  "toxiproxy_rust",
  "tracing",
  "tracing-subscriber",
