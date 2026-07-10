@@ -10,12 +10,14 @@
 //! clients share is subscribed once and fanned out). One client per process —
 //! mobile — makes this invisible; a process running many clients (agents)
 //! gets O(1) wires instead of O(clients). The first client to stream donates
-//! its api client — connection, auth middleware and all — to the opener,
-//! which assumes one backend and one set of wire credentials per process:
-//! true for mobile, agents, and `nextest`'s process-per-test runs. (Client
-//! *identity* is not wire state — sibling clients' topics multiplex fine —
-//! but a process mixing differently-authenticated api clients would ride
-//! the donor's credentials.)
+//! its api client to the opener, which assumes one backend per process: true
+//! for mobile, agents, and `nextest`'s process-per-test runs. Auth is not at
+//! stake — the shared wire is receive-only (publishes keep each client's own
+//! api client and whatever authorization it carries), and on v3 the donated
+//! client attaches only version-attribution headers. The hazard of mixing
+//! backends is misrouting: a sibling client pointed elsewhere would lease
+//! its topics on the donor's wire, subscribe successfully, and receive
+//! nothing — hence the init log below.
 //!
 //! ## The gate
 //!
@@ -29,14 +31,17 @@
 //!
 //! Each stream is one spawned task: subscribe (ready fires once the lease is
 //! registered), then drain the router stream into the callback. A subscribe
-//! failure fires `on_close()` and carries the error out through the handle's
-//! result — legacy watchdog semantics, so `end_and_wait()` distinguishes a
-//! startup failure from a clean end. `on_close` fires once
+//! failure warns, fires `on_close()`, and carries the error out through the
+//! handle's result — legacy watchdog semantics; the warn is the reliable
+//! trace, since the bindings' closers rarely read the result. `on_close` fires once
 //! at natural end — the wire-facing lease survives reconnects and suspends
 //! (transport docs), so a natural end means this consumer fell behind and
 //! was dropped, or the client shut down; re-subscribing recovers from
 //! durable cursors. An `end()`ed handle aborts the task without `on_close`,
-//! matching the local-events streams.
+//! matching the local-events streams. The `StreamOpened`/`StreamClosed`
+//! telemetry pair still closes on every ending — including that abort, which
+//! never runs the task's tail but does drop it, so `StreamClosed` rides a
+//! drop guard.
 
 use std::sync::{Arc, LazyLock, OnceLock};
 
@@ -46,18 +51,19 @@ use tokio_util::sync::CancellationToken;
 use xmtp_api_d14n::{BidiConnection, BidiTransport, OpenError, V3Binding};
 use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_db::consent_record::ConsentState;
-use xmtp_db::group::{ConversationType, GroupQueryArgs};
+use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::types::GroupId;
+use xmtp_proto::types::{GroupId, InstallationId};
 
-use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterStream, StreamRouter};
-use super::{Result, SubscribeError, SyncWorkerEvent};
+use xmtp_common::Event;
+use xmtp_macro::log_event;
+
+use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterError, RouterStream, StreamRouter};
+use super::{Result, StreamKind, SubscribeError};
 use crate::Client;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
-use crate::groups::welcome_sync::WelcomeService;
 
 /// Opt-in env var for the bidi streaming path (`1`/`true`/`yes`/`on`,
 /// case-insensitive). Anything else — including unset — keeps the legacy
@@ -108,7 +114,7 @@ where
                 async move {
                     BidiConnection::open(&api, initial)
                         .await
-                        .map_err(|e| Box::new(e) as OpenError)
+                        .map_err(OpenError::new)
                 }
             })
         })
@@ -130,8 +136,12 @@ pub async fn suspend_bidi_streams() -> Result<()> {
 }
 
 /// Bring the shared bidi wire back (`willEnterForeground`), resolving once
-/// its resume wave has caught up — "catch up, then done", the
-/// background-fetch primitive. A no-op when the transport was never opened.
+/// the wire's resume wave has caught up. That is a wire-level mark: replayed
+/// messages may still be decoding and storing in the stream pipeline behind
+/// it, and the wait is unbounded while the network is down — the FFI
+/// exposure (follow-on) owes callers a processing-drain barrier and a
+/// deadline before this can honestly serve as the background-fetch
+/// primitive. A no-op when the transport was never opened.
 pub async fn resume_bidi_streams() -> Result<()> {
     let Some(transport) = SHARED_TRANSPORT.get() else {
         return Ok(());
@@ -162,6 +172,64 @@ async fn pump<T>(
     on_close();
 }
 
+/// Emits the `StreamClosed` telemetry event when dropped. A guard rather
+/// than a tail call: the bindings' closers end these streams by aborting the
+/// task, and an aborted future never runs its tail — but it is dropped, so
+/// the pair-closing event still fires.
+struct StreamClosedGuard {
+    kind: StreamKind,
+    installation: InstallationId,
+}
+
+impl Drop for StreamClosedGuard {
+    fn drop(&mut self) {
+        log_event!(Event::StreamClosed, self.installation, kind = ?self.kind);
+    }
+}
+
+/// One spawned bidi stream: emit `StreamOpened`, subscribe, signal ready,
+/// then pump into the callback until the stream ends or the client shuts
+/// down. Every entry point is this wrapper plus its subscribe future.
+///
+/// `on_close` fires on the subscribe-failure and natural-end paths only (an
+/// aborted task must not invoke it — the caller asked for the end), exactly
+/// like the local-events streams; `StreamClosed` fires on every ending via
+/// the drop guard.
+fn pump_stream<T, S>(
+    kind: StreamKind,
+    installation: InstallationId,
+    cancel: CancellationToken,
+    subscribe: S,
+    callback: impl FnMut(Result<T>) + MaybeSend + 'static,
+    on_close: impl FnOnce() + MaybeSend + 'static,
+) -> impl StreamHandle<StreamOutput = Result<()>>
+where
+    T: MaybeSend + 'static,
+    S: Future<Output = std::result::Result<RouterStream<T>, RouterError>> + MaybeSend + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+    xmtp_common::spawn(Some(rx), async move {
+        log_event!(Event::StreamOpened, installation, kind = ?kind);
+        let _closed = StreamClosedGuard { kind, installation };
+        let stream = match subscribe.await {
+            Ok(stream) => stream,
+            Err(e) => {
+                // The subscribe itself failed: warn (the handle's result
+                // carries the error but is rarely read), fire `on_close`
+                // — legacy watchdog semantics — and the caller
+                // re-subscribes from durable cursors.
+                tracing::warn!("bidi {kind:?} stream failed to subscribe: {e}");
+                on_close();
+                return Err(e.into());
+            }
+        };
+        let _ = tx.send(());
+        pump(stream, cancel, callback, on_close).await;
+        tracing::debug!("bidi {kind:?} stream ended");
+        Ok::<_, SubscribeError>(())
+    })
+}
+
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext + 'static,
@@ -180,100 +248,39 @@ where
     }
 
     /// Bidi-path counterpart of `stream_all_messages_with_callback`: every
-    /// matching conversation's messages, decoded, over the shared wire.
-    ///
-    /// Interim scope: covers the groups known at subscribe time. A
-    /// conversation joined afterwards reaches this stream on re-subscribe,
-    /// until the welcome auto-subscribe reflex lands.
+    /// matching conversation's messages, decoded, over the shared wire. The
+    /// stream grows with new conversations — the router's welcome
+    /// auto-subscribe reflex leases each later-joined group's topic as its
+    /// welcome arrives, no re-subscribe needed.
     pub fn stream_all_messages_with_callback_bidi(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
-        mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+        callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-        xmtp_common::spawn(Some(rx), async move {
-            let cancel = client.context.cancellation_token().clone();
-            let subscribed = async {
-                // Same seeding as the legacy stream: close the welcome gap,
-                // then subscribe every matching group. A conversation joined
-                // after this point reaches the stream on re-subscribe (until
-                // the welcome auto-subscribe reflex lands).
-                WelcomeService::new(&client.context).sync_welcomes().await?;
-                let groups = client.context.db().find_groups(GroupQueryArgs {
-                    conversation_type,
-                    consent_states: consent_states.clone(),
-                    include_duplicate_dms: true,
-                    include_sync_groups: conversation_type
-                        .map(|ct| matches!(ct, ConversationType::Sync))
-                        .unwrap_or(true),
-                    ..Default::default()
-                })?;
-                // Sync groups are subscribed (their traffic nudges the
-                // device-sync worker) but their messages are intercepted
-                // below, exactly like the legacy stream — internal payloads
-                // must not surface as conversation messages.
-                let sync_groups: Vec<Vec<u8>> = groups
-                    .iter()
-                    .filter(|g| matches!(g.conversation_type, ConversationType::Sync))
-                    .map(|g| g.id.to_vec())
-                    .collect();
-                let ids: Vec<GroupId> = groups.into_iter().map(|g| g.id).collect();
-                if ids.is_empty() {
-                    // Nothing matches (fresh account, or an empty filter):
-                    // the transport refuses an empty lease, and legacy stays
-                    // open here — so stay open with nothing subscribed.
-                    // Deliveries begin on re-subscribe (interim scope above).
-                    return Ok::<_, SubscribeError>(None);
-                }
-                let router = client.stream_router().await;
-                let stream = router.stream_messages(ids, DEFAULT_STREAM_DEPTH).await?;
-                Ok(Some((stream, sync_groups)))
-            };
-            let (stream, sync_groups) = match subscribed.await {
-                Ok(Some(subscription)) => subscription,
-                Ok(None) => {
-                    let _ = tx.send(());
-                    cancel.cancelled().await;
-                    on_close();
-                    return Ok(());
-                }
-                Err(e) => {
-                    // The subscribe itself failed: `on_close` fires and the
-                    // handle's result carries the error (legacy watchdog
-                    // semantics); the caller re-subscribes from durable
-                    // cursors.
-                    on_close();
-                    return Err(e);
-                }
-            };
-            let _ = tx.send(());
-            let worker_events = client.context.worker_events().clone();
-            let callback = move |message: Result<StoredGroupMessage>| {
-                if let Ok(m) = &message
-                    && sync_groups
-                        .iter()
-                        .any(|id| id.as_slice() == m.group_id.as_slice())
-                {
-                    let _ = worker_events.send(SyncWorkerEvent::NewSyncGroupMsg);
-                    return;
-                }
-                callback(message);
-            };
-            pump(stream, cancel, callback, on_close).await;
-            tracing::debug!("bidi `stream_all_messages` ended");
-            Ok::<_, SubscribeError>(())
-        })
+        let installation = client.context.installation_id();
+        let cancel = client.context.cancellation_token().clone();
+        let subscribe = async move {
+            let router = client.stream_router().await;
+            router
+                .stream_all_messages(conversation_type, consent_states, DEFAULT_STREAM_DEPTH)
+                .await
+        };
+        pump_stream(
+            StreamKind::All,
+            installation,
+            cancel,
+            subscribe,
+            callback,
+            on_close,
+        )
     }
 
     /// Bidi-path counterpart of `stream_conversations_with_callback`: new
-    /// conversations from the welcome topic, over the shared wire.
-    ///
-    /// Interim scope: welcome topic only — a conversation created *locally*
-    /// by this client does not surface here (legacy multiplexes
-    /// `LocalEvents::NewGroup` for that). Parity arrives with the reflex
-    /// work, which fans local new-group events into both stream kinds.
+    /// conversations — welcomes from the shared wire, plus this client's own
+    /// locally-created groups via the `LocalEvents` broadcast (legacy
+    /// parity).
     pub fn stream_conversations_with_callback_bidi(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
@@ -281,11 +288,11 @@ where
         callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let (tx, rx) = oneshot::channel();
-        xmtp_common::spawn(Some(rx), async move {
-            let cancel = client.context.cancellation_token().clone();
+        let installation = client.context.installation_id();
+        let cancel = client.context.cancellation_token().clone();
+        let subscribe = async move {
             let router = client.stream_router().await;
-            let stream = match router
+            router
                 .stream_conversations(
                     conversation_type,
                     include_duplicate_dms,
@@ -293,18 +300,15 @@ where
                     DEFAULT_STREAM_DEPTH,
                 )
                 .await
-            {
-                Ok(stream) => stream,
-                Err(e) => {
-                    on_close();
-                    return Err(e.into());
-                }
-            };
-            let _ = tx.send(());
-            pump(stream, cancel, callback, on_close).await;
-            tracing::debug!("bidi `stream_conversations` ended");
-            Ok::<_, SubscribeError>(())
-        })
+        };
+        pump_stream(
+            StreamKind::Conversations,
+            installation,
+            cancel,
+            subscribe,
+            callback,
+            on_close,
+        )
     }
 }
 
@@ -328,24 +332,21 @@ where
     Context::ApiClient: XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
     <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
 {
-    let (tx, rx) = oneshot::channel();
-    xmtp_common::spawn(Some(rx), async move {
-        let cancel = context.cancellation_token().clone();
+    let installation = context.installation_id();
+    let cancel = context.cancellation_token().clone();
+    let subscribe = async move {
         let api = context.api().api_client.clone();
         let router = StreamRouter::new(context.clone(), shared_transport(api));
-        let stream = match router
+        router
             .stream_messages(vec![group_id], DEFAULT_STREAM_DEPTH)
             .await
-        {
-            Ok(stream) => stream,
-            Err(e) => {
-                on_close();
-                return Err(e.into());
-            }
-        };
-        let _ = tx.send(());
-        pump(stream, cancel, callback, on_close).await;
-        tracing::debug!("bidi `stream_conversation_messages` ended");
-        Ok::<_, SubscribeError>(())
-    })
+    };
+    pump_stream(
+        StreamKind::Messages,
+        installation,
+        cancel,
+        subscribe,
+        callback,
+        on_close,
+    )
 }

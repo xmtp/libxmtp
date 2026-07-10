@@ -15,6 +15,97 @@ use crate::utils::MlsGroupExt;
 
 const WAIT: Duration = Duration::from_secs(20);
 
+/// The reflex headline: a conversation joined AFTER subscribing reaches the
+/// live stream without a re-subscribe — its welcome arrives over the leased
+/// welcome topic and the reflex leases the new group's topic on the same
+/// wire. The message is sent before the reflex could possibly have leased,
+/// so delivery also proves the cursored add replays it (catch-up ==
+/// subscribe).
+#[xmtp_common::test(unwrap_try = true)]
+async fn welcomed_group_joins_the_live_stream() {
+    tester!(alix);
+    tester!(bo);
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = Client::stream_all_messages_with_callback_bidi(
+        Arc::new(bo.client.clone()),
+        None,
+        None,
+        move |message| {
+            let _ = tx.send(message);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    let group = alix.create_group(None, None)?;
+    group.invite(&bo).await?;
+    group.send_msg(b"through the reflex").await;
+
+    let delivered = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the reflex-subscribed delivery")
+        .expect("callback channel closed")?;
+    assert_eq!(delivered.decrypted_message_bytes, b"through the reflex");
+}
+
+/// A group this client creates itself streams its messages — no welcome
+/// ever arrives for it, so delivery proves the `LocalEvents::NewGroup`
+/// fan-in leased its topic.
+#[xmtp_common::test(unwrap_try = true)]
+async fn self_created_group_streams_its_messages() {
+    tester!(bo);
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = Client::stream_all_messages_with_callback_bidi(
+        Arc::new(bo.client.clone()),
+        None,
+        None,
+        move |message| {
+            let _ = tx.send(message);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    let group = bo.create_group(None, None)?;
+    group.send_msg(b"own group, own stream").await;
+
+    let delivered = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the local-group delivery")
+        .expect("callback channel closed")?;
+    assert_eq!(delivered.decrypted_message_bytes, b"own group, own stream");
+}
+
+/// A conversation this client creates itself surfaces on its own
+/// conversations stream (legacy multiplexes `LocalEvents::NewGroup`; the
+/// bidi stream must too — the creator never receives a welcome).
+#[xmtp_common::test(unwrap_try = true)]
+async fn self_created_conversation_surfaces_on_the_stream() {
+    tester!(bo);
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = Client::stream_conversations_with_callback_bidi(
+        Arc::new(bo.client.clone()),
+        None,
+        false,
+        move |conversation| {
+            let _ = tx.send(conversation);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    let group = bo.create_group(None, None)?;
+
+    let conversation = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the local conversation")
+        .expect("callback channel closed")?;
+    assert_eq!(conversation.group_id, group.group_id);
+}
+
 /// A message sent after subscribing arrives decoded through the callback.
 #[xmtp_common::test(unwrap_try = true)]
 async fn callback_stream_delivers_live_messages() {
@@ -281,6 +372,8 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
             match worker_events.recv().await {
                 Ok(SyncWorkerEvent::NewSyncGroupMsg) => break,
                 Ok(_) => continue,
+                // Lagged is recoverable — keep draining for the nudge.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(e) => panic!("worker events channel closed: {e}"),
             }
         }
