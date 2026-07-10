@@ -8,6 +8,7 @@ pub struct FfiSyncWorker {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSyncWorker {
+    #[xmtp_common::err_span]
     pub async fn wait(&self, metric: FfiSyncMetric, count: u64) -> Result<(), FfiError> {
         let Some(handle) = self.handle.clone() else {
             tracing::warn!("Tried to wait on a worker without a handle.");
@@ -78,6 +79,41 @@ impl From<FfiDeviceSyncMode> for DeviceSyncMode {
         match value {
             FfiDeviceSyncMode::Enabled => Self::Enabled,
             FfiDeviceSyncMode::Disabled => Self::Disabled,
+        }
+    }
+}
+
+use xmtp_mls::worker::WorkerKind;
+
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FfiWorkerKind {
+    DeviceSync,
+    DisappearingMessages,
+    KeyPackageCleaner,
+    CommitLog,
+    TaskRunner,
+}
+
+impl From<FfiWorkerKind> for WorkerKind {
+    fn from(k: FfiWorkerKind) -> Self {
+        match k {
+            FfiWorkerKind::DeviceSync => Self::DeviceSync,
+            FfiWorkerKind::DisappearingMessages => Self::DisappearingMessages,
+            FfiWorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
+            FfiWorkerKind::CommitLog => Self::CommitLog,
+            FfiWorkerKind::TaskRunner => Self::TaskRunner,
+        }
+    }
+}
+
+impl From<WorkerKind> for FfiWorkerKind {
+    fn from(k: WorkerKind) -> Self {
+        match k {
+            WorkerKind::DeviceSync => Self::DeviceSync,
+            WorkerKind::DisappearingMessages => Self::DisappearingMessages,
+            WorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
+            WorkerKind::CommitLog => Self::CommitLog,
+            WorkerKind::TaskRunner => Self::TaskRunner,
         }
     }
 }

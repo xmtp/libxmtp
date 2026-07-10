@@ -143,6 +143,22 @@ pub trait Client: MaybeSend + MaybeSync {
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError>;
 
+    /// Open a bidirectional stream (XIP-83). `body` is the outbound stream of
+    /// encoded protobuf messages (one `Bytes` item per message); the response
+    /// carries the inbound message stream. Transports without full-duplex
+    /// support (e.g. gRPC-Web in the browser) keep this default and error.
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let _ = (request, path, body);
+        Err(ApiClientError::OtherUnretryable(
+            "bidirectional streaming is not supported by this transport".into(),
+        ))
+    }
+
     /// start a "fake" stream that does not create a TCP connection and will always be pending
     fn fake_stream(&self) -> http::Response<BytesStream> {
         let fake = FakeEmptyStream::new();
@@ -179,6 +195,15 @@ where
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         (**self).stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        (**self).bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -203,6 +228,15 @@ where
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         (**self).stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        (**self).bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -226,6 +260,15 @@ where
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         (**self).stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        (**self).bidi_stream(request, path, body).await
     }
 }
 

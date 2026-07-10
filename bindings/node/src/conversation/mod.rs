@@ -74,6 +74,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn is_active(&self) -> Result<bool> {
     let group = self.create_mls_group();
 
@@ -81,6 +82,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn paused_for_version(&self) -> napi::Result<Option<String>> {
     let group = self.create_mls_group();
 
@@ -88,6 +90,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn sync(&self) -> Result<()> {
     let group = self.create_mls_group();
     group.sync().await.map_err(ErrorWrapper::from)?;

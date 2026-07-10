@@ -189,6 +189,7 @@ impl GroupPermissions {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn policy_type(&self) -> Result<GroupPermissionsOptions> {
     if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
       Ok(preconfigured_policy.into())
@@ -198,6 +199,7 @@ impl GroupPermissions {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn policy_set(&self) -> Result<PermissionPolicySet> {
     let policy_set = &self.inner.policies;
     let metadata_policy_map = &policy_set.update_metadata_policy;

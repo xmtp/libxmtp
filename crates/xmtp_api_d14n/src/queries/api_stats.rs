@@ -31,6 +31,17 @@ impl<C> TrackedStatsClient<C> {
             identity_stats: Default::default(),
         }
     }
+
+    /// The wrapped client — a test-stage escape hatch so the bidi integration
+    /// tests can reach the concrete `D14nClient` and open a `Connection`.
+    /// Test-gated on purpose: it bypasses everything this wrapper tracks, and it
+    /// cannot serve production anyway — the production stack holds a type-erased
+    /// `Arc<dyn FullXmtpApiT>`, which has no bidi surface. The client-integration
+    /// phase adds the real production route instead of widening this hole.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn inner(&self) -> &C {
+        &self.inner
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -197,6 +208,31 @@ where
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
         self.inner.subscribe_welcome_messages(installations).await
+    }
+}
+
+xmtp_common::if_native! {
+    use xmtp_proto::api_client::XmtpMlsBidiStreams;
+
+    // `XmtpMlsBidiStreams` is native-only, so this forward is gated like the
+    // trait. It carries no per-call stat (the bidi stream is opened once and
+    // mutated in place, not counted per RPC like the unary/stream calls above);
+    // it exists so the stats wrapper is bidi-capable, letting the standard
+    // feature-switched test client open a `BidiConnection`.
+    #[xmtp_common::async_trait]
+    impl<C> XmtpMlsBidiStreams for TrackedStatsClient<C>
+    where
+        C: XmtpMlsBidiStreams,
+    {
+        type SubscribeStream = <C as XmtpMlsBidiStreams>::SubscribeStream;
+        type Error = <C as XmtpMlsBidiStreams>::Error;
+
+        async fn subscribe_bidi(
+            &self,
+            requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            self.inner.subscribe_bidi(requests).await
+        }
     }
 }
 

@@ -338,7 +338,10 @@ macro_rules! retry_async {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
-                        tracing::warn!(
+                        // A single retry is normal transient behavior; keep it at debug so a
+                        // flapping endpoint doesn't flood prod warn logs (only exhaustion warns).
+                        tracing::debug!(
+                            attempt = attempts,
                             "retrying function that failed with error={}",
                             e.to_string()
                         );
@@ -346,7 +349,12 @@ macro_rules! retry_async {
                             attempts += 1;
                             $crate::time::sleep(d).await;
                         } else {
-                            tracing::warn!("retry strategy exceeded max wait time");
+                            tracing::warn!(
+                                attempts,
+                                elapsed_ms = time_spent.elapsed().as_millis(),
+                                "retry strategy exceeded max wait time, giving up: {}",
+                                e.to_string()
+                            );
                             break Err(e);
                         }
                     } else {

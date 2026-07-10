@@ -265,6 +265,20 @@ public struct Group: Identifiable, Equatable, Hashable {
 		)
 	}
 
+	/// Snapshot this group's membership capabilities: the group context's
+	/// extension types plus, per member inbox and installation, the extension
+	/// types each advertises.
+	///
+	/// These are generic facts you filter to a specific question. For the
+	/// proposal (app-data-dictionary) migration: the group is migrated when
+	/// ``GroupMembershipCapabilities/contextExtensions`` contains
+	/// ``MlsExtensionType/appDataDictionary``, and an inbox blocks migration
+	/// when one of its installations' ``InstallationCapabilities/supportedExtensions``
+	/// does not. Pair with ``enableProposals(force:minVersion:)``.
+	public func membershipCapabilities() async throws -> GroupMembershipCapabilities {
+		try await GroupMembershipCapabilities(ffi: ffiGroup.membershipCapabilities())
+	}
+
 	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
 		async throws
 	{
@@ -460,7 +474,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		let visibilityOptions = try MessageVisibilityOptions(
-			shouldPush: shouldPush(codec: codec, content: content)
+			shouldPush: shouldPush(codec: codec, content: content),
+			idempotencyKey: options?.idempotencyKey
 		)
 
 		return (encoded, visibilityOptions)
@@ -478,7 +493,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiGroup.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
+				idempotencyKey: visibilityOptions?.idempotencyKey
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)

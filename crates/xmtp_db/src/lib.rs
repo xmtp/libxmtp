@@ -8,7 +8,10 @@ pub mod sql_key_store;
 mod traits;
 pub use traits::*;
 pub mod xmtp_openmls_provider;
-pub use xmtp_openmls_provider::*;
+pub use xmtp_openmls_provider::{
+    TransactionOutcome, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
+    XmtpOpenMlsProviderRefMut,
+};
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 

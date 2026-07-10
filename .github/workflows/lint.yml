@@ -19,6 +19,7 @@ jobs:
       workspace: ${{ steps.filter.outputs.workspace }}
       node: ${{ steps.filter.outputs.node }}
       wasm: ${{ steps.filter.outputs.wasm }}
+      js: ${{ steps.filter.outputs.js }}
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       config: ${{ steps.filter.outputs.config }}
@@ -46,6 +47,14 @@ jobs:
               - 'bindings/wasm/**'
               - 'rust-toolchain.toml'
               - '.github/workflows/lint-wasm*'
+            js:
+              - 'sdks/js/**'
+              - 'bindings/node/**'
+              - 'bindings/wasm/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/lint-js*'
             ios:
               - 'sdks/ios/**'
               - '.github/workflows/lint-ios*'
@@ -78,6 +87,12 @@ jobs:
     uses: ./.github/workflows/lint-wasm.yml
     secrets: inherit
 
+  lint-js:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.js == 'true'
+    uses: ./.github/workflows/lint-js.yml
+    secrets: inherit
+
   lint-ios:
     needs: detect-changes
     if: needs.detect-changes.outputs.ios == 'true'
@@ -104,6 +119,7 @@ jobs:
       - lint-workspace
       - lint-node
       - lint-wasm
+      - lint-js
       # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - lint-config

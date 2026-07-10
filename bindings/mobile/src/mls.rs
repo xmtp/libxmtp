@@ -6,6 +6,7 @@ use crate::message::{
     FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
 };
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
+use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
@@ -63,7 +64,10 @@ use xmtp_id::{
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
-use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::groups::{
+    ConversationDebugInfo, GroupMembershipCapabilities, InboxCapabilities,
+    InstallationCapabilities, MlsExtensionType,
+};
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
@@ -308,6 +312,11 @@ pub struct DbOptions {
     pub encryption_key: Option<Vec<u8>>,
     pub max_db_pool_size: Option<u32>,
     pub min_db_pool_size: Option<u32>,
+    /// When true, use a single DB connection instead of a pool (one file
+    /// descriptor). Pool-size options are ignored. Defaults to unset so existing
+    /// foreign callers that construct `DbOptions` without this field still compile.
+    #[uniffi(default = None)]
+    pub use_single_connection: Option<bool>,
 }
 
 impl DbOptions {
@@ -316,12 +325,14 @@ impl DbOptions {
         encryption_key: Option<Vec<u8>>,
         max_db_pool_size: Option<u32>,
         min_db_pool_size: Option<u32>,
+        use_single_connection: Option<bool>,
     ) -> Self {
         Self {
             db,
             encryption_key,
             max_db_pool_size,
             min_db_pool_size,
+            use_single_connection,
         }
     }
 }
@@ -350,7 +361,6 @@ impl DbOptions {
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
-    sync_api: Arc<XmtpApiClient>,
     db: DbOptions,
     inbox_id: &InboxId,
     account_identifier: FfiIdentifier,
@@ -359,6 +369,7 @@ pub async fn create_client(
     device_sync_mode: Option<FfiDeviceSyncMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    worker_config: Option<FfiWorkerConfig>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -368,6 +379,7 @@ pub async fn create_client(
         encryption_key,
         max_db_pool_size,
         min_db_pool_size,
+        use_single_connection,
     } = db;
 
     log::info!(
@@ -377,30 +389,39 @@ pub async fn create_client(
         encryption_key.as_ref().map(|k| k.len())
     );
 
-    let db = if let Some(path) = db {
+    let single = use_single_connection.unwrap_or(false);
+
+    let base = if let Some(path) = db {
         NativeDb::builder().persistent(path)
     } else {
         NativeDb::builder().ephemeral()
     };
-    let db = if let Some(max_size) = max_db_pool_size {
-        db.max_pool_size(max_size)
-    } else {
-        db.max_pool_size(MAX_DB_POOL_SIZE)
-    };
 
-    let db = if let Some(min_size) = min_db_pool_size {
-        db.min_pool_size(min_size)
+    let db = if single {
+        if max_db_pool_size.is_some() || min_db_pool_size.is_some() {
+            log::info!("use_single_connection is set; ignoring max/min db pool size options");
+        }
+        let b = base.single_connection();
+        if let Some(key) = encryption_key {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            b.key(key).build()
+        } else {
+            b.build_unencrypted()
+        }
     } else {
-        db.min_pool_size(MIN_DB_POOL_SIZE)
-    };
-
-    let db = if let Some(key) = encryption_key {
-        let key: EncryptionKey = key
-            .try_into()
-            .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-        db.key(key).build()
-    } else {
-        db.build_unencrypted()
+        let b = base
+            .max_pool_size(max_db_pool_size.unwrap_or(MAX_DB_POOL_SIZE))
+            .min_pool_size(min_db_pool_size.unwrap_or(MIN_DB_POOL_SIZE));
+        if let Some(key) = encryption_key {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            b.key(key).build()
+        } else {
+            b.build_unencrypted()
+        }
     }?;
 
     let store = EncryptedMessageStore::new(db)?;
@@ -414,17 +435,14 @@ pub async fn create_client(
     );
 
     let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).client_bundle;
-    let sync_api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(sync_api).client_bundle;
     let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
     let mut backend = MessageBackendBuilder::default();
     backend.cursor_store(cursor_store);
-    let api_client = backend.clone().from_bundle(api_client)?;
-    let sync_api_client = backend.from_bundle(sync_api_client)?;
+    let api_client = backend.from_bundle(api_client)?;
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
-        .api_clients(api_client, sync_api_client)
+        .api_client(api_client)
         .enable_api_stats()?
-        .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .store(store);
@@ -435,6 +453,10 @@ pub async fn create_client(
 
     if let Some(fork_recovery_opts) = fork_recovery_opts {
         builder = builder.fork_recovery_opts(fork_recovery_opts.into());
+    }
+
+    if let Some(worker_config) = worker_config {
+        builder = builder.worker_config(worker_config.into());
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
@@ -1095,6 +1117,7 @@ impl FfiXmtpClient {
     ///
     /// `options` controls the quorum, timeout, and polling interval.
     /// Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+    #[xmtp_common::err_span]
     pub async fn wait_for_registration_visible(
         &self,
         options: Option<FfiVisibilityConfirmationOptions>,
@@ -1312,12 +1335,19 @@ impl From<FfiGroupQueryOrderBy> for GroupQueryOrderBy {
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiSendMessageOpts {
     pub should_push: bool,
+    /// Optional idempotency key. Re-sending identical content with the same key
+    /// produces the same message id and is deduplicated. Defaults to a timestamp.
+    /// Defaults to unset so existing foreign callers that construct
+    /// `FfiSendMessageOpts` without this field still compile.
+    #[uniffi(default = None)]
+    pub idempotency_key: Option<String>,
 }
 
 impl From<FfiSendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
     fn from(opts: FfiSendMessageOpts) -> Self {
         xmtp_mls::groups::send_message_opts::SendMessageOpts {
             should_push: opts.should_push,
+            idempotency_key: opts.idempotency_key,
         }
     }
 }
@@ -2186,6 +2216,106 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
     }
 }
 
+/// An MLS extension type advertised by an installation's key package or
+/// present in a group's context. Mirrors
+/// [`xmtp_mls::groups::MlsExtensionType`].
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
+pub enum FfiMlsExtensionType {
+    ApplicationId,
+    RatchetTree,
+    RequiredCapabilities,
+    ExternalPub,
+    ExternalSenders,
+    LastResort,
+    ImmutableMetadata,
+    AppDataDictionary,
+    Unknown { id: u16 },
+    Grease { id: u16 },
+}
+
+impl From<MlsExtensionType> for FfiMlsExtensionType {
+    fn from(value: MlsExtensionType) -> Self {
+        match value {
+            MlsExtensionType::ApplicationId => FfiMlsExtensionType::ApplicationId,
+            MlsExtensionType::RatchetTree => FfiMlsExtensionType::RatchetTree,
+            MlsExtensionType::RequiredCapabilities => FfiMlsExtensionType::RequiredCapabilities,
+            MlsExtensionType::ExternalPub => FfiMlsExtensionType::ExternalPub,
+            MlsExtensionType::ExternalSenders => FfiMlsExtensionType::ExternalSenders,
+            MlsExtensionType::LastResort => FfiMlsExtensionType::LastResort,
+            MlsExtensionType::ImmutableMetadata => FfiMlsExtensionType::ImmutableMetadata,
+            MlsExtensionType::AppDataDictionary => FfiMlsExtensionType::AppDataDictionary,
+            MlsExtensionType::Unknown(id) => FfiMlsExtensionType::Unknown { id },
+            MlsExtensionType::Grease(id) => FfiMlsExtensionType::Grease { id },
+        }
+    }
+}
+
+/// Capabilities for a single installation (device) in a group. Mirrors
+/// [`xmtp_mls::groups::InstallationCapabilities`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiInstallationCapabilities {
+    pub installation_id: Vec<u8>,
+    pub is_own: bool,
+    pub supported_extensions: Vec<FfiMlsExtensionType>,
+    pub capabilities_known: bool,
+}
+
+/// Per-inbox installation capabilities. Mirrors
+/// [`xmtp_mls::groups::InboxCapabilities`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiInboxCapabilities {
+    pub inbox_id: String,
+    pub installations: Vec<FfiInstallationCapabilities>,
+}
+
+/// A generic membership/capability snapshot for a group. Mirrors
+/// [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
+/// the proposal migration is complete when `context_extensions` contains
+/// `AppDataDictionary`, and an inbox blocks migration when one of its
+/// installations' `supported_extensions` does not.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiGroupMembershipCapabilities {
+    pub context_extensions: Vec<FfiMlsExtensionType>,
+    pub members: Vec<FfiInboxCapabilities>,
+}
+
+impl From<InstallationCapabilities> for FfiInstallationCapabilities {
+    fn from(value: InstallationCapabilities) -> Self {
+        FfiInstallationCapabilities {
+            installation_id: value.installation_id,
+            is_own: value.is_own,
+            supported_extensions: value
+                .supported_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            capabilities_known: value.capabilities_known,
+        }
+    }
+}
+
+impl From<InboxCapabilities> for FfiInboxCapabilities {
+    fn from(value: InboxCapabilities) -> Self {
+        FfiInboxCapabilities {
+            inbox_id: value.inbox_id,
+            installations: value.installations.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<GroupMembershipCapabilities> for FfiGroupMembershipCapabilities {
+    fn from(value: GroupMembershipCapabilities) -> Self {
+        FfiGroupMembershipCapabilities {
+            context_extensions: value
+                .context_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            members: value.members.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 impl From<RustMlsGroup> for FfiConversation {
     fn from(mls_group: RustMlsGroup) -> FfiConversation {
         FfiConversation { inner: mls_group }
@@ -2480,7 +2610,10 @@ impl FfiConversation {
             TextCodec::encode(text.to_string()).map_err(|e| FfiError::generic(e.to_string()))?;
         self.send(
             encoded_content_to_bytes(content),
-            FfiSendMessageOpts { should_push: true },
+            FfiSendMessageOpts {
+                should_push: true,
+                idempotency_key: None,
+            },
         )
         .await
     }
@@ -2520,10 +2653,13 @@ impl FfiConversation {
         &self,
         content_bytes: Vec<u8>,
         should_push: bool,
+        idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, FfiError> {
-        let id = self
-            .inner
-            .prepare_message_for_later_publish(content_bytes.as_slice(), should_push)?;
+        let id = self.inner.prepare_message_for_later_publish(
+            content_bytes.as_slice(),
+            should_push,
+            idempotency_key,
+        )?;
         Ok(id)
     }
 
@@ -2924,10 +3060,12 @@ impl FfiConversation {
         self.inner.created_at_ns
     }
 
+    #[xmtp_common::err_span]
     pub fn is_active(&self) -> Result<bool, FfiError> {
         self.inner.is_active().map_err(Into::into)
     }
 
+    #[xmtp_common::err_span]
     pub fn paused_for_version(&self) -> Result<Option<String>, FfiError> {
         self.inner.paused_for_version().map_err(Into::into)
     }
@@ -2947,6 +3085,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[xmtp_common::err_span]
     pub fn added_by_inbox_id(&self) -> Result<String, FfiError> {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
@@ -2995,9 +3134,23 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
+    #[xmtp_common::err_span]
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, FfiError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
+    }
+
+    /// Snapshot this group's membership capabilities: the group context's
+    /// extension types plus, per member inbox and installation, the extension
+    /// types each advertises. Generic facts the caller filters — e.g. to
+    /// answer whether the group is migrated to the proposal flow and which
+    /// members block it. See
+    /// [`xmtp_mls::groups::MlsGroup::membership_capabilities`].
+    pub async fn membership_capabilities(
+        &self,
+    ) -> Result<FfiGroupMembershipCapabilities, FfiError> {
+        let capabilities = self.inner.membership_capabilities().await?;
+        Ok(capabilities.into())
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3729,6 +3882,7 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
+    #[xmtp_common::err_span]
     pub fn policy_type(&self) -> Result<FfiGroupPermissionsOptions, FfiError> {
         if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
             Ok(preconfigured_policy.into())
@@ -3737,6 +3891,7 @@ impl FfiGroupPermissions {
         }
     }
 
+    #[xmtp_common::err_span]
     pub fn policy_set(&self) -> Result<FfiPermissionPolicySet, FfiError> {
         let policy_set = &self.inner.policies;
         let metadata_policy_map = &policy_set.update_metadata_policy;

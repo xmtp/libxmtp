@@ -344,6 +344,89 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
     }
 }
 
+/// An MLS extension type advertised by an installation's key package or
+/// present in a group's context.
+///
+/// Mirrors openmls [`ExtensionType`]; unknown/forward-compatibility variants
+/// are preserved verbatim so callers can match on what they understand and
+/// ignore the rest. This is a generic capability primitive — callers filter
+/// it to answer specific questions (e.g. "is this group migrated to the
+/// proposal flow?" = a list contains [`MlsExtensionType::AppDataDictionary`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlsExtensionType {
+    ApplicationId,
+    RatchetTree,
+    RequiredCapabilities,
+    ExternalPub,
+    ExternalSenders,
+    LastResort,
+    ImmutableMetadata,
+    AppDataDictionary,
+    /// An extension type this build does not have a named variant for.
+    Unknown(u16),
+    /// A GREASE value used to exercise extensibility.
+    Grease(u16),
+}
+
+impl From<ExtensionType> for MlsExtensionType {
+    fn from(value: ExtensionType) -> Self {
+        match value {
+            ExtensionType::ApplicationId => MlsExtensionType::ApplicationId,
+            ExtensionType::RatchetTree => MlsExtensionType::RatchetTree,
+            ExtensionType::RequiredCapabilities => MlsExtensionType::RequiredCapabilities,
+            ExtensionType::ExternalPub => MlsExtensionType::ExternalPub,
+            ExtensionType::ExternalSenders => MlsExtensionType::ExternalSenders,
+            ExtensionType::LastResort => MlsExtensionType::LastResort,
+            ExtensionType::ImmutableMetadata => MlsExtensionType::ImmutableMetadata,
+            ExtensionType::AppDataDictionary => MlsExtensionType::AppDataDictionary,
+            ExtensionType::Unknown(id) => MlsExtensionType::Unknown(id),
+            ExtensionType::Grease(id) => MlsExtensionType::Grease(id),
+        }
+    }
+}
+
+/// Capability snapshot for a single installation (device) of a member.
+#[derive(Debug, Clone)]
+pub struct InstallationCapabilities {
+    pub installation_id: Vec<u8>,
+    /// True for the local (this device's) installation.
+    pub is_own: bool,
+    /// The MLS extension types this installation advertises, taken from its
+    /// *latest published* key package. Empty when `capabilities_known` is
+    /// false.
+    pub supported_extensions: Vec<MlsExtensionType>,
+    /// Whether capabilities were determined. `false` means the key package
+    /// could not be fetched or failed verification — distinct from an
+    /// installation that advertises no extensions.
+    pub capabilities_known: bool,
+}
+
+/// Per-inbox grouping of installation capabilities. Callers map `inbox_id`
+/// back to a profile to attribute capabilities to a person.
+#[derive(Debug, Clone)]
+pub struct InboxCapabilities {
+    pub inbox_id: InboxId,
+    pub installations: Vec<InstallationCapabilities>,
+}
+
+/// A generic membership/capability snapshot for a group.
+///
+/// This intentionally reports raw facts rather than answers, so callers can
+/// filter it to whatever question they care about. For the proposal
+/// (app-data-dictionary) migration specifically: the group is already
+/// migrated when `context_extensions` contains
+/// [`MlsExtensionType::AppDataDictionary`], it is eligible to migrate when
+/// every installation's `supported_extensions` contains it, and the inboxes
+/// blocking migration are those with an installation that does not.
+#[derive(Debug, Clone)]
+pub struct GroupMembershipCapabilities {
+    /// Extension types present in the group's context.
+    pub context_extensions: Vec<MlsExtensionType>,
+    /// Per-inbox, per-installation capability breakdown — one entry per member
+    /// inbox, in no particular order.
+    pub members: Vec<InboxCapabilities>,
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
@@ -525,6 +608,180 @@ where
         Ok(true)
     }
 
+    /// Snapshot this group's membership capabilities: the extension types in
+    /// the group context, plus the extension types each member installation
+    /// advertises.
+    ///
+    /// This reports raw capability facts rather than answers — callers filter
+    /// it to whatever question they care about. For the proposal
+    /// (app-data-dictionary) migration specifically, a caller checks for
+    /// [`MlsExtensionType::AppDataDictionary`] in `context_extensions` (already
+    /// migrated?) and in each installation's `supported_extensions` (eligible /
+    /// who is blocking?).
+    ///
+    /// Every installation's capabilities — the local one included — come from
+    /// its *latest published* key package, not its in-group leaf node: a leaf
+    /// is frozen when the installation joins and is never updated, so it would
+    /// understate a client that upgraded afterward (the same reason
+    /// [`Self::all_members_support_proposals`] falls back to key packages). An
+    /// installation whose key package has not been published or fails
+    /// verification is reported with `capabilities_known == false` and an empty
+    /// extension list, so callers can distinguish "unknown" from "advertises
+    /// nothing". Transient failures (network, auth, db) surface as an `Err`
+    /// rather than masquerading as unknown capabilities.
+    pub async fn membership_capabilities(&self) -> Result<GroupMembershipCapabilities, GroupError> {
+        // Read the group context's extension types under lock. The member list
+        // (below) is read in a separate lock acquisition, so this is a
+        // best-effort snapshot rather than a single atomic view — fine for a
+        // debug surface.
+        let context_extensions = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                Ok::<_, GroupError>(
+                    mls_group
+                        .extensions()
+                        .iter()
+                        .map(|ext| MlsExtensionType::from(ext.extension_type()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .await?;
+
+        let members = self.members().await?;
+        let own_installation_id = self.context.installation_id();
+
+        // Capabilities for every installation come from its latest published
+        // key package. We intentionally include our own installation rather
+        // than reading its in-group leaf, which is frozen at join and would
+        // understate an upgraded local client.
+        let query_ids: Vec<Vec<u8>> = members
+            .iter()
+            .flat_map(|member| member.installation_ids.iter().cloned())
+            .collect();
+
+        let extensions_by_installation = self.installation_extensions(query_ids).await?;
+
+        let installation_capabilities = |installation_id: Vec<u8>| -> InstallationCapabilities {
+            let is_own = installation_id.as_slice() == own_installation_id.as_slice();
+            match extensions_by_installation.get(installation_id.as_slice()) {
+                Some(extensions) => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: extensions.clone(),
+                    capabilities_known: true,
+                },
+                None => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: Vec::new(),
+                    capabilities_known: false,
+                },
+            }
+        };
+
+        let member_caps: Vec<InboxCapabilities> = members
+            .into_iter()
+            .map(|member| InboxCapabilities {
+                inbox_id: member.inbox_id,
+                installations: member
+                    .installation_ids
+                    .into_iter()
+                    .map(installation_capabilities)
+                    .collect(),
+            })
+            .collect();
+
+        Ok(GroupMembershipCapabilities {
+            context_extensions,
+            members: member_caps,
+        })
+    }
+
+    /// Fetch the latest published key package for each given installation and
+    /// return the MLS extension types it advertises, keyed by installation id.
+    ///
+    /// An installation with no published key package (e.g. an old client — what
+    /// this surface exists to flag) or whose key package fails verification is
+    /// simply absent from the returned map; callers treat absence as
+    /// "capabilities unknown". Transient/infrastructure failures (network,
+    /// auth, db) are NOT swallowed — they propagate as `Err`, so a snapshot can
+    /// tell "this installation has nothing published" apart from "we couldn't
+    /// reach the server".
+    ///
+    /// A single batch round-trip is attempted first; the batch fetch fails
+    /// wholesale when *any* requested installation has no published key package,
+    /// so on that specific error we fall back to bounded per-installation
+    /// fetches that tolerate the gaps.
+    async fn installation_extensions(
+        &self,
+        query_ids: Vec<Vec<u8>>,
+    ) -> Result<HashMap<Vec<u8>, Vec<MlsExtensionType>>, GroupError> {
+        if query_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let store = crate::mls_store::MlsStore::new(self.context.clone());
+
+        // Cap the fallback fan-out: this path fires when the group holds
+        // installations without published key packages, and large groups can
+        // hold hundreds of installations.
+        const MAX_CONCURRENT_KEY_PACKAGE_FETCHES: usize = 16;
+
+        let verified = match store
+            .get_key_packages_for_installation_ids(query_ids.clone())
+            .await
+        {
+            Ok(key_packages) => key_packages,
+            Err(e) if Self::is_missing_key_package(&e) => {
+                use futures::stream::{StreamExt, TryStreamExt};
+                futures::stream::iter(query_ids.into_iter().map(|id| {
+                    let store = &store;
+                    async move {
+                        match store
+                            .get_key_packages_for_installation_ids(vec![id.clone()])
+                            .await
+                        {
+                            Ok(mut found) => Ok(found.remove(id.as_slice()).map(|kp| (id, kp))),
+                            Err(e) if Self::is_missing_key_package(&e) => Ok(None),
+                            Err(e) => Err(GroupError::from(e)),
+                        }
+                    }
+                }))
+                .buffer_unordered(MAX_CONCURRENT_KEY_PACKAGE_FETCHES)
+                .try_filter_map(|entry| async move { Ok(entry) })
+                .try_collect()
+                .await?
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(verified
+            .into_iter()
+            .filter_map(|(id, result)| {
+                let extensions = result
+                    .ok()?
+                    .inner
+                    .leaf_node()
+                    .capabilities()
+                    .extensions()
+                    .iter()
+                    .copied()
+                    .map(MlsExtensionType::from)
+                    .collect();
+                Some((id, extensions))
+            })
+            .collect())
+    }
+
+    /// True when a key-package fetch failed specifically because an installation
+    /// has no published key package — the batch API reports this as a count
+    /// mismatch. Distinct from transient/infrastructure failures, which callers
+    /// want surfaced rather than silently reported as "unknown capabilities".
+    fn is_missing_key_package(err: &crate::mls_store::MlsStoreError) -> bool {
+        matches!(
+            err,
+            crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::MismatchedKeyPackages { .. })
+        )
+    }
+
     /// Check if the group has proposals enabled (proposal-by-reference flow).
     ///
     /// Delegates to `check_proposals_enabled` which detects the
@@ -540,6 +797,15 @@ where
     /// - Direct commits for membership changes are not allowed
     pub fn proposals_enabled(&self, mls_group: &OpenMlsGroup) -> bool {
         check_proposals_enabled(mls_group.extensions())
+    }
+
+    /// Like [`Self::proposals_enabled`], but loads the group from storage
+    /// instead of taking a caller-held `OpenMlsGroup`. The convenience
+    /// shape bindings need for a plain "is this group migrated?" read.
+    pub fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+            Ok(self.proposals_enabled(&mls_group))
+        })
     }
 
     /// Enable proposals on this group (proposal-by-reference flow).
@@ -1126,7 +1392,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id()))]
+    #[tracing::instrument(level = "debug", err, skip_all, fields(who = self.context.inbox_id(), operation = "send_message"))]
     pub async fn send_message(
         &self,
         message: &[u8],
@@ -1146,7 +1412,7 @@ where
         self.commit_pending_proposals_if_any().await?;
 
         let message_id =
-            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
 
         self.sync_until_last_intent_resolved().await?;
 
@@ -1217,7 +1483,7 @@ where
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
         let message_id =
-            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
         Ok(message_id)
     }
 
@@ -1229,17 +1495,31 @@ where
     /// # Arguments
     /// * `message` - The message content bytes
     /// * `should_push` - Whether to send a push notification when publishing
+    /// * `idempotency_key` - Optional caller-supplied key the message id is
+    ///   derived from. Defaults to the send timestamp when `None`.
     ///
     /// Returns the message ID.
     pub fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
         should_push: bool,
+        idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, GroupError> {
         let now = now_ns();
+        // Resolve the key once: a caller-supplied key makes the resulting id
+        // deterministic; otherwise we fall back to the timestamp (always unique).
+        let idempotency_key = idempotency_key.unwrap_or_else(|| now.to_string());
         let queryable_content_fields = Self::extract_queryable_content_fields(message);
 
-        let message_id = calculate_message_id(self.group_id, message, &now.to_string());
+        let message_id = calculate_message_id(self.group_id, message, &idempotency_key);
+
+        // Idempotent: a retry with the same key + content resolves to the same id.
+        // Return the existing message rather than failing on the PK conflict, so
+        // crash-recovery retries are at-least-once-with-dedup instead of an error.
+        if let Some(existing) = self.context.db().get_group_message(&message_id)? {
+            return Ok(existing.id);
+        }
+
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id,
@@ -1259,6 +1539,7 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,
+            idempotency_key,
         };
         group_message.store(&self.context.db())?;
 
@@ -1294,9 +1575,10 @@ where
             return Ok(());
         }
 
-        // Create envelope from stored message
+        // Create envelope from stored message, reusing the idempotency key the
+        // message id was derived from so receivers recompute the same id.
         let plain_envelope =
-            Self::into_envelope(&message.decrypted_message_bytes, message.sent_at_ns);
+            Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
@@ -1425,20 +1707,24 @@ where
         envelope: F,
     ) -> Result<Vec<u8>, GroupError>
     where
-        F: FnOnce(i64) -> PlaintextEnvelope,
+        F: FnOnce(&str) -> PlaintextEnvelope,
     {
         // Store the message locally first (with should_push preference)
-        let message_id = self.prepare_message_for_later_publish(message, opts.should_push)?;
+        let message_id = self.prepare_message_for_later_publish(
+            message,
+            opts.should_push,
+            opts.idempotency_key,
+        )?;
 
-        // Fetch the stored message to get the sent_at_ns timestamp
+        // Fetch the stored message to get the resolved idempotency key
         let stored_message = self
             .context
             .db()
             .get_group_message(&message_id)?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
 
-        // Create envelope using the stored timestamp for consistency
-        let plain_envelope = envelope(stored_message.sent_at_ns);
+        // Create envelope using the stored idempotency key so the id stays consistent
+        let plain_envelope = envelope(&stored_message.idempotency_key);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
@@ -1452,7 +1738,7 @@ where
         Ok(message_id)
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
         PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),
@@ -1709,6 +1995,21 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
+        Ok(())
+    }
+
+    /// Process this group's pending self-remove requests end-to-end: remove the
+    /// members still in the group that requested removal, then clean up stale
+    /// pending-remove rows. Idempotent and a no-op when this client is not a
+    /// super-admin, so it is safe to call from both the inline message-processing
+    /// fast-path and the durable `TaskRunner` retry path.
+    pub(crate) async fn process_pending_self_removals(&self) -> Result<(), GroupError> {
+        // Both helpers early-return on an empty pending list; cleanup owns the
+        // flag-clear. Keeping the empty-check inside cleanup (rather than a
+        // separate clear here) avoids racing a concurrent LeaveRequest insert and
+        // wrongly clearing the flag.
+        self.remove_members_pending_removal().await?;
+        self.cleanup_pending_removal_list().await?;
         Ok(())
     }
 

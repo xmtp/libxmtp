@@ -893,3 +893,206 @@ async fn test_new_group_does_not_duplicate_messages() {
         new_stats.len()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Stream-liveness watchdog (see `subscriptions::watchdog`).
+// ---------------------------------------------------------------------------
+
+/// The premise the whole watchdog design rests on: a real, live v3 subscription that goes
+/// idle produces *nothing* (the v3 path has no server-side keepalive), so it appears as a
+/// perpetual `Pending`. Wrapped in a `WatchdogStream`, that idle stream must trip with
+/// `StreamStale` and then terminate — while live messages still flow through untouched.
+#[xmtp_common::timeout(Duration::from_secs(40))]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn watchdog_trips_on_idle_real_stream() {
+    use crate::subscriptions::{SubscribeError, watchdog::WatchdogStream};
+
+    tester!(alix);
+    tester!(bo);
+
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+
+    // Wrap a real, live subscription with a short idle timeout.
+    let raw = bo.stream_all_messages(None, None).await?;
+    let watchdog = WatchdogStream::new(raw, Some(Duration::from_secs(3)));
+    futures::pin_mut!(watchdog);
+
+    // A live application message flows through and resets the idle timer. Tolerate any
+    // leading protocol messages (e.g. the membership commit) ahead of our payload.
+    group
+        .send_message(b"first", SendMessageOpts::default())
+        .await?;
+    xmtp_common::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match watchdog.next().await {
+                Some(Ok(msg))
+                    if String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())
+                        == "first" =>
+                {
+                    break;
+                }
+                Some(Ok(_)) => continue,
+                other => panic!("expected live messages, got {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("live message did not flow through the watchdog");
+
+    // With the group now idle and no server keepalive on the v3 path, the real stream
+    // produces nothing, so the watchdog must trip. A stray protocol message would merely
+    // reset the timer; we still expect an eventual trip.
+    let tripped = xmtp_common::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match watchdog.next().await {
+                Some(Err(SubscribeError::StreamStale)) => break,
+                Some(Ok(_)) => continue,
+                other => panic!("expected StreamStale, got {other:?}"),
+            }
+        }
+    })
+    .await;
+    assert!(
+        tripped.is_ok(),
+        "watchdog did not trip on a real idle stream within the timeout"
+    );
+
+    // Having tripped, the stream is finished.
+    assert!(
+        watchdog.next().await.is_none(),
+        "watchdog stream must terminate after tripping"
+    );
+}
+
+/// End-to-end check of the reconnect-on-stale wiring in `stream_all_messages_with_callback`.
+/// With a short idle timeout, the watchdog trips while the stream is idle; the consume loop
+/// must re-subscribe (resuming from the cursor) rather than ending. We prove this by sending
+/// a message *after* a trip and asserting it still arrives, and confirm via the logs that a
+/// stale-trip actually occurred.
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg(not(target_arch = "wasm32"))]
+fn watchdog_reconnect_keeps_stream_alive() {
+    use crate::subscriptions::watchdog;
+    use std::sync::Mutex;
+    use xmtp_common::StreamHandle;
+
+    /// Restores the thread-local watchdog override on drop, so a panicking assertion can't
+    /// leave a short idle timeout installed for later tests run on this thread.
+    struct ResetIdleTimeout;
+    impl ResetIdleTimeout {
+        fn install(timeout: Duration) -> Self {
+            watchdog::set_test_idle_timeout(Some(timeout));
+            Self
+        }
+    }
+    impl Drop for ResetIdleTimeout {
+        fn drop(&mut self) {
+            watchdog::set_test_idle_timeout(None);
+        }
+    }
+
+    xmtp_common::traced_test!(async {
+        // Shrink the idle timeout so the watchdog trips in seconds. The override is
+        // thread-local and only reaches the spawned stream task because `traced_test!`
+        // runs everything on a single current-thread runtime. The guard restores it on
+        // scope exit even if an assertion panics.
+        let _reset = ResetIdleTimeout::install(Duration::from_secs(2));
+
+        tester!(alix);
+        tester!(bo);
+
+        let group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await
+            .unwrap();
+        bo.sync_welcomes().await.unwrap();
+
+        let received = Arc::new(Mutex::new(Vec::<String>::new()));
+        let received_cb = received.clone();
+        let mut handle = crate::Client::stream_all_messages_with_callback(
+            bo.context.clone(),
+            None,
+            None,
+            move |msg| {
+                if let Ok(msg) = msg {
+                    received_cb.lock().unwrap().push(
+                        String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice()).to_string(),
+                    );
+                }
+            },
+            || {},
+        );
+        xmtp_common::time::timeout(Duration::from_secs(15), handle.wait_for_ready())
+            .await
+            .expect("stream did not become ready");
+
+        // The first message arrives on the initial subscription.
+        group
+            .send_message(b"first", SendMessageOpts::default())
+            .await
+            .unwrap();
+        let got_first = {
+            let received = received.clone();
+            xmtp_common::wait_for_some(move || {
+                let received = received.clone();
+                async move {
+                    received
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|m| m == "first")
+                        .then_some(())
+                }
+            })
+            .await
+        };
+        assert!(got_first.is_some(), "did not receive the first message");
+
+        // Stay idle long enough for the watchdog to trip (idle 2s) and the consume loop to
+        // re-subscribe (plus its jittered backoff).
+        xmtp_common::time::sleep(Duration::from_secs(6)).await;
+
+        // A message sent after the trip must still arrive — proving the consume loop
+        // reconnected instead of ending the stream.
+        group
+            .send_message(b"second", SendMessageOpts::default())
+            .await
+            .unwrap();
+        let got_second = {
+            let received = received.clone();
+            xmtp_common::wait_for_some(move || {
+                let received = received.clone();
+                async move {
+                    received
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|m| m == "second")
+                        .then_some(())
+                }
+            })
+            .await
+        };
+        assert!(
+            got_second.is_some(),
+            "did not receive a message sent after the watchdog tripped; the stream did not reconnect"
+        );
+
+        // Confirm a stale-trip actually happened (otherwise the assertions above could pass
+        // simply because the stream never went idle).
+        xmtp_common::traced_test::LOG_BUFFER.with(|buf| {
+            buf.flush();
+            let logs = buf.as_string();
+            assert!(
+                logs.contains("went stale"),
+                "watchdog never logged a stale-trip; the reconnect path was not exercised"
+            );
+        });
+
+        handle.end();
+    });
+}

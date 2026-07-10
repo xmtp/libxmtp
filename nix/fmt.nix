@@ -37,6 +37,26 @@
               "**/Dockerfile"
             ];
           };
+          # Formats the JS SDKs (sdks/js). This is the formatter of record for
+          # TypeScript/JS there; the SDK eslint config intentionally omits the
+          # prettier plugin so the two don't fight.
+          prettier = {
+            enable = true;
+            includes = [
+              "sdks/js/**/*.ts"
+              "sdks/js/**/*.tsx"
+              "sdks/js/**/*.js"
+              "sdks/js/**/*.cjs"
+              "sdks/js/**/*.mjs"
+              "sdks/js/**/*.json"
+              "sdks/js/**/*.md"
+            ];
+            excludes = [
+              "sdks/js/**/dist/**"
+              "sdks/js/.yarn/**"
+              "sdks/js/**/CHANGELOG.md"
+            ];
+          };
         };
         settings.formatter = {
           shellcheck.options = [

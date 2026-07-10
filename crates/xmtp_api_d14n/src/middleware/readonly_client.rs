@@ -66,6 +66,20 @@ where
 
         self.inner.stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let p = path.path();
+        if DENY.iter().any(|d| p.contains(d)) {
+            return Err(ApiClientError::WritesDisabled);
+        }
+
+        self.inner.bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]

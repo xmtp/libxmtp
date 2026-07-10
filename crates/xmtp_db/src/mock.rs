@@ -472,6 +472,8 @@ mock! {
 
         fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
+        fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
+
         #[mockall::concretize]
         fn delete_message_by_id<MessageId: AsRef<[u8]>>(
             &self,
@@ -488,7 +490,7 @@ mock! {
         fn messages_newer_than(
             &self,
             cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-        ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+        ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
         fn clear_messages<'a>(
             &self,
@@ -499,10 +501,13 @@ mock! {
 
     impl QueryIdentity for DbQuery {
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+        fn queue_key_rotation_with_nudge(&self, rotation_task_hash: &crate::tasks::TaskDataHash, rotation_seed: crate::tasks::NewTask) -> Result<(), StorageError>;
 
         fn reset_key_package_rotation_queue(&self, rotation_interval: i64) -> Result<(), StorageError>;
 
         fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+
+        fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
     }
 
     impl QueryIdentityCache for DbQuery {
@@ -542,6 +547,8 @@ mock! {
         fn get_expired_key_packages(
             &self,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
+
+        fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
 
         fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
 
@@ -681,6 +688,11 @@ mock! {
             &self,
             group_id: &GroupId,
         ) -> Result<Option<i32>, crate::ConnectionError>;
+
+        fn get_latest_chain_start_rowid(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<i32>, crate::ConnectionError>;
     }
 
     impl QueryRemoteCommitLog for DbQuery {
@@ -721,9 +733,15 @@ mock! {
     impl QueryTasks for DbQuery {
         fn create_task(&self, task: crate::tasks::NewTask) -> Result<crate::tasks::Task, StorageError>;
 
+        fn create_or_ignore_task(&self, task: crate::tasks::NewTask) -> Result<(), StorageError>;
+
+        fn pull_in_task_deadline(&self, target_data_hash: &crate::tasks::TaskDataHash, at_ns: i64) -> Result<bool, StorageError>;
+
         fn get_tasks(&self) -> Result<Vec<crate::tasks::Task>, StorageError>;
 
         fn get_next_task(&self) -> Result<Option<crate::tasks::Task>, StorageError>;
+
+        fn upsert_pending_self_remove_task(&self, group_id: &GroupId, task: crate::tasks::NewTask) -> Result<(), StorageError>;
 
         fn update_task(
             &self,

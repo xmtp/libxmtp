@@ -51,6 +51,7 @@ impl AuthHandle {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn set(&self, credential: Credential) -> Result<(), super::Error> {
     self.handle.set(credential.try_into()?).await;
     Ok(())

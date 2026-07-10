@@ -24,8 +24,9 @@ use xmtp_common::time::now_ns;
 use xmtp_configuration::Originators;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
+use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::{
-    StorageError, XmtpOpenMlsProviderRef,
+    StorageError, TransactionOutcome, XmtpOpenMlsProviderRef,
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -250,28 +251,40 @@ where
         decrypted_welcome: DecryptedWelcome,
         events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
-        tracing::info!("attempting to commit welcome={}", &self.welcome.cursor);
-        let commit_result = self.context.mls_storage().transaction(|conn| {
-            let storage = conn.key_store();
-            // Savepoint transaction
-            let result = storage.savepoint(|conn| self.commit(conn, events, decrypted_welcome));
-            let db = storage.db();
-            // if we got an error
-            // and the error is not retryable
-            // and cursor increment is enabled
-            // update the cursor
-            match result {
-                Err(err) if !err.is_retryable() && self.cursor_increment => {
-                    tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.cursor);
-                    self.update_cursor(&db)?;
-                    // return ok to commit the transaction
-                    Ok(CommitResult::FailedForever(err))
-                },
-                // roll everything back to retry
-                Err(e) => Err(e),
-                Ok(group) => Ok(CommitResult::Ok(group)),
-            }
-        })?;
+        tracing::debug!("attempting to commit welcome={}", &self.welcome.cursor);
+        let commit_result = self
+            .context
+            .mls_storage()
+            .transaction(|conn| {
+                let storage = conn.key_store();
+                // Savepoint transaction
+                let result = storage.savepoint(|conn| {
+                    self.commit(conn, events, decrypted_welcome)
+                        .map(Continue)
+                });
+                let db = storage.db();
+                // if we got an error
+                // and the error is not retryable
+                // and cursor increment is enabled
+                // update the cursor
+                match result {
+                    Err(err) if !err.is_retryable() && self.cursor_increment => {
+                        tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.cursor);
+                        self.update_cursor(&db)?;
+                        // return ok to commit the transaction
+                        Ok(Continue(CommitResult::FailedForever(err)))
+                    }
+                    // roll everything back to retry
+                    Err(e) => Err(e),
+                    Ok(Continue(group)) => {
+                        Ok(Continue(CommitResult::Ok(group)))
+                    }
+                    Ok(Rollback) => {
+                        unreachable!("savepoint never intentionally rolls back here")
+                    }
+                }
+            })
+            .map(TransactionOutcome::into_continued)?;
         events.send_all(&self.context);
         Ok(commit_result)
     }
@@ -307,11 +320,16 @@ where
         let requires_processing =
             welcome.resuming() || welcome.sequence_id() > self.last_sequence_id(&db)? as u64;
         if !requires_processing {
-            tracing::error!("Skipping already processed welcome {}", welcome.cursor);
+            // Expected, non-retryable condition: a welcome we've already processed
+            // (duplicate delivery / resume past our cursor). Logging at error! here
+            // marks the enclosing worker span status:error and inflates the error
+            // rate, even though it's handled gracefully. warn! keeps it visible
+            // without poisoning the span.
+            tracing::warn!("Skipping already processed welcome {}", welcome.cursor);
             return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
         }
         if *cursor_increment {
-            tracing::info!("updating cursor to {}", welcome.cursor);
+            tracing::debug!("updating cursor to {}", welcome.cursor);
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
             db.update_cursor(
@@ -492,7 +510,7 @@ where
             }
         };
 
-        tracing::info!("storing group with welcome id {}", welcome.cursor);
+        tracing::debug!("storing group with welcome id {}", welcome.cursor);
 
         // If this is a re-add after leaving, update the existing group's membership state
         // before calling insert_or_replace_group
@@ -530,10 +548,11 @@ where
         let mut encoded_added_payload_bytes = Vec::new();
         encoded_added_payload.encode(&mut encoded_added_payload_bytes)?;
 
+        let added_idempotency_key = format!("{}_welcome_added", welcome.created_ns);
         let added_message_id = crate::utils::id::calculate_message_id(
             stored_group.id,
             encoded_added_payload_bytes.as_slice(),
-            &format!("{}_welcome_added", welcome.created_ns),
+            &added_idempotency_key,
         );
 
         let added_content_type = encoded_added_payload.r#type.unwrap_or_else(|| {
@@ -570,14 +589,13 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,
+            // Matches the key used to derive `added_message_id` above.
+            idempotency_key: added_idempotency_key,
         };
 
         added_msg.store_or_ignore(&db)?;
 
-        tracing::info!(
-            "[{}]: Created GroupUpdated message for welcome",
-            current_inbox_id
-        );
+        tracing::debug!("created GroupUpdated message for welcome, inbox_id={current_inbox_id}");
 
         let group = MlsGroup::new(
             context.clone(),
@@ -614,7 +632,7 @@ where
             cursor,
         )?;
 
-        tracing::info!(
+        tracing::debug!(
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
             group_id = %group.group_id,

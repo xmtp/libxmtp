@@ -9,7 +9,8 @@ use crate::{
     groups::GroupError,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
+        WorkerKind, WorkerResult,
         device_sync::{AvailableArchive, archive::insert_importer},
         metrics::WorkerMetrics,
     },
@@ -135,43 +136,51 @@ where
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
         while let Ok(event) = self.receiver.recv().await {
+            // Tick is the internal timer heartbeat (every 20s): no real work, so
+            // dispatch it directly without opening a worker_turn span.
             if matches!(event, SyncWorkerEvent::Tick) {
-                tracing::trace!(
-                    "[{}] New event: {event:?}",
-                    self.client.context.installation_id()
-                );
-            } else {
-                tracing::info!(
-                    "[{}] New event: {event:?}",
-                    self.client.context.installation_id()
-                );
+                self.evt_new_sync_group_msg(true).await?;
+                continue;
             }
 
-            match event {
-                SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                    self.evt_new_sync_group_from_welcome().await?;
-                }
-                SyncWorkerEvent::NewSyncGroupMsg => {
-                    self.evt_new_sync_group_msg(false).await?;
-                }
-                SyncWorkerEvent::Tick => {
-                    self.evt_new_sync_group_msg(true).await?;
-                }
-                SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                    self.evt_sync_preferences(preference_updates).await?;
-                }
-                SyncWorkerEvent::CycleHMAC => {
-                    self.evt_cycle_hmac().await?;
-                }
-            }
+            tracing::info!(
+                installation_id = %self.client.context.installation_id(),
+                "new sync worker event: {event:?}",
+            );
+            self.handle_event(event).await?;
         }
         Ok(())
     }
 
-    async fn tick(ctx: Context) {
-        loop {
-            xmtp_common::time::sleep(Duration::from_secs(20)).await;
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    async fn handle_event(&mut self, event: SyncWorkerEvent) -> Result<(), DeviceSyncError> {
+        match event {
+            SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                self.evt_new_sync_group_from_welcome().await
+            }
+            SyncWorkerEvent::NewSyncGroupMsg => self.evt_new_sync_group_msg(false).await,
+            SyncWorkerEvent::SyncPreferences(preference_updates) => {
+                self.evt_sync_preferences(preference_updates).await
+            }
+            SyncWorkerEvent::CycleHMAC => self.evt_cycle_hmac().await,
+            // Tick is intentionally filtered out in `run_internal` before reaching
+            // here, so it never opens a worker_turn span.
+            SyncWorkerEvent::Tick => unreachable!("Tick is handled before dispatch"),
+        }
+    }
 
+    async fn tick(ctx: Context) {
+        use futures::StreamExt;
+        let (base, jitter) = ctx.worker_interval(
+            crate::worker::WorkerKind::DeviceSync,
+            Duration::from_secs(20),
+        );
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        // The interval stream yields immediately on its first poll; skip that
+        // so the first Tick is sent only after a full interval, preserving the
+        // original sleep-then-send cadence.
+        let _ = intervals.next().await;
+        while intervals.next().await.is_some() {
             // We don't need to worry about a mutex lock for device sync
             // to ensure that a sync payload is not being processed by two
             // threads at once because there should only ever be one sync worker
@@ -299,6 +308,11 @@ where
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
+                // A failed message is non-fatal (log + bump attempt), but a
+                // dropped pool must stop the worker; bubble it.
+                if err.needs_db_reconnect() {
+                    return Err(err);
+                }
                 log_event!(
                     Event::DeviceSyncMessageProcessingError,
                     self.context.installation_id(),
@@ -574,7 +588,7 @@ where
             }
         }
 
-        Err(DeviceSyncError::MissingPayload(pin.map(str::to_string)))
+        Err(DeviceSyncError::MissingPayload(pin.is_some()))
     }
 
     pub fn list_available_archives(

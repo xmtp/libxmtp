@@ -6,6 +6,7 @@ use std::collections::HashMap;
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let group = self.create_mls_group();
 

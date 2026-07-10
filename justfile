@@ -2,6 +2,7 @@ mod android 'sdks/android/android.just'
 mod ios 'sdks/ios/ios.just'
 mod node 'bindings/node/node.just'
 mod wasm 'bindings/wasm/wasm.just'
+mod js 'sdks/js/js.just'
 
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 

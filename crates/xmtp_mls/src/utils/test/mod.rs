@@ -42,20 +42,16 @@ impl<A, S> ClientBuilder<A, S> {
 
     pub fn dev(self) -> ClientBuilder<TestClient, S> {
         let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = DevOnlyTestClientCreator::with_cursor_store(s.clone());
-        let s = DevOnlyTestClientCreator::with_cursor_store(s);
+        let a = DevOnlyTestClientCreator::with_cursor_store(s);
         let api_client = a.build().unwrap();
-        let sync_api_client = s.build().unwrap();
-        self.api_clients(api_client, sync_api_client)
+        self.api_client(api_client)
     }
 
     pub fn local(self) -> ClientBuilder<TestClient, S> {
         let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = LocalOnlyTestClientCreator::with_cursor_store(s.clone());
-        let s = LocalOnlyTestClientCreator::with_cursor_store(s);
+        let a = LocalOnlyTestClientCreator::with_cursor_store(s);
         let api_client = a.build().unwrap();
-        let sync_api_client = s.build().unwrap();
-        self.api_clients(api_client, sync_api_client)
+        self.api_client(api_client)
     }
 }
 

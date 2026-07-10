@@ -226,6 +226,7 @@ mod tests {
             originator_id: 1,
             inserted_at_ns: 0,
             should_push: false,
+            idempotency_key: 1000.to_string(),
         }
         .store(conn)
         .unwrap();

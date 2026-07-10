@@ -29,6 +29,7 @@ fn generate_message_with_cursor(
         originator_id,
         expire_at_ns: None,
         should_push: true,
+        idempotency_key: sent_at_ns.to_string(),
     }
 }
 
@@ -65,12 +66,12 @@ fn test_messages_newer_than_basic() {
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 1 && c.sequence_id == 20)
+                .any(|(g, c)| *g == group.id && c.originator_id == 1 && c.sequence_id == 20)
         );
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 25)
+                .any(|(g, c)| *g == group.id && c.originator_id == 2 && c.sequence_id == 25)
         );
     })
 }
@@ -106,12 +107,12 @@ fn test_messages_newer_than_new_originator() {
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 5)
+                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 5)
         );
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 10)
+                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 10)
         );
     })
 }
@@ -150,8 +151,17 @@ fn test_messages_newer_than_multiple_groups() {
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
         assert_eq!(newer.len(), 2);
-        assert!(newer.iter().any(|c| c.sequence_id == 20)); // from group1
-        assert!(newer.iter().any(|c| c.sequence_id == 15)); // from group2
+        // Each cursor is attributed to the group it came from.
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group1.id && c.sequence_id == 20)
+        );
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group2.id && c.sequence_id == 15)
+        );
     })
 }
 
@@ -283,24 +293,24 @@ fn test_messages_newer_than_mixed_originators() {
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 1 && c.sequence_id == 10)
+                .any(|(_, c)| c.originator_id == 1 && c.sequence_id == 10)
         );
         // From originator 2: seq 7 (newer than 3)
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 7)
+                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 7)
         );
         // From originator 3: both messages (new originator)
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 3 && c.sequence_id == 2)
+                .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 2)
         );
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 3 && c.sequence_id == 4)
+                .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 4)
         );
     })
 }
@@ -365,15 +375,23 @@ fn test_messages_newer_than_per_group_cursors() {
         assert_eq!(newer.len(), 2);
 
         // From group 1: sequence_id 150 (> 100)
-        assert!(newer.iter().any(|c| c.sequence_id == 150));
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group1.id && c.sequence_id == 150)
+        );
 
         // From group 2: sequence_id 400 (> 300)
-        assert!(newer.iter().any(|c| c.sequence_id == 400));
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group2.id && c.sequence_id == 400)
+        );
 
         // Should NOT include group 2's message with sequence_id 200 (< 300)
-        assert!(!newer.iter().any(|c| c.sequence_id == 200));
+        assert!(!newer.iter().any(|(_, c)| c.sequence_id == 200));
 
         // Should NOT include group 1's message with sequence_id 50 (< 100)
-        assert!(!newer.iter().any(|c| c.sequence_id == 50));
+        assert!(!newer.iter().any(|(_, c)| c.sequence_id == 50));
     })
 }

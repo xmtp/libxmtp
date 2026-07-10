@@ -15,11 +15,11 @@ async fn test_create_client_with_storage() {
 
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
         None,
         None,
         None,
@@ -34,11 +34,11 @@ async fn test_create_client_with_storage() {
 
     let client_b = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
         None,
         None,
         None,
@@ -69,11 +69,11 @@ async fn test_create_client_with_key() {
 
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), Some(key), None, None),
+        DbOptions::new(Some(path.clone()), Some(key), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
         None,
         None,
         None,
@@ -89,11 +89,17 @@ async fn test_create_client_with_key() {
 
     let result_errored = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), Some(other_key.to_vec()), None, None),
+        DbOptions::new(
+            Some(path.clone()),
+            Some(other_key.to_vec()),
+            None,
+            None,
+            None,
+        ),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
         None,
         None,
         None,
@@ -119,11 +125,11 @@ async fn test_can_message() {
 
     let client_amal = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &amal_inbox_id,
         amal.identifier(),
         nonce,
+        None,
         None,
         None,
         None,
@@ -159,11 +165,11 @@ async fn test_can_message() {
 
     let client_bola = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &bola_inbox_id,
         bola.identifier(),
         nonce,
+        None,
         None,
         None,
         None,

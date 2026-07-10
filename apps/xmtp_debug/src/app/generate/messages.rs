@@ -97,7 +97,7 @@ pub struct GenerateMessages {
 }
 
 impl GenerateMessages {
-    pub fn new(opts: args::MessageGenerateOpts, concurrency: usize) -> Result<Self> {
+    pub async fn new(opts: args::MessageGenerateOpts, concurrency: usize) -> Result<Self> {
         // Always open write-capable redb so we can mirror sent messages
         // into `MessageStore`. add_member/change_description already
         // required write; default path now does too because we record
@@ -107,7 +107,7 @@ impl GenerateMessages {
         let identity_store: IdentityStore<'static> = db.clone().into();
         let group_store: GroupStore<'static> = db.clone().into();
         let message_store: MessageStore<'static> = db.into();
-        let identities = load_all_identities(&identity_store)?;
+        let identities = load_all_identities(&identity_store).await?;
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
         Ok(Self {

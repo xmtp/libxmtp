@@ -48,6 +48,15 @@ where
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         self.inner.stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        self.inner.bidi_stream(request, path, body).await
+    }
 }
 
 pub trait ToBoxedClient {

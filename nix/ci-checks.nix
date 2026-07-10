@@ -37,6 +37,7 @@ in
       { pkgs, ... }:
       {
         xdbg = pkgs.callPackage ./package/xdbg-check.nix { };
+        keepalive-probe = pkgs.callPackage ./package/keepalive-probe-check.nix { };
       }
     )
   );

@@ -115,6 +115,11 @@ where
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))
             .await
+            // Streaming path (trust_message_order = false): any captured
+            // intent_error is intentionally discarded — intent-resolution
+            // reporting belongs to the query/sync path, not the stream. Surface
+            // only the identifier, matching prior behavior.
+            .map(|outcome| outcome.identifier)
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
     }
 
@@ -253,7 +258,9 @@ where
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: delivered_cursor,
-                group_id: new_msg.group_id.to_vec(),
+                // `lookup_stored_from_sync` only returns same-group rows, so
+                // the wire message's typed id is the stored message's group.
+                group_id: msg.group_id,
                 tried_to_process: msg.cursor,
             })
         } else {
@@ -261,7 +268,7 @@ where
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,
-                group_id: msg.group_id.to_vec(),
+                group_id: msg.group_id,
                 tried_to_process: msg.cursor,
             })
         }

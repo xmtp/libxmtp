@@ -104,6 +104,20 @@ where
                     return Err(GroupError::ProcessIntent(
                         ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor),
                     ));
+                } else if matches!(
+                    err,
+                    GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))
+                ) {
+                    // Expected, non-retryable condition: the welcome was already
+                    // processed (e.g. duplicate delivery for a group we are already
+                    // in). It is handled gracefully upstream (cursor incremented,
+                    // welcome skipped), so log at warn rather than error to avoid
+                    // marking the span as status:error and inflating the error rate.
+                    tracing::warn!(
+                        welcome_cursor = %welcome.cursor,
+                        "welcome already processed, skipping: {}",
+                        err
+                    );
                 } else {
                     tracing::error!(
                         "failed to create group from welcome={} created at {}: {}",
@@ -122,7 +136,6 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
@@ -146,7 +159,14 @@ where
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
         if num_envelopes > 0 {
-            self.context.identity().queue_key_rotation(&db).await?;
+            // Atomic (column + pull-in commit together). Welcomes are already
+            // committed: don't discard `groups` over a failed queue — nothing
+            // half-landed, and the next welcome retries the whole thing.
+            if let Err(e) =
+                crate::worker::key_package_maintenance::queue_key_rotation(&self.context)
+            {
+                tracing::warn!("key rotation queue failed after welcome sync: {e}");
+            }
         }
 
         Ok(groups)
@@ -167,11 +187,7 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-                    tracing::info!(
-                        inbox_id = self.context.inbox_id(),
-                        "[{}] syncing group",
-                        self.context.inbox_id()
-                    );
+                    tracing::debug!(inbox_id = self.context.inbox_id(), "syncing group");
                     let is_active = group
                         .load_mls_group_with_lock_async(async |mls_group| {
                             Ok::<bool, GroupError>(mls_group.is_active())
@@ -299,7 +315,7 @@ where
                     );
                     continue;
                 }
-                tracing::info!(
+                tracing::debug!(
                     group_id = hex::encode(group_id.as_ref()),
                     required = %required_str,
                     own = %own_version_str,
@@ -325,11 +341,11 @@ where
         // group re-evaluation in `handle_group_paused` wouldn't fire
         // for a quiet paused group).
         if let Err(err) = self.unstick_paused_groups().await {
-            tracing::warn!(?err, "unstick_paused_groups failed, continuing with sync");
+            tracing::debug!(?err, "unstick_paused_groups failed, continuing with sync");
         }
 
         if let Err(err) = self.sync_welcomes().await {
-            tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
+            tracing::debug!(?err, "sync_welcomes failed, continuing with group sync");
         }
         let query_args = GroupQueryArgs {
             consent_states,
@@ -379,7 +395,7 @@ where
                 let inbox_id = self.context.inbox_id();
 
                 async move {
-                    tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
+                    tracing::debug!(inbox_id, "syncing group");
 
                     let is_active_res = group
                         .load_mls_group_with_lock_async(async |mls_group| {
@@ -448,7 +464,6 @@ fn filter_groups_with_new_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::mls_ext::wrap_welcome;
     use crate::groups::test::NoopValidator;
     use crate::test::mock::*;
     use derive_builder::Builder;
@@ -458,11 +473,13 @@ mod tests {
     use tls_codec::Serialize;
     use xmtp_common::Generate;
     use xmtp_configuration::Originators;
+    use xmtp_configuration::WELCOME_HPKE_LABEL;
     use xmtp_db::StorageError;
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_id::key_package::WrapperAlgorithm;
+    use xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke;
     use xmtp_proto::mls_v1::WelcomeMetadata;
     use xmtp_proto::types::{
         Cursor, GroupId, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
@@ -474,7 +491,7 @@ mod tests {
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
     ) -> WelcomeMessage {
-        let (data, welcome_metadata) = wrap_welcome(
+        let (data, welcome_metadata) = wrap_payload_hpke(
             &welcome.tls_serialize_detached().unwrap(),
             &WelcomeMetadata {
                 message_cursor: message_cursor.unwrap_or(0),
@@ -482,6 +499,7 @@ mod tests {
             .encode_to_vec(),
             &public_key,
             WrapperAlgorithm::Curve25519,
+            WELCOME_HPKE_LABEL,
         )
         .unwrap();
 

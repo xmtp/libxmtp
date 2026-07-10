@@ -40,6 +40,18 @@ impl RetryableError for MlsStoreError {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for MlsStoreError {
+    /// Forwards a dropped-pool signal from the storage/connection variants so a
+    /// worker loading groups can stop on disconnect. `Api`/`NotFound` return `false`.
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Connection(c) => c.db_needs_connection(),
+            Self::Api(_) | Self::NotFound(_) => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MlsStore<Context> {
     context: Context,
@@ -67,7 +79,7 @@ where
             .api()
             .query_welcome_messages(installation_id)
             .await?;
-        tracing::info!("returning {} welcomes", welcomes.len());
+        tracing::debug!("returning {} welcomes", welcomes.len());
         Ok(welcomes)
     }
 
@@ -77,11 +89,7 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let messages = self
-            .context
-            .sync_api()
-            .query_group_messages(group_id)
-            .await?;
+        let messages = self.context.api().query_group_messages(group_id).await?;
 
         Ok(messages)
     }

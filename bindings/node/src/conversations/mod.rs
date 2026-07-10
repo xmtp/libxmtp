@@ -148,6 +148,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn get_conversation_by_id(&self, group_id: String) -> Result<Conversation> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
     let group_id = xmtp_proto::types::GroupId::try_from(group_id).map_err(ErrorWrapper::from)?;
@@ -161,6 +162,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn sync(&self) -> Result<()> {
     self
       .inner_client
@@ -171,6 +173,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn sync_all(
     &self,
     consent_states: Option<Vec<ConsentState>>,
@@ -188,6 +191,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn sync_preferences(&self) -> Result<GroupSyncSummary> {
     let inner = self.inner_client.as_ref();
 
@@ -200,6 +204,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client

@@ -6,8 +6,9 @@ use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use derive_builder::Builder;
 use itertools::Itertools;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
-    DbQuery,
+    DbQuery, TransactionOutcome,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     prelude::*,
 };
@@ -30,11 +31,15 @@ impl QueueIntentBuilder {
         C: XmtpSharedContext,
     {
         let intent = self.build()?;
-        group.context.mls_storage().transaction(move |conn| {
-            let storage = conn.key_store();
-            let db = storage.db();
-            intent.queue_with_conn(&db, group)
-        })
+        group
+            .context
+            .mls_storage()
+            .transaction(move |conn| {
+                let storage = conn.key_store();
+                let db = storage.db();
+                intent.queue_with_conn(&db, group).map(Continue)
+            })
+            .map(TransactionOutcome::into_continued)
     }
 
     /// Queue this intent for each group
@@ -69,26 +74,31 @@ impl QueueIntentBuilder {
             .partition_result();
         let mut errors = errors.into_iter().map(GroupError::from).collect::<Vec<_>>();
 
-        let (intents, errs): (Vec<StoredGroupIntent>, Vec<_>) = {
-            context.mls_storage().transaction(|conn| {
-                let intents = groups
+        let (intents, errs): (Vec<StoredGroupIntent>, Vec<_>) = context
+            .mls_storage()
+            .transaction(|conn| {
+                let (intents, errs): (Vec<StoredGroupIntent>, Vec<_>) = groups
                     .into_iter()
                     .map(|(group, data)| {
                         let storage = conn.key_store();
 
                         // nesting a transaction uses SQLite Savepoints
                         // https://sqlite.org/lang_savepoint.html
-                        storage.savepoint(|conn| {
-                            let intent = self.clone().data(data).build()?;
-                            let storage = conn.key_store();
-                            let db = storage.db();
-                            intent.queue_with_conn(&db, &group)
-                        })
+                        // Each savepoint here always commits or errors, so
+                        // unwrap the committed value directly.
+                        storage
+                            .savepoint(|conn| {
+                                let intent = self.clone().data(data).build()?;
+                                let storage = conn.key_store();
+                                let db = storage.db();
+                                intent.queue_with_conn(&db, &group).map(Continue)
+                            })
+                            .map(TransactionOutcome::into_continued)
                     })
                     .partition_result();
-                Ok::<_, GroupError>(intents)
+                Ok::<_, GroupError>(Continue((intents, errs)))
             })?
-        };
+            .into_continued();
         errors.extend(errs);
 
         for error in errors {

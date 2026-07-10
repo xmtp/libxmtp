@@ -32,8 +32,9 @@ use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
-    ConnectionExt, NotFound, StorageError, XmtpDb,
+    ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
@@ -193,6 +194,7 @@ impl ClientError {
     pub fn db_needs_connection(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
             _ => false,
         }
     }
@@ -967,6 +969,9 @@ where
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
+                        // The conversation_list view does not carry the key; use
+                        // the timestamp proxy (display-only, never republished).
+                        idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
                     });
                     if msg.is_none() {
                         tracing::warn!("tried listing message, but message had missing fields so it was skipped");
@@ -1043,12 +1048,15 @@ where
         )?;
 
         // Clean up old key packages
-        self.context.mls_storage().transaction(|conn| {
-            conn.key_store()
-                .db()
-                .mark_key_package_before_id_to_be_deleted(history_id)?;
-            Ok::<(), StorageError>(())
-        })?;
+        self.context
+            .mls_storage()
+            .transaction(|conn| {
+                conn.key_store()
+                    .db()
+                    .mark_key_package_before_id_to_be_deleted(history_id)?;
+                Ok::<_, StorageError>(Continue(()))
+            })
+            .map(TransactionOutcome::into_continued)?;
 
         self.context
             .mls_storage()
@@ -1067,11 +1075,8 @@ where
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub async fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        self.identity()
-            .queue_key_rotation(&self.context.db())
-            .await?;
-
+    pub fn queue_key_rotation(&self) -> Result<(), ClientError> {
+        crate::worker::key_package_maintenance::queue_key_rotation(&self.context)?;
         Ok(())
     }
 
@@ -1085,6 +1090,9 @@ where
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
             .await?;
+        // The rotation marked superseded KPs delete_at=now+grace; without this
+        // the parked KpDeletion task would sweep them up to ~30d late.
+        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
 
         Ok(())
     }
@@ -1116,6 +1124,7 @@ where
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
+    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_groups"))]
     pub async fn sync_all_groups(
         &self,
         groups: Vec<MlsGroup<Context>>,
@@ -1128,6 +1137,7 @@ where
 
     /// Sync all unread welcome messages and then sync all groups.
     /// Returns the total number of active groups synced.
+    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_welcomes_and_groups"))]
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
@@ -1361,7 +1371,7 @@ pub(crate) mod tests {
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
         // Rotate and fetch again.
-        client.queue_key_rotation().await.unwrap();
+        client.queue_key_rotation().unwrap();
         //check the rotation value has been set
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());

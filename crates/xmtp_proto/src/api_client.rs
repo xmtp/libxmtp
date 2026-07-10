@@ -167,6 +167,30 @@ pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
     ) -> Result<Self::WelcomeMessageStream, Self::Error>;
 }
 
+xmtp_common::if_native! {
+    /// The XIP-83 bidirectional subscription: one long-lived stream carrying
+    /// group and welcome messages, mutated in place (no reconnect on membership
+    /// change) and kept alive with WebSocket-style ping/pong. Native-only —
+    /// gRPC-Web transports cannot speak full-duplex, so browsers stay on
+    /// [`XmtpMlsStreams`] with a client-side watchdog.
+    #[xmtp_common::async_trait]
+    pub trait XmtpMlsBidiStreams: MaybeSend + MaybeSync {
+        type SubscribeStream: Stream<Item = Result<crate::mls_v1::SubscribeResponse, Self::Error>>
+            + MaybeSend;
+
+        type Error: RetryableError + 'static;
+
+        /// Open the bidirectional stream. `requests` is the outbound
+        /// client→server frame stream (typically fed by a channel; the first
+        /// frame is usually a `Mutate` naming the initial topic set); the
+        /// returned stream yields the server→client frames.
+        async fn subscribe_bidi(
+            &self,
+            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error>;
+    }
+}
+
 /// Represents the backend API required for the XMTP
 /// Identity Service described by [XIP-46 Multi-Wallet Identity](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
 #[xmtp_common::async_trait]

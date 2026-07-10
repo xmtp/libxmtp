@@ -2,6 +2,7 @@
   mkShell,
   darwin,
   stdenv,
+  git,
   kotlin,
   ktlint,
   jdk17,
@@ -47,6 +48,8 @@ mkShell (
         androidEnv.devComposition.androidsdk
         jdk17
         gnused
+        # in-shell nix eval spawns git (fetchGit); system git crashes against the nix-store libs in LD_LIBRARY_PATH
+        git
       ]
       ++ lib.optionals androidEnv.hasEmulator [
         androidEnv.emulator

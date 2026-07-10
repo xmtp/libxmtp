@@ -56,7 +56,8 @@ let
       # override everything for glibc compatibility
       preBuild = "export HOME=$TMPDIR";
       nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
-      buildPhaseCargoCommand = "cargo zigbuild ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+      # the glibc-suffixed target must go through zigbuild's --target, which strips the suffix before rustc sees it
+      buildPhaseCargoCommand = "cargo zigbuild ${maybeTestFeature} --profile $CARGO_PROFILE --target ${specialArgs.CARGO_BUILD_TARGET} --locked";
     }
   );
 

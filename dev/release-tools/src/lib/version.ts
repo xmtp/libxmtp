@@ -85,3 +85,8 @@ export function computeVersion(
     }
   }
 }
+
+/** Today's date as a compact `YYYYMMDD` stamp for nightly version strings. */
+export function getNightlyDate(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, "");
+}

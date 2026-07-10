@@ -150,7 +150,6 @@ async fn test_spoofed_inbox_id() {
     let malicious_context = Arc::new(XmtpMlsLocalContext {
         identity: malicious_identity,
         api_client: alix.context.api_client.clone(),
-        sync_api_client: alix.context.sync_api_client.clone(),
         store: alix.context.store.clone(),
         mls_storage: alix.context.mls_storage.clone(),
         mutexes: alix.context.mutexes.clone(),
@@ -161,7 +160,9 @@ async fn test_spoofed_inbox_id() {
         scw_verifier: alix.context.scw_verifier.clone(),
         device_sync: alix.context.device_sync.clone(),
         fork_recovery_opts: alix.context.fork_recovery_opts.clone(),
+        worker_config: alix.context.worker_config.clone(),
         task_channels: alix.context.task_channels.clone(),
+        disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),
         worker_metrics: alix.context.worker_metrics.clone(),
         cancellation_token: alix.context.cancellation_token.clone(),
         shutdown_complete: alix.context.shutdown_complete.clone(),

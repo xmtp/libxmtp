@@ -18,6 +18,17 @@
   # See https://github.com/xmtp/libxmtp/issues/3470
   # and https://github.com/xmtp/libxmtp/issues/3476.
   #
+  # Upstreamed as https://github.com/NixOS/nixpkgs/pull/510292 (merged,
+  # present in the current pin) — but the upstream seeds are gated on
+  # `!buildPlatform.canExecute hostPlatform`, and our nightly cross is
+  # aarch64-darwin → aarch64-apple-darwin: same arch and kernel, so
+  # canExecute is TRUE and the seeds never apply, while autoconf still
+  # decides cross_compiling=yes from the triple mismatch and aborts
+  # (broke the 2026-07-03 nightly after #3810 dropped this overlay).
+  # Keep this structurally-gated copy until the upstream gate is
+  # `buildPlatform != hostPlatform`; double-applying the seeds when
+  # both gates fire is harmless (same cache values).
+  #
   # The three AC_RUN_IFELSE cache variables and their justifications:
   #
   #   kyua_cv_getopt_plus (m4/module-application.m4)

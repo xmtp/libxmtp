@@ -155,10 +155,19 @@ tower = { version = "0.5", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 tracing = { version = "0.1", features = ["log"] }
 tracing-appender = "0.2"
-tracing-forest = { version = "0.3", features = ["chrono"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 tracing-web = "0.1"
+# OpenTelemetry trace-export stack (native-only; see crates/xmtp_common/src/telemetry.rs).
+opentelemetry = "0.32"
+opentelemetry-appender-tracing = "0.32"
+opentelemetry-otlp = { version = "0.32", features = [
+  "grpc-tonic",
+  "trace",
+  "logs",
+] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+tracing-opentelemetry = "0.33"
 trait-variant = "0.1.2"
 tsify = { version = "0.5", default-features = false, features = ["js"] }
 url = { version = "2.5.8", default-features = false }
@@ -194,8 +203,8 @@ xmtp_configuration = { path = "crates/xmtp_configuration" }
 xmtp_content_types = { path = "crates/xmtp_content_types" }
 xmtp_cryptography = { path = "crates/xmtp_cryptography" }
 xmtp_db = { path = "crates/xmtp_db" }
-xmtp_db_test = { path = "crates/xmtp_db_test" }
 xmtp_id = { path = "crates/xmtp_id" }
+xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
@@ -248,6 +257,7 @@ hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28
 hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
 hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
 hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "3425025bb43b68bdef28ce47da8013ae13b69cbc" }
+tracing-oslog = { git = "https://github.com/xmtp/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
 
 [patch.crates-io.xmtp-workspace-hack]
 path = "crates/xmtp-workspace-hack"

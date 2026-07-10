@@ -81,6 +81,9 @@ pub struct StoredGroupMessage {
     pub expire_at_ns: Option<i64>,
     /// Whether to send a push notification when publishing this message
     pub should_push: bool,
+    /// The idempotency key the message id is derived from. Defaults to the send
+    /// timestamp, but callers may supply their own to make retries idempotent.
+    pub idempotency_key: String,
 }
 
 impl StoredGroupMessage {
@@ -111,6 +114,7 @@ struct NewStoredGroupMessage {
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
     pub should_push: bool,
+    pub idempotency_key: String,
 }
 
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
@@ -133,6 +137,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             sequence_id: msg.sequence_id,
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
+            idempotency_key: msg.idempotency_key.clone(),
         }
     }
 }
@@ -613,15 +618,26 @@ pub trait QueryGroupMessage {
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// The soonest `expire_at_ns` among published Application messages that have
+    /// an expiry set, or `None` if no disappearing messages exist. Note this can
+    /// return a timestamp already in the past (an expiry that elapsed while the
+    /// worker was asleep) — the caller clamps the resulting sleep to `>= 0` and
+    /// deletes on the next wake. Same filters as `delete_expired_messages`
+    /// without its `expire_at_ns <= now` bound.
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
+    /// Stored messages above each group's cursor, attributed to their group.
+    /// The attribution matters: sequence ids are not scoped per group, so a
+    /// caller folding these into per-group state must never mix groups.
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
     /// Clear messages from the database with optional filtering.
     ///
@@ -772,6 +788,10 @@ where
         (**self).delete_expired_messages()
     }
 
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+        (**self).min_expire_at_ns()
+    }
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
@@ -782,7 +802,7 @@ where
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         (**self).messages_newer_than(cursors_by_group)
     }
 
@@ -850,6 +870,7 @@ macro_rules! apply_message_filters {
 
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
+    #[xmtp_common::db_span]
     fn get_group_messages(
         &self,
         group_id: &GroupId,
@@ -895,6 +916,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     /// Count group messages matching the given criteria
+    #[xmtp_common::db_span]
     fn count_group_messages(
         &self,
         group_id: &GroupId,
@@ -940,6 +962,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(count)
     }
 
+    #[xmtp_common::db_span]
     fn missing_messages(
         &self,
         group_id: &GroupId,
@@ -959,6 +982,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| query.load(conn))
     }
 
+    #[xmtp_common::db_span]
     fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
@@ -1007,6 +1031,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     /// Query for group messages with their reactions
+    #[xmtp_common::db_span]
     fn get_group_messages_with_reactions(
         &self,
         group_id: &GroupId,
@@ -1084,6 +1109,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(messages_with_reactions)
     }
 
+    #[xmtp_common::db_span]
     fn get_inbound_relations(
         &self,
         group_id: &GroupId,
@@ -1128,6 +1154,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(inbound_relations)
     }
 
+    #[xmtp_common::db_span]
     fn get_outbound_relations(
         &self,
         group_id: &GroupId,
@@ -1147,6 +1174,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect())
     }
 
+    #[xmtp_common::db_span]
     fn get_inbound_relation_counts(
         &self,
         group_id: &GroupId,
@@ -1174,6 +1202,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect())
     }
 
+    #[xmtp_common::db_span]
     fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -1289,6 +1318,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
+    #[xmtp_common::db_span]
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             use diesel::prelude::*;
@@ -1306,6 +1336,20 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
+    #[xmtp_common::db_span]
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            use diesel::dsl::min;
+            use diesel::prelude::*;
+            dsl::group_messages
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::kind.eq(GroupMessageKind::Application))
+                .filter(dsl::expire_at_ns.is_not_null())
+                .select(min(dsl::expire_at_ns))
+                .first::<Option<i64>>(conn)
+        })
+    }
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
@@ -1317,10 +1361,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
+    #[xmtp_common::db_span]
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         use diesel::BoolExpressionMethods;
         use diesel::ExpressionMethods;
         use diesel::prelude::*;
@@ -1384,21 +1429,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             }
 
             // Execute the query
-            let messages: Vec<(i64, i64)> = self.raw_query(|conn| {
+            let messages: Vec<(GroupId, i64, i64)> = self.raw_query(|conn| {
                 dsl::group_messages
-                    .select((dsl::originator_id, dsl::sequence_id))
+                    .select((dsl::group_id, dsl::originator_id, dsl::sequence_id))
                     .filter(batch_filter)
                     .load(conn)
             })?;
 
-            for (originator_id, sequence_id) in messages {
-                all_cursors.push(Cursor::new(sequence_id as u64, originator_id as u32));
+            for (group_id, originator_id, sequence_id) in messages {
+                all_cursors.push((
+                    group_id,
+                    Cursor::new(sequence_id as u64, originator_id as u32),
+                ));
             }
         }
 
         Ok(all_cursors)
     }
 
+    #[xmtp_common::db_span]
     fn clear_messages(
         &self,
         group_ids: Option<&[GroupId]>,

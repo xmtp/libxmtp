@@ -82,6 +82,13 @@ mockall::mock! {
             path: http::uri::PathAndQuery,
             body: Bytes,
         ) -> Result<http::Response<BytesStream>, ApiClientError>;
+
+        async fn bidi_stream(
+            &self,
+            request: http::request::Builder,
+            path: http::uri::PathAndQuery,
+            body: xmtp_common::BoxDynStream<'static, Bytes>,
+        ) -> Result<http::Response<BytesStream>, ApiClientError>;
     }
 }
 

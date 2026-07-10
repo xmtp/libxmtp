@@ -40,12 +40,13 @@ use xmtp_configuration::{
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
-use xmtp_db::{ConnectionExt, MlsProviderExt};
+use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
 use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -347,6 +348,9 @@ impl NeedsDbReconnect for IdentityError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::StorageError(s) => s.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
+            // Keystore ops (rotate/delete paths) hit the same pool.
+            Self::OpenMlsStorageError(SqlKeyStoreError::Connection(c)) => c.db_needs_connection(),
             _ => false,
         }
     }
@@ -700,15 +704,8 @@ impl Identity {
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub(crate) async fn queue_key_rotation(
-        &self,
-        conn: &impl DbQuery,
-    ) -> Result<(), IdentityError> {
-        conn.queue_key_package_rotation()?;
-        tracing::info!("Last key package not ready for rotation, queued for rotation");
-        Ok(())
-    }
-
+    /// Callers must follow with `key_package_maintenance::nudge_rotation` — the
+    /// column write alone leaves the KpRotation task parked until next restart.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<
         ApiClient: XmtpApi,
@@ -730,13 +727,16 @@ impl Identity {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
                 let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-                provider.storage().transaction(|conn| {
-                    let storage = conn.key_store();
-                    storage
-                        .db()
-                        .mark_key_package_before_id_to_be_deleted(history_id)?;
-                    Ok::<(), StorageError>(())
-                })?;
+                provider
+                    .storage()
+                    .transaction(|conn| {
+                        let storage = conn.key_store();
+                        storage
+                            .db()
+                            .mark_key_package_before_id_to_be_deleted(history_id)?;
+                        Ok::<_, StorageError>(Continue(()))
+                    })
+                    .map(TransactionOutcome::into_continued)?;
                 mls_storage
                     .db()
                     .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
@@ -1056,7 +1056,6 @@ mod tests {
         builder::ClientBuilder,
         identity::{pq_key_package_references_key, serialize_key_package_hash_ref},
         utils::FullXmtpClient,
-        worker::key_package_cleaner::KeyPackagesCleanerWorker,
     };
     use xmtp_id::key_package::VerifiedKeyPackageV2;
 
@@ -1175,15 +1174,14 @@ mod tests {
         client.rotate_and_upload_key_package().await.unwrap();
 
         // Force deletion of the key package, even though it hasn't expired yet
-        let cleaner = KeyPackagesCleanerWorker::new(client.context.clone());
         let serialized_key_package_hash_ref =
             serialize_key_package_hash_ref(key_package_bundle.key_package(), &provider).unwrap();
-        cleaner
-            .delete_key_package(
-                serialized_key_package_hash_ref,
-                Some(pq_public_key_bytes.clone()),
-            )
-            .unwrap();
+        crate::worker::key_package_maintenance::delete_key_package(
+            &client.context,
+            serialized_key_package_hash_ref,
+            Some(pq_public_key_bytes.clone()),
+        )
+        .unwrap();
 
         // Now test to see if the private keys are deleted by doing the same steps as above
         let pq_hash_ref = get_hash_ref(

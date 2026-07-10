@@ -34,7 +34,7 @@ impl Sync {
         let dm_store: DmStore<'static> = redb.clone().into();
         let message_store: MessageStore<'static> = redb.into();
 
-        let clients = app::load_all_identities(&id_store)?;
+        let clients = app::load_all_identities(&id_store).await?;
 
         let mut totals = SyncStats::default();
         let mut success = 0usize;

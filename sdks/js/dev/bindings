@@ -1,0 +1,29 @@
+#!/bin/bash
+# Build the test-utils JS bindings via Nix and populate bindings/<x>/dist so
+# the SDKs' portal: deps resolve real packages. 100% cache hit when the
+# node/wasm binding test jobs already built these.
+source "$(dirname "$0")/.setup"
+
+nix_system="$(nix eval --impure --raw --expr 'builtins.currentSystem')"
+
+build_and_stage() {
+  local pkg="$1" dir="$2"
+  local dest="${ROOT}/bindings/${dir}/dist"
+  echo "Building ${pkg} via Nix..."
+  nix build "${ROOT}#packages.${nix_system}.${pkg}" \
+    --out-link "${ROOT}/bindings/${dir}/.nix-dist"
+  # Replace dist wholesale. Nix store files are read-only (mode 444), so a
+  # plain cp over an existing dist fails on re-run; recreate it and drop the
+  # read-only mode so later builds and tooling can overwrite.
+  rm -rf "${dest}"
+  mkdir -p "${dest}"
+  cp -rL "${ROOT}/bindings/${dir}/.nix-dist/dist/." "${dest}/"
+  chmod -R u+w "${dest}"
+}
+
+build_and_stage node-bindings-test node
+build_and_stage wasm-bindings-test wasm
+
+echo "JS bindings staged:"
+echo "  node: ${ROOT}/bindings/node/dist"
+echo "  wasm: ${ROOT}/bindings/wasm/dist"

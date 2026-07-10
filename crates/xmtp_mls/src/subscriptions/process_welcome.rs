@@ -46,6 +46,57 @@ pub enum ProcessWelcomeResult<Context> {
     Ignore,
 }
 
+/// Outcome of running a single raw welcome through the processing pipeline,
+/// independent of any stream/poll machinery — the welcome analog of
+/// [`super::process_message::Processed`].
+///
+/// As with messages, dedup bookkeeping is the caller's job: record `seen` into
+/// whatever known-welcome set the caller owns (the per-stream `known_welcome_ids`
+/// set, or the bidi manager's central set).
+pub struct WelcomeOutcome<Context> {
+    /// The conversation to surface to the subscriber, if this welcome produced one
+    /// that passed the stream's filters.
+    pub group: Option<MlsGroup<Context>>,
+    /// The welcome cursor to record as seen for dedup, if any.
+    pub seen: Option<Cursor>,
+}
+
+impl<Context> ProcessWelcomeResult<Context> {
+    /// Interpret a processing result into a [`WelcomeOutcome`]: which group (if any)
+    /// to surface, and which welcome cursor (if any) to record as seen. This mirrors
+    /// the logic previously inlined in `StreamConversations::filter_welcome`, lifted
+    /// out so both the live conversation stream and the bidi manager interpret results
+    /// identically.
+    pub fn into_outcome(self) -> WelcomeOutcome<Context> {
+        match self {
+            ProcessWelcomeResult::New { group, id } => WelcomeOutcome {
+                group: Some(group),
+                seen: Some(id),
+            },
+            ProcessWelcomeResult::NewStored {
+                group,
+                maybe_sequence_id,
+                maybe_originator,
+            } => WelcomeOutcome {
+                group: Some(group),
+                seen: maybe_sequence_id
+                    .zip(maybe_originator)
+                    .map(|(id, originator)| {
+                        Cursor::new(id as SequenceId, originator as OriginatorId)
+                    }),
+            },
+            ProcessWelcomeResult::IgnoreId { id } => WelcomeOutcome {
+                group: None,
+                seen: Some(id),
+            },
+            ProcessWelcomeResult::Ignore => WelcomeOutcome {
+                group: None,
+                seen: None,
+            },
+        }
+    }
+}
+
 impl<Context> ProcessWelcomeFuture<Context>
 where
     Context: XmtpSharedContext,
@@ -144,7 +195,7 @@ where
                             .await;
                     }
                 }
-                tracing::info!(
+                tracing::debug!(
                     "could not find group for welcome {}, processing",
                     welcome.cursor
                 );
@@ -155,12 +206,12 @@ where
                         id: welcome.cursor,
                     }
                 } else {
-                    tracing::info!("Oneshot welcome message processed, skipping stream event.");
+                    tracing::debug!("Oneshot welcome message processed, skipping stream event.");
                     ProcessWelcomeResult::IgnoreId { id: welcome.cursor }
                 }
             }
             Group(ref id) => {
-                tracing::info!("stream got existing group, pulling from db.");
+                tracing::debug!("stream got existing group, pulling from db.");
                 let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
 
                 ProcessWelcomeResult::NewStored {
@@ -365,5 +416,65 @@ where
             group.conversation_type,
             group.created_at_ns,
         )))
+    }
+}
+
+/// Run a single raw welcome through the shared processing pipeline and interpret the
+/// result. The decode half of the conversation stream, lifted out of the poll machinery
+/// so the XIP-83 bidi multiplexing manager can reuse it from an async task.
+///
+/// `known_welcome_ids` is borrowed from the caller's authoritative dedup set and
+/// snapshotted for the pipeline (an already-seen cursor short-circuits into an
+/// ignore outcome). The borrow makes the safe pattern the default: a caller
+/// processing welcomes sequentially — check, call, record
+/// [`WelcomeOutcome::seen`] — gets correct dedup by construction, because the
+/// set cannot be mutated while a call borrows it. A caller that wants
+/// concurrent calls must clone the set explicitly, and then owns the
+/// consequence: two in-flight calls for the same cursor will each see it as
+/// unseen and both surface the conversation. Serialize same-cursor decisions
+/// (the XIP-83 router routes from a single task for exactly this reason).
+pub async fn process_welcome_one<Context>(
+    context: Context,
+    known_welcome_ids: &HashSet<Cursor>,
+    welcome: WelcomeMessage,
+    conversation_type: Option<ConversationType>,
+    include_duplicate_dms: bool,
+    consent_states: Option<Vec<ConsentState>>,
+) -> Result<WelcomeOutcome<Context>>
+where
+    Context: XmtpSharedContext,
+{
+    let result = ProcessWelcomeFuture::new(
+        known_welcome_ids.clone(),
+        context,
+        WelcomeOrGroup::Welcome(welcome),
+        conversation_type,
+        include_duplicate_dms,
+        consent_states,
+    )?
+    .process()
+    .await?;
+    Ok(result.into_outcome())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Ignore` surfaces no group and records nothing for dedup.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn into_outcome_ignore_yields_nothing() {
+        let outcome = ProcessWelcomeResult::<()>::Ignore.into_outcome();
+        assert!(outcome.group.is_none());
+        assert!(outcome.seen.is_none());
+    }
+
+    /// `IgnoreId` surfaces no group but records the welcome cursor for dedup.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn into_outcome_ignore_id_records_seen_without_group() {
+        let cursor = Cursor::new(42, 7u32);
+        let outcome = ProcessWelcomeResult::<()>::IgnoreId { id: cursor }.into_outcome();
+        assert!(outcome.group.is_none());
+        assert_eq!(outcome.seen, Some(cursor));
     }
 }

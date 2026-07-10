@@ -21,7 +21,7 @@ use xmtp_common::{BoxDynFuture, Event, MaybeSend};
 use xmtp_db::prelude::*;
 use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
+use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -385,49 +385,28 @@ where
         welcome: Result<ProcessWelcomeResult<C>>,
     ) -> Option<<Self as Stream>::Item> {
         let this = self.as_mut().project();
-        match welcome {
-            Ok(ProcessWelcomeResult::New {
-                group,
-                id: welcome_id,
-            }) => {
-                tracing::debug!(
-                    group_id = %group.group_id,
-                    "finished processing with group {}",
-                    hex::encode(group.group_id)
-                );
-                this.known_welcome_ids.insert(welcome_id);
-                Some(Ok(group))
-            }
-            // we are ignoring this payload with id
-            Ok(ProcessWelcomeResult::IgnoreId { id }) => {
-                tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
-                this.known_welcome_ids.insert(id);
-                None
-            }
-            Ok(ProcessWelcomeResult::Ignore) => {
-                tracing::debug!("ignoring streamed conversation payload");
-                None
-            }
-            Ok(ProcessWelcomeResult::NewStored {
-                group,
-                maybe_sequence_id,
-                maybe_originator,
-            }) => {
-                tracing::debug!(
-                    group_id = %group.group_id,
-                    "finished processing with group {}",
-                    hex::encode(group.group_id)
-                );
-                if let Some(id) = maybe_sequence_id
-                    && let Some(originator) = maybe_originator
-                {
-                    this.known_welcome_ids
-                        .insert(Cursor::new(id as SequenceId, originator as OriginatorId));
-                }
-                Some(Ok(group))
-            }
-            Err(e) => Some(Err(e)),
+        let result = match welcome {
+            Ok(result) => result,
+            Err(e) => return Some(Err(e)),
+        };
+        // Interpretation (which group to surface, which cursor to record as seen) is
+        // shared with the bidi manager via `ProcessWelcomeResult::into_outcome`.
+        let outcome = result.into_outcome();
+        if let Some(seen) = outcome.seen {
+            this.known_welcome_ids.insert(seen);
         }
+        match (&outcome.group, outcome.seen) {
+            (Some(group), _) => tracing::debug!(
+                group_id = %group.group_id,
+                "finished processing with group {}",
+                hex::encode(group.group_id)
+            ),
+            (None, Some(id)) => {
+                tracing::debug!("ignoring streamed conversation payload with welcome id {id}")
+            }
+            (None, None) => tracing::debug!("ignoring streamed conversation payload"),
+        }
+        outcome.group.map(Ok)
     }
 }
 

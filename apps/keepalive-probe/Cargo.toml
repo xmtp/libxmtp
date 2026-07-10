@@ -1,0 +1,45 @@
+[package]
+name = "keepalive-probe"
+description = "Probe for XMTP gRPC connection health: hold N idle or subscribe streams to an endpoint and measure how long each survives under configurable keepalive (herald-lite #70)"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+clap.workspace = true
+hex = "0.4"
+http-body-util.workspace = true
+humantime = "2"
+hyper = { workspace = true, features = ["client", "http2"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rustls = { workspace = true, features = ["ring"] }
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "time",
+  "signal",
+] }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "ring",
+  "tls12",
+] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+url.workspace = true
+webpki-roots = "0.26"
+# Subscribe mode (real V3 streams): tonic gRPC client + the MLS proto types.
+tonic = { workspace = true, features = [
+  "default",
+  "tls-webpki-roots",
+  "tls-ring",
+] }
+tonic-prost = "0.14"
+xmtp_proto.workspace = true

@@ -4,9 +4,10 @@ use crate::client::DeviceSync;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
+use crate::worker::disappearing_messages::DisappearingChannels;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::tasks::TaskWorkerChannels;
-use crate::worker::{DynMetrics, MetricsCasting, WorkerKind};
+use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
@@ -38,7 +39,6 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) identity: Identity,
     /// The XMTP Api Client
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
-    pub(crate) sync_api_client: ApiClientWrapper<ApiClient>, // sync-only channel
     /// XMTP Local Storage
     pub(crate) store: Db,
     pub(crate) mls_storage: S,
@@ -50,9 +50,11 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
+    pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) disappearing_channels: DisappearingChannels,
     pub(crate) cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
     // disconnected). The cancellation token tracks "shutdown initiated";
@@ -113,7 +115,6 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
         XmtpMlsLocalContext::<ApiClient, Db, S2> {
             identity: self.identity,
             api_client: self.api_client,
-            sync_api_client: self.sync_api_client,
             store: self.store,
             mls_storage: mls_store,
             mutexes: self.mutexes,
@@ -124,8 +125,10 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
+            worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            disappearing_channels: self.disappearing_channels,
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
         }
@@ -197,7 +200,6 @@ where
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
     fn device_sync(&self) -> &DeviceSync;
@@ -207,6 +209,18 @@ where
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
+
+    fn worker_config(&self) -> &WorkerConfig;
+
+    /// Resolve `(base, jitter)` for a worker from the configured
+    /// [`WorkerConfig`], falling back to the worker's compiled-in const.
+    fn worker_interval(
+        &self,
+        kind: WorkerKind,
+        const_default: std::time::Duration,
+    ) -> (std::time::Duration, std::time::Duration) {
+        self.worker_config().interval(kind, const_default)
+    }
 
     /// Creates a new MLS Provider
     fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, Self::MlsStorage> {
@@ -232,6 +246,7 @@ where
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
     fn task_channels(&self) -> &TaskWorkerChannels;
+    fn disappearing_channels(&self) -> &DisappearingChannels;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
@@ -274,10 +289,6 @@ where
         &self.api_client
     }
 
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        &self.sync_api_client
-    }
-
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         self.scw_verifier.clone()
     }
@@ -288,6 +299,10 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         &self.fork_recovery_opts
+    }
+
+    fn worker_config(&self) -> &WorkerConfig {
+        &self.worker_config
     }
 
     /// a reference to the MLS Storage Type
@@ -318,6 +333,10 @@ where
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
+    }
+
+    fn disappearing_channels(&self) -> &DisappearingChannels {
+        &self.disappearing_channels
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -365,10 +384,6 @@ where
         <T as XmtpSharedContext>::api(self)
     }
 
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        <T as XmtpSharedContext>::sync_api(self)
-    }
-
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         <T as XmtpSharedContext>::scw_verifier(self)
     }
@@ -383,6 +398,10 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         <T as XmtpSharedContext>::fork_recovery_opts(self)
+    }
+
+    fn worker_config(&self) -> &WorkerConfig {
+        <T as XmtpSharedContext>::worker_config(self)
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {
@@ -411,6 +430,10 @@ where
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         <T as XmtpSharedContext>::task_channels(self)
+    }
+
+    fn disappearing_channels(&self) -> &DisappearingChannels {
+        <T as XmtpSharedContext>::disappearing_channels(self)
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {

@@ -1,5 +1,4 @@
 use super::group_permissions::GroupMutablePermissionsError;
-use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
@@ -28,6 +27,7 @@ use xmtp_db::NotFound;
 use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
+use xmtp_mls_common::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
 
 /// Wraps multiple message processing errors from a single receive operation.
 ///
@@ -336,7 +336,7 @@ pub enum GroupError {
     /// Sync failed to wait.
     ///
     /// Waiting for intent sync failed. Retryable.
-    #[error("Sync failed to wait for intent")]
+    #[error("Sync failed to wait for intent: {}", _0)]
     SyncFailedToWait(Box<SyncSummary>),
     /// Missing pending commit.
     ///
@@ -407,12 +407,12 @@ pub enum GroupError {
     ///
     /// Failed to wrap welcome message. Not retryable.
     #[error(transparent)]
-    WrapWelcome(#[from] WrapWelcomeError),
+    WrapWelcome(#[from] WrapPayloadError),
     /// Unwrap welcome error.
     ///
     /// Failed to unwrap welcome message. Not retryable.
     #[error(transparent)]
-    UnwrapWelcome(#[from] UnwrapWelcomeError),
+    UnwrapWelcome(#[from] UnwrapPayloadError),
     /// Welcome data not found.
     ///
     /// Welcome data missing from topic. Not retryable.
@@ -638,6 +638,22 @@ impl RetryableError for GroupError {
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
+        }
+    }
+}
+
+impl crate::worker::NeedsDbReconnect for GroupError {
+    /// Forwards a dropped-pool signal from storage-bearing variants so a worker
+    /// catching `GroupError`s per item can stop on disconnect; else `false`.
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Client(c) => c.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
+            Self::MlsStore(s) => s.needs_db_reconnect(),
+            Self::Identity(i) => i.needs_db_reconnect(),
+            Self::DeviceSync(d) => d.needs_db_reconnect(),
+            _ => false,
         }
     }
 }

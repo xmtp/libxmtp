@@ -182,7 +182,6 @@ struct ApiCacheKey {
 /// To be removed in a future release
 actor ApiClientCache {
 	private var apiClientCache: [String: XmtpApiClient] = [:]
-	private var syncApiClientCache: [String: XmtpApiClient] = [:]
 
 	func getClient(forKey key: String) -> XmtpApiClient? {
 		apiClientCache[key]
@@ -190,14 +189,6 @@ actor ApiClientCache {
 
 	func setClient(_ client: XmtpApiClient, forKey key: String) {
 		apiClientCache[key] = client
-	}
-
-	func getSyncClient(forKey key: String) -> XmtpApiClient? {
-		syncApiClientCache[key]
-	}
-
-	func setSyncClient(_ client: XmtpApiClient, forKey key: String) {
-		syncApiClientCache[key] = client
 	}
 }
 
@@ -436,7 +427,6 @@ public final class Client {
 
 			let ffiClient = try await createClient(
 				api: connectToApiBackend(api: options.api),
-				syncApi: connectToSyncApiBackend(api: options.api),
 				db: DbOptions(
 					db: nil,
 					encryptionKey: nil,
@@ -449,7 +439,8 @@ public final class Client {
 				legacySignedPrivateKeyProto: nil,
 				deviceSyncMode: deviceSyncMode,
 				allowOffline: buildOffline,
-				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
+				workerConfig: nil
 			)
 
 			return (ffiClient, Client.inMemoryDbPath)
@@ -502,7 +493,6 @@ public final class Client {
 
 		let ffiClient = try await createClient(
 			api: connectToApiBackend(api: options.api),
-			syncApi: connectToSyncApiBackend(api: options.api),
 			db: DbOptions(
 				db: dbURL,
 				encryptionKey: options.dbEncryptionKey,
@@ -515,7 +505,8 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
+			workerConfig: nil
 		)
 
 		return (ffiClient, dbURL)
@@ -571,32 +562,6 @@ public final class Client {
 			authHandle: nil
 		)
 		await apiCache.setClient(newClient, forKey: cacheKey)
-		return newClient
-	}
-
-	public static func connectToSyncApiBackend(api: ClientOptions.Api)
-		async throws
-		-> XmtpApiClient
-	{
-		let cacheKey = ApiCacheKey(api: api).stringValue
-
-		// Check for an existing connected client
-		if let cached = await apiCache.getSyncClient(forKey: cacheKey),
-		   try await isConnected(api: cached)
-		{
-			return cached
-		}
-
-		// Either not cached or not connected; create new client
-		let newClient = try await connectToBackend(
-			v3Host: api.env.url,
-			gatewayHost: api.gatewayHost,
-			clientMode: FfiClientMode.default,
-			appVersion: api.appVersion,
-			authCallback: nil,
-			authHandle: nil
-		)
-		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
 	}
 
@@ -726,7 +691,6 @@ public final class Client {
 		)
 		return try await createClient(
 			api: connectToApiBackend(api: api),
-			syncApi: connectToApiBackend(api: api),
 			db: DbOptions(db: nil, encryptionKey: nil, maxDbPoolSize: nil, minDbPoolSize: nil),
 			inboxId: inboxId,
 			accountIdentifier: identity.ffiPrivate,
@@ -734,7 +698,8 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
-			forkRecoveryOpts: nil
+			forkRecoveryOpts: nil,
+			workerConfig: nil
 		)
 	}
 

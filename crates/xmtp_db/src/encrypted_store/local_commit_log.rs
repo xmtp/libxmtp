@@ -14,6 +14,11 @@ pub enum CommitType {
     UpdateGroupMembership,
     UpdateAdminList,
     UpdatePermission,
+    /// A commit (authored by anyone) that removed this installation's leaf
+    /// from the group. The member merges only the public part of such a
+    /// commit and cannot derive the new epoch's secrets, so the logged entry
+    /// records the pre-commit epoch and authenticator.
+    RemovedFromGroup,
 }
 
 impl std::fmt::Display for CommitType {
@@ -27,6 +32,7 @@ impl std::fmt::Display for CommitType {
             CommitType::UpdateGroupMembership => "UpdateGroupMembership",
             CommitType::UpdateAdminList => "UpdateAdminList",
             CommitType::UpdatePermission => "UpdatePermission",
+            CommitType::RemovedFromGroup => "RemovedFromGroup",
         };
         write!(f, "{}", description)
     }
@@ -150,6 +156,15 @@ pub trait QueryLocalCommitLog {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError>;
+
+    /// Rowid of the most recent chain-start entry for this group, if any.
+    /// Chain-start entries have `commit_sequence_id == 0` (Welcome /
+    /// GroupCreation / BackupRestore) and mark the beginning of the member's
+    /// current membership session.
+    fn get_latest_chain_start_rowid(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<i32>, crate::ConnectionError>;
 }
 
 impl<T> QueryLocalCommitLog for &T
@@ -184,6 +199,13 @@ where
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
         (**self).get_local_commit_log_cursor(group_id)
+    }
+
+    fn get_latest_chain_start_rowid(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        (**self).get_latest_chain_start_rowid(group_id)
     }
 }
 
@@ -247,6 +269,20 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     ) -> Result<Option<i32>, crate::ConnectionError> {
         let query = dsl::local_commit_log
             .filter(dsl::group_id.eq(group_id))
+            .select(dsl::rowid)
+            .order(dsl::rowid.desc())
+            .limit(1);
+
+        self.raw_query(|conn| query.first::<i32>(conn).optional())
+    }
+
+    fn get_latest_chain_start_rowid(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        let query = dsl::local_commit_log
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::commit_sequence_id.eq(0))
             .select(dsl::rowid)
             .order(dsl::rowid.desc())
             .limit(1);

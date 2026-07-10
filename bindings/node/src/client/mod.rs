@@ -49,6 +49,7 @@ impl Client {
 
   #[napi]
   /// The resulting vec will be the same length as the input and should be zipped for the results.
+  #[xmtp_common::err_span]
   pub async fn can_message(
     &self,
     account_identities: Vec<Identifier>,
@@ -79,6 +80,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn release_db_connection(&self) -> Result<()> {
     self
       .inner_client
@@ -88,6 +90,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn db_reconnect(&self) -> Result<()> {
     self
       .inner_client
@@ -103,6 +106,7 @@ impl Client {
   /// reference to avoid late log spew from detached workers/streams firing
   /// against a dead DB.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn close(&self) -> Result<()> {
     self
       .inner_client

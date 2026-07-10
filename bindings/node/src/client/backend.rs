@@ -42,6 +42,7 @@ impl BackendBuilder {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn build(&self) -> Result<Backend> {
     {
       let mut consumed = self

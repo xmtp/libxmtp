@@ -64,6 +64,7 @@ diesel::table! {
         inserted_at_ns -> BigInt,
         expire_at_ns -> Nullable<BigInt>,
         should_push -> Bool,
+        idempotency_key -> Text,
     }
 }
 

@@ -9,6 +9,7 @@ use xmtp_mls::groups::MlsGroup;
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream(
     &self,
     callback: ThreadsafeFunction<Message, ()>,

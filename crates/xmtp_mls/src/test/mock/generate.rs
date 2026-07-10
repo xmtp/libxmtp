@@ -35,9 +35,10 @@ pub fn context() -> NewMockContext {
             mode: DeviceSyncMode::Disabled,
         },
         fork_recovery_opts: Default::default(),
+        worker_config: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
-        sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
         task_channels: TaskWorkerChannels::default(),
+        disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),
         worker_metrics: Arc::default(),
         cancellation_token: tokio_util::sync::CancellationToken::new(),
         shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -175,5 +176,6 @@ pub fn generate_stored_msg(
         expire_at_ns: None,
         inserted_at_ns: 0,
         should_push: true,
+        idempotency_key: 100.to_string(),
     }
 }

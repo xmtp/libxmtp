@@ -30,14 +30,6 @@ pub async fn new_unregistered_client() -> (BenchClient, PrivateKeySigner) {
         LocalOnlyTestClientCreator::create().build().unwrap()
     };
 
-    let sync_api_client = if is_dev_network {
-        tracing::info!("Using Dev GRPC");
-        DevOnlyTestClientCreator::create().build().unwrap()
-    } else {
-        tracing::info!("Using Local GRPC");
-        LocalOnlyTestClientCreator::create().build().unwrap()
-    };
-
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.identifier(),
@@ -48,7 +40,7 @@ pub async fn new_unregistered_client() -> (BenchClient, PrivateKeySigner) {
     let client = client
         .temp_store()
         .await
-        .api_clients(api_client, sync_api_client)
+        .api_client(api_client)
         .with_remote_verifier()
         .unwrap()
         .default_mls_store()
@@ -98,14 +90,6 @@ pub async fn create_client_from_identity(
         DefaultTestClientCreator::create().build().unwrap()
     };
 
-    let sync_api_client = if is_dev_network {
-        tracing::info!("Using Dev GRPC");
-        DefaultTestClientCreator::create().build().unwrap()
-    } else {
-        tracing::info!("Using Local GRPC");
-        DefaultTestClientCreator::create().build().unwrap()
-    };
-
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
         identity.identifier.clone(),
@@ -116,7 +100,7 @@ pub async fn create_client_from_identity(
     client
         .temp_store()
         .await
-        .api_clients(api_client, sync_api_client)
+        .api_client(api_client)
         .with_remote_verifier()
         .unwrap()
         .default_mls_store()

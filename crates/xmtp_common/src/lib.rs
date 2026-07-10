@@ -49,11 +49,10 @@ pub use event_logging::*;
 pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
+pub use xmtp_macro::db_span;
+pub use xmtp_macro::err_span;
 pub use xmtp_macro::log_event;
-pub use xmtp_macro::parser;
+pub use xmtp_macro::mls_span;
+pub use xmtp_macro::rpc_span;
+pub use xmtp_macro::span;
 pub use xmtp_macro::timeout;
-
-#[cfg(feature = "logging")]
-pub mod logging;
-#[cfg(feature = "logging")]
-pub use logging::*;
