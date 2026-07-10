@@ -5169,12 +5169,20 @@ impl serde::Serialize for subscribe_response::v1::Messages {
         if !self.welcome_messages.is_empty() {
             len += 1;
         }
+        if self.mutate_id != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.SubscribeResponse.V1.Messages", len)?;
         if !self.group_messages.is_empty() {
             struct_ser.serialize_field("group_messages", &self.group_messages)?;
         }
         if !self.welcome_messages.is_empty() {
             struct_ser.serialize_field("welcome_messages", &self.welcome_messages)?;
+        }
+        if self.mutate_id != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("mutate_id", ToString::to_string(&self.mutate_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -5190,12 +5198,15 @@ impl<'de> serde::Deserialize<'de> for subscribe_response::v1::Messages {
             "groupMessages",
             "welcome_messages",
             "welcomeMessages",
+            "mutate_id",
+            "mutateId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             GroupMessages,
             WelcomeMessages,
+            MutateId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5220,6 +5231,7 @@ impl<'de> serde::Deserialize<'de> for subscribe_response::v1::Messages {
                         match value {
                             "groupMessages" | "group_messages" => Ok(GeneratedField::GroupMessages),
                             "welcomeMessages" | "welcome_messages" => Ok(GeneratedField::WelcomeMessages),
+                            "mutateId" | "mutate_id" => Ok(GeneratedField::MutateId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5241,6 +5253,7 @@ impl<'de> serde::Deserialize<'de> for subscribe_response::v1::Messages {
             {
                 let mut group_messages__ = None;
                 let mut welcome_messages__ = None;
+                let mut mutate_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::GroupMessages => {
@@ -5255,6 +5268,14 @@ impl<'de> serde::Deserialize<'de> for subscribe_response::v1::Messages {
                             }
                             welcome_messages__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::MutateId => {
+                            if mutate_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mutateId"));
+                            }
+                            mutate_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5263,6 +5284,7 @@ impl<'de> serde::Deserialize<'de> for subscribe_response::v1::Messages {
                 Ok(subscribe_response::v1::Messages {
                     group_messages: group_messages__.unwrap_or_default(),
                     welcome_messages: welcome_messages__.unwrap_or_default(),
+                    mutate_id: mutate_id__.unwrap_or_default(),
                 })
             }
         }

@@ -50,13 +50,13 @@ fn summarize(ev: &BidiEvent) -> String {
             format!("CatchUpComplete(mutate_id={mutate_id})")
         }
         BidiEvent::TopicsLive { topics } => format!("TopicsLive(n={})", topics.len()),
-        BidiEvent::GroupMessages(m) => {
+        BidiEvent::GroupMessages { messages: m, .. } => {
             format!(
                 "GroupMessages(ids={:?})",
                 m.iter().map(|g| gm(g).0).collect::<Vec<_>>()
             )
         }
-        BidiEvent::WelcomeMessages(w) => format!("WelcomeMessages(n={})", w.len()),
+        BidiEvent::WelcomeMessages { messages: w, .. } => format!("WelcomeMessages(n={})", w.len()),
     }
 }
 
@@ -105,7 +105,7 @@ async fn bidi_connection_delivers_live_welcome_over_the_wire() {
 
     let welcomes = loop {
         match conn.next().await {
-            Some(BidiEvent::WelcomeMessages(w)) if !w.is_empty() => break w,
+            Some(BidiEvent::WelcomeMessages { messages: w, .. }) if !w.is_empty() => break w,
             Some(other) => tracing::info!("pre-welcome bidi event: {}", summarize(&other)),
             None => panic!("connection closed before the welcome arrived"),
         }
@@ -185,7 +185,7 @@ async fn bidi_catch_up_precedes_live_marker_then_streams_live() {
     // it on both sides rather than assuming an order.
     loop {
         match next_within(&mut conn, 10).await {
-            BidiEvent::GroupMessages(m) => {
+            BidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
                     let (id, is_commit) = gm(g);
                     assert!(seen.insert(id), "duplicate cursor {id} in catch-up");
@@ -223,7 +223,7 @@ async fn bidi_catch_up_precedes_live_marker_then_streams_live() {
     // live edge is monotonic).
     while app_count < TOTAL_APP {
         match next_within(&mut conn, 10).await {
-            BidiEvent::GroupMessages(m) => {
+            BidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
                     let (id, is_commit) = gm(g);
                     assert!(
@@ -302,7 +302,7 @@ async fn bidi_history_only_catches_up_then_delivers_nothing_live() {
     let mut catchup_complete: Option<u64> = None;
     while !(live_marker && catchup_complete.is_some()) {
         match next_within(&mut conn, 10).await {
-            BidiEvent::GroupMessages(m) => {
+            BidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
                     if !gm(g).1 {
                         catchup_app += 1;
@@ -338,7 +338,7 @@ async fn bidi_history_only_catches_up_then_delivers_nothing_live() {
     match tokio::time::timeout(Duration::from_secs(5), conn.next()).await {
         Err(_) => {}   // idle: correct — history_only does not stream live
         Ok(None) => {} // server closed the bounded stream — also acceptable
-        Ok(Some(BidiEvent::GroupMessages(m))) => panic!(
+        Ok(Some(BidiEvent::GroupMessages { messages: m, .. })) => panic!(
             "history_only must not deliver live messages, got ids {:?}",
             m.iter().map(|g| gm(g).0).collect::<Vec<_>>()
         ),
@@ -405,7 +405,7 @@ async fn bidi_history_only_half_close_drains_then_server_closes() {
                 panic!("bounded sync never closed: server kept the stream open after finish()")
             }
             Ok(None) => break, // server closed the bounded stream — the point of the test
-            Ok(Some(BidiEvent::GroupMessages(m))) => {
+            Ok(Some(BidiEvent::GroupMessages { messages: m, .. })) => {
                 for g in &m {
                     if !gm(g).1 {
                         catchup_app += 1;

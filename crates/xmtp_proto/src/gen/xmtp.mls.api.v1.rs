@@ -792,20 +792,26 @@ pub mod subscribe_request {
             /// begin delivering these topics
             #[prost(message, repeated, tag = "1")]
             pub adds: ::prost::alloc::vec::Vec<mutate::Subscription>,
-            /// topics to stop delivering
+            /// stop delivering; clears the topic's cursor floor so a re-add replays
             #[prost(bytes = "vec", repeated, tag = "2")]
             pub removes: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-            /// Catch this Mutate's adds up to the live edge — history, TopicsLive
-            /// markers, and the wave's CatchupComplete — but do NOT register them
-            /// for live delivery. The markers then mean "you have everything as of
-            /// now". Combined with half-closing the request stream, this is the
+            /// Catch this Mutate's adds up — history, TopicsLive markers, and the
+            /// wave's CatchupComplete — but do NOT register them for live delivery.
+            /// The markers then mean "you have everything as of the wave's start";
+            /// later messages arrive on no lane of this stream. Combined with
+            /// half-closing the request stream, this is the
             /// bounded catch-up ("sync") mode: the server finishes the wave and then
             /// closes the stream itself. Removals in the Mutate are unaffected.
             #[prost(bool, tag = "3")]
             pub history_only: bool,
-            /// Client-chosen correlation id, echoed on this wave's CatchupComplete
-            /// so completions are attributable when waves overlap. SHOULD be unique
-            /// per stream; 0 = no correlation requested (still echoed as 0).
+            /// Client-chosen correlation id: echoed on this wave's CatchupComplete,
+            /// and stamped on every delivery frame of the wave's catch-up replay
+            /// (Messages.mutate_id). MUST be nonzero when adds are present (0 is the
+            /// live tag), and MUST NOT match the mutate_id of a wave still in flight
+            /// on the stream (an in-flight collision would make two waves' frames and
+            /// completions indistinguishable) — either violation fails the stream
+            /// with INVALID_ARGUMENT. SHOULD be unique per stream so completed waves
+            /// stay attributable too.
             #[prost(uint64, tag = "4")]
             pub mutate_id: u64,
         }
@@ -900,13 +906,21 @@ pub mod subscribe_response {
     /// Nested message and enum types in `V1`.
     pub mod v1 {
         /// A batch of new messages; group and welcome messages share the stream,
-        /// depending on which subscriptions are active.
+        /// depending on which subscriptions are active. A frame belongs to exactly
+        /// one catch-up wave or to live — the server never mixes lanes, or two
+        /// waves, in one frame — and each lane is delivered in ascending id order
+        /// per message kind (live: across all live topics on the stream; a wave:
+        /// across the wave's topics, one merged cursor-ordered pass).
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Messages {
             #[prost(message, repeated, tag = "1")]
             pub group_messages: ::prost::alloc::vec::Vec<super::super::GroupMessage>,
             #[prost(message, repeated, tag = "2")]
             pub welcome_messages: ::prost::alloc::vec::Vec<super::super::WelcomeMessage>,
+            /// The catch-up wave that produced this frame: the Mutate's mutate_id
+            /// for wave replay, 0 for live tail.
+            #[prost(uint64, tag = "3")]
+            pub mutate_id: u64,
         }
         impl ::prost::Name for Messages {
             const NAME: &'static str = "Messages";
@@ -942,11 +956,15 @@ pub mod subscribe_response {
                 "/xmtp.mls.api.v1.SubscribeResponse.V1.Started".into()
             }
         }
-        /// Sent once per Mutate that adds subscriptions (a catch-up "wave"), after
-        /// the wave's last TopicsLive: everything the Mutate asked for is delivered.
+        /// Sent once per Mutate: at wave completion (after the wave's last
+        /// TopicsLive) for a Mutate that started a catch-up "wave", immediately for
+        /// one that did not (nothing added — removes-only or empty — or every add
+        /// a no-op). Also the catch-up
+        /// seam: live frames (mutate_id 0) for the wave's topics begin only after
+        /// this frame.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct CatchupComplete {
-            /// echoes the Mutate that started this wave (0 if none given)
+            /// echoes the Mutate; 0 only if a waveless Mutate carried 0
             #[prost(uint64, tag = "1")]
             pub mutate_id: u64,
         }
@@ -961,14 +979,15 @@ pub mod subscribe_response {
             }
         }
         /// Emitted when topics finish catch-up, AFTER the last history frame for
-        /// them — including any live messages that queued up behind the catch-up,
-        /// which were equally historical from the client's perspective — so every
-        /// later frame for a listed topic is live tail. Informational only: delivery
+        /// them — including messages that arrived mid-wave and were folded into it,
+        /// which were equally historical from the client's perspective — so no
+        /// further replay for a listed topic follows; its live (mutate_id 0) frames
+        /// begin after the wave's CatchupComplete. Informational only: delivery
         /// correctness (no duplicates, no gaps) never depends on it. Re-adding a
         /// topic re-runs catch-up and re-emits it; receivers treat it idempotently.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct TopicsLive {
-            /// kind-prefixed topics now tailing live
+            /// kind-prefixed topics done replaying
             #[prost(bytes = "vec", repeated, tag = "1")]
             pub topics: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
         }
@@ -1031,10 +1050,10 @@ pub mod subscribe_response {
             /// answer to a client Ping
             #[prost(message, tag = "4")]
             Pong(super::super::Pong),
-            /// these topics just crossed from catch-up to live
+            /// no more replay for these topics; live begins after CatchupComplete
             #[prost(message, tag = "5")]
             TopicsLive(TopicsLive),
-            /// a Mutate's adds are fully delivered
+            /// acks a Mutate; wave completion if it started one
             #[prost(message, tag = "6")]
             CatchupComplete(CatchupComplete),
         }
