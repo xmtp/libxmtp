@@ -38,8 +38,9 @@ pub mod stream_router;
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
 mod stream_router_tests;
 // Callback adapters over the router: the process-shared transport, the
-// `XMTP_BIDI_STREAMS_ENABLED` gate, and the pull→push pumps the bindings
-// call (native-only, like the router).
+// `XMTP_BIDI_STREAMS_ENABLED` gate with its unsupported-backend latch, and
+// the dispatch entry points the bindings call (native-only, like the
+// router).
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
@@ -533,7 +534,7 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static> {
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static + use<Context>> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
             installation_id = %self.context.installation_id(),

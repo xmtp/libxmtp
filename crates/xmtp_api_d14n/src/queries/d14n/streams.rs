@@ -121,9 +121,15 @@ xmtp_common::if_native! {
     // The v3-shaped XIP-83 bidi surface (`mls_v1` frames). This client cannot
     // serve it — the d14n wire speaks its own envelope binding — so it refuses
     // at runtime with an unretryable error. The dyn full API always *has*
-    // `subscribe_bidi`; support is a runtime property of the backend. There is
-    // no automatic fallback to the legacy streams yet (that latch is follow-on
-    // work), so the opt-in env gate must only be enabled against v3 backends.
+    // `subscribe_bidi`; support is a runtime property of the backend. The
+    // unretryable refusal is what trips xmtp_mls's process-wide fallback
+    // latch (its router callbacks): the stream that hit it is served on the
+    // legacy path in place and every later dispatch goes straight to legacy,
+    // so the opt-in env gate is safe to enable when this is the process's
+    // only backend. The latch is process-wide — in a mixed-backend process
+    // a bidi-capable donor wins the shared wire and clients of this backend
+    // are misrouted, not refused (the router-callbacks module docs call
+    // that hazard out).
     #[xmtp_common::async_trait]
     impl<C, Store> xmtp_proto::api_client::XmtpMlsBidiStreams for D14nClient<C, Store>
     where

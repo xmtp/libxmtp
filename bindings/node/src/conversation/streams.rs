@@ -4,10 +4,7 @@ use napi::{
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
 use napi_derive::napi;
-use xmtp_mls::groups::MlsGroup;
-use xmtp_mls::subscriptions::router_callbacks::{
-  bidi_streams_enabled, stream_conversation_messages_with_callback_bidi,
-};
+use xmtp_mls::subscriptions::router_callbacks::stream_conversation_messages_with_callback_dispatch;
 
 #[napi]
 impl Conversation {
@@ -34,18 +31,12 @@ impl Conversation {
       on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
     };
 
-    if bidi_streams_enabled() {
-      let handle = stream_conversation_messages_with_callback_bidi(
-        group.context.clone(),
-        group.group_id,
-        on_message,
-        on_close,
-      );
-      Ok(StreamCloser::new(handle))
-    } else {
-      let handle =
-        MlsGroup::stream_with_callback(group.context.clone(), group.group_id, on_message, on_close);
-      Ok(StreamCloser::new(handle))
-    }
+    let handle = stream_conversation_messages_with_callback_dispatch(
+      group.context.clone(),
+      group.group_id,
+      on_message,
+      on_close,
+    );
+    Ok(StreamCloser::new(handle))
   }
 }

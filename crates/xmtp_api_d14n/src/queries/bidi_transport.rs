@@ -1278,8 +1278,9 @@ where
                 if !e.is_retryable() {
                     // The backend refuses the surface outright — no redial
                     // can succeed. Shutting the ledger down ends every lease,
-                    // so consumers see their streams end and the next
-                    // subscribe carries the refusal to the caller.
+                    // so consumers see their streams end and every later
+                    // `lease()` fails with `Closed` — the refusal's
+                    // tombstone.
                     tracing::error!("bidi transport: reconnect refused ({e}); closing");
                     return AfterReopen::Shutdown;
                 }

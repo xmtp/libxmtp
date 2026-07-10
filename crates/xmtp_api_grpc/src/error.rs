@@ -106,6 +106,17 @@ impl From<ConversionError> for GrpcError {
     }
 }
 
+impl GrpcError {
+    /// Whether this is the server's `UNIMPLEMENTED` status — the backend's
+    /// own verdict that the RPC surface does not exist, as opposed to a
+    /// transient failure reaching it. Callers deciding between redialing and
+    /// falling back need that distinction, which `is_retryable` (a blanket
+    /// `true` here) erases.
+    pub fn is_unimplemented(&self) -> bool {
+        matches!(self, Self::Status(status) if status.code() == tonic::Code::Unimplemented)
+    }
+}
+
 impl xmtp_common::retry::RetryableError for GrpcError {
     fn is_retryable(&self) -> bool {
         true
