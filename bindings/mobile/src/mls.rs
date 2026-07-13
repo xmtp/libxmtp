@@ -149,6 +149,11 @@ pub async fn connect_to_backend(
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, FfiError> {
     init_logger();
+    // Install the rustls crypto provider explicitly. On Apple platforms the `#[ctor::ctor]`
+    // in `xmtp_cryptography` never fires (the constructor link section is unsupported), so
+    // relying on it would leave reqwest without a provider and panic on the history-sync HTTP
+    // path. Idempotent, so it is safe to call on every entry point. See issue #3846.
+    xmtp_cryptography::install_crypto_provider();
 
     let client_mode = client_mode.unwrap_or_default();
 
@@ -374,6 +379,9 @@ pub async fn create_client(
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
+    // See `connect_to_backend` — ensure the rustls provider is installed before the
+    // device-sync worker builds its history-server HTTP client. Idempotent. See issue #3846.
+    xmtp_cryptography::install_crypto_provider();
 
     let DbOptions {
         db,
