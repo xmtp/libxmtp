@@ -23,6 +23,9 @@ use stream_conversations::{StreamConversations, WelcomeOrGroup};
 mod bidi_tests;
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "d14n"))]
 mod d14n_bidi_tests;
+// Randomized delivery fuzz over the live node (same gating as `bidi_tests`).
+#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+mod bidi_fuzz_tests;
 pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
