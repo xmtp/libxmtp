@@ -127,7 +127,9 @@ impl BidiBinding for D14nBinding {
                 topics: parse_topics(live.topics),
             }),
             // Delivery: extract the envelopes into unified messages.
-            Some(Response::Envelopes(envelopes)) => extract(envelopes.envelopes),
+            Some(Response::Envelopes(envelopes)) => {
+                extract(envelopes.envelopes, envelopes.mutate_id)
+            }
             // A future-revision arm: informational frames are safe to skip.
             None => Inbound::Skip,
         }
@@ -141,7 +143,10 @@ impl BidiBinding for D14nBinding {
 /// logged and skipped *alone*. It must never sink the valid messages delivered
 /// alongside it: the consumer's cursors advance past a dropped batch, so anything
 /// discarded here is never re-fetched.
-fn extract(envelopes: Vec<OriginatorEnvelope>) -> Inbound<GroupMessage, WelcomeMessage> {
+fn extract(
+    envelopes: Vec<OriginatorEnvelope>,
+    mutate_id: u64,
+) -> Inbound<GroupMessage, WelcomeMessage> {
     let mut group = Vec::new();
     let mut welcome = Vec::new();
     for envelope in envelopes {
@@ -169,7 +174,11 @@ fn extract(envelopes: Vec<OriginatorEnvelope>) -> Inbound<GroupMessage, WelcomeM
             Err(e) => tracing::warn!("d14n bidi: skipping undecodable welcome envelope: {e}"),
         }
     }
-    Inbound::Messages { group, welcome }
+    Inbound::Messages {
+        group,
+        welcome,
+        mutate_id,
+    }
 }
 
 impl D14nBidiConnection {
@@ -267,15 +276,25 @@ mod tests {
         ));
     }
 
+    /// An empty batch still classifies as `Messages`, and the frame's wave
+    /// tag survives extraction — the transport routes on it.
     #[xmtp_common::test(unwrap_try = true)]
     fn empty_envelope_batch_yields_empty_messages() {
         let out = D14nBinding::handle(response(subscribe_response::v1::Response::Envelopes(
-            subscribe_response::v1::Envelopes { envelopes: vec![] },
+            subscribe_response::v1::Envelopes {
+                envelopes: vec![],
+                mutate_id: 7,
+            },
         )));
         match out {
-            Inbound::Messages { group, welcome } => {
+            Inbound::Messages {
+                group,
+                welcome,
+                mutate_id,
+            } => {
                 assert!(group.is_empty());
                 assert!(welcome.is_empty());
+                assert_eq!(mutate_id, 7, "the wave tag must survive extraction");
             }
             _ => panic!("expected Messages"),
         }
@@ -296,16 +315,22 @@ mod tests {
         let out = D14nBinding::handle(response(subscribe_response::v1::Response::Envelopes(
             subscribe_response::v1::Envelopes {
                 envelopes: vec![bad, good],
+                mutate_id: 42,
             },
         )));
         match out {
-            Inbound::Messages { group, welcome } => {
+            Inbound::Messages {
+                group,
+                welcome,
+                mutate_id,
+            } => {
                 assert!(group.is_empty());
                 assert_eq!(
                     welcome.len(),
                     1,
                     "the valid welcome must survive its bad neighbor"
                 );
+                assert_eq!(mutate_id, 42, "the wave tag must survive extraction");
             }
             _ => panic!("expected Messages, not a dropped batch"),
         }
@@ -325,10 +350,15 @@ mod tests {
         let out = D14nBinding::handle(response(subscribe_response::v1::Response::Envelopes(
             subscribe_response::v1::Envelopes {
                 envelopes: vec![bad],
+                mutate_id: 0,
             },
         )));
         match out {
-            Inbound::Messages { group, welcome } => {
+            Inbound::Messages {
+                group,
+                welcome,
+                mutate_id: 0,
+            } => {
                 assert!(group.is_empty());
                 assert!(welcome.is_empty());
             }

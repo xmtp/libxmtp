@@ -518,6 +518,7 @@ where
                 sync_groups,
                 intake: WelcomeIntake::new(
                     self.context.clone(),
+                    welcome_floor,
                     known,
                     conversation_type,
                     true,
@@ -567,6 +568,7 @@ where
             local_events,
             intake: WelcomeIntake::new(
                 self.context.clone(),
+                seed,
                 known,
                 conversation_type,
                 include_duplicate_dms,
@@ -669,10 +671,11 @@ fn welcome_seed(db: &impl QueryRefreshState, installation: InstallationId) -> Re
         .v3_welcome())
 }
 
-/// The welcome cursors that already became groups, restricted to those the
-/// wire can still deliver: anything at-or-below the lease floor is filtered
-/// by the transport's delivery guarantee, so seeding it would only bloat the
-/// set every processing task snapshots.
+/// The welcome cursors that already became groups, above the stream's
+/// durable floor. Below the floor the intake drops every replay outright —
+/// at-or-below the durable cursor means already processed, group or not —
+/// so the known set only needs the above-floor overlap (welcomes processed
+/// since the last cursor advance).
 fn known_welcomes_above(db: &impl QueryGroup, floor: SequenceId) -> Result<HashSet<Cursor>> {
     Ok(db
         .group_cursors()?
@@ -811,9 +814,17 @@ async fn next_local_wake(events: &mut broadcast::Receiver<LocalEvents>) -> Local
 /// where the consumers' known/positions guards make them idempotent.
 struct WelcomeIntake<Context> {
     context: Context,
-    /// Welcome dedup: every cursor this stream has resolved (or knew at
-    /// subscribe). Consulted at intake, snapshotted per task, recorded back
-    /// by the consumer at completion.
+    /// The stream's durable welcome cursor at subscribe. Every welcome
+    /// at-or-below it was already processed — stored, ignored, filtered, or
+    /// failed-and-advanced — so a replay of one (the transport can serve
+    /// below this stream's own floor: a shared-topic reconnect re-adds at
+    /// the lowest sibling position) is dropped at intake instead of
+    /// re-running the pipeline, which would re-emit `Err` outcomes for
+    /// welcomes that never became groups.
+    floor: SequenceId,
+    /// Welcome dedup above the floor: every cursor this stream has resolved
+    /// (or knew at subscribe). Consulted at intake, snapshotted per task,
+    /// recorded back by the consumer at completion.
     known: HashSet<Cursor>,
     conversation_type: Option<ConversationType>,
     include_duplicate_dms: bool,
@@ -832,6 +843,7 @@ where
 {
     fn new(
         context: Context,
+        floor: SequenceId,
         known: HashSet<Cursor>,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
@@ -839,6 +851,7 @@ where
     ) -> Self {
         Self {
             context,
+            floor,
             known,
             conversation_type,
             include_duplicate_dms,
@@ -848,7 +861,7 @@ where
         }
     }
 
-    /// Wire welcomes: decode, drop the already-known, queue the rest.
+    /// Wire welcomes: decode, drop the already-processed, queue the rest.
     /// Returns `false` when the backlog overflowed (the stream must end).
     fn absorb_batch(&mut self, batch: Vec<mls_v1::WelcomeMessage>) -> bool {
         for proto in batch {
@@ -861,12 +874,24 @@ where
                     continue;
                 }
             };
+            if typed.cursor.sequence_id <= self.floor {
+                // At-or-below the durable cursor: already processed, whether
+                // or not it became a group — a below-floor replay must not
+                // re-run the pipeline (see `floor`).
+                continue;
+            }
             if self.known.contains(&typed.cursor) {
                 // Already a group before subscribe, or already resolved by
                 // this stream. This must NOT fall through to the pipeline —
                 // its known-id path re-surfaces the group from store, which
                 // would re-emit the conversation every time a sibling's
                 // cursored re-add replays this welcome.
+                //
+                // The subscribe-window race — a welcome resolving after the
+                // known set was snapshotted but before the lease registered
+                // — passes both guards above once (above the floor, not yet
+                // known); the pipeline's known-id path and the consumers'
+                // completion guards absorb that single flight.
                 continue;
             }
             if !self.enqueue(WelcomeOrGroup::Welcome(typed)) {
