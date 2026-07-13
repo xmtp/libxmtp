@@ -26,6 +26,10 @@ mod d14n_bidi_tests;
 // Randomized delivery fuzz over the live node (same gating as `bidi_tests`).
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
 mod bidi_fuzz_tests;
+// One-shot bounded catch-up over the bidi wire (native-only, like the
+// connection it rides).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod catch_up;
 pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
