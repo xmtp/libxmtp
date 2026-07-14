@@ -192,6 +192,34 @@ pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
     api.wrapper.api_client.is_connected().await
 }
 
+/// Take the streaming wire off the network — the "app entered background" half
+/// of the lifecycle pair. Kept subscriptions and their wire positions survive;
+/// nothing reconnects until [`resume_streams`]. A no-op when nothing is
+/// streaming (the bidi path is off, or no stream was ever opened), so it is
+/// always safe to call.
+///
+/// Process-scoped: one streaming wire is shared across every client in the
+/// process, so this is a free function, not a client method.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn suspend_streams() -> Result<(), FfiError> {
+    xmtp_mls::subscriptions::router_callbacks::suspend_bidi_streams().await?;
+    Ok(())
+}
+
+/// Bring the streaming wire back after [`suspend_streams`] — the "app entered
+/// foreground" half. Fire-and-forget: do **not** await this to drive UI. It
+/// resolves at a wire-level mark (the reconnect's catch-up wave completing),
+/// which is unbounded while the network is down and can still have replayed
+/// messages decoding behind it; awaiting it for a "synced" spinner would stall.
+/// Let the message callbacks update the UI as messages arrive, and use
+/// [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable
+/// "I am current now". A no-op when nothing is streaming.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn resume_streams() -> Result<(), FfiError> {
+    xmtp_mls::subscriptions::router_callbacks::resume_bidi_streams().await?;
+    Ok(())
+}
+
 /**
  * Static Get the inbox state for each `inbox_id`.
  */
@@ -740,6 +768,36 @@ impl FfiXmtpClient {
         Ok(self.inner_client.close().await?)
     }
 
+    /// Bring the local store current with the server, then stop — for background
+    /// fetch and cold start, where a live stream would be wasted because the
+    /// process is about to be suspended. Pending welcomes are joined and every
+    /// conversation's missed messages are replayed from durable cursors and
+    /// persisted, then the wire closes.
+    ///
+    /// `timeout_ms` bounds the whole call (`None` = unbounded). On the deadline
+    /// the returned summary has `completed = false`; whatever was processed
+    /// first is already persisted and a later call resumes from durable state,
+    /// so cutting it short is always safe.
+    #[tracing::instrument(skip_all)]
+    pub async fn catch_up_to_live(
+        &self,
+        timeout_ms: Option<u64>,
+    ) -> Result<FfiCatchUpSummary, FfiError> {
+        let fut = self.inner_client.catch_up_to_live();
+        match timeout_ms {
+            None => Ok(fut.await?.into()),
+            Some(ms) => match tokio::time::timeout(std::time::Duration::from_millis(ms), fut).await
+            {
+                Ok(res) => Ok(res?.into()),
+                Err(_elapsed) => Ok(FfiCatchUpSummary {
+                    messages: 0,
+                    conversations: 0,
+                    completed: false,
+                }),
+            },
+        }
+    }
+
     #[tracing::instrument(skip_all)]
     pub async fn find_inbox_id(
         &self,
@@ -1150,6 +1208,31 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for FfiGroupSyncSumm
         Self {
             num_eligible: summary.num_eligible as u64,
             num_synced: summary.num_synced as u64,
+        }
+    }
+}
+
+/// Outcome of [`FfiXmtpClient::catch_up_to_live`].
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct FfiCatchUpSummary {
+    /// Application messages newly persisted by this call. Meaningful only when
+    /// `completed` is true; `0` on a deadline (the in-flight tally is dropped
+    /// with the cancelled future — the messages themselves are still stored).
+    pub messages: u64,
+    /// Conversations newly joined by this call. Same caveat as `messages`.
+    pub conversations: u64,
+    /// Whether catch-up finished before the deadline. `false` means `timeout_ms`
+    /// elapsed first; messages processed before then are persisted, and a later
+    /// call resumes from durable state.
+    pub completed: bool,
+}
+
+impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for FfiCatchUpSummary {
+    fn from(summary: xmtp_mls::subscriptions::catch_up::CatchUpSummary) -> Self {
+        Self {
+            messages: summary.messages,
+            conversations: summary.conversations,
+            completed: true,
         }
     }
 }
