@@ -33,9 +33,9 @@
 //!     frames the sibling-gap rule (below) — with one carve-out: a holder
 //!     still owed history on the topic takes fresh frames only from a wave
 //!     it rides (that IS its replay, streaming). From a foreign wave or the
-//!     live lane the frame is **withheld** for it and flushed, in wire
-//!     arrival order (per topic that is cursor order) and
-//!     watermark-deduped, right before its `CatchUpComplete` —
+//!     live lane the frame is **withheld** for it and flushed right before
+//!     its `CatchUpComplete` — at most one event per kind, each in arrival
+//!     order (per topic that is cursor order) and watermark-deduped —
 //!     delivered now it would jump ahead of the owed replay, and a later
 //!     overlapping replay would re-serve or skip it. Withheld frames are
 //!     shared (`Arc`) across the holders withholding them and bounded per
@@ -742,23 +742,25 @@ where
     /// their topic ([`LeaseState::owed_on`]) and the frame rides a FOREIGN
     /// wave or the live lane. Delivered immediately they would jump ahead
     /// of the owed replay, and — being invisible to the owed watermark —
-    /// a later overlapping replay would re-serve or skip them. Flushed in
-    /// wire arrival order (per topic that is cursor order),
-    /// watermark-deduped, right before this lease's `CatchUpComplete`.
+    /// a later overlapping replay would re-serve or skip them. Flushed
+    /// right before this lease's `CatchUpComplete` — at most one event per
+    /// kind (never one per kind run, so the flush stays within the lease's
+    /// channel bound), each in arrival order, watermark-deduped.
     /// They survive a reopen unscathed: the re-issue's replay either stays
     /// below them or re-delivers them through the owed lane, and the
     /// watermark skip at flush absorbs the overlap either way. One fresh
     /// frame may be withheld for several holders at once — the `Arc`
     /// shares the allocation between them (and with nothing else: delivery
     /// hands out owned clones). Each entry carries the lease's arrival
-    /// sequence ([`LeaseState::withheld_seq`]) so the flush can merge
-    /// topics and kinds back into wire order. Bounded per lease by
+    /// sequence ([`LeaseState::withheld_seq`]) so the flush can merge each
+    /// kind's topics back into arrival order. Bounded per lease by
     /// [`WITHHELD_FRAMES_CAP`]; dropped with the lease.
     held_group: Withheld<B::GroupMessage>,
     held_welcome: Withheld<B::WelcomeMessage>,
     /// Arrival stamp for the next withheld frame — per-topic vectors keep
-    /// per-topic order on their own; this restores the order BETWEEN
-    /// topics and kinds at flush time.
+    /// per-topic order on their own; this restores the order BETWEEN a
+    /// kind's topics at flush time (and puts the first-arrived kind's
+    /// event first).
     withheld_seq: u64,
     /// Waves already in flight when this lease registered. Their replays
     /// may have passed this lease's floor before it existed, so what
@@ -776,17 +778,6 @@ where
 /// lease's arrival sequence ([`LeaseState::withheld_seq`]) and sharing the
 /// frame allocation with every other holder withholding it.
 type Withheld<M> = HashMap<Topic, Vec<(u64, Arc<M>)>>;
-
-/// One withheld frame at flush time, kind-tagged so the completion flush
-/// can rebuild wire arrival order across kinds ([`Ledger::complete`]).
-enum FlushedFrame<B: TransportBinding>
-where
-    B::GroupMessage: Clone,
-    B::WelcomeMessage: Clone,
-{
-    Group(B::GroupMessage),
-    Welcome(B::WelcomeMessage),
-}
 
 impl<B: TransportBinding> LeaseState<B>
 where
@@ -994,7 +985,8 @@ where
             }
             return;
         }
-        let mut flushed: Vec<(u64, FlushedFrame<B>)> = Vec::new();
+        let mut groups: Vec<(u64, B::GroupMessage)> = Vec::new();
+        let mut welcomes: Vec<(u64, B::WelcomeMessage)> = Vec::new();
         if let Some(state) = self.leases.get_mut(&lease) {
             state.caught_up = true;
             // Withheld fresh frames join the feed now, watermark-deduped
@@ -1003,30 +995,26 @@ where
             // tail of history.
             for (topic, held) in std::mem::take(&mut state.held_group) {
                 let replayed = state.replayed.get(&topic);
-                flushed.extend(
+                groups.extend(
                     held.into_iter()
                         .filter(|(_, message)| {
                             B::group_cursor(message).is_some_and(|cursor| {
                                 !replayed.is_some_and(|replayed| B::covers(replayed, &cursor))
                             })
                         })
-                        .map(|(seq, message)| {
-                            (seq, FlushedFrame::Group(Arc::unwrap_or_clone(message)))
-                        }),
+                        .map(|(seq, message)| (seq, Arc::unwrap_or_clone(message))),
                 );
             }
             for (topic, held) in std::mem::take(&mut state.held_welcome) {
                 let replayed = state.replayed.get(&topic);
-                flushed.extend(
+                welcomes.extend(
                     held.into_iter()
                         .filter(|(_, message)| {
                             B::welcome_cursor(message).is_some_and(|cursor| {
                                 !replayed.is_some_and(|replayed| B::covers(replayed, &cursor))
                             })
                         })
-                        .map(|(seq, message)| {
-                            (seq, FlushedFrame::Welcome(Arc::unwrap_or_clone(message)))
-                        }),
+                        .map(|(seq, message)| (seq, Arc::unwrap_or_clone(message))),
                 );
             }
             // The owed-history lane closes with the catch-up; only fresh
@@ -1035,47 +1023,33 @@ where
             state.replayed.clear();
         }
         // The per-topic vectors preserve each topic's order on their own;
-        // the arrival stamps restore the order BETWEEN topics and kinds,
-        // so the flush replays the wire exactly as it would have been
-        // delivered live — batched at kind boundaries.
-        flushed.sort_unstable_by_key(|(seq, _)| *seq);
-        let mut groups: Vec<B::GroupMessage> = Vec::new();
-        let mut welcomes: Vec<B::WelcomeMessage> = Vec::new();
-        for (_, frame) in flushed {
-            match frame {
-                FlushedFrame::Group(message) => {
-                    if !welcomes.is_empty()
-                        && !self.deliver(
-                            lease,
-                            LeaseEvent::WelcomeMessages(std::mem::take(&mut welcomes)),
-                        )
-                    {
-                        dropped.push(lease);
-                        return;
-                    }
-                    groups.push(message);
-                }
-                FlushedFrame::Welcome(message) => {
-                    if !groups.is_empty()
-                        && !self.deliver(
-                            lease,
-                            LeaseEvent::GroupMessages(std::mem::take(&mut groups)),
-                        )
-                    {
-                        dropped.push(lease);
-                        return;
-                    }
-                    welcomes.push(message);
-                }
+        // the arrival stamps restore the order BETWEEN topics, handing each
+        // kind's event its slice of the wire in delivery order. At most one
+        // event per kind — never one per kind run — so an alternating
+        // group/welcome buffer flushes in at most three `try_send`s and
+        // cannot burst a healthy lease past its channel bound. Cross-kind
+        // interleaving is not observable live either: a wire batch is
+        // single-kind.
+        groups.sort_unstable_by_key(|(seq, _)| *seq);
+        welcomes.sort_unstable_by_key(|(seq, _)| *seq);
+        let welcomes_first = match (groups.first(), welcomes.first()) {
+            (Some((group, _)), Some((welcome, _))) => welcome < group,
+            _ => false,
+        };
+        let groups: Vec<_> = groups.into_iter().map(|(_, message)| message).collect();
+        let welcomes: Vec<_> = welcomes.into_iter().map(|(_, message)| message).collect();
+        let group_event = (!groups.is_empty()).then(|| LeaseEvent::GroupMessages(groups));
+        let welcome_event = (!welcomes.is_empty()).then(|| LeaseEvent::WelcomeMessages(welcomes));
+        let (first, second) = if welcomes_first {
+            (welcome_event, group_event)
+        } else {
+            (group_event, welcome_event)
+        };
+        for event in [first, second].into_iter().flatten() {
+            if !self.deliver(lease, event) {
+                dropped.push(lease);
+                return;
             }
-        }
-        if !groups.is_empty() && !self.deliver(lease, LeaseEvent::GroupMessages(groups)) {
-            dropped.push(lease);
-            return;
-        }
-        if !welcomes.is_empty() && !self.deliver(lease, LeaseEvent::WelcomeMessages(welcomes)) {
-            dropped.push(lease);
-            return;
         }
         if !self.deliver(lease, LeaseEvent::CatchUpComplete) {
             dropped.push(lease);
@@ -5136,13 +5110,13 @@ mod tests {
             "an overflowing lease must be closed for durable-cursor recovery"
         );
     }
-    /// The completion flush replays withheld frames in WIRE ARRIVAL order
-    /// across topics and kinds — batched at kind boundaries — not grouped
-    /// by kind or hash-map order. A lease owed history on a group topic
-    /// and its welcome topic sees the withheld live window exactly as the
-    /// wire delivered it.
+    /// The completion flush replays withheld frames in arrival order
+    /// within each kind — at most one event per kind, first-arrived kind
+    /// leading — never hash-map order across a kind's topics, and never
+    /// one event per kind run (which could burst the lease's channel
+    /// bound; see the alternating-window test below).
     #[xmtp_common::test(unwrap_try = true)]
-    async fn flush_replays_withheld_frames_in_wire_arrival_order() {
+    async fn flush_replays_withheld_frames_per_kind_in_arrival_order() {
         let (transport, servers) = transport();
         let (gt, wt) = (group_topic(b"g1"), welcome_topic(b"ik1"));
         // Alpha carries both topics live, seeding the wire positions so
@@ -5195,25 +5169,95 @@ mod tests {
             }
             _ => panic!("beta expected its welcome history"),
         }
-        // ...then the withheld window, kind boundaries preserved: G16, W9,
-        // G17 — never "all groups then all welcomes".
+        // ...then the withheld window: one event per kind, arrival order
+        // within the kind, and the first-arrived kind (group 16 beat
+        // welcome 9 to the wire) leading.
         match recv(&mut beta).await {
-            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(16, b"g1")]),
-            _ => panic!("beta expected the first withheld group frame"),
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(16, b"g1"), group_msg(17, b"g1")])
+            }
+            _ => panic!("beta expected the withheld group frames first"),
         }
         match recv(&mut beta).await {
             Some(LeaseEvent::WelcomeMessages(got)) => {
                 assert_eq!(got, vec![welcome_msg(9, b"ik1")])
             }
-            _ => panic!("beta expected the withheld welcome frame in arrival order"),
-        }
-        match recv(&mut beta).await {
-            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(17, b"g1")]),
-            _ => panic!("beta expected the last withheld group frame"),
+            _ => panic!("beta expected the withheld welcome frame"),
         }
         assert!(matches!(
             recv(&mut beta).await,
             Some(LeaseEvent::CatchUpComplete)
         ));
+    }
+
+    /// An alternating group/welcome withheld window must flush within the
+    /// lease's channel bound — at most one event per kind plus the
+    /// completion marker — never one `try_send` per kind run, which would
+    /// drop a healthy lease that merely had not drained yet.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_alternating_withheld_window_flushes_within_the_channel_bound() {
+        let (transport, servers) = transport();
+        let (gt, wt) = (group_topic(b"g1"), welcome_topic(b"ik1"));
+        // Alpha seeds the wire positions so beta's owed slices are bounded.
+        let mut alpha = transport
+            .lease(vec![(gt.clone(), 0), (wt.clone(), 0)], 8)
+            .await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(replay(
+            first.mutate_id,
+            vec![group_msg(15, b"g1")],
+            vec![welcome_msg(5, b"ik1")],
+        ));
+        server.send(catchup_complete(first.mutate_id));
+        for _ in 0..3 {
+            recv(&mut alpha).await;
+        }
+
+        // Beta withholds a 12-frame alternating window — 11 kind
+        // transitions, far past its channel depth of 8 if each run became
+        // its own event — while its wave is still open.
+        let mut beta = transport
+            .lease(vec![(gt.clone(), 0), (wt.clone(), 0)], 8)
+            .await?;
+        let wave = server.next_mutate().await;
+        for i in 0..6u64 {
+            server.send(live(vec![group_msg(16 + i, b"g1")], vec![]));
+            server.send(live(vec![], vec![welcome_msg(6 + i, b"ik1")]));
+        }
+        server.send(catchup_complete(wave.mutate_id));
+
+        // The flush arrives as exactly one event per kind, then the
+        // completion — the lease survives.
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(
+                    got,
+                    (0..6).map(|i| group_msg(16 + i, b"g1")).collect::<Vec<_>>()
+                )
+            }
+            _ => panic!("beta expected all withheld group frames in one event"),
+        }
+        match recv(&mut beta).await {
+            Some(LeaseEvent::WelcomeMessages(got)) => {
+                assert_eq!(
+                    got,
+                    (0..6)
+                        .map(|i| welcome_msg(6 + i, b"ik1"))
+                        .collect::<Vec<_>>()
+                )
+            }
+            _ => panic!("beta expected all withheld welcome frames in one event"),
+        }
+        assert!(matches!(
+            recv(&mut beta).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        // Alive and caught up: fresh traffic flows straight through.
+        server.send(live(vec![group_msg(22, b"g1")], vec![]));
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(22, b"g1")]),
+            _ => panic!("beta must survive the flush and keep streaming"),
+        }
     }
 }
