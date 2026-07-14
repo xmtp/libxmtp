@@ -175,7 +175,7 @@ pub(crate) fn is_bidi_unsupported(e: &RouterError) -> bool {
 /// `GrpcError::Status` — and `GrpcError` reports itself blanket-retryable,
 /// so the refusal must be recognized by shape, not by `is_retryable`. The
 /// chain walk finds it wherever it sits.
-fn open_is_backend_refusal(open: &OpenError) -> bool {
+pub(crate) fn open_is_backend_refusal(open: &OpenError) -> bool {
     let mut source = std::error::Error::source(open);
     while let Some(e) = source {
         if e.downcast_ref::<GrpcError>()

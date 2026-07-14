@@ -616,20 +616,20 @@ where
 /// (so they stay skipped after the window). The wire cursor and the window
 /// floor stay at the durable cursor — a stored gap (6 and 8 stored, 7
 /// missed) still gets 7 replayed and delivered.
-struct GroupSeeds {
+pub(crate) struct GroupSeeds {
     /// Frozen per-topic window floors: the durable resume points.
-    floors: HashMap<Topic, GlobalCursor>,
+    pub(crate) floors: HashMap<Topic, GlobalCursor>,
     /// Live per-topic positions: the floors folded with stored identities.
     positions: HashMap<Topic, GlobalCursor>,
     /// The window's exact-identity seen-set: the stored identities.
-    seen: HashSet<Cursor>,
+    pub(crate) seen: HashSet<Cursor>,
 }
 
 impl GroupSeeds {
     /// The cursored adds for this seeding's lease wave: each topic from its
     /// frozen floor — the cursored lease makes the server replay anything
     /// past it (catch-up == subscribe).
-    fn subs(&self) -> Vec<(Topic, SequenceId)> {
+    pub(crate) fn subs(&self) -> Vec<(Topic, SequenceId)> {
         self.floors
             .iter()
             .map(|(topic, floor)| (topic.clone(), floor.max()))
@@ -638,7 +638,7 @@ impl GroupSeeds {
 }
 
 /// Seed `group_ids` from their durable cursors (see [`GroupSeeds`]).
-fn seed_groups(
+pub(crate) fn seed_groups(
     db: &(impl QueryRefreshState + QueryGroupMessage),
     group_ids: &[GroupId],
 ) -> Result<GroupSeeds> {
@@ -662,7 +662,10 @@ fn seed_groups(
 
 /// The durable welcome cursor: this installation's wire resume point for its
 /// welcome topic.
-fn welcome_seed(db: &impl QueryRefreshState, installation: InstallationId) -> Result<SequenceId> {
+pub(crate) fn welcome_seed(
+    db: &impl QueryRefreshState,
+    installation: InstallationId,
+) -> Result<SequenceId> {
     Ok(db
         .get_last_cursor_for_ids(&[installation], &[EntityKind::Welcome])?
         .get(installation.as_slice())
@@ -676,7 +679,10 @@ fn welcome_seed(db: &impl QueryRefreshState, installation: InstallationId) -> Re
 /// at-or-below the durable cursor means already processed, group or not —
 /// so the known set only needs the above-floor overlap (welcomes processed
 /// since the last cursor advance).
-fn known_welcomes_above(db: &impl QueryGroup, floor: SequenceId) -> Result<HashSet<Cursor>> {
+pub(crate) fn known_welcomes_above(
+    db: &impl QueryGroup,
+    floor: SequenceId,
+) -> Result<HashSet<Cursor>> {
     Ok(db
         .group_cursors()?
         .into_iter()
@@ -812,7 +818,10 @@ async fn next_local_wake(events: &mut broadcast::Receiver<LocalEvents>) -> Local
 /// Each task snapshots the known set at spawn (the pipeline's contract), so
 /// concurrent same-cursor flights are possible; they resolve at completion,
 /// where the consumers' known/positions guards make them idempotent.
-struct WelcomeIntake<Context> {
+///
+/// Shared with the bounded catch-up (`catch_up`), whose welcome handling is
+/// this same intake over its own one-shot wire.
+pub(crate) struct WelcomeIntake<Context> {
     context: Context,
     /// The stream's durable welcome cursor at subscribe. Every welcome
     /// at-or-below it was already processed — stored, ignored, filtered, or
@@ -825,7 +834,7 @@ struct WelcomeIntake<Context> {
     /// Welcome dedup above the floor: every cursor this stream has resolved
     /// (or knew at subscribe). Consulted at intake, snapshotted per task,
     /// recorded back by the consumer at completion.
-    known: HashSet<Cursor>,
+    pub(crate) known: HashSet<Cursor>,
     conversation_type: Option<ConversationType>,
     include_duplicate_dms: bool,
     consent_states: Option<Vec<ConsentState>>,
@@ -841,7 +850,7 @@ impl<Context> WelcomeIntake<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    fn new(
+    pub(crate) fn new(
         context: Context,
         floor: SequenceId,
         known: HashSet<Cursor>,
@@ -863,7 +872,7 @@ where
 
     /// Wire welcomes: decode, drop the already-processed, queue the rest.
     /// Returns `false` when the backlog overflowed (the stream must end).
-    fn absorb_batch(&mut self, batch: Vec<mls_v1::WelcomeMessage>) -> bool {
+    pub(crate) fn absorb_batch(&mut self, batch: Vec<mls_v1::WelcomeMessage>) -> bool {
         for proto in batch {
             let typed = match xmtp_proto::types::WelcomeMessage::try_from(
                 V3ProtoWelcomeMessage::from(proto),
@@ -940,24 +949,57 @@ where
         }
     }
 
+    /// Nothing queued and nothing in flight — every absorbed arrival has
+    /// resolved through [`Self::next_outcome`].
+    pub(crate) fn is_idle(&self) -> bool {
+        self.tasks.is_empty() && self.backlog.is_empty()
+    }
+
     /// The next finished task, parking forever while nothing is in flight
     /// (the backlog is non-empty only at the cap, so idle means empty).
-    async fn next_outcome(&mut self) -> Result<WelcomeOutcome<Context>> {
-        loop {
-            match self.tasks.join_next().await {
-                Some(Ok(outcome)) => {
-                    self.pump();
-                    return outcome;
-                }
-                // A panicked task: skip it, like the legacy conversation
-                // stream's completion arm does.
-                Some(Err(e)) => {
-                    tracing::warn!("stream router: welcome processing task failed: {e}");
-                    self.pump();
-                }
-                None => return std::future::pending().await,
+    ///
+    /// A task that dies instead of resolving (a panic) surfaces as an
+    /// error rather than being skipped: swallowing the last join would
+    /// leave the set empty and park the next poll on `pending()`, so a
+    /// caller whose other wake sources have gone quiet — the bounded
+    /// catch-up once its waves complete — would never re-check its
+    /// termination state. One error per dead task wakes the caller exactly
+    /// once; the welcome stays unrecorded, so the wire replays it later.
+    pub(crate) async fn next_outcome(&mut self) -> Result<WelcomeOutcome<Context>> {
+        match self.tasks.join_next().await {
+            Some(Ok(outcome)) => {
+                self.pump();
+                outcome
             }
+            Some(Err(e)) => {
+                self.pump();
+                Err(SubscribeError::BoxError(Box::new(WelcomeTaskDied(e))))
+            }
+            None => std::future::pending().await,
         }
+    }
+
+    /// Test-only seam: park a task that dies by panic, for the
+    /// panic-surfacing regression on [`Self::next_outcome`]. Gated like its
+    /// only caller (`stream_router_tests`): under `d14n` those tests are
+    /// compiled out and this would be dead code.
+    #[cfg(all(test, not(feature = "d14n")))]
+    pub(crate) fn spawn_panicking_task(&mut self) {
+        self.tasks.spawn(async { panic!("boom") });
+    }
+}
+
+/// A spawned welcome/local-group task died (panicked) instead of
+/// resolving. Not retryable in place: the welcome it carried stays
+/// unrecorded, so the wire replays it to the next stream or catch-up —
+/// that replay is the retry.
+#[derive(Debug, thiserror::Error)]
+#[error("welcome processing task died: {0}")]
+struct WelcomeTaskDied(xmtp_common::task::JoinError);
+
+impl xmtp_common::RetryableError for WelcomeTaskDied {
+    fn is_retryable(&self) -> bool {
+        false
     }
 }
 
