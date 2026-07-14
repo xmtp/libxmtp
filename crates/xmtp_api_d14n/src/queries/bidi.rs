@@ -27,7 +27,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use tokio::sync::{mpsc, oneshot};
-use xmtp_common::{AbortHandle, StreamHandle};
+use xmtp_common::{AbortHandle, MaybeSend, MaybeSync, StreamHandle};
 use xmtp_proto::types::{Topic, TopicKind};
 
 /// Wire-outbound depth. The actor is the sole writer; a transport that stops
@@ -94,10 +94,13 @@ pub trait BidiBinding: Send + 'static {
     type Response: Send + 'static;
     /// The backend's `Mutate` payload (v3: single `id_cursor`; d14n: vector cursor).
     type Mutate: Send;
-    /// Consumer-facing group message (v3: raw proto; d14n: unified, post-extract).
-    type GroupMessage: Send;
-    /// Consumer-facing welcome message (v3: raw proto; d14n: unified, post-extract).
-    type WelcomeMessage: Send;
+    /// Consumer-facing group message (v3: raw proto; d14n: unified,
+    /// post-extract). `MaybeSync` because the transport ledger shares
+    /// withheld frames between holders via `Arc` inside its actor.
+    type GroupMessage: MaybeSend + MaybeSync;
+    /// Consumer-facing welcome message (v3: raw proto; d14n: unified,
+    /// post-extract). `MaybeSync` for the same reason as `GroupMessage`.
+    type WelcomeMessage: MaybeSend + MaybeSync;
 
     /// Wrap a `Mutate` as an outbound request frame.
     fn mutate_frame(mutate: Self::Mutate) -> Self::Request;

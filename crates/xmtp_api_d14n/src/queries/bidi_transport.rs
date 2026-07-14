@@ -30,15 +30,28 @@
 //!   structural — no per-lease positions, no consumer dedup contract:
 //!   - a frame past `last_seen` (the wire's per-topic position) goes to
 //!     **every holder** of its topic — the live fan-out, and for tagged
-//!     frames the sibling-gap rule (below);
+//!     frames the sibling-gap rule (below) — with one carve-out: a holder
+//!     still owed history on the topic takes fresh frames only from a wave
+//!     it rides (that IS its replay, streaming). From a foreign wave or the
+//!     live lane the frame is **withheld** for it and flushed, in wire
+//!     arrival order (per topic that is cursor order) and
+//!     watermark-deduped, right before its `CatchUpComplete` —
+//!     delivered now it would jump ahead of the owed replay, and a later
+//!     overlapping replay would re-serve or skip it. Withheld frames are
+//!     shared (`Arc`) across the holders withholding them and bounded per
+//!     lease; a stalled catch-up that overflows the bound takes the
+//!     channel-wedge recovery (the lease drops, its consumer re-leases
+//!     from durable cursors);
 //!   - a tagged frame at-or-below `last_seen` is **owed history**: it goes
 //!     to each holder still catching up whose slice it falls in — above the
 //!     holder's floor, at-or-below its registration snapshot (everything
-//!     past the snapshot reaches it as it happens), and past what earlier
-//!     replay passes already delivered it. The frame's own wave does not
-//!     say whose history it carries: a lower re-add moves a topic into the
-//!     re-adder's wave (XIP-83), so one lease's requested replay can ride
-//!     a sibling's wave.
+//!     past the snapshot reaches it as it happens; with NO snapshot the
+//!     wire had seen nothing of the topic, the owed edge is unknown, and
+//!     everything above the floor is requested history until the catch-up
+//!     closes the lane), and past what earlier replay passes already
+//!     delivered it. The frame's own wave does not say whose history it
+//!     carries: a lower re-add moves a topic into the re-adder's wave
+//!     (XIP-83), so one lease's requested replay can ride a sibling's wave.
 //!
 //!   This client therefore **requires a tag-serving backend**
 //!   (xmtp-node-go ≥ `6e0feb5f`, XIP-83 delivery tags). Against an older
@@ -138,6 +151,7 @@
 //! - `Started` capabilities are logged, not consumed (capability gating phase).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
@@ -154,6 +168,15 @@ pub const DEFAULT_LEASE_DEPTH: usize = 64;
 /// wire's command buffer momentarily full. Rare: capacity normally frees (and
 /// the ledger normally wakes) through the same event flow that filled it.
 const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// Upper bound on frames withheld per lease, summed across its topics and
+/// kinds ([`LeaseState::held_group`]/[`LeaseState::held_welcome`]). The
+/// withhold window is one catch-up's lifetime — bounded on a healthy server
+/// by its always-ack — so the cap only trips when a wave stalls while
+/// traffic keeps flowing (a wedged or misbehaving server). Tripping
+/// converts unbounded memory growth into the channel-wedge recovery: the
+/// lease is dropped and its consumer re-leases from durable cursors.
+const WITHHELD_FRAMES_CAP: usize = 512;
 /// First retry after an unexpected wire death; doubles per failed attempt up
 /// to [`RECONNECT_MAX_DELAY`]. Reconnection is never given up on — an offline
 /// process resumes when the network returns.
@@ -715,8 +738,91 @@ where
     /// Also the re-issue base: per topic, strictly tighter than a wave's
     /// per-kind progress. Dropped with the snapshot at catch-up.
     replayed: HashMap<Topic, B::Cursor>,
+    /// Fresh-lane frames withheld while the lease is still owed history on
+    /// their topic ([`LeaseState::owed_on`]) and the frame rides a FOREIGN
+    /// wave or the live lane. Delivered immediately they would jump ahead
+    /// of the owed replay, and — being invisible to the owed watermark —
+    /// a later overlapping replay would re-serve or skip them. Flushed in
+    /// wire arrival order (per topic that is cursor order),
+    /// watermark-deduped, right before this lease's `CatchUpComplete`.
+    /// They survive a reopen unscathed: the re-issue's replay either stays
+    /// below them or re-delivers them through the owed lane, and the
+    /// watermark skip at flush absorbs the overlap either way. One fresh
+    /// frame may be withheld for several holders at once — the `Arc`
+    /// shares the allocation between them (and with nothing else: delivery
+    /// hands out owned clones). Each entry carries the lease's arrival
+    /// sequence ([`LeaseState::withheld_seq`]) so the flush can merge
+    /// topics and kinds back into wire order. Bounded per lease by
+    /// [`WITHHELD_FRAMES_CAP`]; dropped with the lease.
+    held_group: Withheld<B::GroupMessage>,
+    held_welcome: Withheld<B::WelcomeMessage>,
+    /// Arrival stamp for the next withheld frame — per-topic vectors keep
+    /// per-topic order on their own; this restores the order BETWEEN
+    /// topics and kinds at flush time.
+    withheld_seq: u64,
+    /// Waves already in flight when this lease registered. Their replays
+    /// may have passed this lease's floor before it existed, so what
+    /// remains of them is not gap-free for it — the owed lane never takes
+    /// their frames for this lease (its own add wave, registered after,
+    /// replays its full ask; skipping these loses nothing). Dead ids after
+    /// a reopen are inert: waves die with their wire and re-issues mint
+    /// fresh ids.
+    preexisting: HashSet<WaveId>,
     /// Set when this lease's add wave's `CatchUpComplete` arrives.
     caught_up: bool,
+}
+
+/// A lease's withheld frames for one topic's kind, each stamped with the
+/// lease's arrival sequence ([`LeaseState::withheld_seq`]) and sharing the
+/// frame allocation with every other holder withholding it.
+type Withheld<M> = HashMap<Topic, Vec<(u64, Arc<M>)>>;
+
+/// One withheld frame at flush time, kind-tagged so the completion flush
+/// can rebuild wire arrival order across kinds ([`Ledger::complete`]).
+enum FlushedFrame<B: TransportBinding>
+where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    Group(B::GroupMessage),
+    Welcome(B::WelcomeMessage),
+}
+
+impl<B: TransportBinding> LeaseState<B>
+where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    /// Whether this lease is still owed replay history on `topic`. With a
+    /// registration snapshot, owed means the floor sits below the snapshot
+    /// and replays have not covered it yet. With NO snapshot the wire had
+    /// seen nothing of the topic when the lease registered — which says
+    /// nothing about what exists server-side — so the owed edge is unknown
+    /// and the lease stays owed until its catch-up completes.
+    fn owed_on(&self, topic: &Topic) -> bool {
+        if self.caught_up {
+            return false;
+        }
+        match self.live_snap.get(topic) {
+            None => true,
+            Some(snap) => {
+                self.floors
+                    .get(topic)
+                    .is_none_or(|floor| !B::covers(floor, snap))
+                    && !self
+                        .replayed
+                        .get(topic)
+                        .is_some_and(|replayed| B::covers(replayed, snap))
+            }
+        }
+    }
+
+    /// Frames currently withheld for this lease, across topics and kinds —
+    /// checked against [`WITHHELD_FRAMES_CAP`] before every buffer push.
+    fn withheld(&self) -> usize {
+        self.held_group.values().map(Vec::len).sum::<usize>()
+            + self.held_welcome.values().map(Vec::len).sum::<usize>()
+    }
 }
 
 impl<B: TransportBinding> Default for Ledger<B>
@@ -777,6 +883,10 @@ where
                 floors,
                 live_snap,
                 replayed: HashMap::new(),
+                held_group: HashMap::new(),
+                held_welcome: HashMap::new(),
+                withheld_seq: 0,
+                preexisting: self.pending_waves.keys().copied().collect(),
                 caught_up: false,
             },
         );
@@ -884,12 +994,88 @@ where
             }
             return;
         }
+        let mut flushed: Vec<(u64, FlushedFrame<B>)> = Vec::new();
         if let Some(state) = self.leases.get_mut(&lease) {
             state.caught_up = true;
+            // Withheld fresh frames join the feed now, watermark-deduped
+            // (a replay may have re-served them through the owed lane in
+            // the meantime) — AHEAD of the completion marker: they are the
+            // tail of history.
+            for (topic, held) in std::mem::take(&mut state.held_group) {
+                let replayed = state.replayed.get(&topic);
+                flushed.extend(
+                    held.into_iter()
+                        .filter(|(_, message)| {
+                            B::group_cursor(message).is_some_and(|cursor| {
+                                !replayed.is_some_and(|replayed| B::covers(replayed, &cursor))
+                            })
+                        })
+                        .map(|(seq, message)| {
+                            (seq, FlushedFrame::Group(Arc::unwrap_or_clone(message)))
+                        }),
+                );
+            }
+            for (topic, held) in std::mem::take(&mut state.held_welcome) {
+                let replayed = state.replayed.get(&topic);
+                flushed.extend(
+                    held.into_iter()
+                        .filter(|(_, message)| {
+                            B::welcome_cursor(message).is_some_and(|cursor| {
+                                !replayed.is_some_and(|replayed| B::covers(replayed, &cursor))
+                            })
+                        })
+                        .map(|(seq, message)| {
+                            (seq, FlushedFrame::Welcome(Arc::unwrap_or_clone(message)))
+                        }),
+                );
+            }
             // The owed-history lane closes with the catch-up; only fresh
             // frames follow.
             state.live_snap.clear();
             state.replayed.clear();
+        }
+        // The per-topic vectors preserve each topic's order on their own;
+        // the arrival stamps restore the order BETWEEN topics and kinds,
+        // so the flush replays the wire exactly as it would have been
+        // delivered live — batched at kind boundaries.
+        flushed.sort_unstable_by_key(|(seq, _)| *seq);
+        let mut groups: Vec<B::GroupMessage> = Vec::new();
+        let mut welcomes: Vec<B::WelcomeMessage> = Vec::new();
+        for (_, frame) in flushed {
+            match frame {
+                FlushedFrame::Group(message) => {
+                    if !welcomes.is_empty()
+                        && !self.deliver(
+                            lease,
+                            LeaseEvent::WelcomeMessages(std::mem::take(&mut welcomes)),
+                        )
+                    {
+                        dropped.push(lease);
+                        return;
+                    }
+                    groups.push(message);
+                }
+                FlushedFrame::Welcome(message) => {
+                    if !groups.is_empty()
+                        && !self.deliver(
+                            lease,
+                            LeaseEvent::GroupMessages(std::mem::take(&mut groups)),
+                        )
+                    {
+                        dropped.push(lease);
+                        return;
+                    }
+                    welcomes.push(message);
+                }
+            }
+        }
+        if !groups.is_empty() && !self.deliver(lease, LeaseEvent::GroupMessages(groups)) {
+            dropped.push(lease);
+            return;
+        }
+        if !welcomes.is_empty() && !self.deliver(lease, LeaseEvent::WelcomeMessages(welcomes)) {
+            dropped.push(lease);
+            return;
         }
         if !self.deliver(lease, LeaseEvent::CatchUpComplete) {
             dropped.push(lease);
@@ -969,13 +1155,21 @@ where
                 let Some(floor) = state.floors.get(topic).copied() else {
                     continue;
                 };
-                let owed = state.live_snap.get(topic).is_some_and(|snap| {
-                    !B::covers(&floor, snap)
-                        && state
-                            .replayed
-                            .get(topic)
-                            .is_none_or(|replayed| !B::covers(replayed, snap))
-                });
+                let owed = match state.live_snap.get(topic) {
+                    // No registration snapshot: the owed edge is unknown
+                    // (the wire had seen nothing of the topic), so resume
+                    // from the floor pushed past what replays delivered —
+                    // never from the wire position, which may sit past
+                    // history this lease was never served.
+                    None => true,
+                    Some(snap) => {
+                        !B::covers(&floor, snap)
+                            && state
+                                .replayed
+                                .get(topic)
+                                .is_none_or(|replayed| !B::covers(replayed, snap))
+                    }
+                };
                 let cursor = if owed {
                     let mut cursor = floor;
                     if let Some(replayed) = state.replayed.get(topic) {
@@ -1190,7 +1384,9 @@ where
                     mutate_id,
                     B::group_topic,
                     B::group_cursor,
+                    |state| &mut state.held_group,
                     DeliveryKind::Group,
+                    &mut dropped,
                 );
                 for (lease, messages) in per_lease {
                     if !self.deliver(lease, LeaseEvent::GroupMessages(messages)) {
@@ -1207,7 +1403,9 @@ where
                     mutate_id,
                     B::welcome_topic,
                     B::welcome_cursor,
+                    |state| &mut state.held_welcome,
                     DeliveryKind::Welcome,
+                    &mut dropped,
                 );
                 for (lease, messages) in per_lease {
                     if !self.deliver(lease, LeaseEvent::WelcomeMessages(messages)) {
@@ -1222,19 +1420,42 @@ where
     /// Group a delivery batch by interested lease, preserving wire order
     /// within each lease's slice and applying the tag-routing rules behind
     /// the module's exactly-once guarantee: a frame past the wire position
-    /// fans out to every holder of its topic; a tagged frame at-or-below it
-    /// goes to each catching-up holder's owed-history slice (module docs).
+    /// fans out to every holder of its topic — withheld for holders still
+    /// owed history there, unless the frame rides their own wave; a tagged
+    /// frame at-or-below it goes to each catching-up holder's owed-history
+    /// slice (module docs).
+    // Private, with per-kind closure plumbing — a param struct would cost
+    // more than the count saves.
+    #[allow(clippy::too_many_arguments)]
     fn demux<M: Clone>(
         &mut self,
         batch: Vec<M>,
         mutate_id: u64,
         topic_of: impl Fn(&M) -> Option<Topic>,
         cursor_of: impl Fn(&M) -> Option<B::Cursor>,
+        held_of: impl Fn(&mut LeaseState<B>) -> &mut Withheld<M>,
         kind: DeliveryKind,
+        dropped: &mut Vec<LeaseId>,
     ) -> HashMap<LeaseId, Vec<M>> {
         let wave = (mutate_id != 0).then_some(WaveId(mutate_id));
+        // Who rides this wave — its owner and its deferred completions. A
+        // rider's tagged frames are its own replay streaming in: they are
+        // never withheld, whatever the fresh/owed classification says.
+        let riders: (Option<LeaseId>, Vec<LeaseId>) = wave
+            .and_then(|wave| self.pending_waves.get(&wave))
+            .map(|pending| {
+                let owner = match pending.owner {
+                    WaveOwner::Lease(lease) => Some(lease),
+                    WaveOwner::Resume => None,
+                };
+                (owner, pending.holds.clone())
+            })
+            .unwrap_or((None, Vec::new()));
         let mut per_lease: HashMap<LeaseId, Vec<M>> = HashMap::new();
         for message in batch {
+            // One shared allocation per frame: withheld copies are Arc
+            // clones; deliveries hand out owned clones of the same frame.
+            let message = Arc::new(message);
             let Some(topic) = topic_of(&message) else {
                 // A delivery we cannot key by topic cannot be routed. Skip just
                 // this message — the rest of the batch is unaffected.
@@ -1254,7 +1475,13 @@ where
                 // consumer's own store absorbs a duplicate, a silent drop
                 // loses data — and advance nothing.
                 for lease in holders {
-                    per_lease.entry(*lease).or_default().push(message.clone());
+                    if dropped.contains(lease) {
+                        continue;
+                    }
+                    per_lease
+                        .entry(*lease)
+                        .or_default()
+                        .push((*message).clone());
                 }
                 continue;
             };
@@ -1263,6 +1490,13 @@ where
                 .last_seen
                 .get(&topic)
                 .is_some_and(|seen| B::covers(seen, &cursor));
+            // Where this frame's wave started replaying the topic — the
+            // owed lane's gap guard (below). `None` for the live lane, or
+            // for a wave this ledger no longer tracks.
+            let claim: Option<B::Cursor> = wave
+                .and_then(|wave| self.pending_waves.get(&wave))
+                .and_then(|pending| pending.claims.get(&topic))
+                .copied();
             if wave.is_none() && !fresh {
                 // Live frames are total-cursor-ordered and never overlap a
                 // wave's replay (server guarantees); a covered live frame is
@@ -1271,6 +1505,9 @@ where
                 continue;
             }
             for lease in holders {
+                if dropped.contains(lease) {
+                    continue; // overflowed this batch; being torn down
+                }
                 if fresh {
                     // Past the wire position, every holder is owed the frame,
                     // whichever lane carries it (live fan-out / sibling-gap) —
@@ -1278,15 +1515,91 @@ where
                     // explicitly resumed past (its durable store already has
                     // it), reachable here when a floor runs ahead of the wire
                     // position. Mirrors the owed lane's floor guard.
-                    if self.leases.get(lease).is_some_and(|state| {
-                        state
-                            .floors
-                            .get(&topic)
-                            .is_some_and(|floor| B::covers(floor, &cursor))
-                    }) {
+                    let Some(state) = self.leases.get_mut(lease) else {
+                        continue;
+                    };
+                    if state
+                        .floors
+                        .get(&topic)
+                        .is_some_and(|floor| B::covers(floor, &cursor))
+                    {
                         continue;
                     }
-                    per_lease.entry(*lease).or_default().push(message.clone());
+                    // A holder still owed history on this topic cannot take
+                    // fresh frames directly — delivered now they would jump
+                    // ahead of the owed replay. With a snapshot the owed
+                    // slice is BOUNDED and everything fresh sits above it:
+                    // withhold it all (its own wave's crossover included)
+                    // until the slice completes. With NO snapshot the owed
+                    // range is open-ended, and the frames of a wave this
+                    // lease rides ARE its replay streaming in: deliver
+                    // those — draining any withheld frames below them
+                    // first, in order — and advance the watermark so an
+                    // overlapping foreign replay dedups against them;
+                    // foreign frames are withheld.
+                    let rides = riders.0 == Some(*lease) || riders.1.contains(lease);
+                    if state.owed_on(&topic) {
+                        if !rides || state.live_snap.contains_key(&topic) {
+                            // Bounded: a stalled catch-up must not buffer
+                            // forever. Overflow takes the channel-wedge
+                            // recovery path — drop the lease, free its
+                            // buffers; its consumer re-leases from durable
+                            // cursors.
+                            if state.withheld() >= WITHHELD_FRAMES_CAP {
+                                state.held_group.clear();
+                                state.held_welcome.clear();
+                                tracing::warn!(
+                                    %topic,
+                                    "bidi transport: withheld-frame cap hit mid catch-up; \
+                                     dropping the lease (re-lease from durable cursors to recover)"
+                                );
+                                dropped.push(*lease);
+                                continue;
+                            }
+                            let seq = state.withheld_seq;
+                            state.withheld_seq += 1;
+                            held_of(state)
+                                .entry(topic.clone())
+                                .or_default()
+                                .push((seq, message.clone()));
+                            continue;
+                        }
+                        let out = per_lease.entry(*lease).or_default();
+                        let watermark = state.replayed.get(&topic).copied();
+                        if let Some(held) = held_of(state).get_mut(&topic) {
+                            let mut kept = Vec::new();
+                            for (seq, withheld) in held.drain(..) {
+                                match cursor_of(&withheld) {
+                                    Some(c) if B::covers(&cursor, &c) => {
+                                        // Strictly below this frame and past
+                                        // the watermark: joins ahead of it.
+                                        // An equal or already-covered copy
+                                        // is a duplicate — drop it.
+                                        let below = !B::covers(&c, &cursor);
+                                        let covered = watermark
+                                            .is_some_and(|replayed| B::covers(&replayed, &c));
+                                        if below && !covered {
+                                            out.push(Arc::unwrap_or_clone(withheld));
+                                        }
+                                    }
+                                    _ => kept.push((seq, withheld)),
+                                }
+                            }
+                            *held = kept;
+                        }
+                        match state.replayed.get_mut(&topic) {
+                            Some(replayed) => B::advance(replayed, cursor),
+                            None => {
+                                state.replayed.insert(topic.clone(), cursor);
+                            }
+                        }
+                        out.push((*message).clone());
+                        continue;
+                    }
+                    per_lease
+                        .entry(*lease)
+                        .or_default()
+                        .push((*message).clone());
                     continue;
                 }
                 // The owed-history lane. A lease's requested replay may ride
@@ -1295,17 +1608,19 @@ where
                 // whose history it carries. Each holder still catching up
                 // admits exactly the slice it asked for and has not
                 // received: above its floor, at-or-below its registration
-                // snapshot (everything past that reached it as it happens;
-                // no snapshot means nothing predated the lease), and past
-                // what earlier replay passes already delivered.
+                // snapshot (everything past that reached it as it happens —
+                // with NO snapshot the owed edge is unknown, so everything
+                // above the floor is requested history), and past what
+                // earlier replay passes already delivered.
                 let Some(state) = self.leases.get_mut(lease) else {
                     continue;
                 };
+                let within_snap = match state.live_snap.get(&topic) {
+                    None => true,
+                    Some(snap) => B::covers(snap, &cursor),
+                };
                 if state.caught_up
-                    || !state
-                        .live_snap
-                        .get(&topic)
-                        .is_some_and(|snap| B::covers(snap, &cursor))
+                    || !within_snap
                     || state
                         .floors
                         .get(&topic)
@@ -1313,14 +1628,90 @@ where
                 {
                     continue;
                 }
+                // Gap guards: the watermark is a high-water mark, so this
+                // holder may only take owed frames from a wave whose replay
+                // is gap-free below the holder's progress. Two ways it can
+                // not be: the wave asked from ABOVE max(holder floor,
+                // watermark) — its replay never covers what the holder
+                // still needs underneath — or the wave predates the holder
+                // and may have replayed past its floor before it existed.
+                // Either way the frames would jump the watermark over
+                // history still owed below (lost for good once "covered");
+                // skipped here, they re-arrive inside the holder's own
+                // wave, in order, and dedup at the watermark.
+                let reachable = claim.is_some_and(|claim| {
+                    let mut edge = state.floors.get(&topic).copied().unwrap_or(claim);
+                    if let Some(replayed) = state.replayed.get(&topic) {
+                        B::advance(&mut edge, *replayed);
+                    }
+                    B::covers(&edge, &claim)
+                });
+                if !reachable || wave.is_some_and(|wave| state.preexisting.contains(&wave)) {
+                    continue;
+                }
+                let watermark = state.replayed.get(&topic).copied();
+                if watermark.is_some_and(|replayed| B::covers(&replayed, &cursor)) {
+                    continue;
+                }
+                let out = per_lease.entry(*lease).or_default();
+                // Withheld fresh frames below this one join the feed ahead
+                // of it, in order (only the open owed range can have any —
+                // with a snapshot everything withheld sits above the slice,
+                // so above this frame too). A withheld copy AT this frame's
+                // cursor, or under the watermark, duplicates an owed-lane
+                // delivery — dropped.
+                if let Some(held) = held_of(state).get_mut(&topic) {
+                    let mut kept = Vec::new();
+                    for (seq, withheld) in held.drain(..) {
+                        match cursor_of(&withheld) {
+                            Some(c) if B::covers(&cursor, &c) => {
+                                let below = !B::covers(&c, &cursor);
+                                let covered =
+                                    watermark.is_some_and(|replayed| B::covers(&replayed, &c));
+                                if below && !covered {
+                                    out.push(Arc::unwrap_or_clone(withheld));
+                                }
+                            }
+                            _ => kept.push((seq, withheld)),
+                        }
+                    }
+                    *held = kept;
+                }
                 match state.replayed.get_mut(&topic) {
-                    Some(replayed) if B::covers(replayed, &cursor) => continue,
                     Some(replayed) => B::advance(replayed, cursor),
                     None => {
                         state.replayed.insert(topic.clone(), cursor);
                     }
                 }
-                per_lease.entry(*lease).or_default().push(message.clone());
+                out.push((*message).clone());
+                // This admission may have completed the owed slice: release
+                // the withheld tail right here — ascending, deduped and
+                // then covered by the watermark, so a replay re-serving
+                // those frames skips them.
+                if !state.owed_on(&topic) {
+                    let held = held_of(state).remove(&topic).unwrap_or_default();
+                    let out = per_lease.entry(*lease).or_default();
+                    for (_, withheld) in held {
+                        let Some(c) = cursor_of(&withheld) else {
+                            out.push(Arc::unwrap_or_clone(withheld));
+                            continue;
+                        };
+                        if state
+                            .replayed
+                            .get(&topic)
+                            .is_some_and(|replayed| B::covers(replayed, &c))
+                        {
+                            continue;
+                        }
+                        match state.replayed.get_mut(&topic) {
+                            Some(replayed) => B::advance(replayed, c),
+                            None => {
+                                state.replayed.insert(topic.clone(), c);
+                            }
+                        }
+                        out.push(Arc::unwrap_or_clone(withheld));
+                    }
+                }
             }
             // Advance the wire position and the wave's per-kind progress —
             // both max-fold, so a deep-history replay below `last_seen`
@@ -2738,9 +3129,16 @@ mod tests {
         let mut fast = transport.lease(vec![(shared.clone(), 0)], 8).await?;
         let mut server = take_server(&servers);
         let slow_wave = server.next_mutate().await;
+        // Fast is owed nothing (empty ack) — its feed is pure fresh fan-out.
+        let fast_wave = server.next_mutate().await;
+        server.send(catchup_complete(fast_wave.mutate_id));
+        assert!(matches!(
+            recv(&mut fast).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
 
         // Slow's wave replays in three frames; the owner takes them by tag,
-        // the sibling past `last_seen` — every frame reaches both.
+        // the caught-up sibling past `last_seen` — every frame reaches both.
         let (m1, m2, m3) = (
             group_msg(1, b"g1"),
             group_msg(2, b"g1"),
@@ -3608,10 +4006,13 @@ mod tests {
     }
 
     /// Live frames served between a lease's registration and the server
-    /// processing its Mutate are that lease's feed from its cursor on — the
-    /// wave's replay then chases the live edge across the same segment, and
+    /// processing its Mutate are withheld while the lease is still owed
+    /// history — delivered now they would jump ahead of the replay — and
+    /// join its feed at the catch-up, after the requested history. The
+    /// wave's replay then chases the live edge across the same segment and
     /// must not repeat it (the owner lane dedups at the registration
-    /// snapshot). The requested history below the snapshot still arrives.
+    /// snapshot; the flush dedups at the owed watermark): the lease sees
+    /// its whole suffix in cursor order, exactly once.
     #[xmtp_common::test(unwrap_try = true)]
     async fn replay_does_not_repeat_the_pre_mutate_live_window() {
         let (transport, servers) = transport();
@@ -3632,24 +4033,19 @@ mod tests {
         ));
 
         // Beta re-adds at 10. The live lane races its Mutate: 16 and 17 are
-        // served live (legal — the server has not processed the Mutate yet)
-        // and reach beta as a registered holder.
+        // served live (legal — the server has not processed the Mutate yet).
+        // Beta is still owed (10, 15]; the window is withheld for it.
         let mut beta = transport.lease(vec![(topic.clone(), 10)], 8).await?;
         let wave = server.next_mutate().await;
         server.send(live(
             vec![group_msg(16, b"g1"), group_msg(17, b"g1")],
             vec![],
         ));
-        match recv(&mut beta).await {
-            Some(LeaseEvent::GroupMessages(got)) => {
-                assert_eq!(got, vec![group_msg(16, b"g1"), group_msg(17, b"g1")])
-            }
-            _ => panic!("beta expected the live window"),
-        }
 
         // The wave replays from 10 and crosses over past the live edge: the
         // requested history (11) is beta's alone; the live window (16, 17)
-        // must not be re-delivered to anyone.
+        // must reach beta exactly once — withheld until its catch-up, after
+        // the history, never via the replay's re-covering pass.
         server.send(replay(
             wave.mutate_id,
             vec![
@@ -3665,6 +4061,16 @@ mod tests {
                 assert_eq!(got, vec![group_msg(11, b"g1")], "only the unseen history")
             }
             _ => panic!("beta expected its below-snapshot history"),
+        }
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(
+                    got,
+                    vec![group_msg(16, b"g1"), group_msg(17, b"g1")],
+                    "the withheld live window joins the feed at catch-up"
+                )
+            }
+            _ => panic!("beta expected the withheld live window"),
         }
         assert!(matches!(
             recv(&mut beta).await,
@@ -3687,9 +4093,11 @@ mod tests {
         }
     }
 
-    /// A re-issued wave replays across frames its owner already received
-    /// live before the wire died: the registration snapshot dedups them,
-    /// while the history the dead wire never delivered still arrives.
+    /// A re-issued wave replays across a live window withheld for its owner
+    /// before the wire died: the registration snapshot keeps the re-replay
+    /// from delivering it twice, the flush at catch-up delivers it once —
+    /// while the history the dead wire never delivered still arrives, in
+    /// order, ahead of it.
     #[xmtp_common::test(unwrap_try = true)]
     async fn reissued_replay_skips_frames_the_owner_saw_live() {
         let (transport, servers) = transport();
@@ -3708,8 +4116,9 @@ mod tests {
             Some(LeaseEvent::CatchUpComplete)
         ));
 
-        // Beta's wave delivers 11, the live lane races ahead with 16 and 17,
-        // then the wire dies mid catch-up.
+        // Beta's wave delivers 11; the live lane races ahead with 16 and 17
+        // (withheld — beta is still owed (11, 15]); then the wire dies mid
+        // catch-up.
         let mut beta = transport.lease(vec![(topic.clone(), 10)], 8).await?;
         let interrupted = server.next_mutate().await;
         server.send(live(
@@ -3721,12 +4130,6 @@ mod tests {
             vec![group_msg(11, b"g1")],
             vec![],
         ));
-        match recv(&mut beta).await {
-            Some(LeaseEvent::GroupMessages(got)) => {
-                assert_eq!(got, vec![group_msg(16, b"g1"), group_msg(17, b"g1")])
-            }
-            _ => panic!("beta expected the live window"),
-        }
         match recv(&mut beta).await {
             Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(11, b"g1")]),
             _ => panic!("beta expected its partial replay"),
@@ -3748,7 +4151,8 @@ mod tests {
         );
 
         // Its replay re-covers the live window on the way to the crossover:
-        // beta keeps only what it has never seen.
+        // the snapshot skips the re-delivery, the flush hands beta the
+        // withheld window once — after the history, before its marker.
         second.send(replay(
             reissue.mutate_id,
             vec![
@@ -3764,6 +4168,16 @@ mod tests {
                 assert_eq!(got, vec![group_msg(12, b"g1")], "only the unseen history")
             }
             _ => panic!("beta expected the rest of its history"),
+        }
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(
+                    got,
+                    vec![group_msg(16, b"g1"), group_msg(17, b"g1")],
+                    "the withheld live window joins the feed at catch-up"
+                )
+            }
+            _ => panic!("beta expected the withheld live window"),
         }
         assert!(matches!(
             recv(&mut beta).await,
@@ -4535,5 +4949,271 @@ mod tests {
             }
             _ => panic!("gamma expected only the fresh frame"),
         }
+    }
+
+    /// Two overlapping waves on a topic the wire has never delivered a
+    /// frame for (no `last_seen`, no registration snapshot — a fresh
+    /// process catching up). The higher lease's replay races ahead and
+    /// advances the wire position; the lower lease must still receive its
+    /// FULL asked suffix, in cursor order, exactly once. Regression, found
+    /// by the proptest model: a missing snapshot read as "nothing owed",
+    /// so the foreign replay's frames reached the lower lease out of order
+    /// through the fresh lane and its own replay was then skipped entirely
+    /// — the below-overlap frames were silently lost.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn overlapping_waves_on_a_virgin_topic_lose_nothing() {
+        let (transport, servers) = transport();
+        let topic = group_topic(b"g1");
+        // History [1..4] exists server-side; the transport has seen none.
+        let mut alpha = transport.lease(vec![(topic.clone(), 2)], 8).await?;
+        let mut beta = transport.lease(vec![(topic.clone(), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let alpha_wave = server.next_mutate().await.mutate_id;
+        let beta_wave = server.next_mutate().await.mutate_id;
+
+        // Alpha's wave replays first — (2, 4] — running ahead of the wire
+        // position. Beta is not owed these from alpha's wave: its own
+        // replay covers them below.
+        server.send(replay(
+            alpha_wave,
+            vec![group_msg(3, b"g1"), group_msg(4, b"g1")],
+            vec![],
+        ));
+        server.send(catchup_complete(alpha_wave));
+        // Beta's wave replays its full ask, (0, 4] — a lower add legally
+        // overlaps the sibling's range.
+        server.send(replay(
+            beta_wave,
+            vec![group_msg(1, b"g1"), group_msg(2, b"g1")],
+            vec![],
+        ));
+        server.send(replay(
+            beta_wave,
+            vec![group_msg(3, b"g1"), group_msg(4, b"g1")],
+            vec![],
+        ));
+        server.send(catchup_complete(beta_wave));
+
+        // Alpha: its slice, then its marker.
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(
+                    got,
+                    vec![group_msg(3, b"g1"), group_msg(4, b"g1")],
+                    "alpha's own slice"
+                )
+            }
+            _ => panic!("alpha expected its replay"),
+        }
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        // Beta: the complete suffix above its floor, in cursor order,
+        // exactly once — however the batches arrive — then its marker.
+        let mut got = Vec::new();
+        loop {
+            match recv(&mut beta).await {
+                Some(LeaseEvent::GroupMessages(batch)) => got.extend(batch),
+                Some(LeaseEvent::CatchUpComplete) => break,
+                _ => panic!("beta expected replay or completion"),
+            }
+        }
+        assert_eq!(
+            got,
+            vec![
+                group_msg(1, b"g1"),
+                group_msg(2, b"g1"),
+                group_msg(3, b"g1"),
+                group_msg(4, b"g1"),
+            ],
+            "beta owns the full suffix above 0, ordered, exactly once"
+        );
+    }
+
+    /// A wire death in the middle of a virgin-topic catch-up (no
+    /// registration snapshot). The re-issue must resume from the floor
+    /// pushed past what replays delivered — never from the wire position,
+    /// which may sit past history the lease was never served. Companion
+    /// regression to the demux one above, for `reconnect_plan`'s owed
+    /// derivation.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_virgin_topics_interrupted_catch_up_resumes_from_its_floor() {
+        let (transport, servers) = transport();
+        let topic = group_topic(b"g1");
+        let mut alpha = transport.lease(vec![(topic.clone(), 2)], 8).await?;
+        let mut beta = transport.lease(vec![(topic.clone(), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        server.next_mutate().await;
+        server.next_mutate().await;
+
+        // Alpha's replay lands and advances the wire position to 4; beta's
+        // never starts. Then the wire dies.
+        server.send(replay(
+            1,
+            vec![group_msg(3, b"g1"), group_msg(4, b"g1")],
+            vec![],
+        ));
+        drop(server);
+
+        // The reconnect must re-ask the shared topic at the meet of every
+        // catching-up holder's candidate — beta's floor 0, nothing replayed
+        // — never at the wire position 4.
+        let mut server = wait_for_server(&servers).await;
+        let reissue = server.next_mutate().await;
+        let cursors: Vec<u64> = reissue
+            .adds
+            .iter()
+            .filter(|add| add.topic == topic.cloned_vec())
+            .map(|add| add.id_cursor)
+            .collect();
+        assert_eq!(
+            cursors,
+            vec![0],
+            "the re-ask must carry beta's floor, not the wire position"
+        );
+
+        // The re-served replay reaches beta whole; alpha gets no re-delivery.
+        let wave = reissue.mutate_id;
+        server.send(replay(
+            wave,
+            vec![
+                group_msg(1, b"g1"),
+                group_msg(2, b"g1"),
+                group_msg(3, b"g1"),
+                group_msg(4, b"g1"),
+            ],
+            vec![],
+        ));
+        server.send(catchup_complete(wave));
+
+        let mut got = Vec::new();
+        loop {
+            match recv(&mut beta).await {
+                Some(LeaseEvent::GroupMessages(batch)) => got.extend(batch),
+                Some(LeaseEvent::CatchUpComplete) => break,
+                _ => panic!("beta expected replay or completion"),
+            }
+        }
+        assert_eq!(
+            got,
+            vec![
+                group_msg(1, b"g1"),
+                group_msg(2, b"g1"),
+                group_msg(3, b"g1"),
+                group_msg(4, b"g1"),
+            ],
+            "beta's interrupted catch-up must resume below the wire position"
+        );
+        // Alpha received its pre-death slice exactly once.
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(3, b"g1"), group_msg(4, b"g1")])
+            }
+            _ => panic!("alpha expected its pre-death replay"),
+        }
+    }
+    /// The withheld-frame buffers are bounded. A wave that never completes
+    /// while fresh traffic keeps pouring in (a wedged or misbehaving
+    /// server) trips [`WITHHELD_FRAMES_CAP`] and takes the channel-wedge
+    /// recovery instead of growing memory without bound: the lease ends,
+    /// and its consumer re-leases from durable cursors.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_withheld_frame_overflow_drops_the_lease_for_recovery() {
+        let (transport, servers) = transport();
+        let topic = group_topic(b"g1");
+        let mut beta = transport.lease(vec![(topic.clone(), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        server.next_mutate().await; // the wave never completes
+
+        // Live frames arrive while beta is still owed history: withheld,
+        // one by one, until the cap trips.
+        for id in 1..=(WITHHELD_FRAMES_CAP as u64 + 1) {
+            server.send(live(vec![group_msg(id, b"g1")], vec![]));
+        }
+        assert!(
+            recv(&mut beta).await.is_none(),
+            "an overflowing lease must be closed for durable-cursor recovery"
+        );
+    }
+    /// The completion flush replays withheld frames in WIRE ARRIVAL order
+    /// across topics and kinds — batched at kind boundaries — not grouped
+    /// by kind or hash-map order. A lease owed history on a group topic
+    /// and its welcome topic sees the withheld live window exactly as the
+    /// wire delivered it.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn flush_replays_withheld_frames_in_wire_arrival_order() {
+        let (transport, servers) = transport();
+        let (gt, wt) = (group_topic(b"g1"), welcome_topic(b"ik1"));
+        // Alpha carries both topics live, seeding the wire positions so
+        // beta's owed slices are bounded (snapshots exist).
+        let mut alpha = transport
+            .lease(vec![(gt.clone(), 0), (wt.clone(), 0)], 8)
+            .await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        server.send(replay(
+            first.mutate_id,
+            vec![group_msg(15, b"g1")],
+            vec![welcome_msg(5, b"ik1")],
+        ));
+        server.send(catchup_complete(first.mutate_id));
+        for _ in 0..2 {
+            assert!(matches!(
+                recv(&mut alpha).await,
+                Some(LeaseEvent::GroupMessages(_) | LeaseEvent::WelcomeMessages(_))
+            ));
+        }
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // Beta asks for both from 0; the live lane races its wave with an
+        // interleaved window — group 16, welcome 9, group 17 — withheld in
+        // that order.
+        let mut beta = transport
+            .lease(vec![(gt.clone(), 0), (wt.clone(), 0)], 8)
+            .await?;
+        let wave = server.next_mutate().await;
+        server.send(live(vec![group_msg(16, b"g1")], vec![]));
+        server.send(live(vec![], vec![welcome_msg(9, b"ik1")]));
+        server.send(live(vec![group_msg(17, b"g1")], vec![]));
+        // The wave replays the owed history, then completes.
+        server.send(replay(wave.mutate_id, vec![group_msg(11, b"g1")], vec![]));
+        server.send(replay(wave.mutate_id, vec![], vec![welcome_msg(3, b"ik1")]));
+        server.send(catchup_complete(wave.mutate_id));
+
+        // History first, in wire order...
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(11, b"g1")]),
+            _ => panic!("beta expected its group history"),
+        }
+        match recv(&mut beta).await {
+            Some(LeaseEvent::WelcomeMessages(got)) => {
+                assert_eq!(got, vec![welcome_msg(3, b"ik1")])
+            }
+            _ => panic!("beta expected its welcome history"),
+        }
+        // ...then the withheld window, kind boundaries preserved: G16, W9,
+        // G17 — never "all groups then all welcomes".
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(16, b"g1")]),
+            _ => panic!("beta expected the first withheld group frame"),
+        }
+        match recv(&mut beta).await {
+            Some(LeaseEvent::WelcomeMessages(got)) => {
+                assert_eq!(got, vec![welcome_msg(9, b"ik1")])
+            }
+            _ => panic!("beta expected the withheld welcome frame in arrival order"),
+        }
+        match recv(&mut beta).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(17, b"g1")]),
+            _ => panic!("beta expected the last withheld group frame"),
+        }
+        assert!(matches!(
+            recv(&mut beta).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
     }
 }
