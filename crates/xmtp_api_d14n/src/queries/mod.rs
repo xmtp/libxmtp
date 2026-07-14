@@ -5,6 +5,9 @@ mod bidi;
 // Process-level transport over the bidi core: topic ledger + envelope demux.
 #[cfg(not(target_arch = "wasm32"))]
 mod bidi_transport;
+// Property-based model test of the transport ledger (proptest + mock wire).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bidi_transport_props;
 mod boxed_streams;
 mod builder;
 mod client_bundle;

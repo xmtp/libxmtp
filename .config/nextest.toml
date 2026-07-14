@@ -42,3 +42,13 @@ path = "junit.xml"
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
 default-filter = "not (test(/\\w*commit_log*/))"
 threads-required = 2
+
+# Fuzz tests print their seed and must fail loudly — a retry would re-roll
+# the seed and mask the finding.
+[[profile.default.overrides]]
+filter = 'test(/bidi_fuzz/)'
+retries = 0
+
+[[profile.ci.overrides]]
+filter = 'test(/bidi_fuzz/)'
+retries = 0
