@@ -59,6 +59,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 
+use tracing::Instrument;
 use xmtp_api_d14n::v3::V3ProtoGroupMessage;
 use xmtp_api_d14n::{BidiConnection, BidiEvent, OpenError, TryMutateError};
 use xmtp_common::{ErrorCode, RetryableError, retryable};
@@ -483,6 +484,8 @@ where
         sync_groups: &HashSet<GroupId>,
         summary: &mut CatchUpSummary,
     ) {
+        let batch_started = std::time::Instant::now();
+        let batch_size = batch.len();
         for proto in batch {
             let typed =
                 match xmtp_proto::types::GroupMessage::try_from(V3ProtoGroupMessage::from(proto)) {
@@ -496,7 +499,17 @@ where
                 continue;
             }
             let (topic, cursor) = (Topic::new_group_message(typed.group_id), typed.cursor);
-            match process_one(factory, typed).await {
+            let started = std::time::Instant::now();
+            let result = process_one(factory, typed)
+                .instrument(tracing::debug_span!("process_envelope", %topic, ?cursor))
+                .await;
+            tracing::trace!(
+                %topic,
+                ?cursor,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "catch-up: envelope processed"
+            );
+            match result {
                 Ok(processed) => {
                     if let Some(message) = processed.message {
                         // The pipeline may store ahead of the envelope it was
@@ -529,6 +542,11 @@ where
                 ),
             }
         }
+        tracing::debug!(
+            batch = batch_size,
+            elapsed_ms = batch_started.elapsed().as_millis() as u64,
+            "catch-up: message batch processed"
+        );
     }
 }
 

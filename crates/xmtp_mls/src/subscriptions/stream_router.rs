@@ -64,6 +64,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tracing::Instrument;
 
 use xmtp_api_d14n::v3::{V3ProtoGroupMessage, V3ProtoWelcomeMessage};
 use xmtp_api_d14n::{
@@ -475,8 +476,15 @@ where
             tx,
             dedup: StreamDedup::syncing(tracked.clone(), seeds.seen),
             tracked,
+            delivered: 0,
+            deduped: 0,
             reflex: None,
         };
+        tracing::debug!(
+            groups = group_ids.len(),
+            depth,
+            "stream router: message stream subscribed"
+        );
         let id = self.spawn(|kill| consumer.run(kill));
         Ok(RouterStream {
             id,
@@ -541,6 +549,8 @@ where
             tx,
             dedup: StreamDedup::syncing(tracked.clone(), seeds.seen),
             tracked,
+            delivered: 0,
+            deduped: 0,
             reflex: Some(Reflex {
                 transport: self.transport.clone(),
                 local_events,
@@ -555,6 +565,11 @@ where
                 ),
             }),
         };
+        tracing::debug!(
+            groups = group_ids.len(),
+            depth,
+            "stream router: all-messages stream subscribed"
+        );
         let id = self.spawn(|kill| consumer.run(kill));
         Ok(RouterStream {
             id,
@@ -603,7 +618,9 @@ where
                 include_duplicate_dms,
                 consent_states,
             ),
+            delivered: 0,
         };
+        tracing::debug!(depth, "stream router: conversation stream subscribed");
         let id = self.spawn(|kill| consumer.run(kill));
         Ok(RouterStream {
             id,
@@ -928,6 +945,12 @@ where
     /// must end).
     fn enqueue(&mut self, item: WelcomeOrGroup) -> bool {
         if self.backlog.len() >= MAX_WELCOME_BACKLOG {
+            tracing::warn!(
+                backlog = MAX_WELCOME_BACKLOG,
+                in_flight = self.tasks.len(),
+                "stream router: welcome backlog overflowed; ending the stream \
+                 (the consumer re-subscribes from durable state)"
+            );
             return false;
         }
         self.backlog.push_back(item);
@@ -941,6 +964,10 @@ where
             let Some(item) = self.backlog.pop_front() else {
                 return;
             };
+            let kind = match &item {
+                WelcomeOrGroup::Welcome(_) => "welcome",
+                WelcomeOrGroup::Group(_) => "group",
+            };
             let task = ProcessWelcomeFuture::new(
                 self.known.clone(),
                 self.context.clone(),
@@ -949,8 +976,18 @@ where
                 self.include_duplicate_dms,
                 self.consent_states.clone(),
             );
-            self.tasks
-                .spawn(async move { Ok(task?.process().await?.into_outcome()) });
+            self.tasks.spawn(
+                async move {
+                    let started = std::time::Instant::now();
+                    let outcome = task?.process().await?.into_outcome();
+                    tracing::trace!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "stream router: welcome processed"
+                    );
+                    Ok(outcome)
+                }
+                .instrument(tracing::debug_span!("process_welcome", kind)),
+            );
         }
     }
 
@@ -1076,6 +1113,11 @@ struct MessageConsumer<Context> {
     /// nothing) and the unleased-delivery filter.
     tracked: HashSet<Topic>,
     dedup: StreamDedup,
+    /// Messages surfaced to the consumer — observability only, logged in
+    /// the stream's end-of-life summary.
+    delivered: u64,
+    /// Deliveries the window's seen-set skipped — observability only.
+    deduped: u64,
     /// `Some` for the all-messages stream: welcomes grow the topic set.
     reflex: Option<Reflex<Context>>,
 }
@@ -1085,6 +1127,19 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
+        let reason = self.drive(&mut kill).await;
+        tracing::info!(
+            delivered = self.delivered,
+            deduped = self.deduped,
+            topics = self.tracked.len(),
+            reason,
+            "stream router: message stream ended"
+        );
+    }
+
+    /// The stream's event loop; returns why it ended, for the end-of-life
+    /// summary.
+    async fn drive(&mut self, kill: &mut oneshot::Receiver<()>) -> &'static str {
         loop {
             enum Wake<Context> {
                 Lease(Arc<[Topic]>, LeaseEvent<V3Binding>),
@@ -1095,36 +1150,40 @@ where
                     Some((topics, event)) => Wake::Lease(topics, event),
                     // Wire death or transport backpressure drop on any lease:
                     // the stream ends (tx drops); the consumer re-subscribes.
-                    None => return,
+                    None => return "lease ended (transport shutdown or backpressure drop)",
                 },
                 wake = Reflex::wake(&mut self.reflex) => Wake::Reflex(wake),
-                _ = &mut kill => return,
+                _ = &mut *kill => return "stream handle dropped",
             };
             match wake {
                 Wake::Reflex(ReflexWake::Local(LocalWake::Event(LocalEvents::NewGroup(id)))) => {
                     if !self.absorb_local_group(id) {
-                        return;
+                        return "welcome intake ended";
                     }
                 }
                 Wake::Reflex(ReflexWake::Local(LocalWake::Event(_))) => {}
                 Wake::Reflex(ReflexWake::Local(LocalWake::Lagged)) => {
-                    if !self.reconcile(&mut kill).await {
-                        return;
+                    if !self.reconcile(kill).await {
+                        return "local-event lag unrecoverable";
                     }
                 }
                 Wake::Reflex(ReflexWake::Outcome(outcome)) => {
-                    if !self.absorb_outcome(outcome, &mut kill).await {
-                        return;
+                    if !self.absorb_outcome(outcome, kill).await {
+                        return "consumer gone";
                     }
                 }
                 Wake::Lease(_, LeaseEvent::GroupMessages(batch)) => {
-                    if !self.deliver_batch(batch, &mut kill).await {
-                        return;
+                    if !self.deliver_batch(batch, kill).await {
+                        return "consumer gone";
                     }
                 }
                 Wake::Lease(topics, LeaseEvent::CatchUpComplete) => {
-                    tracing::debug!("stream router: message stream caught up");
                     self.dedup.complete(&topics);
+                    tracing::debug!(
+                        topics = topics.len(),
+                        windows_open = self.dedup.syncing.len(),
+                        "stream router: message stream caught up"
+                    );
                 }
                 Wake::Lease(_, LeaseEvent::TopicsLive(topics)) => {
                     tracing::debug!(?topics, "stream router: topics live");
@@ -1132,7 +1191,7 @@ where
                 Wake::Lease(_, LeaseEvent::WelcomeMessages(batch)) => match self.reflex.as_mut() {
                     Some(reflex) => {
                         if !reflex.intake.absorb_batch(batch) {
-                            return;
+                            return "welcome intake ended";
                         }
                     }
                     None => tracing::warn!("stream router: welcome delivery on a message lease"),
@@ -1287,6 +1346,8 @@ where
         batch: Vec<mls_v1::GroupMessage>,
         kill: &mut oneshot::Receiver<()>,
     ) -> bool {
+        let batch_started = std::time::Instant::now();
+        let batch_size = batch.len();
         for proto in batch {
             let typed =
                 match xmtp_proto::types::GroupMessage::try_from(V3ProtoGroupMessage::from(proto)) {
@@ -1303,6 +1364,12 @@ where
                 continue;
             }
             if self.dedup.suppress(&topic, &cursor) {
+                self.deduped += 1;
+                tracing::trace!(
+                    %topic,
+                    ?cursor,
+                    "stream router: skipping an already-delivered identity"
+                );
                 continue;
             }
 
@@ -1311,10 +1378,18 @@ where
             // recovery sync), so it races the kill: dropping the stream must
             // release the lease promptly, and cancelling here is the same
             // mid-processing drop a pull-based stream takes at an await point.
+            let started = std::time::Instant::now();
             let processed = tokio::select! {
-                processed = process_one(&self.factory, typed) => processed,
+                processed = process_one(&self.factory, typed)
+                    .instrument(tracing::debug_span!("process_envelope", %topic, ?cursor)) => processed,
                 _ = &mut *kill => return false,
             };
+            tracing::trace!(
+                %topic,
+                ?cursor,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "stream router: envelope processed"
+            );
             let delivered = match processed {
                 Ok(processed) => {
                     match processed.message {
@@ -1347,7 +1422,11 @@ where
                                     .send(SyncWorkerEvent::NewSyncGroupMsg);
                                 continue;
                             }
-                            send_or_kill(&self.tx, kill, Ok(message)).await
+                            let sent = send_or_kill(&self.tx, kill, Ok(message)).await;
+                            if sent.is_ok() {
+                                self.delivered += 1;
+                            }
+                            sent
                         }
                         // Surfaced nothing (e.g. a commit) — nothing to
                         // deliver.
@@ -1363,6 +1442,11 @@ where
                 return false;
             }
         }
+        tracing::debug!(
+            batch = batch_size,
+            elapsed_ms = batch_started.elapsed().as_millis() as u64,
+            "stream router: message batch processed"
+        );
         true
     }
 }
@@ -1382,6 +1466,9 @@ struct WelcomeConsumer<Context> {
     tx: mpsc::Sender<Result<MlsGroup<Context>>>,
     local_events: broadcast::Receiver<LocalEvents>,
     intake: WelcomeIntake<Context>,
+    /// Conversations surfaced to the consumer — observability only, logged
+    /// in the stream's end-of-life summary.
+    delivered: u64,
 }
 
 impl<Context> WelcomeConsumer<Context>
@@ -1389,6 +1476,17 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(mut self, mut kill: oneshot::Receiver<()>) {
+        let reason = self.drive(&mut kill).await;
+        tracing::info!(
+            delivered = self.delivered,
+            reason,
+            "stream router: conversation stream ended"
+        );
+    }
+
+    /// The stream's event loop; returns why it ended, for the end-of-life
+    /// summary.
+    async fn drive(&mut self, kill: &mut oneshot::Receiver<()>) -> &'static str {
         loop {
             enum Wake<Context> {
                 Lease(LeaseEvent<V3Binding>),
@@ -1398,29 +1496,29 @@ where
             let wake = tokio::select! {
                 event = self.lease.next() => match event {
                     Some(event) => Wake::Lease(event),
-                    None => return,
+                    None => return "lease ended (transport shutdown or backpressure drop)",
                 },
                 local = next_local_wake(&mut self.local_events) => Wake::Local(local),
                 outcome = self.intake.next_outcome() => Wake::Outcome(outcome),
-                _ = &mut kill => return,
+                _ = &mut *kill => return "stream handle dropped",
             };
             match wake {
                 Wake::Local(LocalWake::Event(LocalEvents::NewGroup(group_id))) => {
                     if !self.intake.absorb_local(group_id) {
-                        return;
+                        return "welcome intake ended";
                     }
                 }
                 // A lagged broadcast (already warned) loses local groups
                 // only; recovery is a re-subscribe, exactly as legacy.
                 Wake::Local(_) => {}
                 Wake::Outcome(outcome) => {
-                    if !self.deliver_outcome(outcome, &mut kill).await {
-                        return;
+                    if !self.deliver_outcome(outcome, kill).await {
+                        return "consumer gone";
                     }
                 }
                 Wake::Lease(LeaseEvent::WelcomeMessages(batch)) => {
                     if !self.intake.absorb_batch(batch) {
-                        return;
+                        return "welcome intake ended";
                     }
                 }
                 Wake::Lease(LeaseEvent::CatchUpComplete) => {
@@ -1460,7 +1558,11 @@ where
             // inside the pipeline): it is the device-sync worker's, not the
             // subscriber's.
             Some(group) if !matches!(group.conversation_type, ConversationType::Sync) => {
-                send_or_kill(&self.tx, kill, Ok(group)).await.is_ok()
+                let sent = send_or_kill(&self.tx, kill, Ok(group)).await;
+                if sent.is_ok() {
+                    self.delivered += 1;
+                }
+                sent.is_ok()
             }
             _ => true,
         }
