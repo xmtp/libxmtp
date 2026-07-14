@@ -29,24 +29,28 @@
 //! Streams are seeded from the client's **durable** application cursors
 //! (`refresh_state`), never wire cursors: the cursored lease is the one
 //! catch-up mechanism (a re-add below the server's floor replays history).
-//! Steady-state dedup is a per-topic [`GlobalCursor`] position — the
-//! transport fans a shared topic to every lease, and each stream
-//! independently skips what it has already delivered, while decrypt/store
-//! still happens once per unique message (the pipeline's DB fast-path serves
-//! every later copy from storage).
+//! The transport delivers **exactly once per lease and topic** — strictly
+//! increasing above the lease's floor, nothing at-or-below it (the bidi
+//! transport's delivery contract) — so streams do no wire-level dedup at
+//! all; decrypt/store still happens once per unique message across streams
+//! (the pipeline's DB fast-path serves every later copy from storage).
 //!
-//! During a stream's **catch-up window** (subscribe until its
-//! `CatchUpComplete`) wire order is not cursor-monotonic, so the position is
-//! not consulted; the window dedups against the frozen subscribe-time seed
-//! (drop everything at-or-below it — including a sibling's replay of older
-//! history) plus an exact-identity seen-set (see [`StreamDedup`]).
+//! What the wire cannot see is the **local store**: the pipeline stores
+//! messages without advancing the durable cursor, so a new lease
+//! legitimately replays identities an earlier stream already delivered —
+//! that overlap is historical, deduped by exact identity during the
+//! topic's **catch-up window** (subscribe until its `CatchUpComplete`).
+//! A recovery sync can also surface a message ahead of its own envelope —
+//! at any point in the stream's life, not just during a window — so each
+//! surfaced-ahead identity is held until that envelope arrives and
+//! consumes it (see [`StreamDedup`]).
 //!
 //! Welcome dedup is a per-stream known-welcome set: consulted at intake on
 //! the stream's own task, snapshotted into each processing task, and
-//! recorded back at completion — the consumers' known/positions guards make
-//! completions idempotent, so concurrent same-cursor flights collapse to one
-//! delivery. Exact-identity sets are immune to the ordering caveat, so
-//! welcome streams need no window.
+//! recorded back at completion — the consumers' known/tracked-topic guards
+//! make completions idempotent, so concurrent same-cursor flights collapse
+//! to one delivery. Exact-identity sets are immune to the ordering caveat,
+//! so welcome streams need no window.
 //!
 //! ## Backpressure (same policy as every layer below)
 //!
@@ -266,40 +270,58 @@ where
     }
 }
 
-/// Dedup for one message stream.
+/// Dedup for one message stream: the two local-store overlaps the wire
+/// cannot know about.
 ///
-/// Steady state is the per-topic position: wire order is cursor-monotonic,
-/// so a high-water mark suffices. During a topic's catch-up window it is
-/// not — a live delivery already in flight for a shared topic can arrive
-/// *before* the replay this stream's cursored add requested (see the
-/// transport's delivery-order contract) — so the window checks the **frozen
-/// subscribe-time seed** (anything at-or-below the durable resume point is
-/// never for this stream, including a sibling lease's replay of older
-/// history) plus an exact-identity seen-set.
+/// The transport already delivers exactly once per lease and topic —
+/// strictly increasing above the lease's floor, nothing at-or-below it
+/// (the bidi transport's delivery contract) — so raced fresh frames,
+/// overlapping replays, and sibling-lease history never reach a stream
+/// twice, and no wire-level dedup happens here. What remains is what only
+/// this client knows:
 ///
-/// Windows are **per topic**: each lease's `CatchUpComplete` closes exactly
-/// the topics that lease added (a stream that grows mid-flight has one lease
-/// per addition, each with its own window), and the live positions — which
-/// kept advancing — take over per topic. The seen-set is shared across open
-/// windows (exact identity is safe across groups), records only for topics
-/// whose own window is open (a closed window's deliveries are already
-/// position-deduped), and drops when the last window closes.
+/// - **Stored-but-unadvanced identities.** The streaming pipeline stores
+///   without advancing the durable cursor, so everything streamed since
+///   the last cursor advance sits above the floor a new lease asks from —
+///   its replay legitimately re-serves what an earlier stream already
+///   delivered. Those identities seed the seen-set at subscribe (and per
+///   growth lease).
+/// - **Surfaced-ahead deliveries.** Processing can surface a message other
+///   than the one its envelope named (a recovery sync stores ahead); the
+///   surfaced message's own envelope — replayed later in the window, or
+///   arriving live long after it closed — would deliver it twice. Each
+///   surfaced-ahead identity is held until that envelope arrives and
+///   consumes it: the wire carries the envelope exactly once per lease,
+///   so the entry cannot outstay its use.
+///
+/// Only the stored-identity overlap is historical, so only that check is
+/// scoped to each topic's catch-up window — stored identities predate the
+/// lease, and its replay (which ends at `CatchUpComplete`) is the only
+/// lane that can carry them again. Windows are **per topic**: each lease's
+/// `CatchUpComplete` closes exactly the topics that lease added (a stream
+/// that grows mid-flight has one lease per addition, each with its own
+/// window). The seen-set is shared across open windows — exact identity is
+/// safe across groups, a `(sequence_id, originator)` pair names one
+/// message globally — and drops when the last window closes.
 struct StreamDedup {
-    /// Topics still inside their catch-up window → their frozen seed.
-    syncing: HashMap<Topic, GlobalCursor>,
-    /// Exact identities delivered while any window is open.
+    /// Topics still inside their catch-up window.
+    syncing: HashSet<Topic>,
+    /// Exact identities already stored locally when their topic's window
+    /// opened — the replay re-serves them, the stream must not.
     seen: HashSet<Cursor>,
+    /// Identities delivered ahead of their own envelope (the recovery-sync
+    /// fallback); each entry is consumed by that envelope's arrival.
+    surfaced_ahead: HashSet<Cursor>,
 }
 
 impl StreamDedup {
-    /// `seen` starts with the identities already stored locally (delivered by
-    /// an earlier stream or a sync) — the durable cursor alone is not a
-    /// delivery floor, because the streaming pipeline stores without
-    /// advancing it.
-    fn syncing(seeds: HashMap<Topic, GlobalCursor>, seen: HashSet<Cursor>) -> Self {
+    /// Open the subscribe-time windows; `seen` starts with the identities
+    /// already stored locally above the durable floors.
+    fn syncing(topics: HashSet<Topic>, seen: HashSet<Cursor>) -> Self {
         Self {
-            syncing: seeds,
+            syncing: topics,
             seen,
+            surfaced_ahead: HashSet::new(),
         }
     }
 
@@ -307,28 +329,33 @@ impl StreamDedup {
     /// folding their locally-stored identities into the shared seen-set.
     fn open_window(
         &mut self,
-        seeds: HashMap<Topic, GlobalCursor>,
+        topics: impl IntoIterator<Item = Topic>,
         seen: impl IntoIterator<Item = Cursor>,
     ) {
-        self.syncing.extend(seeds);
+        self.syncing.extend(topics);
         self.seen.extend(seen);
     }
 
-    fn has_seen(&self, position: &GlobalCursor, topic: &Topic, cursor: &Cursor) -> bool {
-        match self.syncing.get(topic) {
-            Some(seed) => seed.has_seen(cursor) || self.seen.contains(cursor),
-            None => position.has_seen(cursor),
-        }
+    /// Whether this delivery must be skipped: its identity was already
+    /// delivered ahead of its envelope (consuming that hold — the wire
+    /// carries the envelope exactly once per lease), or its topic's window
+    /// is open and the identity was stored when it opened. Outside the
+    /// window nothing else is checked: the wire's exactly-once contract is
+    /// the whole guarantee.
+    fn suppress(&mut self, topic: &Topic, cursor: &Cursor) -> bool {
+        self.surfaced_ahead.remove(cursor)
+            || (self.syncing.contains(topic) && self.seen.contains(cursor))
     }
 
-    /// Record a delivered identity — only while `topic`'s own window is
-    /// open. Once the window closes the position governs that topic, so
-    /// recording would only grow the seen-set for as long as any sibling
-    /// window stays open.
-    fn record(&mut self, topic: &Topic, cursor: Cursor) {
-        if self.syncing.contains_key(topic) {
-            self.seen.insert(cursor);
-        }
+    /// Hold an identity that was just delivered ahead of its own envelope,
+    /// so that envelope's later arrival is suppressed. Unlike the window
+    /// seed this must outlive the window: a live recovery sync can store
+    /// ahead at any point in the stream's life. Callers only hold
+    /// identities *above* the envelope's cursor — deliveries are strictly
+    /// increasing per topic, so a behind-surface's own envelope has
+    /// already passed and a hold for it could never be consumed.
+    fn record_surfaced_ahead(&mut self, cursor: Cursor) {
+        self.surfaced_ahead.insert(cursor);
     }
 
     /// Close the window for `topics` (their lease's `CatchUpComplete`).
@@ -441,12 +468,13 @@ where
             .lease(seeds.subs(), DEFAULT_LEASE_DEPTH)
             .await?;
         let (tx, items) = mpsc::channel(depth.max(1));
+        let tracked: HashSet<Topic> = seeds.floors.into_keys().collect();
         let consumer = MessageConsumer {
             factory: ProcessMessageFuture::new(self.context.clone()),
             leases: LeaseSet::new(lease),
             tx,
-            dedup: StreamDedup::syncing(seeds.floors, seeds.seen),
-            positions: seeds.positions,
+            dedup: StreamDedup::syncing(tracked.clone(), seeds.seen),
+            tracked,
             reflex: None,
         };
         let id = self.spawn(|kill| consumer.run(kill));
@@ -471,9 +499,9 @@ where
         let installation = self.context.installation_id();
         // Welcome floor and known set BEFORE the group query: a welcome
         // processed in between then shows up in the query result AND above
-        // the floor — the positions guard absorbs that overlap. The reverse
-        // order would leave it in neither: not yet a group when queried,
-        // already below the floor when leased.
+        // the floor — the tracked-topics guard absorbs that overlap. The
+        // reverse order would leave it in neither: not yet a group when
+        // queried, already below the floor when leased.
         let welcome_floor = welcome_seed(&db, installation)?;
         let known = known_welcomes_above(&db, welcome_floor)?;
         let groups = db
@@ -506,12 +534,13 @@ where
 
         let lease = self.transport.lease(subs, DEFAULT_LEASE_DEPTH).await?;
         let (tx, items) = mpsc::channel(depth.max(1));
+        let tracked: HashSet<Topic> = seeds.floors.into_keys().collect();
         let consumer = MessageConsumer {
             factory: ProcessMessageFuture::new(self.context.clone()),
             leases: LeaseSet::new(lease),
             tx,
-            dedup: StreamDedup::syncing(seeds.floors, seeds.seen),
-            positions: seeds.positions,
+            dedup: StreamDedup::syncing(tracked.clone(), seeds.seen),
+            tracked,
             reflex: Some(Reflex {
                 transport: self.transport.clone(),
                 local_events,
@@ -611,17 +640,15 @@ where
 /// The streaming pipeline stores messages WITHOUT advancing the durable
 /// cursor (`allow_cursor_increment=false`), so the cursor alone is not a
 /// delivery floor: everything streamed since the last full sync is stored
-/// but still above it. Those exact identities seed the window's seen-set (so
-/// the server's replay of them is skipped) and fold into the live positions
-/// (so they stay skipped after the window). The wire cursor and the window
-/// floor stay at the durable cursor — a stored gap (6 and 8 stored, 7
-/// missed) still gets 7 replayed and delivered.
+/// but still above it. Those exact identities seed the window's seen-set,
+/// so the server's replay of them is skipped. The wire cursor stays at the
+/// durable cursor — a stored gap (6 and 8 stored, 7 missed) still gets 7
+/// replayed and delivered.
 pub(crate) struct GroupSeeds {
-    /// Frozen per-topic window floors: the durable resume points.
+    /// Per-topic durable resume points: the lease's cursored adds.
     pub(crate) floors: HashMap<Topic, GlobalCursor>,
-    /// Live per-topic positions: the floors folded with stored identities.
-    positions: HashMap<Topic, GlobalCursor>,
-    /// The window's exact-identity seen-set: the stored identities.
+    /// The window's exact-identity seen-set: the stored identities above
+    /// their groups' durable cursors.
     pub(crate) seen: HashSet<Cursor>,
 }
 
@@ -652,12 +679,10 @@ pub(crate) fn seed_groups(
         let floor = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
         floors.insert(Topic::new_group_message(*group_id), floor);
     }
-    let (positions, seen) = fold_stored(&floors, stored);
-    Ok(GroupSeeds {
-        floors,
-        positions,
-        seen,
-    })
+    // Exact identity is safe to pool across groups: a (sequence_id,
+    // originator) pair names one message globally.
+    let seen = stored.into_iter().map(|(_, cursor)| cursor).collect();
+    Ok(GroupSeeds { floors, seen })
 }
 
 /// The durable welcome cursor: this installation's wire resume point for its
@@ -688,26 +713,6 @@ pub(crate) fn known_welcomes_above(
         .into_iter()
         .filter(|cursor| cursor.sequence_id > floor)
         .collect())
-}
-
-/// Fold locally-stored identities above the durable floors into the live
-/// positions — each strictly into its own group's topic (sequence ids are not
-/// scoped per group, so a cross-group apply would swallow other groups'
-/// deliveries) — and collect them all as the window's exact-identity seen-set
-/// (exact identity is safe across groups).
-fn fold_stored(
-    floors: &HashMap<Topic, GlobalCursor>,
-    stored: Vec<(GroupId, Cursor)>,
-) -> (HashMap<Topic, GlobalCursor>, HashSet<Cursor>) {
-    let mut positions = floors.clone();
-    let mut seen = HashSet::with_capacity(stored.len());
-    for (group_id, cursor) in stored {
-        if let Some(position) = positions.get_mut(&Topic::new_group_message(group_id)) {
-            position.apply(&cursor);
-        }
-        seen.insert(cursor);
-    }
-    (positions, seen)
 }
 
 /// Send on the stream's bounded channel, aborting the park if the router
@@ -1066,9 +1071,10 @@ struct MessageConsumer<Context> {
     factory: ProcessMessageFuture<Context>,
     leases: LeaseSet,
     tx: mpsc::Sender<Result<StoredGroupMessage>>,
-    /// Live per-topic positions — steady-state dedup; they keep advancing
-    /// during the window so they hold the live edge when it closes.
-    positions: HashMap<Topic, GlobalCursor>,
+    /// Topics this stream has leased: the growth guard (a group already
+    /// covered by the subscribe-time set, or an earlier growth, adds
+    /// nothing) and the unleased-delivery filter.
+    tracked: HashSet<Topic>,
     dedup: StreamDedup,
     /// `Some` for the all-messages stream: welcomes grow the topic set.
     reflex: Option<Reflex<Context>>,
@@ -1140,10 +1146,7 @@ where
     /// (the subscribe-time set, or an earlier growth, got it). Returns
     /// `false` when the stream must end.
     fn absorb_local_group(&mut self, group_id: GroupId) -> bool {
-        if self
-            .positions
-            .contains_key(&Topic::new_group_message(group_id))
-        {
+        if self.tracked.contains(&Topic::new_group_message(group_id)) {
             return true;
         }
         match self.reflex.as_mut() {
@@ -1155,7 +1158,7 @@ where
     /// The `LocalEvents` broadcast lapped this stream: any number of
     /// `NewGroup` announcements are gone for good, and nothing re-announces
     /// a local group. Recover by re-running the subscribe-time group query
-    /// and adding whatever the stream does not already track — the positions
+    /// and adding whatever the stream does not already track — the tracked
     /// guard skips everything it does. Returns `false` when the stream must
     /// end.
     async fn reconcile(&mut self, kill: &mut oneshot::Receiver<()>) -> bool {
@@ -1197,7 +1200,7 @@ where
     /// topic, then record the welcome as known. The order matters twice
     /// over: recording only after the group is tracked keeps a transiently
     /// failed add recoverable (the unrecorded welcome replays on the wire),
-    /// and the positions guard inside [`Self::add_group`] collapses
+    /// and the tracked guard inside [`Self::add_group`] collapses
     /// concurrent same-cursor completions to one lease. Returns `false`
     /// when the stream must end.
     async fn absorb_outcome(
@@ -1238,7 +1241,7 @@ where
     /// seeding exactly as the subscribe-time set was.
     async fn add_group(&mut self, group_id: GroupId, kill: &mut oneshot::Receiver<()>) -> AddGroup {
         let topic = Topic::new_group_message(group_id);
-        if self.positions.contains_key(&topic) {
+        if self.tracked.contains(&topic) {
             return AddGroup::Tracked;
         }
         let Some(reflex) = self.reflex.as_ref() else {
@@ -1262,8 +1265,8 @@ where
         };
         match lease {
             Ok(lease) => {
-                self.positions.extend(seeds.positions);
-                self.dedup.open_window(seeds.floors, seeds.seen);
+                self.tracked.extend(seeds.floors.keys().cloned());
+                self.dedup.open_window(seeds.floors.into_keys(), seeds.seen);
                 self.leases.push(lease);
                 AddGroup::Tracked
             }
@@ -1295,11 +1298,11 @@ where
                 };
             let topic = Topic::new_group_message(typed.group_id);
             let cursor = typed.cursor;
-            let Some(position) = self.positions.get(&topic) else {
+            if !self.tracked.contains(&topic) {
                 tracing::debug!(%topic, "stream router: delivery for an unleased topic");
                 continue;
-            };
-            if self.dedup.has_seen(position, &topic, &cursor) {
+            }
+            if self.dedup.suppress(&topic, &cursor) {
                 continue;
             }
 
@@ -1314,23 +1317,23 @@ where
             };
             let delivered = match processed {
                 Ok(processed) => {
-                    if let Some(position) = self.positions.get_mut(&topic) {
-                        position.apply(&processed.next_cursor);
-                    }
-                    self.dedup.record(&topic, cursor);
                     match processed.message {
                         Some(message) => {
                             // The pipeline may surface a different message
                             // than the envelope named (recovery sync stores
-                            // ahead) — record the delivered identity too, or
-                            // its own replay envelope would deliver it twice.
-                            self.dedup.record(
-                                &topic,
-                                Cursor::new(
-                                    message.sequence_id as u64,
-                                    message.originator_id as u32,
-                                ),
+                            // ahead) — hold the delivered identity, or its
+                            // own envelope, whenever it arrives, would
+                            // deliver it twice. A surface *behind* the
+                            // envelope needs no hold: its envelope already
+                            // passed (strictly increasing per topic), so
+                            // one would never be consumed.
+                            let identity = Cursor::new(
+                                message.sequence_id as u64,
+                                message.originator_id as u32,
                             );
+                            if identity > cursor {
+                                self.dedup.record_surfaced_ahead(identity);
+                            }
                             if let Some(reflex) = &self.reflex
                                 && reflex.sync_groups.contains(&message.group_id)
                             {
@@ -1346,8 +1349,8 @@ where
                             }
                             send_or_kill(&self.tx, kill, Ok(message)).await
                         }
-                        // Surfaced nothing (e.g. a commit) — position
-                        // advanced, nothing to deliver.
+                        // Surfaced nothing (e.g. a commit) — nothing to
+                        // deliver.
                         None => continue,
                     }
                 }
@@ -1468,144 +1471,100 @@ where
 mod tests {
     use super::*;
 
-    /// During the window an early live delivery must not swallow the replay
-    /// behind it; anything at-or-below the frozen seed is skipped; after the
-    /// window the position's high-water mark governs.
+    /// The window dedups by exact stored identity only: the stored message
+    /// is skipped, and everything else — including the gap below it — still
+    /// delivers. Once the window closes nothing is checked: the wire's
+    /// exactly-once contract per lease and topic is the whole guarantee.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn window_dedups_by_identity_and_frozen_seed() {
+    async fn window_dedups_by_stored_identity_only() {
         let topic = Topic::new_group_message([7u8; 16]);
-        let mut seed = GlobalCursor::default();
-        seed.apply(&Cursor::new(50, 0u32));
-        let mut dedup = StreamDedup::syncing(
-            HashMap::from([(topic.clone(), seed.clone())]),
-            HashSet::new(),
-        );
-        let mut position = seed;
+        let stored = Cursor::new(60, 0u32);
+        let mut dedup =
+            StreamDedup::syncing(HashSet::from([topic.clone()]), HashSet::from([stored]));
 
-        // A sibling lease's replay of pre-seed history is never ours.
-        assert!(dedup.has_seen(&position, &topic, &Cursor::new(50, 0u32)));
-        assert!(dedup.has_seen(&position, &topic, &Cursor::new(3, 0u32)));
+        // The stored identity is skipped; the gap below it still delivers
+        // (6 and 8 stored, 7 missed: 7 must come through the replay).
+        assert!(dedup.suppress(&topic, &stored));
+        assert!(!dedup.suppress(&topic, &Cursor::new(51, 0u32)));
+        assert!(!dedup.suppress(&topic, &Cursor::new(100, 0u32)));
 
-        // A live message leapfrogs the replay its own wave requested.
-        let live = Cursor::new(100, 0u32);
-        assert!(!dedup.has_seen(&position, &topic, &live));
-        dedup.record(&topic, live);
-        position.apply(&live);
-
-        // The replay behind it still delivers during the window...
-        let replayed = Cursor::new(51, 0u32);
-        assert!(
-            !dedup.has_seen(&position, &topic, &replayed),
-            "the window must not swallow the replay behind an early live delivery"
-        );
-        dedup.record(&topic, replayed);
-        // ...while exact duplicates are still skipped.
-        assert!(dedup.has_seen(&position, &topic, &replayed));
-
-        // Window closes: the position (already at the live edge) takes over.
+        // Window closed: even the stored identity is no longer checked —
+        // the wire will not repeat it.
         dedup.complete(std::slice::from_ref(&topic));
-        assert!(dedup.has_seen(&position, &topic, &replayed));
-        assert!(!dedup.has_seen(&position, &topic, &Cursor::new(101, 0u32)));
+        assert!(!dedup.suppress(&topic, &stored));
     }
 
     /// Windows are per topic: one lease's `CatchUpComplete` closes only its
-    /// own topics' windows — a still-syncing sibling keeps its seed and the
-    /// shared seen-set until the last window closes.
+    /// own topics' windows — a still-syncing sibling keeps the shared
+    /// seen-set until the last window closes.
     #[xmtp_common::test(unwrap_try = true)]
     async fn windows_close_per_topic() {
         let early = Topic::new_group_message([1u8; 16]);
         let late = Topic::new_group_message([2u8; 16]);
-        let mut seed = GlobalCursor::default();
-        seed.apply(&Cursor::new(50, 0u32));
-        let mut dedup = StreamDedup::syncing(
-            HashMap::from([(early.clone(), GlobalCursor::default())]),
-            HashSet::new(),
-        );
-        dedup.open_window(
-            HashMap::from([(late.clone(), seed)]),
-            [Cursor::new(60, 0u32)],
-        );
+        let mut dedup = StreamDedup::syncing(HashSet::from([early.clone()]), HashSet::new());
+        dedup.open_window([late.clone()], [Cursor::new(60, 0u32)]);
 
-        // Closing the early topic flips it to position dedup...
+        // Closing the early topic stops its checks...
         dedup.complete(std::slice::from_ref(&early));
-        let position = GlobalCursor::default();
-        assert!(!dedup.has_seen(&position, &early, &Cursor::new(60, 0u32)));
-        // ...while the late topic still dedups by its frozen seed + seen-set.
-        assert!(dedup.has_seen(&position, &late, &Cursor::new(50, 0u32)));
-        assert!(dedup.has_seen(&position, &late, &Cursor::new(60, 0u32)));
-        assert!(!dedup.has_seen(&position, &late, &Cursor::new(61, 0u32)));
+        assert!(!dedup.suppress(&early, &Cursor::new(60, 0u32)));
+        // ...while the late topic still dedups by the shared seen-set.
+        assert!(dedup.suppress(&late, &Cursor::new(60, 0u32)));
+        assert!(!dedup.suppress(&late, &Cursor::new(61, 0u32)));
 
         // The last window closing drops the seen-set.
         dedup.complete(std::slice::from_ref(&late));
-        assert!(!dedup.has_seen(&position, &late, &Cursor::new(60, 0u32)));
-    }
-
-    /// Sequence ids are not scoped per group: a stored identity in one group
-    /// must fold only into that group's live position, or it swallows other
-    /// groups' post-window deliveries at-or-below it.
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn stored_identities_fold_only_into_their_own_group() {
-        let a = GroupId::from([1u8; 16]);
-        let b = GroupId::from([2u8; 16]);
-        let floors = HashMap::from([
-            (Topic::new_group_message(a), GlobalCursor::default()),
-            (Topic::new_group_message(b), GlobalCursor::default()),
-        ]);
-
-        let (positions, seen) = fold_stored(&floors, vec![(a, Cursor::new(100, 0u32))]);
-
-        assert!(positions[&Topic::new_group_message(a)].has_seen(&Cursor::new(100, 0u32)));
-        assert!(
-            !positions[&Topic::new_group_message(b)].has_seen(&Cursor::new(90, 0u32)),
-            "a stored identity in group A must not advance group B's position"
-        );
-        assert!(seen.contains(&Cursor::new(100, 0u32)));
+        assert!(!dedup.suppress(&late, &Cursor::new(60, 0u32)));
     }
 
     /// The recovery-sync fallback can deliver a message whose cursor differs
-    /// from the envelope's; recording both identities keeps the delivered
-    /// message's own replay envelope from double-delivering it.
+    /// from the envelope's; the surfaced-ahead hold must survive the window
+    /// closing, because that message's own envelope can arrive live in
+    /// steady state — where nothing else dedups — and would deliver it a
+    /// second time.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn window_records_the_delivered_identity_too() {
+    async fn surfaced_ahead_outlives_the_window() {
         let topic = Topic::new_group_message([7u8; 16]);
-        let mut dedup = StreamDedup::syncing(
-            HashMap::from([(topic.clone(), GlobalCursor::default())]),
-            HashSet::new(),
-        );
-        let position = GlobalCursor::default();
+        let mut dedup = StreamDedup::syncing(HashSet::from([topic.clone()]), HashSet::new());
 
-        // Envelope 10 errors; recovery surfaces stored message 11.
-        dedup.record(&topic, Cursor::new(10, 0u32)); // the envelope
-        dedup.record(&topic, Cursor::new(11, 0u32)); // the delivered message
+        // Envelope 10 errors mid-window; recovery surfaces stored message 11.
+        dedup.record_surfaced_ahead(Cursor::new(11, 0u32));
+
+        // The window closes before 11's own envelope arrives.
+        dedup.complete(std::slice::from_ref(&topic));
+
+        // Its live arrival is suppressed, consuming the hold: the wire
+        // carries the envelope exactly once per lease, so a repeat of the
+        // identity is a genuinely new message... which cannot happen for
+        // the same cursor, but the consume keeps the set self-cleaning.
         assert!(
-            dedup.has_seen(&position, &topic, &Cursor::new(11, 0u32)),
-            "the replay envelope for the already-delivered message must be skipped"
+            dedup.suppress(&topic, &Cursor::new(11, 0u32)),
+            "the surfaced-ahead identity's own envelope must not deliver it twice"
         );
+        assert!(!dedup.suppress(&topic, &Cursor::new(11, 0u32)));
     }
 
-    /// Recording is scoped to open windows: an identity delivered on a topic
-    /// whose window is not open (closed, or never had one) is position-deduped
-    /// and must not grow the seen-set kept for a sibling still syncing.
+    /// A growth lease's window folds its stored identities into the shared
+    /// seen-set while earlier windows are still open — each topic dedups
+    /// its own history, and exact identity is safe to share across topics.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn record_only_tracks_topics_with_open_windows() {
-        let syncing = Topic::new_group_message([1u8; 16]);
-        let live = Topic::new_group_message([2u8; 16]);
+    async fn growth_lease_folds_stored_identities_into_open_windows() {
+        let early = Topic::new_group_message([1u8; 16]);
+        let late = Topic::new_group_message([2u8; 16]);
+        let early_stored = Cursor::new(50, 0u32);
+        let late_stored = Cursor::new(60, 0u32);
         let mut dedup = StreamDedup::syncing(
-            HashMap::from([(syncing.clone(), GlobalCursor::default())]),
-            HashSet::new(),
-        );
-        let position = GlobalCursor::default();
-
-        // A record for the window-less topic must not land in the shared
-        // seen-set (observable through the still-open sibling window).
-        dedup.record(&live, Cursor::new(10, 0u32));
-        assert!(
-            !dedup.has_seen(&position, &syncing, &Cursor::new(10, 0u32)),
-            "an identity from a window-less topic must not be recorded"
+            HashSet::from([early.clone()]),
+            HashSet::from([early_stored]),
         );
 
-        // The same identity recorded under the open window is tracked.
-        dedup.record(&syncing, Cursor::new(10, 0u32));
-        assert!(dedup.has_seen(&position, &syncing, &Cursor::new(10, 0u32)));
+        // The growth lease arrives while the early window is still open.
+        dedup.open_window([late.clone()], [late_stored]);
+
+        assert!(dedup.suppress(&early, &early_stored));
+        assert!(dedup.suppress(&late, &late_stored));
+        // The seen-set is shared: identities are globally unique, so the
+        // cross-topic check is safe (and cheap) rather than wrong.
+        assert!(dedup.suppress(&late, &early_stored));
+        assert!(!dedup.suppress(&late, &Cursor::new(61, 0u32)));
     }
 }
