@@ -52,9 +52,9 @@
 //!
 //! Dispatch mirrors the stream entry points: the bidi path when
 //! [`bidi_streams_active`], the legacy full sync otherwise. A backend that
-//! refuses the bidi surface latches the process onto legacy (same latch the
-//! streams use) and this call completes on the legacy path — the caller
-//! never sees the refusal.
+//! refuses the bidi surface latches its destination onto legacy (same
+//! per-destination latch the streams use) and this call completes on the
+//! legacy path — the caller never sees the refusal.
 
 use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
@@ -203,15 +203,16 @@ where
     /// on every wake. `Ok` therefore means "everything owed was received
     /// and attempted", not "zero processing errors".
     pub async fn catch_up_to_live(&self) -> Result<CatchUpSummary, CatchUpError> {
-        if bidi_streams_active() {
+        let host = self.context.api().api_client.host().to_owned();
+        if bidi_streams_active(&host) {
             match self.catch_up_bidi().await {
                 Ok(summary) => return Ok(summary),
                 Err(CatchUpError::Unsupported(e)) => {
                     tracing::error!(
                         "bidi catch-up refused by the backend, \
-                         latching this process onto the legacy streams: {e}"
+                         latching {host} onto the legacy streams: {e}"
                     );
-                    latch_bidi_unsupported();
+                    latch_bidi_unsupported(&host);
                 }
                 Err(CatchUpError::DeadEnd(e)) => {
                     tracing::warn!(

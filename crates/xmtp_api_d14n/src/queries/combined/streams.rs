@@ -57,14 +57,12 @@ xmtp_common::if_native! {
     // serve it — the d14n wire speaks its own envelope binding — so it refuses
     // at runtime with an unretryable error. The dyn full API always *has*
     // `subscribe_bidi`; support is a runtime property of the backend. The
-    // unretryable refusal is what trips xmtp_mls's process-wide fallback
+    // unretryable refusal is what trips xmtp_mls's per-destination fallback
     // latch (its router callbacks): the stream that hit it is served on the
-    // legacy path in place and every later dispatch goes straight to legacy,
-    // so the opt-in env gate is safe to enable when this is the process's
-    // only backend. The latch is process-wide — in a mixed-backend process
-    // a bidi-capable donor wins the shared wire and clients of this backend
-    // are misrouted, not refused (the router-callbacks module docs call
-    // that hazard out).
+    // legacy path in place and every later dispatch to this client's host
+    // goes straight to legacy, so the opt-in env gate is safe to enable with
+    // this client in the process — its streams ride legacy while a
+    // bidi-capable backend at another host keeps its own wire.
     #[xmtp_common::async_trait]
     impl<V3, D14n, Store> xmtp_proto::api_client::XmtpMlsBidiStreams for MigrationClient<V3, D14n, Store>
     where
@@ -74,6 +72,15 @@ xmtp_common::if_native! {
     {
         type SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<ApiClientError>;
         type Error = ApiClientError;
+
+        // A reserved key, not the v3 URL this client also dials: this
+        // surface never opens a wire, and keying by the real v3 backend
+        // would let its refusal latch a destination a bidi-capable pure-v3
+        // sibling could actually serve (order-dependent poisoning). The
+        // reserved scheme can never collide with a servable destination.
+        fn host(&self) -> &str {
+            "unsupported://migration"
+        }
 
         async fn subscribe_bidi(
             &self,

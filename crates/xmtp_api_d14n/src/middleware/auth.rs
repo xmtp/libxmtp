@@ -162,6 +162,10 @@ impl<C> AuthMiddleware<C> {
 
 #[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
+    fn host(&self) -> &str {
+        self.inner.host()
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,
@@ -250,6 +254,10 @@ mod tests {
 
     #[xmtp_common::async_trait]
     impl Client for TestClient {
+        fn host(&self) -> &str {
+            "mock://auth"
+        }
+
         async fn request(
             &self,
             request: http::request::Builder,

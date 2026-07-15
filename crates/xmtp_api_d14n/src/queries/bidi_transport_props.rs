@@ -84,6 +84,10 @@ impl XmtpMlsBidiStreams for MockApi {
     type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
     type Error = ApiClientError;
 
+    fn host(&self) -> &str {
+        "mock://bidi"
+    }
+
     async fn subscribe_bidi(
         &self,
         requests: BoxStream<'static, SubscribeRequest>,
