@@ -5229,6 +5229,20 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     func canMessage(accountIdentifiers: [FfiIdentifier]) async throws  -> [FfiIdentifier: Bool]
     
     /**
+     * Bring the local store current with the server, then stop — for background
+     * fetch and cold start, where a live stream would be wasted because the
+     * process is about to be suspended. Pending welcomes are joined and every
+     * conversation's missed messages are replayed from durable cursors and
+     * persisted, then the wire closes.
+     *
+     * `timeout_ms` bounds the whole call (`None` = unbounded). On the deadline
+     * the returned summary has `completed = false`; whatever was processed
+     * first is already persisted and a later call resumes from durable state,
+     * so cutting it short is always safe.
+     */
+    func catchUpToLive(timeoutMs: UInt64?) async throws  -> FfiCatchUpSummary
+    
+    /**
      * * Change the recovery identifier for your inboxId
      */
     func changeRecoveryIdentifier(newRecoveryIdentifier: FfiIdentifier) async throws  -> FfiSignatureRequest
@@ -5535,6 +5549,35 @@ open func canMessage(accountIdentifiers: [FfiIdentifier])async throws  -> [FfiId
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterDictionaryTypeFfiIdentifierBool.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Bring the local store current with the server, then stop — for background
+     * fetch and cold start, where a live stream would be wasted because the
+     * process is about to be suspended. Pending welcomes are joined and every
+     * conversation's missed messages are replayed from durable cursors and
+     * persisted, then the wire closes.
+     *
+     * `timeout_ms` bounds the whole call (`None` = unbounded). On the deadline
+     * the returned summary has `completed = false`; whatever was processed
+     * first is already persisted and a later call resumes from durable state,
+     * so cutting it short is always safe.
+     */
+open func catchUpToLive(timeoutMs: UInt64?)async throws  -> FfiCatchUpSummary  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_catch_up_to_live(
+                    self.uniffiCloneHandle(),
+                    FfiConverterOptionUInt64.lower(timeoutMs)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiCatchUpSummary_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
@@ -6836,6 +6879,93 @@ public func FfiConverterTypeFfiBackupMetadata_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeFfiBackupMetadata_lower(_ value: FfiBackupMetadata) -> RustBuffer {
     return FfiConverterTypeFfiBackupMetadata.lower(value)
+}
+
+
+/**
+ * Outcome of [`FfiXmtpClient::catch_up_to_live`].
+ */
+public struct FfiCatchUpSummary: Equatable, Hashable {
+    /**
+     * Application messages newly persisted by this call. Meaningful only when
+     * `completed` is true; `0` on a deadline (the in-flight tally is dropped
+     * with the cancelled future — the messages themselves are still stored).
+     */
+    public var messages: UInt64
+    /**
+     * Conversations newly joined by this call. Same caveat as `messages`.
+     */
+    public var conversations: UInt64
+    /**
+     * Whether catch-up finished before the deadline. `false` means `timeout_ms`
+     * elapsed first; messages processed before then are persisted, and a later
+     * call resumes from durable state.
+     */
+    public var completed: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Application messages newly persisted by this call. Meaningful only when
+         * `completed` is true; `0` on a deadline (the in-flight tally is dropped
+         * with the cancelled future — the messages themselves are still stored).
+         */messages: UInt64, 
+        /**
+         * Conversations newly joined by this call. Same caveat as `messages`.
+         */conversations: UInt64, 
+        /**
+         * Whether catch-up finished before the deadline. `false` means `timeout_ms`
+         * elapsed first; messages processed before then are persisted, and a later
+         * call resumes from durable state.
+         */completed: Bool) {
+        self.messages = messages
+        self.conversations = conversations
+        self.completed = completed
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCatchUpSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCatchUpSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCatchUpSummary {
+        return
+            try FfiCatchUpSummary(
+                messages: FfiConverterUInt64.read(from: &buf), 
+                conversations: FfiConverterUInt64.read(from: &buf), 
+                completed: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCatchUpSummary, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.messages, into: &buf)
+        FfiConverterUInt64.write(value.conversations, into: &buf)
+        FfiConverterBool.write(value.completed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCatchUpSummary_lift(_ buf: RustBuffer) throws -> FfiCatchUpSummary {
+    return try FfiConverterTypeFfiCatchUpSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCatchUpSummary_lower(_ value: FfiCatchUpSummary) -> RustBuffer {
+    return FfiConverterTypeFfiCatchUpSummary.lower(value)
 }
 
 
@@ -16398,6 +16528,30 @@ public func isConnected(api: XmtpApiClient)async  -> Bool  {
         )
 }
 /**
+ * Bring the streaming wire back after [`suspend_streams`] — the "app entered
+ * foreground" half. Fire-and-forget: do **not** await this to drive UI. It
+ * resolves at a wire-level mark (the reconnect's catch-up wave completing),
+ * which is unbounded while the network is down and can still have replayed
+ * messages decoding behind it; awaiting it for a "synced" spinner would stall.
+ * Let the message callbacks update the UI as messages arrive, and use
+ * [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable
+ * "I am current now". A no-op when nothing is streaming.
+ */
+public func resumeStreams()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_func_resume_streams(
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+/**
  * * Static revoke a list of installations
  */
 public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data])throws  -> FfiSignatureRequest  {
@@ -16409,6 +16563,30 @@ public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdent
         FfiConverterSequenceData.lower(installationIds),$0
     )
 })
+}
+/**
+ * Take the streaming wire off the network — the "app entered background" half
+ * of the lifecycle pair. Kept subscriptions and their wire positions survive;
+ * nothing reconnects until [`resume_streams`]. A no-op when nothing is
+ * streaming (the bidi path is off, or no stream was ever opened), so it is
+ * always safe to call.
+ *
+ * Process-scoped: one streaming wire is shared across every client in the
+ * process, so this is a free function, not a client method.
+ */
+public func suspendStreams()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_func_suspend_streams(
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
 }
 
 private enum InitializationResult {
@@ -16564,7 +16742,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_is_connected() != 54619) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_resume_streams() != 3712) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_revoke_installations() != 46055) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_suspend_streams() != 58173) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffiinboxowner_get_identifier() != 59650) {
@@ -16973,6 +17157,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 35116) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_catch_up_to_live() != 12917) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 49256) {
