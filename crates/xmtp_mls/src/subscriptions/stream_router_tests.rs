@@ -17,14 +17,17 @@ where
     C: xmtp_proto::api_client::XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,
 {
-    BidiTransport::new(move |initial| {
-        let api = api.clone();
-        async move {
-            BidiConnection::open(&api, initial)
-                .await
-                .map_err(OpenError::new)
-        }
-    })
+    BidiTransport::new(
+        move |initial| {
+            let api = api.clone();
+            async move {
+                BidiConnection::open(&api, initial)
+                    .await
+                    .map_err(OpenError::new)
+            }
+        },
+        false,
+    )
 }
 
 /// Live delivery: a message sent after subscribing arrives decoded on the

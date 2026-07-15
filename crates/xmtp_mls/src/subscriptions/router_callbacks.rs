@@ -136,12 +136,25 @@ struct SharedWires {
     /// Destinations that refused the surface; their dispatches go straight
     /// to legacy.
     unsupported: HashSet<String>,
+    /// [`suspend_bidi_streams`] intent for transports that don't exist yet:
+    /// set while the app is backgrounded, cleared by [`resume_bidi_streams`],
+    /// read at transport creation so a STREAM wire born under it opens
+    /// parked (the one-shot catch-up dials its own bounded wire regardless —
+    /// a background fetch is a deliberate dial). One flag, not
+    /// per-destination — the suspend call is app-lifecycle-scoped (it has no
+    /// endpoint to name, and a destination that hasn't streamed yet can't be
+    /// keyed in advance), while every EXISTING transport keeps its own
+    /// suspended state in its actor. Guarded by the registry's own mutex, so
+    /// flag flips and transport creation serialize: whichever order a
+    /// suspend and a first lease land in, the wire ends up parked.
+    suspend_requested: bool,
 }
 
 static SHARED_WIRES: LazyLock<Mutex<SharedWires>> = LazyLock::new(|| {
     Mutex::new(SharedWires {
         transports: HashMap::new(),
         unsupported: HashSet::new(),
+        suspend_requested: false,
     })
 });
 
@@ -254,34 +267,59 @@ where
     C::SubscribeStream: 'static,
 {
     let host = api.host().to_owned();
-    SHARED_WIRES
-        .lock()
+    let mut wires = SHARED_WIRES.lock();
+    // A transport created while the app is backgrounded is born suspended —
+    // its first lease parks instead of dialing (see [`SharedWires`]).
+    let born_suspended = wires.suspend_requested;
+    wires
         .transports
         .entry(host)
         .or_insert_with_key(|host| {
             // Whoever streams to this destination first donates their api
             // client for the life of the process.
-            tracing::info!(%host, "bidi: initializing the shared transport for a destination");
-            BidiTransport::new(move |initial| {
-                let api = api.clone();
-                async move {
-                    BidiConnection::open(&api, initial)
-                        .await
-                        .map_err(OpenError::new)
-                }
-            })
+            tracing::info!(
+                %host,
+                suspended = born_suspended,
+                "bidi: initializing the shared transport for a destination"
+            );
+            BidiTransport::new(
+                move |initial| {
+                    let api = api.clone();
+                    async move {
+                        BidiConnection::open(&api, initial)
+                            .await
+                            .map_err(OpenError::new)
+                    }
+                },
+                born_suspended,
+            )
         })
         .clone()
 }
 
 /// Take the shared bidi wires — every destination's — off the network (the
 /// `didEnterBackground` half of the app-lifecycle pair). Leases and wire
-/// positions are kept; nothing reconnects until [`resume_bidi_streams`]. A
-/// no-op when no transport was ever opened (gate off, or nothing ever
-/// streamed).
+/// positions are kept; nothing reconnects until [`resume_bidi_streams`].
+/// The intent also outlives the transports it applies to: a destination
+/// whose transport doesn't exist yet gets one born suspended at its first
+/// stream, so an app launched into the background that suspends before
+/// anything streams never opens a STREAM wire live (see [`SharedWires`];
+/// [`Client::catch_up_to_live`](crate::Client::catch_up_to_live) is exempt
+/// by design — a background fetch is a deliberate dial). A wire born
+/// suspended defers its backend's capability discovery to the resume
+/// re-open; see [`settle_lifecycle`] for how a refusal there still latches.
 pub async fn suspend_bidi_streams() -> Result<()> {
-    let transports: Vec<_> = SHARED_WIRES.lock().transports.values().cloned().collect();
-    settle_lifecycle(futures::future::join_all(transports.iter().map(|t| t.suspend())).await)
+    let wires: Vec<_> = {
+        let mut shared = SHARED_WIRES.lock();
+        shared.suspend_requested = true;
+        shared
+            .transports
+            .iter()
+            .map(|(host, t)| (host.clone(), t.clone()))
+            .collect()
+    };
+    let results = futures::future::join_all(wires.iter().map(|(_, t)| t.suspend())).await;
+    settle_lifecycle(&wires, results)
 }
 
 /// Bring the shared bidi wires back (`willEnterForeground`), resolving once
@@ -291,30 +329,57 @@ pub async fn suspend_bidi_streams() -> Result<()> {
 /// is down, and a concurrent fresh subscribe on a shared transport extends
 /// it — the FFI exposure (follow-on) owes callers a processing-drain barrier
 /// and a deadline before this can honestly serve as the background-fetch
-/// primitive. A no-op when no transport was ever opened.
+/// primitive. Also clears the recorded suspend intent
+/// ([`suspend_bidi_streams`]), so transports created from here on are born
+/// live again. A no-op when no transport was ever opened.
 pub async fn resume_bidi_streams() -> Result<()> {
-    let transports: Vec<_> = SHARED_WIRES.lock().transports.values().cloned().collect();
-    settle_lifecycle(futures::future::join_all(transports.iter().map(|t| t.resume())).await)
+    let wires: Vec<_> = {
+        let mut shared = SHARED_WIRES.lock();
+        shared.suspend_requested = false;
+        shared
+            .transports
+            .iter()
+            .map(|(host, t)| (host.clone(), t.clone()))
+            .collect()
+    };
+    let results = futures::future::join_all(wires.iter().map(|(_, t)| t.resume())).await;
+    settle_lifecycle(&wires, results)
 }
 
 /// Fold a lifecycle fan-out's results, driving EVERY destination before
 /// reporting: `join_all` (never `try_join_all`) upstream, so one dead wire
-/// cannot abandon the others mid-suspend/resume. A `Closed` transport is a
-/// tombstoned destination (backend refused the surface) — permanently off
-/// the network with its streams on legacy, so the lifecycle intent holds
-/// for it vacuously; any other error is reported after the fan-out settles.
-fn settle_lifecycle(results: Vec<std::result::Result<(), TransportError>>) -> Result<()> {
-    for result in results {
+/// cannot abandon the others mid-suspend/resume.
+///
+/// A `Closed` transport is a tombstoned destination — its ledger only ever
+/// dies by shutting down after an unretryable re-open, so `Closed` here is
+/// the same verdict a stream's `lease()` would see, and it latches the same
+/// way ([`is_bidi_unsupported`]). That latch matters most for a
+/// born-suspended wire: its capability discovery is deferred to the resume
+/// re-open, so a refusal there is seen by NO stream — the parked leases
+/// just end (their `on_close` fires; re-subscribing recovers, and lands on
+/// legacy because of this latch). The lifecycle intent holds for a
+/// tombstoned destination vacuously — permanently off the network, streams
+/// on legacy — so `Closed` is not an error here. No other error shape is
+/// reachable today (`suspend()`/`resume()` only produce `Closed`); anything
+/// else is surfaced defensively after the fan-out settles.
+fn settle_lifecycle(
+    wires: &[(String, BidiTransport<V3Binding>)],
+    results: Vec<std::result::Result<(), TransportError>>,
+) -> Result<()> {
+    let mut first_error = None;
+    for ((host, _), result) in wires.iter().zip(results) {
         match result {
-            Ok(()) | Err(TransportError::Closed) => {}
-            Err(e) => {
-                return Err(SubscribeError::from(
-                    super::stream_router::RouterError::Transport(e),
-                ));
-            }
+            Ok(()) => {}
+            Err(TransportError::Closed) => latch_bidi_unsupported(host),
+            Err(e) => first_error = first_error.or(Some(e)),
         }
     }
-    Ok(())
+    match first_error {
+        None => Ok(()),
+        Some(e) => Err(SubscribeError::from(
+            super::stream_router::RouterError::Transport(e),
+        )),
+    }
 }
 
 /// Drain a router stream into a callback until it ends or the client shuts

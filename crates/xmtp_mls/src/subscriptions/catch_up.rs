@@ -20,7 +20,10 @@
 //! state worth keeping. Each call opens its own [`BidiConnection`], which
 //! also means a concurrently-running live stream is untouched: both paths
 //! store through the same pipeline, whose DB fast-path makes double delivery
-//! a cheap lookup, and each keeps its own delivery dedup.
+//! a cheap lookup, and each keeps its own delivery dedup. For the same
+//! reason this call deliberately ignores the stream-suspend intent (the
+//! app-lifecycle suspend/resume pair): a backgrounded app calling it IS the
+//! background fetch, and the bounded wire closes when the run does.
 //!
 //! ## The discovery loop
 //!

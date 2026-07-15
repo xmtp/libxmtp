@@ -313,6 +313,52 @@ async fn suspend_resume_replays_what_was_missed() {
     assert_eq!(delivered.decrypted_message_bytes, b"backgrounded again");
 }
 
+/// The launched-into-background case: `suspend_bidi_streams()` lands before
+/// any stream exists — no transport yet, only the intent is recorded — so
+/// the first stream's wire opens parked instead of live. A message sent
+/// while parked arrives only after `resume_bidi_streams()`. (Process-per-
+/// test keeps the recorded intent from leaking anywhere.)
+#[xmtp_common::test(unwrap_try = true)]
+async fn suspend_before_the_first_stream_parks_the_wire() {
+    suspend_bidi_streams().await?;
+
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group.invite(&bo).await?;
+    bo.sync_welcomes().await?;
+    bo.group(&group.group_id)?.sync().await?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = Client::stream_all_messages_with_callback_bidi(
+        Arc::new(bo.client.clone()),
+        None,
+        None,
+        move |message| {
+            let _ = tx.send(message);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    // The wire is parked: nothing may deliver, no matter how long we wait.
+    group.send_msg(b"sent before resume").await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        rx.try_recv().is_err(),
+        "a wire born suspended must not deliver before resume"
+    );
+
+    // Resume opens the wire; the parked lease catches up from its cursors
+    // and the missed message arrives.
+    resume_bidi_streams().await?;
+    let delivered = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the post-resume delivery")
+        .expect("callback channel closed")?;
+    assert_eq!(delivered.decrypted_message_bytes, b"sent before resume");
+}
+
 /// The lifecycle helpers are safe to call before anything ever streamed:
 /// with no transport in the process they resolve as no-ops. (Real on
 /// mobile — backgrounding can beat the first subscription.)
@@ -323,6 +369,10 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
     suspend_bidi_streams().await?;
     resume_bidi_streams().await?;
     suspend_bidi_streams().await?;
+    // End resumed: a trailing suspend would leave the recorded intent set,
+    // making any later first wire in this process park (harmless under
+    // process-per-test, a trap under any single-process runner).
+    resume_bidi_streams().await?;
 }
 
 /// Sync-group traffic is intercepted, exactly like the legacy stream: it
@@ -769,5 +819,32 @@ fn destinations_latch_independently() {
     assert!(
         !bidi_unsupported_latched("test://healthy-backend"),
         "a sibling destination must not inherit the latch"
+    );
+}
+
+/// A born-suspended wire defers its backend's capability discovery to the
+/// resume re-open — past the point where any stream could see the refusal
+/// and latch. The lifecycle fold must latch it instead: suspend intent, a
+/// first lease that parks, then a resume whose open refuses tombstones the
+/// transport, and the destination ends up latched so re-subscribes ride
+/// legacy.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_resume_time_refusal_latches_its_destination() {
+    use xmtp_proto::types::Topic;
+
+    suspend_bidi_streams().await?;
+    let transport = shared_transport(FixedHostApi("test://born-refused"));
+    // Registers and parks — born suspended, the refusing opener never runs.
+    let _lease = transport
+        .lease(vec![(Topic::new_group_message(b"g"), 0)], 8)
+        .await?;
+
+    // The re-open runs the opener, the refusal tombstones the transport,
+    // and the fold latches the destination — while the call itself settles
+    // Ok (a tombstoned destination is vacuously resumed).
+    resume_bidi_streams().await?;
+    assert!(
+        bidi_unsupported_latched("test://born-refused"),
+        "a refusal first seen at resume must latch its destination"
     );
 }
