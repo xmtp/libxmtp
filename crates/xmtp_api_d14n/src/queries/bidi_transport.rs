@@ -617,6 +617,9 @@ where
     B::WelcomeMessage: Clone,
 {
     owner: WaveOwner,
+    /// When the wave was issued — observability only: its `CatchUpComplete`
+    /// logs the mutate→completion latency.
+    issued_at: std::time::Instant,
     /// The wave's adds as sent: which topics it asked to replay, from where.
     /// A lower re-add claims a topic out of a sibling's wave server-side
     /// (XIP-83), so claims are what decide whether a resolving lease's
@@ -638,6 +641,7 @@ where
     fn new(owner: WaveOwner, claims: HashMap<Topic, B::Cursor>) -> Self {
         Self {
             owner,
+            issued_at: std::time::Instant::now(),
             claims,
             holds: Vec::new(),
             progress_group: None,
@@ -1293,7 +1297,13 @@ where
                 );
                 false
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => false,
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                tracing::debug!(
+                    lease = id.0,
+                    "bidi transport: lease receiver dropped; releasing it"
+                );
+                false
+            }
         }
     }
 
@@ -1316,6 +1326,14 @@ where
             }
             Event::CatchUpComplete { mutate_id } => {
                 if let Some(wave) = self.pending_waves.remove(&WaveId(mutate_id)) {
+                    tracing::debug!(
+                        wave = mutate_id,
+                        elapsed_ms = wave.issued_at.elapsed().as_millis() as u64,
+                        topics = wave.claims.len(),
+                        deferred_completions = wave.holds.len(),
+                        waves_left = self.pending_waves.len(),
+                        "bidi transport: catch-up wave resolved"
+                    );
                     if let WaveOwner::Lease(lease) = wave.owner {
                         self.complete(lease, &mut dropped);
                     }
@@ -1765,6 +1783,7 @@ async fn run_ledger<B: TransportBinding>(
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
         suspended: false,
+        wire_opens: 0,
         resume_notify: Vec::new(),
         outbox: Outbox::default(),
         deferred: std::collections::VecDeque::new(),
@@ -1804,6 +1823,9 @@ where
     /// `suspend()`ed: the wire stays down on purpose — no lazy open for new
     /// leases, no reconnect backoff — until `resume()` clears it.
     suspended: bool,
+    /// Wires opened over this transport's lifetime (cold opens + reopens) —
+    /// observability only: `wire_opens - 1` is the reconnect count.
+    wire_opens: u64,
     /// `resume()` callers awaiting a resume wave that hasn't been sent yet
     /// (the open failed, or hasn't happened). [`Self::reopen`] moves them
     /// onto the resume wave it sends; until then they park here across
@@ -1915,6 +1937,11 @@ where
                 OpenOutcome::Opened(wire) => {
                     self.conn = Some(wire);
                     self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+                    self.wire_opens += 1;
+                    tracing::info!(
+                        topics = topics.len(),
+                        "bidi transport: wire opened (cold open)"
+                    );
                 }
                 OpenOutcome::Failed(e) => {
                     // The failure also travels to the caller, but join
@@ -1949,6 +1976,12 @@ where
         // arrives via the sibling-gap rule; module docs).
         let (tx, events) = mpsc::channel(depth.max(1));
         let id = self.ledger.register(topics.clone(), floors.clone(), tx);
+        tracing::debug!(
+            lease = id.0,
+            wave = wave.0,
+            topics = topics.len(),
+            "bidi transport: lease registered"
+        );
         self.ledger
             .pending_waves
             .insert(wave, PendingWave::new(WaveOwner::Lease(id), floors));
@@ -2084,7 +2117,12 @@ where
         drop(self.conn.take());
         self.reconnect_at = tokio::time::Instant::now() + self.reconnect_delay;
         if !self.ledger.leases.is_empty() {
-            tracing::warn!("bidi transport: wire died; reconnecting from last-seen positions");
+            tracing::warn!(
+                leases = self.ledger.leases.len(),
+                interrupted_waves = self.ledger.pending_waves.len(),
+                retry_in_ms = self.reconnect_delay.as_millis() as u64,
+                "bidi transport: wire died; reconnecting from last-seen positions"
+            );
         }
         self.settle_idle_waiters();
         Flow::Continue
@@ -2138,6 +2176,7 @@ where
         // When every leased topic is owned by an interrupted wave there is no
         // resume wave (an adds-nothing wave is refused by the wire contract)
         // and the first re-issue seeds the open instead.
+        let resumed_topics = resume_adds.len();
         let resume_wave = (!resume_adds.is_empty()).then(|| self.ledger.next_wave_id());
         let mut outbound = std::collections::VecDeque::with_capacity(reissues.len() + 1);
         let resume_pending = resume_wave.map(|wave| {
@@ -2170,6 +2209,13 @@ where
             OpenOutcome::Opened(wire) => {
                 self.conn = Some(wire);
                 self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+                self.wire_opens += 1;
+                tracing::info!(
+                    reconnects = self.wire_opens.saturating_sub(1),
+                    resumed_topics,
+                    reissued_waves = reissue_waves.len(),
+                    "bidi transport: wire reopened"
+                );
                 // Waves from the dead wire can never resolve on this one —
                 // drop them; the re-issues re-home the interrupted leases'
                 // obligations (progress carried forward). Completions that
