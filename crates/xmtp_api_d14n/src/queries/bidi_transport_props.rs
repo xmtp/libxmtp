@@ -84,6 +84,10 @@ impl XmtpMlsBidiStreams for MockApi {
     type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
     type Error = ApiClientError;
 
+    fn host(&self) -> &str {
+        "mock://bidi"
+    }
+
     async fn subscribe_bidi(
         &self,
         requests: BoxStream<'static, SubscribeRequest>,
@@ -127,30 +131,33 @@ type Servers = Arc<Mutex<Vec<MockServer>>>;
 fn model_transport() -> (BidiTransport<V3Binding>, Servers) {
     let servers: Servers = Arc::default();
     let sink = servers.clone();
-    let transport = BidiTransport::new(move |initial| {
-        let (to_client, inbound) = tokio::sync::mpsc::unbounded_channel();
-        let (captured, from_client) = tokio::sync::mpsc::unbounded_channel();
-        let api = MockApi {
-            inbound: Mutex::new(Some(inbound)),
-            captured,
-        };
-        let server = MockServer {
-            to_client,
-            from_client,
-        };
-        server.send(subscribe_response::v1::Response::Started(
-            subscribe_response::v1::Started {
-                keepalive_interval_ms: NO_KEEPALIVE,
-                capabilities: vec![],
-            },
-        ));
-        sink.lock().unwrap().push(server);
-        async move {
-            BidiConnection::open(&api, initial)
-                .await
-                .map_err(OpenError::new)
-        }
-    });
+    let transport = BidiTransport::new(
+        move |initial| {
+            let (to_client, inbound) = tokio::sync::mpsc::unbounded_channel();
+            let (captured, from_client) = tokio::sync::mpsc::unbounded_channel();
+            let api = MockApi {
+                inbound: Mutex::new(Some(inbound)),
+                captured,
+            };
+            let server = MockServer {
+                to_client,
+                from_client,
+            };
+            server.send(subscribe_response::v1::Response::Started(
+                subscribe_response::v1::Started {
+                    keepalive_interval_ms: NO_KEEPALIVE,
+                    capabilities: vec![],
+                },
+            ));
+            sink.lock().unwrap().push(server);
+            async move {
+                BidiConnection::open(&api, initial)
+                    .await
+                    .map_err(OpenError::new)
+            }
+        },
+        false,
+    );
     (transport, servers)
 }
 

@@ -29,6 +29,10 @@ impl TestNetworkClient {
 
 #[xmtp_common::async_trait]
 impl Client for TestNetworkClient {
+    fn host(&self) -> &str {
+        "mock://combined"
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,

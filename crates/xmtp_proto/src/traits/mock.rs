@@ -69,6 +69,8 @@ mockall::mock! {
 
     #[xmtp_common::async_trait]
     impl Client for NetworkClient {
+        fn host(&self) -> &str;
+
         async fn request(
             &self,
             request: http::request::Builder,

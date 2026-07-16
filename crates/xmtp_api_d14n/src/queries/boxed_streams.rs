@@ -155,6 +155,10 @@ xmtp_common::if_native! {
         type SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<Self::Error>;
         type Error = <C as xmtp_proto::api_client::XmtpMlsBidiStreams>::Error;
 
+        fn host(&self) -> &str {
+            self.inner.host()
+        }
+
         async fn subscribe_bidi(
             &self,
             requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,

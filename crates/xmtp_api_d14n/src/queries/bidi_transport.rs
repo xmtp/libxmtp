@@ -437,7 +437,13 @@ where
     /// stream opens with the topic set it will serve) and returns an open
     /// [`Connection`]. Where that connection goes is entirely the opener's
     /// business — see the module docs on endpoint keying.
-    pub fn new<O, Fut>(opener: O) -> Self
+    ///
+    /// `initially_suspended` births the actor already [`Self::suspend`]ed:
+    /// the first lease registers and parks instead of dialing, and nothing
+    /// touches the network until [`Self::resume`]. For callers honoring a
+    /// suspend intent recorded before the transport existed — an app
+    /// launched into the background that suspends before anything streams.
+    pub fn new<O, Fut>(opener: O, initially_suspended: bool) -> Self
     where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
         Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
@@ -452,7 +458,12 @@ where
         // which happens exactly when every handle and lease is dropped.
         xmtp_common::spawn(
             None,
-            run_ledger::<B>(opener, cmds_rx, cmds.clone().downgrade()),
+            run_ledger::<B>(
+                opener,
+                cmds_rx,
+                cmds.clone().downgrade(),
+                initially_suspended,
+            ),
         );
         Self { cmds }
     }
@@ -1770,6 +1781,7 @@ async fn run_ledger<B: TransportBinding>(
     // For minting lease handles. Weak, so the task's own copy never keeps the
     // command channel (and therefore itself) alive.
     lease_cmds: mpsc::WeakUnboundedSender<Cmd<B>>,
+    initially_suspended: bool,
 ) where
     B::GroupMessage: Clone,
     B::WelcomeMessage: Clone,
@@ -1782,7 +1794,7 @@ async fn run_ledger<B: TransportBinding>(
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
-        suspended: false,
+        suspended: initially_suspended,
         wire_opens: 0,
         resume_notify: Vec::new(),
         outbox: Outbox::default(),
@@ -2563,6 +2575,10 @@ mod tests {
         type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
         type Error = ApiClientError;
 
+        fn host(&self) -> &str {
+            "mock://bidi"
+        }
+
         async fn subscribe_bidi(
             &self,
             requests: BoxStream<'static, SubscribeRequest>,
@@ -2645,17 +2661,25 @@ mod tests {
     /// A transport whose opener mints a fresh scripted session per open and
     /// parks the server end where the test can grab it.
     fn transport() -> (BidiTransport<V3Binding>, Servers) {
+        transport_born(false)
+    }
+
+    /// [`transport`], with the birth state explicit.
+    fn transport_born(suspended: bool) -> (BidiTransport<V3Binding>, Servers) {
         let servers: Servers = Arc::default();
         let sink = servers.clone();
-        let transport = BidiTransport::new(move |initial| {
-            let (api, server) = mock_pair();
-            sink.lock().unwrap().push(server);
-            async move {
-                BidiConnection::open(&api, initial)
-                    .await
-                    .map_err(OpenError::new)
-            }
-        });
+        let transport = BidiTransport::new(
+            move |initial| {
+                let (api, server) = mock_pair();
+                sink.lock().unwrap().push(server);
+                async move {
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(OpenError::new)
+                }
+            },
+            suspended,
+        );
         (transport, servers)
     }
 
@@ -3536,6 +3560,50 @@ mod tests {
         tokio::time::timeout(WAIT, resumed).await?.unwrap()?;
     }
 
+    /// A transport born suspended — the suspend intent predates the
+    /// transport, an app launched into the background — parks its first
+    /// lease instead of dialing; `resume()` opens the wire, the parked
+    /// lease's wave rides the open to catch-up, and live delivery follows.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_born_suspended_transport_parks_the_first_lease() {
+        let (transport, servers) = transport_born(true);
+
+        // The first lease registers but must not dial.
+        let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        // Well past several reconnect backoffs: still nothing on the network.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(
+            servers.lock().unwrap().is_empty(),
+            "a born-suspended transport must keep its first lease parked"
+        );
+
+        let resumed = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+        let mut server = wait_for_server(&servers).await;
+        // Every leased topic is owned by the parked wave, so the open's
+        // first frame is that wave itself — no resume wave precedes it.
+        let wave = server.next_mutate().await;
+        assert_eq!(
+            wave.adds.iter().map(|add| &add.topic).collect::<Vec<_>>(),
+            vec![&group_topic(b"g1").cloned_vec()],
+            "the parked lease's adds open the wire"
+        );
+        server.send(catchup_complete(wave.mutate_id));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        tokio::time::timeout(WAIT, resumed).await?.unwrap()?;
+
+        server.send(live(vec![group_msg(1, b"g1")], vec![]));
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::GroupMessages(_))
+        ));
+    }
+
     /// A `resume()` waiter whose last lease disappears mid-catch-up must
     /// resolve — with nothing leased there is nothing left to await.
     #[xmtp_common::test(unwrap_try = true)]
@@ -3577,21 +3645,24 @@ mod tests {
         let transport: BidiTransport<V3Binding> = {
             let sink = servers.clone();
             let dials = dials.clone();
-            BidiTransport::new(move |initial| {
-                let n = dials.fetch_add(1, Ordering::SeqCst);
-                let sink = sink.clone();
-                async move {
-                    if n == 0 {
-                        std::future::pending::<()>().await;
-                        unreachable!("the hung dial never resolves");
+            BidiTransport::new(
+                move |initial| {
+                    let n = dials.fetch_add(1, Ordering::SeqCst);
+                    let sink = sink.clone();
+                    async move {
+                        if n == 0 {
+                            std::future::pending::<()>().await;
+                            unreachable!("the hung dial never resolves");
+                        }
+                        let (api, server) = mock_pair();
+                        sink.lock().unwrap().push(server);
+                        BidiConnection::open(&api, initial)
+                            .await
+                            .map_err(OpenError::new)
                     }
-                    let (api, server) = mock_pair();
-                    sink.lock().unwrap().push(server);
-                    BidiConnection::open(&api, initial)
-                        .await
-                        .map_err(OpenError::new)
-                }
-            })
+                },
+                false,
+            )
         };
 
         // The cold open hangs; drive it from a task and wait for the dial
@@ -3635,21 +3706,24 @@ mod tests {
         let transport: BidiTransport<V3Binding> = {
             let sink = servers.clone();
             let dials = dials.clone();
-            BidiTransport::new(move |initial| {
-                let n = dials.fetch_add(1, Ordering::SeqCst);
-                let sink = sink.clone();
-                async move {
-                    if n == 0 {
-                        std::future::pending::<()>().await;
-                        unreachable!("the hung dial never resolves");
+            BidiTransport::new(
+                move |initial| {
+                    let n = dials.fetch_add(1, Ordering::SeqCst);
+                    let sink = sink.clone();
+                    async move {
+                        if n == 0 {
+                            std::future::pending::<()>().await;
+                            unreachable!("the hung dial never resolves");
+                        }
+                        let (api, server) = mock_pair();
+                        sink.lock().unwrap().push(server);
+                        BidiConnection::open(&api, initial)
+                            .await
+                            .map_err(OpenError::new)
                     }
-                    let (api, server) = mock_pair();
-                    sink.lock().unwrap().push(server);
-                    BidiConnection::open(&api, initial)
-                        .await
-                        .map_err(OpenError::new)
-                }
-            })
+                },
+                false,
+            )
         };
 
         let leased = tokio::spawn({
@@ -3712,29 +3786,32 @@ mod tests {
             let dials = dials.clone();
             let gate = gate.clone();
             let network_down = network_down.clone();
-            BidiTransport::new(move |initial| {
-                let n = dials.fetch_add(1, Ordering::SeqCst);
-                let sink = sink.clone();
-                let gate = gate.clone();
-                let network_down = network_down.clone();
-                async move {
-                    // Dial 1 holds until released, then fails — the window
-                    // for the rest of the burst to arrive mid-dial. Later
-                    // dials fail fast until the network comes back.
-                    if n == 1 {
-                        gate.notified().await;
-                        return Err(OpenError::retryable(std::io::Error::other("down")));
+            BidiTransport::new(
+                move |initial| {
+                    let n = dials.fetch_add(1, Ordering::SeqCst);
+                    let sink = sink.clone();
+                    let gate = gate.clone();
+                    let network_down = network_down.clone();
+                    async move {
+                        // Dial 1 holds until released, then fails — the window
+                        // for the rest of the burst to arrive mid-dial. Later
+                        // dials fail fast until the network comes back.
+                        if n == 1 {
+                            gate.notified().await;
+                            return Err(OpenError::retryable(std::io::Error::other("down")));
+                        }
+                        if n >= 2 && network_down.load(Ordering::SeqCst) {
+                            return Err(OpenError::retryable(std::io::Error::other("down")));
+                        }
+                        let (api, server) = mock_pair();
+                        sink.lock().unwrap().push(server);
+                        BidiConnection::open(&api, initial)
+                            .await
+                            .map_err(OpenError::new)
                     }
-                    if n >= 2 && network_down.load(Ordering::SeqCst) {
-                        return Err(OpenError::retryable(std::io::Error::other("down")));
-                    }
-                    let (api, server) = mock_pair();
-                    sink.lock().unwrap().push(server);
-                    BidiConnection::open(&api, initial)
-                        .await
-                        .map_err(OpenError::new)
-                }
-            })
+                },
+                false,
+            )
         };
 
         let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
@@ -4667,9 +4744,10 @@ mod tests {
     /// nothing — the transport stays usable for a later attempt.
     #[xmtp_common::test(unwrap_try = true)]
     async fn open_failure_surfaces_and_registers_nothing() {
-        let transport = BidiTransport::<V3Binding>::new(|_initial| async {
-            Err(OpenError::unretryable(Refused))
-        });
+        let transport = BidiTransport::<V3Binding>::new(
+            |_initial| async { Err(OpenError::unretryable(Refused)) },
+            false,
+        );
         let denied = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await;
         assert!(matches!(denied, Err(TransportError::Open(_))));
         // Still alive: the next attempt reaches the opener again (and fails the
@@ -4689,23 +4767,26 @@ mod tests {
         let transport: BidiTransport<V3Binding> = {
             let sink = servers.clone();
             let dials = dials.clone();
-            BidiTransport::new(move |initial| {
-                let n = dials.fetch_add(1, Ordering::SeqCst);
-                let sink = sink.clone();
-                async move {
-                    // The backend accepts the first dial, then refuses the
-                    // surface outright — a server dropping bidi support, not
-                    // a flap.
-                    if n > 0 {
-                        return Err(OpenError::new(Refused));
+            BidiTransport::new(
+                move |initial| {
+                    let n = dials.fetch_add(1, Ordering::SeqCst);
+                    let sink = sink.clone();
+                    async move {
+                        // The backend accepts the first dial, then refuses the
+                        // surface outright — a server dropping bidi support, not
+                        // a flap.
+                        if n > 0 {
+                            return Err(OpenError::new(Refused));
+                        }
+                        let (api, server) = mock_pair();
+                        sink.lock().unwrap().push(server);
+                        BidiConnection::open(&api, initial)
+                            .await
+                            .map_err(OpenError::new)
                     }
-                    let (api, server) = mock_pair();
-                    sink.lock().unwrap().push(server);
-                    BidiConnection::open(&api, initial)
-                        .await
-                        .map_err(OpenError::new)
-                }
-            })
+                },
+                false,
+            )
         };
 
         let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;

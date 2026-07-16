@@ -20,7 +20,10 @@
 //! state worth keeping. Each call opens its own [`BidiConnection`], which
 //! also means a concurrently-running live stream is untouched: both paths
 //! store through the same pipeline, whose DB fast-path makes double delivery
-//! a cheap lookup, and each keeps its own delivery dedup.
+//! a cheap lookup, and each keeps its own delivery dedup. For the same
+//! reason this call deliberately ignores the stream-suspend intent (the
+//! app-lifecycle suspend/resume pair): a backgrounded app calling it IS the
+//! background fetch, and the bounded wire closes when the run does.
 //!
 //! ## The discovery loop
 //!
@@ -52,9 +55,9 @@
 //!
 //! Dispatch mirrors the stream entry points: the bidi path when
 //! [`bidi_streams_active`], the legacy full sync otherwise. A backend that
-//! refuses the bidi surface latches the process onto legacy (same latch the
-//! streams use) and this call completes on the legacy path — the caller
-//! never sees the refusal.
+//! refuses the bidi surface latches its destination onto legacy (same
+//! per-destination latch the streams use) and this call completes on the
+//! legacy path — the caller never sees the refusal.
 
 use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
@@ -203,15 +206,16 @@ where
     /// on every wake. `Ok` therefore means "everything owed was received
     /// and attempted", not "zero processing errors".
     pub async fn catch_up_to_live(&self) -> Result<CatchUpSummary, CatchUpError> {
-        if bidi_streams_active() {
+        let host = self.context.api().api_client.host().to_owned();
+        if bidi_streams_active(&host) {
             match self.catch_up_bidi().await {
                 Ok(summary) => return Ok(summary),
                 Err(CatchUpError::Unsupported(e)) => {
                     tracing::error!(
                         "bidi catch-up refused by the backend, \
-                         latching this process onto the legacy streams: {e}"
+                         latching {host} onto the legacy streams: {e}"
                     );
-                    latch_bidi_unsupported();
+                    latch_bidi_unsupported(&host);
                 }
                 Err(CatchUpError::DeadEnd(e)) => {
                     tracing::warn!(

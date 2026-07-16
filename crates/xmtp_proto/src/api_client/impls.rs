@@ -417,6 +417,10 @@ xmtp_common::if_native! {
         type Error = <T as XmtpMlsBidiStreams>::Error;
         type SubscribeStream = <T as XmtpMlsBidiStreams>::SubscribeStream;
 
+        fn host(&self) -> &str {
+            (**self).host()
+        }
+
         async fn subscribe_bidi(
             &self,
             requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
@@ -432,6 +436,10 @@ xmtp_common::if_native! {
     {
         type Error = <T as XmtpMlsBidiStreams>::Error;
         type SubscribeStream = <T as XmtpMlsBidiStreams>::SubscribeStream;
+
+        fn host(&self) -> &str {
+            (**self).host()
+        }
 
         async fn subscribe_bidi(
             &self,

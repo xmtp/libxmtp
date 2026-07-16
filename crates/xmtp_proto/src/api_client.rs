@@ -182,6 +182,13 @@ xmtp_common::if_native! {
 
         type Error: RetryableError + 'static;
 
+        /// The URL this client's bidi surface dials
+        /// ([`Client::host`](crate::traits::Client::host)) — the wire-sharing
+        /// key: clients whose surfaces dial the same URL multiplex onto one
+        /// process-shared wire, and each URL carries its own unsupported
+        /// latch (see xmtp_mls's router callbacks).
+        fn host(&self) -> &str;
+
         /// Open the bidirectional stream. `requests` is the outbound
         /// client→server frame stream (typically fed by a channel; the first
         /// frame is usually a `Mutate` naming the initial topic set); the

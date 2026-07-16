@@ -205,6 +205,10 @@ mod tests {
         type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
         type Error = ApiClientError;
 
+        fn host(&self) -> &str {
+            "mock://bidi"
+        }
+
         async fn subscribe_bidi(
             &self,
             requests: BoxStream<'static, SubscribeRequest>,
@@ -641,6 +645,10 @@ mod tests {
     impl XmtpMlsBidiStreams for WedgedWireApi {
         type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
         type Error = ApiClientError;
+
+        fn host(&self) -> &str {
+            "mock://bidi"
+        }
 
         async fn subscribe_bidi(
             &self,

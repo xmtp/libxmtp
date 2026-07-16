@@ -2,44 +2,47 @@
 //! the bindings call, plus the pieces that decide *whether* and *where* the
 //! bidi path runs.
 //!
-//! ## One wire per process
+//! ## One wire per destination
 //!
-//! Every client in the process shares ONE [`BidiTransport`]: topics from all
-//! of them multiplex onto a single bidi stream, and the transport's leases
-//! keep them apart (welcome topics are per-installation; a group topic two
-//! clients share is subscribed once and fanned out). One client per process —
-//! mobile — makes this invisible; a process running many clients (agents)
-//! gets O(1) wires instead of O(clients). The first client to stream donates
-//! its api client to the opener, which assumes one backend per process: true
-//! for mobile, agents, and `nextest`'s process-per-test runs. Auth is not at
-//! stake — the shared wire is receive-only (publishes keep each client's own
-//! api client and whatever authorization it carries), and on v3 the donated
-//! client attaches only version-attribution headers. The hazard of mixing
-//! backends is misrouting: a sibling client pointed elsewhere would lease
-//! its topics on the donor's wire, subscribe successfully, and receive
-//! nothing — hence the init log below.
+//! Clients dialing the same backend URL share ONE [`BidiTransport`]: topics
+//! from all of them multiplex onto a single bidi stream, and the transport's
+//! leases keep them apart (welcome topics are per-installation; a group
+//! topic two clients share is subscribed once and fanned out). One client
+//! per process — mobile — makes this invisible; a process running many
+//! clients (agents) gets one wire per backend instead of one per client.
+//! Wires are keyed by the URL the client's api client dials
+//! ([`XmtpMlsBidiStreams::host`]) — connection identity, not network
+//! identity: two clients behind the same proxy share that proxy's wire,
+//! while a proxied and a direct client to the same backend keep separate
+//! wires and separate failure domains (a severed proxy reconnects alone —
+//! the toxiproxy test clients depend on exactly this). The first client to
+//! stream to a destination donates its api client to that destination's
+//! opener. Auth is not at stake — a shared wire is receive-only (publishes
+//! keep each client's own api client and whatever authorization it carries),
+//! and on v3 the donated client attaches only version-attribution headers.
 //!
 //! ## The gate and the latch
 //!
 //! The bidi path is opt-in via [`BIDI_STREAMS_ENABLED_ENV`], read once at
 //! the first stream call: mobile apps set it at process init, agents in
 //! their deploy env. Unset (or anything but a truthy value) keeps the legacy
-//! streams. The gate is only the opt-in — whether the backend can serve the
-//! surface is discovered at the first wire open. A backend that cannot
+//! streams. The gate is only the opt-in — whether a backend can serve the
+//! surface is discovered at its first wire open. A backend that cannot
 //! refuses it — gRPC `UNIMPLEMENTED` from a v3 node without the surface, an
-//! in-process refusal from the d14n and migration api clients — and once the
-//! shared transport has tombstoned itself on such a refusal, every later
-//! stream sees it as `Closed` ([`is_bidi_unsupported`] classifies all
-//! three). Any of them trips a process-wide latch: the stream that hit it
-//! switches to the legacy path in place (the first caller loses nothing —
-//! nor does a startup burst, where every pre-latch stream hits its own
-//! refusal and falls back the same way), and every later dispatch goes
-//! straight to legacy ([`bidi_streams_active`]). The latch resets only with
-//! the process, so the env var is safe to enable against any *single*
-//! backend — the worst case is one refused open and a process on legacy
-//! streams. That safety leans on the one-backend-per-process assumption
-//! above: in a mixed process whose donor speaks bidi, other-backend clients
-//! are misrouted (receiving nothing), not refused, and no latch fires.
+//! in-process refusal from the d14n and migration api clients — and once a
+//! destination's transport has tombstoned itself on such a refusal, every
+//! later stream to it sees `Closed` ([`is_bidi_unsupported`] classifies all
+//! three). Any of them latches that destination onto the legacy streams:
+//! the stream that hit it switches to the legacy path in place (the first
+//! caller loses nothing — nor does a startup burst, where every pre-latch
+//! stream hits its own refusal and falls back the same way), and every
+//! later dispatch to that destination goes straight to legacy
+//! ([`bidi_streams_active`]). Destinations latch independently — a process
+//! mixing a bidi-capable v3 backend with, say, a d14n client keeps bidi on
+//! the v3 wire while the d14n client's streams ride legacy. Latches reset
+//! only with the process, so the env var is safe to enable against any
+//! backend mix — the worst case per destination is one refused open and its
+//! streams on legacy.
 //!
 //! Dispatch lives here, not with the bindings: each binding site makes one
 //! `*_with_callback_dispatch` call, and the `*_with_callback_bidi` entry
@@ -65,8 +68,10 @@
 //! never runs the task's tail but does drop it, so `StreamClosed` rides a
 //! drop guard.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock};
+
+use parking_lot::Mutex;
 
 use futures::Stream;
 use tokio::sync::oneshot;
@@ -117,28 +122,66 @@ pub(crate) fn bidi_streams_enabled() -> bool {
     *ENABLED
 }
 
-/// Set once the backend refuses the bidi surface (see the module docs).
-/// Process-level like [`SHARED_TRANSPORT`], and for the same reason: one
-/// backend per process means one refusal verdict per process.
-static BIDI_UNSUPPORTED: AtomicBool = AtomicBool::new(false);
-
-/// Whether a new stream should take the bidi path: the gate is on and no
-/// earlier stream has latched the process onto legacy.
-pub fn bidi_streams_active() -> bool {
-    bidi_streams_enabled() && !BIDI_UNSUPPORTED.load(Ordering::Relaxed)
+/// Process-shared per-destination wire state (see the module docs): the
+/// transports, one per dialed URL, and the destinations whose backend
+/// refused the bidi surface. Process-level because both facts outlive any
+/// one client — clients dialing the same place share a wire, and a
+/// backend's capability verdict holds for everyone dialing it.
+struct SharedWires {
+    /// One transport per destination, created at that destination's first
+    /// stream. Entries are immortal (each holds the transport for the life
+    /// of the process — see [`shared_transport`]); real processes dial one
+    /// to three backends, so the map never meaningfully grows.
+    transports: HashMap<String, BidiTransport<V3Binding>>,
+    /// Destinations that refused the surface; their dispatches go straight
+    /// to legacy.
+    unsupported: HashSet<String>,
+    /// [`suspend_bidi_streams`] intent for transports that don't exist yet:
+    /// set while the app is backgrounded, cleared by [`resume_bidi_streams`],
+    /// read at transport creation so a STREAM wire born under it opens
+    /// parked (the one-shot catch-up dials its own bounded wire regardless —
+    /// a background fetch is a deliberate dial). One flag, not
+    /// per-destination — the suspend call is app-lifecycle-scoped (it has no
+    /// endpoint to name, and a destination that hasn't streamed yet can't be
+    /// keyed in advance), while every EXISTING transport keeps its own
+    /// suspended state in its actor. Guarded by the registry's own mutex, so
+    /// flag flips and transport creation serialize: whichever order a
+    /// suspend and a first lease land in, the wire ends up parked.
+    suspend_requested: bool,
 }
 
-/// Latch the process onto the legacy streams. Called by the pump on a
+static SHARED_WIRES: LazyLock<Mutex<SharedWires>> = LazyLock::new(|| {
+    Mutex::new(SharedWires {
+        transports: HashMap::new(),
+        unsupported: HashSet::new(),
+        suspend_requested: false,
+    })
+});
+
+/// Whether a new stream to `host` should take the bidi path: the gate is on
+/// and no earlier stream has latched that destination onto legacy.
+pub fn bidi_streams_active(host: &str) -> bool {
+    bidi_streams_enabled() && !SHARED_WIRES.lock().unsupported.contains(host)
+}
+
+/// Latch a destination onto the legacy streams. Called by the pump on a
 /// backend refusal; tests pre-set it to exercise the latched dispatch.
-pub(crate) fn latch_bidi_unsupported() {
-    BIDI_UNSUPPORTED.store(true, Ordering::Relaxed);
+pub(crate) fn latch_bidi_unsupported(host: &str) {
+    SHARED_WIRES.lock().unsupported.insert(host.to_owned());
 }
 
-/// The latch's current state — test-only observability for the pump's
+/// A latch's current state — test-only observability for the pump's
 /// fallback branch. Gated like `router_callbacks_tests`, its only consumer.
 #[cfg(all(test, not(feature = "d14n")))]
-pub(crate) fn bidi_unsupported_latched() -> bool {
-    BIDI_UNSUPPORTED.load(Ordering::Relaxed)
+pub(crate) fn bidi_unsupported_latched(host: &str) -> bool {
+    SHARED_WIRES.lock().unsupported.contains(host)
+}
+
+/// The transport count — test-only observability for the per-destination
+/// keying.
+#[cfg(all(test, not(feature = "d14n")))]
+pub(crate) fn shared_transport_count() -> usize {
+    SHARED_WIRES.lock().transports.len()
 }
 
 /// Whether a subscribe failure means the backend refuses the bidi surface —
@@ -148,9 +191,9 @@ pub(crate) fn bidi_unsupported_latched() -> bool {
 ///   the surface does not exist ([`open_is_backend_refusal`]) — that verdict
 ///   is buried under wrappers whose retryability cannot be trusted, so the
 ///   chain is walked instead of asking `is_retryable`.
-/// - [`TransportError::Closed`] from a later `lease()`. The process-shared
-///   transport is immortal — [`SHARED_TRANSPORT`] holds a handle for the
-///   life of the process — so its ledger only ever dies by tombstoning
+/// - [`TransportError::Closed`] from a later `lease()`. A destination's
+///   shared transport is immortal — [`SHARED_WIRES`] holds its handle for
+///   the life of the process — so its ledger only ever dies by tombstoning
 ///   itself after an unretryable re-open: `Closed` is what the refusal looks
 ///   like to every stream after the one that saw it directly. Latching is
 ///   also the safe direction — the legacy path works everywhere.
@@ -210,68 +253,133 @@ pub(crate) fn is_bidi_dead_end(e: &RouterError) -> bool {
     matches!(e, RouterError::Transport(TransportError::Open(open)) if !open.is_retryable())
 }
 
-/// The process-wide transport (see the module docs). `OnceLock` rather than
-/// per-client state: the whole point is that clients share the wire.
+/// The shared transport for the destination `api` dials, created at that
+/// destination's first stream (see the module docs and [`SHARED_WIRES`]).
 ///
-/// Its ledger task is bound to the async runtime alive at first use — the
-/// one-runtime-per-process reality of mobile, node, and agents. A process
-/// that tears its runtime down and starts another (some non-`nextest` test
-/// harnesses) would find the cached transport dead; `nextest`'s
-/// process-per-test model keeps tests clear of that.
-static SHARED_TRANSPORT: OnceLock<BidiTransport<V3Binding>> = OnceLock::new();
-
-fn shared_transport<C>(api: C) -> BidiTransport<V3Binding>
+/// A transport's ledger task is bound to the async runtime alive at its
+/// first use — the one-runtime-per-process reality of mobile, node, and
+/// agents. A process that tears its runtime down and starts another (some
+/// non-`nextest` test harnesses) would find the cached transport dead;
+/// `nextest`'s process-per-test model keeps tests clear of that.
+pub(crate) fn shared_transport<C>(api: C) -> BidiTransport<V3Binding>
 where
     C: XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,
 {
-    SHARED_TRANSPORT
-        .get_or_init(move || {
-            // Whoever streams first donates their api client for the life of
-            // the process — log it, so a mixed-backend accident is findable.
-            tracing::info!("bidi: initializing the process-shared transport");
-            BidiTransport::new(move |initial| {
-                let api = api.clone();
-                async move {
-                    BidiConnection::open(&api, initial)
-                        .await
-                        .map_err(OpenError::new)
-                }
-            })
+    let host = api.host().to_owned();
+    let mut wires = SHARED_WIRES.lock();
+    // A transport created while the app is backgrounded is born suspended —
+    // its first lease parks instead of dialing (see [`SharedWires`]).
+    let born_suspended = wires.suspend_requested;
+    wires
+        .transports
+        .entry(host)
+        .or_insert_with_key(|host| {
+            // Whoever streams to this destination first donates their api
+            // client for the life of the process.
+            tracing::info!(
+                %host,
+                suspended = born_suspended,
+                "bidi: initializing the shared transport for a destination"
+            );
+            BidiTransport::new(
+                move |initial| {
+                    let api = api.clone();
+                    async move {
+                        BidiConnection::open(&api, initial)
+                            .await
+                            .map_err(OpenError::new)
+                    }
+                },
+                born_suspended,
+            )
         })
         .clone()
 }
 
-/// Take the shared bidi wire off the network (the `didEnterBackground` half
-/// of the app-lifecycle pair). Leases and wire positions are kept; nothing
-/// reconnects until [`resume_bidi_streams`]. A no-op when the transport was
-/// never opened (gate off, or nothing ever streamed).
+/// Take the shared bidi wires — every destination's — off the network (the
+/// `didEnterBackground` half of the app-lifecycle pair). Leases and wire
+/// positions are kept; nothing reconnects until [`resume_bidi_streams`].
+/// The intent also outlives the transports it applies to: a destination
+/// whose transport doesn't exist yet gets one born suspended at its first
+/// stream, so an app launched into the background that suspends before
+/// anything streams never opens a STREAM wire live (see [`SharedWires`];
+/// [`Client::catch_up_to_live`](crate::Client::catch_up_to_live) is exempt
+/// by design — a background fetch is a deliberate dial). A wire born
+/// suspended defers its backend's capability discovery to the resume
+/// re-open; see [`settle_lifecycle`] for how a refusal there still latches.
 pub async fn suspend_bidi_streams() -> Result<()> {
-    let Some(transport) = SHARED_TRANSPORT.get() else {
-        return Ok(());
+    let wires: Vec<_> = {
+        let mut shared = SHARED_WIRES.lock();
+        shared.suspend_requested = true;
+        shared
+            .transports
+            .iter()
+            .map(|(host, t)| (host.clone(), t.clone()))
+            .collect()
     };
-    transport
-        .suspend()
-        .await
-        .map_err(|e| super::stream_router::RouterError::Transport(e).into())
+    let results = futures::future::join_all(wires.iter().map(|(_, t)| t.suspend())).await;
+    settle_lifecycle(&wires, results)
 }
 
-/// Bring the shared bidi wire back (`willEnterForeground`), resolving once
-/// a live wire has no catch-up wave left in flight. That is a wire-level
-/// mark: replayed messages may still be decoding and storing in the stream
-/// pipeline behind it; the wait is unbounded while the network is down, and
-/// a concurrent fresh subscribe on the shared transport extends it — the
-/// FFI exposure (follow-on) owes callers a processing-drain barrier and a
-/// deadline before this can honestly serve as the background-fetch
-/// primitive. A no-op when the transport was never opened.
+/// Bring the shared bidi wires back (`willEnterForeground`), resolving once
+/// every destination's live wire has no catch-up wave left in flight. That
+/// is a wire-level mark: replayed messages may still be decoding and storing
+/// in the stream pipeline behind it; the wait is unbounded while the network
+/// is down, and a concurrent fresh subscribe on a shared transport extends
+/// it — the FFI exposure (follow-on) owes callers a processing-drain barrier
+/// and a deadline before this can honestly serve as the background-fetch
+/// primitive. Also clears the recorded suspend intent
+/// ([`suspend_bidi_streams`]), so transports created from here on are born
+/// live again. A no-op when no transport was ever opened.
 pub async fn resume_bidi_streams() -> Result<()> {
-    let Some(transport) = SHARED_TRANSPORT.get() else {
-        return Ok(());
+    let wires: Vec<_> = {
+        let mut shared = SHARED_WIRES.lock();
+        shared.suspend_requested = false;
+        shared
+            .transports
+            .iter()
+            .map(|(host, t)| (host.clone(), t.clone()))
+            .collect()
     };
-    transport
-        .resume()
-        .await
-        .map_err(|e| super::stream_router::RouterError::Transport(e).into())
+    let results = futures::future::join_all(wires.iter().map(|(_, t)| t.resume())).await;
+    settle_lifecycle(&wires, results)
+}
+
+/// Fold a lifecycle fan-out's results, driving EVERY destination before
+/// reporting: `join_all` (never `try_join_all`) upstream, so one dead wire
+/// cannot abandon the others mid-suspend/resume.
+///
+/// A `Closed` transport is a tombstoned destination — its ledger only ever
+/// dies by shutting down after an unretryable re-open, so `Closed` here is
+/// the same verdict a stream's `lease()` would see, and it latches the same
+/// way ([`is_bidi_unsupported`]). That latch matters most for a
+/// born-suspended wire: its capability discovery is deferred to the resume
+/// re-open, so a refusal there is seen by NO stream — the parked leases
+/// just end (their `on_close` fires; re-subscribing recovers, and lands on
+/// legacy because of this latch). The lifecycle intent holds for a
+/// tombstoned destination vacuously — permanently off the network, streams
+/// on legacy — so `Closed` is not an error here. No other error shape is
+/// reachable today (`suspend()`/`resume()` only produce `Closed`); anything
+/// else is surfaced defensively after the fan-out settles.
+fn settle_lifecycle(
+    wires: &[(String, BidiTransport<V3Binding>)],
+    results: Vec<std::result::Result<(), TransportError>>,
+) -> Result<()> {
+    let mut first_error = None;
+    for ((host, _), result) in wires.iter().zip(results) {
+        match result {
+            Ok(()) => {}
+            Err(TransportError::Closed) => latch_bidi_unsupported(host),
+            Err(e) => first_error = first_error.or(Some(e)),
+        }
+    }
+    match first_error {
+        None => Ok(()),
+        Some(e) => Err(SubscribeError::from(
+            super::stream_router::RouterError::Transport(e),
+        )),
+    }
 }
 
 /// Drain a router stream into a callback until it ends or the client shuts
@@ -321,12 +429,40 @@ impl Drop for StreamClosedGuard {
     }
 }
 
+/// Where a stream comes from: the per-stream identity [`pump_stream`]
+/// needs, derived from ONE context so the latch destination can never
+/// disagree with the client that built the subscribe and fallback futures.
+pub(crate) struct StreamOrigin {
+    pub(crate) kind: StreamKind,
+    pub(crate) installation: InstallationId,
+    /// The destination key ([`XmtpMlsBidiStreams::host`]) the stream
+    /// latches on a backend refusal.
+    pub(crate) host: String,
+    pub(crate) cancel: CancellationToken,
+}
+
+impl StreamOrigin {
+    fn new<Context>(kind: StreamKind, context: &Context) -> Self
+    where
+        Context: XmtpSharedContext,
+        Context::ApiClient: XmtpMlsBidiStreams,
+    {
+        Self {
+            kind,
+            installation: context.installation_id(),
+            host: context.api().api_client.host().to_owned(),
+            cancel: context.cancellation_token().clone(),
+        }
+    }
+}
+
 /// One spawned bidi stream: emit `StreamOpened`, subscribe, signal ready,
 /// then pump into the callback until the stream ends or the client shuts
 /// down. Every entry point is this wrapper plus its subscribe future and a
 /// `fallback` factory that builds its legacy counterpart stream. When the
 /// subscribe fails with a backend refusal ([`is_bidi_unsupported`]) the task
-/// latches the process onto legacy; on a refusal or a dead-end open
+/// latches the stream's destination ([`StreamOrigin::host`]) onto legacy;
+/// on a refusal or a dead-end open
 /// ([`is_bidi_dead_end`]) it keeps serving THIS stream by handing the
 /// factory to the legacy watchdog runner ([`run_watchdog_stream`]) — the
 /// same runner the legacy entry points spawn, stale-trip re-subscribe and
@@ -342,9 +478,7 @@ impl Drop for StreamClosedGuard {
 /// objects emit their own pair — and re-armed when the fallback fails at
 /// startup, having built no stream object to pair the open).
 pub(crate) fn pump_stream<T, S, FSub, FFut, FS>(
-    kind: StreamKind,
-    installation: InstallationId,
-    cancel: CancellationToken,
+    origin: StreamOrigin,
     subscribe: S,
     fallback: FSub,
     callback: impl FnMut(Result<T>) + MaybeSend + 'static,
@@ -359,6 +493,12 @@ where
 {
     let (tx, rx) = oneshot::channel();
     xmtp_common::spawn(Some(rx), async move {
+        let StreamOrigin {
+            kind,
+            installation,
+            host,
+            cancel,
+        } = origin;
         log_event!(Event::StreamOpened, installation, kind = ?kind);
         let mut closed = StreamClosedGuard {
             kind,
@@ -370,13 +510,13 @@ where
                 if is_bidi_unsupported(&e) {
                     tracing::error!(
                         "bidi {kind:?} stream refused by the backend, \
-                         latching this process onto the legacy streams: {e}"
+                         latching {host} onto the legacy streams: {e}"
                     );
-                    latch_bidi_unsupported();
+                    latch_bidi_unsupported(&host);
                 } else {
                     // Not a capability verdict, but no redial of this open
                     // can succeed either — serve this one stream on legacy
-                    // and leave the process-wide latch to a cleaner failure.
+                    // and leave this destination's latch to a cleaner failure.
                     tracing::warn!(
                         "bidi {kind:?} stream open failed unretryably, \
                          serving this stream on the legacy path: {e}"
@@ -414,8 +554,9 @@ where
             Ok(stream) => stream,
         };
         // The bidi path won: don't hold the fallback factory's captured
-        // clones for the (long) life of this stream.
-        drop(fallback);
+        // clones — or the latch host, needed only on the losing arms — for
+        // the (long) life of this stream.
+        drop((fallback, host));
         let _ = tx.send(());
         pump(stream, cancel, callback, on_close).await;
         tracing::debug!("bidi {kind:?} stream ended");
@@ -505,7 +646,7 @@ where
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        if bidi_streams_active() {
+        if bidi_streams_active(client.context.api().api_client.host()) {
             DispatchHandle::Bidi(Self::stream_all_messages_with_callback_bidi(
                 client,
                 conversation_type,
@@ -536,8 +677,7 @@ where
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let installation = client.context.installation_id();
-        let cancel = client.context.cancellation_token().clone();
+        let origin = StreamOrigin::new(StreamKind::All, &client.context);
         let fallback = {
             let client = client.clone();
             let consent_states = consent_states.clone();
@@ -557,15 +697,7 @@ where
                 .stream_all_messages(conversation_type, consent_states, DEFAULT_STREAM_DEPTH)
                 .await
         };
-        pump_stream(
-            StreamKind::All,
-            installation,
-            cancel,
-            subscribe,
-            fallback,
-            callback,
-            on_close,
-        )
+        pump_stream(origin, subscribe, fallback, callback, on_close)
     }
 
     /// The one call the bindings make for a conversations stream: the bidi
@@ -578,7 +710,7 @@ where
         callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        if bidi_streams_active() {
+        if bidi_streams_active(client.context.api().api_client.host()) {
             DispatchHandle::Bidi(Self::stream_conversations_with_callback_bidi(
                 client,
                 conversation_type,
@@ -608,8 +740,7 @@ where
         callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let installation = client.context.installation_id();
-        let cancel = client.context.cancellation_token().clone();
+        let origin = StreamOrigin::new(StreamKind::Conversations, &client.context);
         let fallback = {
             let client = client.clone();
             move || {
@@ -632,15 +763,7 @@ where
                 )
                 .await
         };
-        pump_stream(
-            StreamKind::Conversations,
-            installation,
-            cancel,
-            subscribe,
-            fallback,
-            callback,
-            on_close,
-        )
+        pump_stream(origin, subscribe, fallback, callback, on_close)
     }
 }
 
@@ -660,7 +783,7 @@ where
     <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
     Context::Db: 'static,
 {
-    if bidi_streams_active() {
+    if bidi_streams_active(context.api().api_client.host()) {
         DispatchHandle::Bidi(stream_conversation_messages_with_callback_bidi(
             context, group_id, callback, on_close,
         ))
@@ -692,8 +815,7 @@ where
     <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
     Context::Db: 'static,
 {
-    let installation = context.installation_id();
-    let cancel = context.cancellation_token().clone();
+    let origin = StreamOrigin::new(StreamKind::Messages, &context);
     // `StreamGroupMessages::new_owned` directly: the legacy entry point for
     // this shape (`stream_messages_with_callback`) subscribes the same way —
     // context-based, there is no group object to call `stream_owned` on.
@@ -711,13 +833,5 @@ where
             .stream_messages(vec![group_id], DEFAULT_STREAM_DEPTH)
             .await
     };
-    pump_stream(
-        StreamKind::Messages,
-        installation,
-        cancel,
-        subscribe,
-        fallback,
-        callback,
-        on_close,
-    )
+    pump_stream(origin, subscribe, fallback, callback, on_close)
 }

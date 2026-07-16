@@ -8,9 +8,10 @@ use xmtp_common::StreamHandle;
 
 use crate::Client;
 use crate::subscriptions::router_callbacks::{
-    bidi_streams_active, bidi_unsupported_latched, is_bidi_dead_end, is_bidi_unsupported,
-    latch_bidi_unsupported, pump_stream, resume_bidi_streams,
-    stream_conversation_messages_with_callback_bidi, suspend_bidi_streams,
+    StreamOrigin, bidi_streams_active, bidi_unsupported_latched, is_bidi_dead_end,
+    is_bidi_unsupported, latch_bidi_unsupported, pump_stream, resume_bidi_streams,
+    shared_transport, shared_transport_count, stream_conversation_messages_with_callback_bidi,
+    suspend_bidi_streams,
 };
 use crate::tester;
 use crate::utils::MlsGroupExt;
@@ -312,6 +313,52 @@ async fn suspend_resume_replays_what_was_missed() {
     assert_eq!(delivered.decrypted_message_bytes, b"backgrounded again");
 }
 
+/// The launched-into-background case: `suspend_bidi_streams()` lands before
+/// any stream exists — no transport yet, only the intent is recorded — so
+/// the first stream's wire opens parked instead of live. A message sent
+/// while parked arrives only after `resume_bidi_streams()`. (Process-per-
+/// test keeps the recorded intent from leaking anywhere.)
+#[xmtp_common::test(unwrap_try = true)]
+async fn suspend_before_the_first_stream_parks_the_wire() {
+    suspend_bidi_streams().await?;
+
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group.invite(&bo).await?;
+    bo.sync_welcomes().await?;
+    bo.group(&group.group_id)?.sync().await?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut handle = Client::stream_all_messages_with_callback_bidi(
+        Arc::new(bo.client.clone()),
+        None,
+        None,
+        move |message| {
+            let _ = tx.send(message);
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
+    // The wire is parked: nothing may deliver, no matter how long we wait.
+    group.send_msg(b"sent before resume").await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        rx.try_recv().is_err(),
+        "a wire born suspended must not deliver before resume"
+    );
+
+    // Resume opens the wire; the parked lease catches up from its cursors
+    // and the missed message arrives.
+    resume_bidi_streams().await?;
+    let delivered = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for the post-resume delivery")
+        .expect("callback channel closed")?;
+    assert_eq!(delivered.decrypted_message_bytes, b"sent before resume");
+}
+
 /// The lifecycle helpers are safe to call before anything ever streamed:
 /// with no transport in the process they resolve as no-ops. (Real on
 /// mobile — backgrounding can beat the first subscription.)
@@ -322,6 +369,10 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
     suspend_bidi_streams().await?;
     resume_bidi_streams().await?;
     suspend_bidi_streams().await?;
+    // End resumed: a trailing suspend would leave the recorded intent set,
+    // making any later first wire in this process park (harmless under
+    // process-per-test, a trap under any single-process runner).
+    resume_bidi_streams().await?;
 }
 
 /// Sync-group traffic is intercepted, exactly like the legacy stream: it
@@ -401,11 +452,11 @@ fn garbled_frame() -> prost::DecodeError {
 ///
 /// The live end of this scenario — a shared-transport opener actually
 /// refusing and the pump latching mid-task — has no seam to inject through:
-/// `SHARED_TRANSPORT` is built from the first streamer's real api client by
-/// design, and a test-only override would weaken that invariant for one
-/// test's sake. This classification test plus the `pump_*` fallback tests
-/// below cover both halves instead, and the transport's own tests cover the
-/// opener refusing with `Open`.
+/// a destination's shared transport is built from the first streamer's real
+/// api client by design, and a test-only override would weaken that
+/// invariant for one test's sake. This classification test plus the `pump_*`
+/// fallback tests below cover both halves instead, and the transport's own
+/// tests cover the opener refusing with `Open`.
 #[xmtp_common::test]
 fn only_a_backend_refusal_latches() {
     use crate::subscriptions::stream_router::RouterError;
@@ -476,9 +527,9 @@ fn only_a_backend_refusal_latches() {
         "but it is a dead end, so the stream falls back"
     );
 
-    // The tombstoned shared transport: the process-wide `OnceLock` handle is
-    // immortal, so its ledger only dies by shutting down after a refusal —
-    // `Closed` is the refusal as every later stream sees it.
+    // The tombstoned shared transport: a destination's handle is immortal,
+    // so its ledger only dies by shutting down after a refusal — `Closed` is
+    // the refusal as every later stream to that destination sees it.
     assert!(
         is_bidi_unsupported(&RouterError::Transport(TransportError::Closed)),
         "a closed shared transport is the post-refusal tombstone and must latch"
@@ -492,20 +543,29 @@ fn only_a_backend_refusal_latches() {
     assert!(!is_bidi_dead_end(&RouterError::Closed));
 }
 
-/// With the latch pre-set — the process already saw a refusal — a
-/// dispatcher-entered stream serves via the legacy path and delivery still
-/// works. No env mutation: with the latch set, the dispatcher's legacy arm
-/// is the same code path a gate-off process takes, so the default test
-/// environment exercises exactly the arm a latched gate-on process uses.
+/// With the latch pre-set — the process already saw this destination
+/// refuse — a dispatcher-entered stream serves via the legacy path and
+/// delivery still works. No env mutation: with the latch set, the
+/// dispatcher's legacy arm is the same code path a gate-off process takes,
+/// so the default test environment exercises exactly the arm a latched
+/// gate-on process uses.
 #[xmtp_common::test(unwrap_try = true)]
 async fn latched_dispatch_delivers_via_legacy() {
-    // nextest runs one test per process, so setting this process's latch
-    // leaks nowhere.
-    latch_bidi_unsupported();
-    assert!(!bidi_streams_active(), "the latch must keep bidi inactive");
+    use crate::context::XmtpSharedContext;
+    use xmtp_proto::api_client::XmtpMlsBidiStreams;
 
     tester!(alix);
     tester!(bo);
+
+    // The destination the dispatcher will look up is the tester's real
+    // backend; nextest runs one test per process, so latching it leaks
+    // nowhere.
+    let host = bo.client.context.api().api_client.host().to_owned();
+    latch_bidi_unsupported(&host);
+    assert!(
+        !bidi_streams_active(&host),
+        "the latch must keep bidi inactive for this destination"
+    );
 
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
@@ -538,6 +598,7 @@ async fn latched_dispatch_delivers_via_legacy() {
 /// `wait_for_ready` would hang otherwise, so the timeout doubles as that
 /// assertion.
 async fn pump_through_fallback(
+    host: &str,
     error: crate::subscriptions::stream_router::RouterError,
 ) -> (Vec<u8>, usize) {
     use crate::subscriptions::StreamKind;
@@ -558,10 +619,14 @@ async fn pump_through_fallback(
             closes.fetch_add(1, Ordering::SeqCst);
         }
     };
+    let origin = StreamOrigin {
+        kind: StreamKind::All,
+        installation: InstallationId::from([0u8; 32]),
+        host: host.to_owned(),
+        cancel: CancellationToken::new(),
+    };
     let mut handle = pump_stream(
-        StreamKind::All,
-        InstallationId::from([0u8; 32]),
-        CancellationToken::new(),
+        origin,
         subscribe,
         fallback,
         move |item| {
@@ -605,11 +670,14 @@ async fn pump_latches_and_serves_the_fallback_on_a_grpc_refusal() {
         )))
         .endpoint("/xmtp.mls.api.v1.MlsApi/Subscribe"),
     );
-    let (items, closes) =
-        pump_through_fallback(RouterError::Transport(TransportError::Open(refusal))).await;
+    let (items, closes) = pump_through_fallback(
+        "test://grpc-refusal",
+        RouterError::Transport(TransportError::Open(refusal)),
+    )
+    .await;
     assert!(
-        bidi_unsupported_latched(),
-        "the refusal must latch the process"
+        bidi_unsupported_latched("test://grpc-refusal"),
+        "the refusal must latch its destination"
     );
     assert_eq!(items, vec![1, 2], "the fallback's items reach the callback");
     assert_eq!(closes, 1, "on_close fires exactly once, at the natural end");
@@ -626,11 +694,14 @@ async fn pump_latches_and_serves_the_fallback_on_the_stub_refusal() {
     let refusal = OpenError::new(ApiClientError::OtherUnretryable(
         "the v3 bidi subscription is not available on this client".into(),
     ));
-    let (items, closes) =
-        pump_through_fallback(RouterError::Transport(TransportError::Open(refusal))).await;
+    let (items, closes) = pump_through_fallback(
+        "test://stub-refusal",
+        RouterError::Transport(TransportError::Open(refusal)),
+    )
+    .await;
     assert!(
-        bidi_unsupported_latched(),
-        "the stub refusal must latch the process"
+        bidi_unsupported_latched("test://stub-refusal"),
+        "the stub refusal must latch its destination"
     );
     assert_eq!(items, vec![1, 2], "the fallback's items reach the callback");
     assert_eq!(closes, 1, "on_close fires exactly once, at the natural end");
@@ -646,10 +717,13 @@ async fn pump_serves_the_fallback_without_latching_on_a_dead_end() {
     use xmtp_proto::api::ApiClientError;
 
     let dead_end = OpenError::new(ApiClientError::DecodeError(garbled_frame()));
-    let (items, closes) =
-        pump_through_fallback(RouterError::Transport(TransportError::Open(dead_end))).await;
+    let (items, closes) = pump_through_fallback(
+        "test://dead-end",
+        RouterError::Transport(TransportError::Open(dead_end)),
+    )
+    .await;
     assert!(
-        !bidi_unsupported_latched(),
+        !bidi_unsupported_latched("test://dead-end"),
         "a dead end is not a capability verdict and must not latch"
     );
     assert_eq!(items, vec![1, 2], "the fallback's items reach the callback");
@@ -687,4 +761,90 @@ async fn stream_all_with_no_conversations_stays_open() {
         "an empty subscription must stay open, not error-close"
     );
     assert!(rx.try_recv().is_err(), "nothing should have been delivered");
+}
+
+/// A bidi api that never opens — just enough identity to key a transport.
+#[derive(Clone)]
+struct FixedHostApi(&'static str);
+
+#[xmtp_common::async_trait]
+impl xmtp_proto::api_client::XmtpMlsBidiStreams for FixedHostApi {
+    type SubscribeStream = futures::stream::BoxStream<
+        'static,
+        std::result::Result<xmtp_proto::mls_v1::SubscribeResponse, xmtp_proto::api::ApiClientError>,
+    >;
+    type Error = xmtp_proto::api::ApiClientError;
+
+    fn host(&self) -> &str {
+        self.0
+    }
+
+    async fn subscribe_bidi(
+        &self,
+        _requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+    ) -> std::result::Result<Self::SubscribeStream, Self::Error> {
+        Err(xmtp_proto::api::ApiClientError::OtherUnretryable(
+            "this test api never opens".into(),
+        ))
+    }
+}
+
+/// Transports key by dialed URL: a second client to the same host shares
+/// the wire, a different host — the same backend behind a proxy, say — gets
+/// its own. (nextest's process-per-test model keeps the count clean.)
+#[xmtp_common::test]
+async fn transports_key_by_destination() {
+    let before = shared_transport_count();
+    let _a = shared_transport(FixedHostApi("test://backend-a"));
+    let _a_again = shared_transport(FixedHostApi("test://backend-a"));
+    assert_eq!(
+        shared_transport_count(),
+        before + 1,
+        "the same host shares one transport"
+    );
+    let _b = shared_transport(FixedHostApi("test://backend-b"));
+    assert_eq!(
+        shared_transport_count(),
+        before + 2,
+        "a different host gets its own"
+    );
+}
+
+/// Latches are per destination: one backend refusing the surface leaves
+/// every other destination's dispatch untouched.
+#[xmtp_common::test]
+fn destinations_latch_independently() {
+    latch_bidi_unsupported("test://refusing-backend");
+    assert!(bidi_unsupported_latched("test://refusing-backend"));
+    assert!(
+        !bidi_unsupported_latched("test://healthy-backend"),
+        "a sibling destination must not inherit the latch"
+    );
+}
+
+/// A born-suspended wire defers its backend's capability discovery to the
+/// resume re-open — past the point where any stream could see the refusal
+/// and latch. The lifecycle fold must latch it instead: suspend intent, a
+/// first lease that parks, then a resume whose open refuses tombstones the
+/// transport, and the destination ends up latched so re-subscribes ride
+/// legacy.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_resume_time_refusal_latches_its_destination() {
+    use xmtp_proto::types::Topic;
+
+    suspend_bidi_streams().await?;
+    let transport = shared_transport(FixedHostApi("test://born-refused"));
+    // Registers and parks — born suspended, the refusing opener never runs.
+    let _lease = transport
+        .lease(vec![(Topic::new_group_message(b"g"), 0)], 8)
+        .await?;
+
+    // The re-open runs the opener, the refusal tombstones the transport,
+    // and the fold latches the destination — while the call itself settles
+    // Ok (a tombstoned destination is vacuously resumed).
+    resume_bidi_streams().await?;
+    assert!(
+        bidi_unsupported_latched("test://born-refused"),
+        "a refusal first seen at resume must latch its destination"
+    );
 }

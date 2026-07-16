@@ -883,14 +883,17 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     let mut welcome_topics = Vec::new();
     for consumer in &consumers {
         let api = consumer.context.api().api_client.clone();
-        transports.push(BidiTransport::new(move |initial| {
-            let api = api.clone();
-            async move {
-                BidiConnection::open(&api, initial)
-                    .await
-                    .map_err(OpenError::new)
-            }
-        }));
+        transports.push(BidiTransport::new(
+            move |initial| {
+                let api = api.clone();
+                async move {
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(OpenError::new)
+                }
+            },
+            false,
+        ));
         // Each consumer's welcome topic is fuzzed like any other: its
         // leases may include it, and a fuzz op mints real welcomes by
         // creating groups WITH random consumers. Its own id space, so its
