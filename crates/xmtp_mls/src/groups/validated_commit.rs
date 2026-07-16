@@ -371,6 +371,27 @@ impl ValidatedCommit {
         // and route into `validate_bootstrap_and_build`, which uses
         // these pre-flip values as the canonical source.
         let is_migrated = super::app_data::is_migrated_extensions(extensions);
+        // PAUSE BEFORE PARSE: when the group's committed floor already
+        // exceeds this client's version, every migrated-state read
+        // below (dict-seeded metadata, registry loads, per-proposal
+        // dispatch) may encounter wire formats introduced after this
+        // version — and any error they raise is a non-retryable
+        // rejection, i.e. a fork against above-floor peers. Surface
+        // the version gap first so the group pauses and the commit is
+        // reprocessed after upgrade. Deliberately reads only the
+        // pre-commit dict (committed, already-validated state) — the
+        // commit that *raises* the floor is instead paused by the
+        // post-policy check at the end of this function, after its
+        // super-admin permission has been verified. See
+        // `committed_floor_exceeding` for the full rationale.
+        if is_migrated
+            && let Some(min_version) = super::app_data::committed_floor_exceeding(
+                openmls_group,
+                context.version_info().pkg_version(),
+            )
+        {
+            return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
+        }
         let immutable_metadata: GroupMetadata = if is_migrated {
             // ComponentSourceError → GroupMutableMetadataError →
             // CommitValidationError::GroupMutableMetadata is the
