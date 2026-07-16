@@ -33,7 +33,7 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 use crate::{
     app_data::{
         component_id::ComponentId,
-        component_registry::{ComponentOp, ComponentRegistry},
+        component_registry::{ComponentOp, ComponentRegistry, ComponentRegistryError},
         validation::ComponentChange,
     },
     inbox_id::InboxIdError,
@@ -281,6 +281,17 @@ pub enum ComponentTypedError {
     /// [`ComponentType`]: xmtp_proto::xmtp::mls::message_contents::ComponentType
     #[error("component {0} has no registered ComponentType (unspecified)")]
     UnspecifiedType(ComponentId),
+
+    /// A `COMPONENT_REGISTRY` mutation violates the registry's write
+    /// invariants (invalid/reserved/hardcoded id, immutable overwrite,
+    /// or structurally invalid `ComponentMetadata`). The wire path
+    /// enforces the same invariants as [`ComponentRegistry::set`] /
+    /// [`ComponentRegistry::remove`] so a peer cannot land an entry
+    /// that a local writer could not produce — critically, one that
+    /// would poison every subsequent
+    /// [`ComponentRegistry::from_bytes`] load of the group's registry.
+    #[error("registry mutation rejected: {0}")]
+    RegistryMutation(#[from] ComponentRegistryError),
 }
 
 /// Errors surfaced by [`Component::validate_invariant`].

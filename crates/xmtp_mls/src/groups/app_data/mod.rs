@@ -152,6 +152,15 @@ where
                 in_batch.insert(openmls_id, Some(new_value));
             }
             AppDataUpdateOperation::Remove => {
+                // Maps straight to `updater.remove(&id)` below — the
+                // component impl's `apply_update_payload` is never
+                // consulted for `Remove`, so component-level Remove
+                // rejections (e.g. the whole-registry Remove ban in
+                // `ComponentRegistryComponent::expand_to_changes`) are
+                // enforced during commit validation
+                // (`ValidatedCommit::from_staged_commit`), not
+                // re-checked here. That's sound because both current
+                // commit-processing paths validate before applying.
                 in_batch.insert(openmls_id, None);
             }
         }
@@ -513,12 +522,12 @@ pub(crate) fn is_migrated_extensions(
 /// Empty registry is the **strictest** validator state, not the most
 /// permissive. Two layers make this safe:
 ///
-/// 1. **Sender gate** (`mls_sync.rs`): the `AppDataUpdate` sender path
-///    is guarded by `proposals_enabled(group) && !registry.is_empty()`.
-///    In production the second clause is false on unmigrated groups,
-///    so the legacy GCE path runs and no `AppDataUpdate` proposals get
+/// 1. **Sender gate** (`mls_sync.rs`): the `AppDataUpdate` sender
+///    paths are guarded by [`is_migrated_group`] (`COMPONENT_REGISTRY`
+///    present in the dict). That's false on unmigrated groups, so the
+///    legacy GCE path runs and no `AppDataUpdate` proposals get
 ///    emitted.
-///    (`test_update_group_name_uses_legacy_path_when_registry_is_empty`
+///    (`test_update_group_name_uses_legacy_path_when_proposals_disabled`
 ///    pins this.)
 /// 2. **Receiver deny-by-default**
 ///    (`xmtp_mls_common::app_data::validation::validate_component_write`):
@@ -558,12 +567,27 @@ pub(crate) fn load_component_registry_from_extensions(
             .dictionary()
             .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
     {
-        return ComponentRegistry::from_bytes(bytes).map_err(|e| {
-            ComponentSourceError::MalformedComponentValue {
+        return ComponentRegistry::from_bytes(bytes)
+            .map_err(|e| ComponentSourceError::MalformedComponentValue {
                 component_id: ComponentId::COMPONENT_REGISTRY,
                 reason: format!("registry decode: {e}"),
-            }
-        });
+            })
+            .inspect(|reg| {
+                // Tolerated (preserved-but-invisible) entries mean the
+                // dict was written by a newer protocol version or
+                // carries a historical invalid entry. Writes to those
+                // components fall to deny-by-default; everything else
+                // validates normally. Loud so poisoned-registry
+                // incidents are diagnosable from logs.
+                let unrecognized: Vec<_> = reg.unrecognized_ids().collect();
+                if !unrecognized.is_empty() {
+                    tracing::warn!(
+                        ?unrecognized,
+                        "component registry contains unrecognized entries; \
+                         treating them as unregistered (deny-by-default)"
+                    );
+                }
+            });
     }
 
     // Pre-migration or test override.

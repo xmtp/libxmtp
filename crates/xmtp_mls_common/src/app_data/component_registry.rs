@@ -82,15 +82,35 @@ pub enum ComponentRegistryError {
 /// through this map (their permissions are enforced in code).
 ///
 /// Stored at well-known component ID `0x8000` (`ComponentId::COMPONENT_REGISTRY`).
+///
+/// ## Unrecognized entries
+///
+/// [`from_bytes`](Self::from_bytes) tolerates entries that fail
+/// [`validate_entry`](Self::validate_entry) instead of rejecting the
+/// whole snapshot: they are kept out of `inner` (invisible to `get` /
+/// `iter` / `contains`, so writes against them fall to the
+/// deny-by-default `NoRegistryEntry` policy verdict) but preserved
+/// byte-for-byte in `unrecognized` so
+/// [`to_bytes`](Self::to_bytes) round-trips honestly. The registry is
+/// load-bearing for all app-data validation — every policy lookup
+/// decodes it — so a single entry written by a newer protocol version
+/// (or already present in a poisoned group) must degrade to "that one
+/// component is unwritable here," never to "no commit on this group
+/// can validate ever again."
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComponentRegistry {
     inner: TlsMap<ComponentId, VLBytes>,
+    /// Entries that failed [`Self::validate_entry`] at decode time,
+    /// preserved raw. Never consulted for policy; only merged back in
+    /// [`Self::to_bytes`].
+    unrecognized: TlsMap<ComponentId, VLBytes>,
 }
 
 impl ComponentRegistry {
     pub fn new() -> Self {
         Self {
             inner: TlsMap::new(),
+            unrecognized: TlsMap::new(),
         }
     }
 
@@ -137,6 +157,11 @@ impl ComponentRegistry {
         self.validate_modifiable(&id)?;
         Self::validate_metadata(&id, &meta)?;
         let bytes = VLBytes::new(meta.encode_to_vec());
+        // A valid write repairs any unrecognized entry under the same
+        // id (e.g. a structurally broken entry a super admin is
+        // replacing) — the two maps must stay disjoint so `to_bytes`
+        // can't resurrect the stale bytes.
+        let _ = self.unrecognized.remove(&id);
         self.inner.set(id, bytes);
         Ok(())
     }
@@ -148,7 +173,12 @@ impl ComponentRegistry {
     /// in the registry to begin with, so this is just defense in depth.
     pub fn remove(&mut self, id: &ComponentId) -> Result<(), ComponentRegistryError> {
         self.validate_modifiable(id)?;
-        self.inner
+        if self.inner.remove(id).is_ok() {
+            return Ok(());
+        }
+        // Allow deleting an unrecognized entry with a modifiable id
+        // (repair-by-delete of a structurally broken entry).
+        self.unrecognized
             .remove(id)
             .map_err(|_| ComponentRegistryError::NotFound(*id))?;
         Ok(())
@@ -172,8 +202,11 @@ impl ComponentRegistry {
     /// Iterate over component IDs and their decoded metadata.
     ///
     /// Each item is a `Result` so that callers can decide how to handle a
-    /// corrupt entry. We never silently drop entries — a permission map is
-    /// security-critical and a missing entry would be a security bug.
+    /// corrupt entry. Yields only recognized (validated) entries;
+    /// unrecognized entries preserved by [`from_bytes`](Self::from_bytes)
+    /// are deliberately invisible here — writes against them fall to
+    /// deny-by-default — and are surfaced via
+    /// [`unrecognized_ids`](Self::unrecognized_ids) instead.
     pub fn iter(
         &self,
     ) -> impl Iterator<Item = Result<(ComponentId, ComponentMetadata), ComponentRegistryError>> + '_
@@ -192,6 +225,10 @@ impl ComponentRegistry {
     /// Serialize the registry as the **dict-storage format**: the
     /// raw `TlsMap<ComponentId, VLBytes>` snapshot.
     ///
+    /// Unrecognized entries preserved by [`from_bytes`](Self::from_bytes)
+    /// are merged back in, so a load → store round-trip never drops
+    /// data another (possibly newer) client wrote.
+    ///
     /// The dict always holds the registry's natively-encoded state.
     /// Wire-format encoding (a `TlsMapDelta` describing changes) is
     /// done piecemeal at the call site — there is no whole-registry
@@ -200,29 +237,67 @@ impl ComponentRegistry {
     /// `TlsMapDelta`-from-empty inline at the synthesis site (see
     /// `xmtp_mls::groups::app_data::migration::synthesize_initial_component_values`).
     pub fn to_bytes(&self) -> Result<Vec<u8>, ComponentRegistryError> {
-        Ok(self.inner.tls_serialize_detached()?)
+        if self.unrecognized.is_empty() {
+            return Ok(self.inner.tls_serialize_detached()?);
+        }
+        // The maps are disjoint by construction (`from_bytes` partitions;
+        // `set` purges), so this union has no collisions. Insert
+        // unrecognized first so that if the invariant is ever broken, a
+        // validated entry wins over stale preserved bytes.
+        let mut merged = self.unrecognized.clone();
+        for (id, raw) in self.inner.iter() {
+            merged.set(*id, raw.clone());
+        }
+        Ok(merged.tls_serialize_detached()?)
     }
 
     /// Deserialize a component registry from its **dict-storage
     /// format**: a raw `TlsMap<ComponentId, VLBytes>` snapshot.
     ///
-    /// Validates that every key is in the component ID space, not
-    /// reserved, and not hardcoded, and that every value decodes as a
-    /// valid [`ComponentMetadata`]. The same validation is appropriate
-    /// at the wire boundary (validator path) and at the dict boundary
-    /// (load path) — peers cannot smuggle structurally invalid entries
-    /// in either direction.
+    /// Fails only when the outer `TlsMap` doesn't decode (truncated /
+    /// non-canonical bytes). Individual entries that fail
+    /// [`validate_entry`](Self::validate_entry) — unknown-range ids,
+    /// reserved ids, hardcoded ids, undecodable or structurally
+    /// incomplete [`ComponentMetadata`] — are tolerated: kept invisible
+    /// to reads (writes against them fall to deny-by-default) but
+    /// preserved for [`to_bytes`](Self::to_bytes). Rejecting the whole
+    /// snapshot would let one entry from a newer protocol version make
+    /// every future commit on the group unvalidatable for every member
+    /// running this version. Callers that care can inspect
+    /// [`unrecognized_ids`](Self::unrecognized_ids) and log.
+    ///
+    /// New entries cannot *enter* a group's registry unvalidated: the
+    /// steady-state wire path validates per-mutation
+    /// (`ComponentRegistryComponent::apply_update_payload` /
+    /// `expand_to_changes`) and the bootstrap validator validates each
+    /// entry of the initial delta. Tolerance here is the read-side
+    /// backstop, not the enforcement point.
     ///
     /// Immutability is intentionally not enforced here because it's a
     /// write-time concern, not a wire-format invariant.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ComponentRegistryError> {
         let snapshot = TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?;
         let mut inner: TlsMap<ComponentId, VLBytes> = TlsMap::new();
+        let mut unrecognized: TlsMap<ComponentId, VLBytes> = TlsMap::new();
         for (id, raw) in snapshot.into_iter() {
-            Self::validate_entry(id, raw.as_slice())?;
-            inner.set(id, raw);
+            match Self::validate_entry(id, raw.as_slice()) {
+                Ok(()) => inner.set(id, raw),
+                Err(_) => unrecognized.set(id, raw),
+            }
         }
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            unrecognized,
+        })
+    }
+
+    /// Component ids of entries [`from_bytes`](Self::from_bytes)
+    /// preserved but could not validate. Empty in the overwhelmingly
+    /// common case; non-empty means the dict was written by a newer
+    /// protocol version (or carries a historical invalid entry) and is
+    /// worth a log line at the load site.
+    pub fn unrecognized_ids(&self) -> impl Iterator<Item = ComponentId> + '_ {
+        self.unrecognized.iter().map(|(id, _)| *id)
     }
 
     /// Validate one `(ComponentId, raw bytes)` entry against the
@@ -352,7 +427,10 @@ impl ComponentRegistry {
     /// that handle corrupt in-memory state — paths that the public API can
     /// never reach because both `set` and `from_bytes` validate eagerly.
     fn from_inner_for_test(inner: TlsMap<ComponentId, VLBytes>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            unrecognized: TlsMap::new(),
+        }
     }
 }
 
@@ -771,26 +849,38 @@ mod tests {
         assert!(restored.is_empty());
     }
 
-    #[xmtp_common::test]
-    fn test_from_bytes_rejects_out_of_space_id() {
-        // Build a TlsMapDelta directly with an out-of-space key (0x0001)
-        // and serialize it, then try to load it as a ComponentRegistry.
-        let bytes = raw_bytes_with_entry(ComponentId::new(0x0001), sample_meta().encode_to_vec());
-        let result = ComponentRegistry::from_bytes(&bytes);
-        assert!(matches!(
-            result,
-            Err(ComponentRegistryError::InvalidComponentId(_))
-        ));
+    /// Assert the tolerance contract for one invalid entry: the load
+    /// succeeds, the entry is invisible to every read, it is reported
+    /// via `unrecognized_ids`, and `to_bytes` preserves it verbatim.
+    fn assert_tolerated(bytes: &[u8], id: ComponentId) {
+        let reg = ComponentRegistry::from_bytes(bytes).unwrap();
+        assert!(reg.get(&id).unwrap().is_none());
+        assert!(!reg.contains(&id));
+        assert_eq!(reg.len(), 0);
+        assert!(reg.iter().next().is_none());
+        assert_eq!(reg.unrecognized_ids().collect::<Vec<_>>(), vec![id]);
+        // Round-trip preserves the raw entry byte-for-byte.
+        assert_eq!(reg.to_bytes().unwrap(), bytes);
     }
 
     #[xmtp_common::test]
-    fn test_from_bytes_rejects_reserved_id() {
-        let bytes = raw_bytes_with_entry(ComponentId::new(0xFF50), sample_meta().encode_to_vec());
-        let result = ComponentRegistry::from_bytes(&bytes);
-        assert!(matches!(
-            result,
-            Err(ComponentRegistryError::ReservedRange(_))
-        ));
+    fn test_from_bytes_tolerates_out_of_space_id() {
+        // An out-of-space key (0x0001) is preserved-but-invisible: it
+        // must not poison the load, because the registry is what makes
+        // every other commit on the group validatable.
+        let id = ComponentId::new(0x0001);
+        let bytes = raw_bytes_with_entry(id, sample_meta().encode_to_vec());
+        assert_tolerated(&bytes, id);
+    }
+
+    #[xmtp_common::test]
+    fn test_from_bytes_tolerates_reserved_id() {
+        // Reserved-range ids are future protocol slots — a newer
+        // version allocating one must degrade to "unknown entry" on
+        // this version, not "registry unloadable".
+        let id = ComponentId::new(0xFF50);
+        let bytes = raw_bytes_with_entry(id, sample_meta().encode_to_vec());
+        assert_tolerated(&bytes, id);
     }
 
     /// Build a TLS-encoded `TlsMap<ComponentId, VLBytes>` snapshot
@@ -804,44 +894,38 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_from_bytes_rejects_hardcoded_id() {
-        // Peers must not be able to smuggle hardcoded entries past the wire
-        // boundary, since their permissions are enforced in code.
+    fn test_from_bytes_tolerates_hardcoded_id() {
+        // A smuggled shadow entry for a hardcoded component stays
+        // invisible — its permissions are enforced in code, so hiding
+        // the entry preserves exactly the enforcement that matters.
         let bytes = raw_bytes_with_entry(
             ComponentId::COMPONENT_REGISTRY,
             sample_meta().encode_to_vec(),
         );
-        assert!(matches!(
-            ComponentRegistry::from_bytes(&bytes),
-            Err(ComponentRegistryError::HardcodedComponent(_))
-        ));
+        assert_tolerated(&bytes, ComponentId::COMPONENT_REGISTRY);
 
         let bytes =
             raw_bytes_with_entry(ComponentId::SUPER_ADMIN_LIST, sample_meta().encode_to_vec());
-        assert!(matches!(
-            ComponentRegistry::from_bytes(&bytes),
-            Err(ComponentRegistryError::HardcodedComponent(_))
-        ));
+        assert_tolerated(&bytes, ComponentId::SUPER_ADMIN_LIST);
     }
 
     #[xmtp_common::test]
-    fn test_from_bytes_rejects_missing_permissions() {
-        // A peer ships a metadata entry whose permissions field is None.
-        // The set() path catches this; from_bytes() must catch it too.
+    fn test_from_bytes_tolerates_missing_permissions() {
+        // A metadata entry whose permissions field is None is invisible
+        // rather than fatal: writes to that component then fail the
+        // deny-by-default `NoRegistryEntry` policy check, which is the
+        // safe direction.
         let meta = ComponentMetadata {
             permissions: None,
             external_committer_permissions: None,
             component_type: ComponentType::Bytes as i32,
         };
         let bytes = raw_bytes_with_entry(ComponentId::GROUP_NAME, meta.encode_to_vec());
-        assert!(matches!(
-            ComponentRegistry::from_bytes(&bytes),
-            Err(ComponentRegistryError::MissingPermissions(_))
-        ));
+        assert_tolerated(&bytes, ComponentId::GROUP_NAME);
     }
 
     #[xmtp_common::test]
-    fn test_from_bytes_rejects_missing_policy_field() {
+    fn test_from_bytes_tolerates_missing_policy_field() {
         // Permissions present, but one of the three policy fields is missing.
         let meta = new_component_metadata(
             ComponentPermissions {
@@ -852,19 +936,15 @@ mod tests {
             ComponentType::Bytes,
         );
         let bytes = raw_bytes_with_entry(ComponentId::GROUP_NAME, meta.encode_to_vec());
-        assert!(matches!(
-            ComponentRegistry::from_bytes(&bytes),
-            Err(ComponentRegistryError::MissingPolicyField(
-                _,
-                ComponentOp::Update
-            ))
-        ));
+        assert_tolerated(&bytes, ComponentId::GROUP_NAME);
     }
 
     #[xmtp_common::test]
-    fn test_from_bytes_rejects_constrained_violation() {
-        // A peer ships an ADMIN_LIST entry with an Allow policy, which
-        // violates the constrained-component invariant.
+    fn test_from_bytes_tolerates_constrained_violation() {
+        // An ADMIN_LIST entry with an Allow policy violates the
+        // constrained-component invariant; hiding it means admin-list
+        // writes deny until a super admin repairs the entry — instead
+        // of every commit on the group failing to validate.
         let meta = new_component_metadata(
             component_permissions()
                 .insert(allow())
@@ -874,10 +954,7 @@ mod tests {
             ComponentType::Bytes,
         );
         let bytes = raw_bytes_with_entry(ComponentId::ADMIN_LIST, meta.encode_to_vec());
-        assert!(matches!(
-            ComponentRegistry::from_bytes(&bytes),
-            Err(ComponentRegistryError::ConstrainedPolicyViolation(_))
-        ));
+        assert_tolerated(&bytes, ComponentId::ADMIN_LIST);
     }
 
     #[xmtp_common::test]
@@ -932,15 +1009,169 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_from_bytes_rejects_malformed_protobuf() {
+    fn test_from_bytes_tolerates_malformed_protobuf_value() {
         // The key is valid but the value bytes are not a parseable
-        // ComponentMetadata. This is the wire-boundary path for a peer
-        // shipping garbage values.
+        // ComponentMetadata (e.g. a future breaking re-encoding).
+        // Preserved-but-invisible, like every other invalid entry.
         let bytes = raw_bytes_with_entry(ComponentId::GROUP_NAME, vec![0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_tolerated(&bytes, ComponentId::GROUP_NAME);
+    }
+
+    #[xmtp_common::test]
+    fn test_from_bytes_rejects_undecodable_outer_map() {
+        // Entry-level tolerance never extends to the outer container:
+        // truncated or non-canonical snapshot bytes are a hard error.
+        let mut bytes =
+            raw_bytes_with_entry(ComponentId::GROUP_NAME, sample_meta().encode_to_vec());
+        bytes.truncate(bytes.len() - 1);
         assert!(matches!(
             ComponentRegistry::from_bytes(&bytes),
-            Err(ComponentRegistryError::DecodeError { .. })
+            Err(ComponentRegistryError::TlsCodecError(_))
         ));
+    }
+
+    #[xmtp_common::test]
+    fn test_from_bytes_mixed_valid_and_invalid_entries() {
+        // One valid entry, one reserved-range entry: the valid one is
+        // fully readable, the invalid one is preserved-but-invisible,
+        // and the round-trip loses neither.
+        let reserved = ComponentId::new(0xFF00);
+        let mut map: TlsMap<ComponentId, VLBytes> = TlsMap::new();
+        map.insert(
+            ComponentId::GROUP_NAME,
+            VLBytes::new(sample_meta().encode_to_vec()),
+        )
+        .unwrap();
+        map.insert(reserved, VLBytes::new(b"future-slot".to_vec()))
+            .unwrap();
+        let bytes = map.tls_serialize_detached().unwrap();
+
+        let reg = ComponentRegistry::from_bytes(&bytes).unwrap();
+        assert_eq!(reg.len(), 1);
+        assert_eq!(
+            reg.get(&ComponentId::GROUP_NAME).unwrap(),
+            Some(sample_meta())
+        );
+        assert!(!reg.contains(&reserved));
+        assert_eq!(reg.unrecognized_ids().collect::<Vec<_>>(), vec![reserved]);
+        assert_eq!(reg.to_bytes().unwrap(), bytes);
+    }
+
+    /// The headline tolerance property end-to-end at the unit level: a
+    /// blob carrying one valid entry and one poisoned entry must load,
+    /// keep the healthy component fully usable — including the
+    /// per-element policy gate commit validation runs
+    /// ([`validate_component_write`]) — deny writes against the
+    /// poisoned component, and round-trip byte-identically so the
+    /// poison is never dropped.
+    ///
+    /// The load/lookup/round-trip half deliberately overlaps
+    /// `test_from_bytes_mixed_valid_and_invalid_entries`; this test
+    /// adds the validation-gate half.
+    // TODO: the fuller end-to-end version — a poisoned
+    // COMPONENT_REGISTRY dict entry on a real group still validating
+    // unrelated commits through `ValidatedCommit::from_staged_commit`
+    // — belongs in xmtp_mls's group tests, where the commit pipeline
+    // exists.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_poisoned_registry_still_validates_unrelated_writes() {
+        use crate::app_data::validation::{
+            ActorAuthority, ComponentChange, ComponentPermissionError, validate_component_write,
+        };
+
+        // One valid GROUP_NAME entry plus one reserved-range entry
+        // whose bytes aren't even valid ComponentMetadata — the shape
+        // a newer protocol version (or a historical bad write) would
+        // leave behind.
+        let poisoned = ComponentId::new(0xFF20);
+        let mut map: TlsMap<ComponentId, VLBytes> = TlsMap::new();
+        map.insert(
+            ComponentId::GROUP_NAME,
+            VLBytes::new(sample_meta().encode_to_vec()),
+        )?;
+        map.insert(poisoned, VLBytes::new(vec![0xDE, 0xAD, 0xBE, 0xEF]))?;
+        let bytes = map.tls_serialize_detached()?;
+
+        // The load tolerates the poison...
+        let reg = ComponentRegistry::from_bytes(&bytes)?;
+        assert_eq!(reg.unrecognized_ids().collect::<Vec<_>>(), vec![poisoned]);
+
+        // ...and the healthy entry stays fully usable: readable, and
+        // its raw bytes still pass entry validation.
+        assert_eq!(reg.get(&ComponentId::GROUP_NAME)?, Some(sample_meta()));
+        ComponentRegistry::validate_entry(ComponentId::GROUP_NAME, &sample_meta().encode_to_vec())?;
+
+        // The policy gate still allows a write to the healthy
+        // component against the poisoned registry...
+        let member = ActorAuthority {
+            is_admin: false,
+            is_super_admin: false,
+        };
+        let healthy_write = ComponentChange::builder()
+            .component_id(ComponentId::GROUP_NAME)
+            .op(ComponentOp::Insert)
+            .actor(member)
+            .build();
+        validate_component_write(&healthy_write, &reg)?;
+
+        // ...while a write against the poisoned component falls to
+        // deny-by-default (the entry is preserved but invisible).
+        let poisoned_write = ComponentChange::builder()
+            .component_id(poisoned)
+            .op(ComponentOp::Insert)
+            .actor(member)
+            .build();
+        assert!(matches!(
+            validate_component_write(&poisoned_write, &reg),
+            Err(ComponentPermissionError::NoRegistryEntry(id)) if id == poisoned
+        ));
+
+        // And serialization round-trips byte-identically — the poison
+        // is preserved, never dropped.
+        assert_eq!(reg.to_bytes()?, bytes);
+    }
+
+    #[xmtp_common::test]
+    fn test_set_repairs_unrecognized_entry() {
+        // A valid write to an id that currently holds an unrecognized
+        // entry replaces it — `to_bytes` must serialize the repaired
+        // value, not resurrect the broken bytes.
+        let broken = ComponentMetadata {
+            permissions: None,
+            external_committer_permissions: None,
+            component_type: ComponentType::Bytes as i32,
+        };
+        let bytes = raw_bytes_with_entry(ComponentId::GROUP_NAME, broken.encode_to_vec());
+        let mut reg = ComponentRegistry::from_bytes(&bytes).unwrap();
+        assert_eq!(reg.unrecognized_ids().count(), 1);
+
+        reg.set(ComponentId::GROUP_NAME, sample_meta()).unwrap();
+        assert_eq!(reg.unrecognized_ids().count(), 0);
+        assert_eq!(
+            reg.get(&ComponentId::GROUP_NAME).unwrap(),
+            Some(sample_meta())
+        );
+
+        let round_tripped = ComponentRegistry::from_bytes(&reg.to_bytes().unwrap()).unwrap();
+        assert_eq!(round_tripped.unrecognized_ids().count(), 0);
+        assert_eq!(
+            round_tripped.get(&ComponentId::GROUP_NAME).unwrap(),
+            Some(sample_meta())
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_remove_deletes_unrecognized_entry() {
+        // Repair-by-delete: removing a modifiable id that only exists
+        // as an unrecognized entry drops the preserved bytes.
+        let bytes = raw_bytes_with_entry(ComponentId::GROUP_NAME, vec![0xFF, 0xFF]);
+        let mut reg = ComponentRegistry::from_bytes(&bytes).unwrap();
+        assert_eq!(reg.unrecognized_ids().count(), 1);
+
+        reg.remove(&ComponentId::GROUP_NAME).unwrap();
+        assert_eq!(reg.unrecognized_ids().count(), 0);
+        let empty = ComponentRegistry::new();
+        assert_eq!(reg.to_bytes().unwrap(), empty.to_bytes().unwrap());
     }
 
     #[xmtp_common::test]
