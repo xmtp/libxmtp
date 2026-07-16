@@ -90,6 +90,7 @@ mod content_types;
 mod dms;
 mod group_management;
 mod identity;
+mod lifecycle;
 mod networking;
 mod static_methods;
 mod streaming;
@@ -125,6 +126,16 @@ impl Default for RustStreamCallback {
 impl RustStreamCallback {
     pub fn message_count(&self) -> u32 {
         self.num_messages.load(Ordering::SeqCst)
+    }
+
+    /// Raw payloads of the messages delivered to this callback, in arrival order.
+    /// Lets a test assert *what* the stream delivered, not just how many.
+    pub fn message_contents(&self) -> Vec<Vec<u8>> {
+        self.messages
+            .lock()
+            .iter()
+            .map(|m| m.content.clone())
+            .collect()
     }
 
     pub fn consent_updates_count(&self) -> usize {
