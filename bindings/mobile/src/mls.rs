@@ -1688,12 +1688,32 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
     }
 }
 
+/// Options for [`FfiConversation::update_app_data`]. A record (rather
+/// than a bare `String` parameter) so future knobs can be added
+/// without breaking compiled apps — same pattern as
+/// [`FfiEnableProposalsOptions`].
+///
+/// WARNING: uniffi Records get NO default field values unless the field
+/// carries `#[uniffi(default = ...)]`. Any field added later MUST carry
+/// a uniffi default (and a serde/napi default on the wasm/node
+/// `UpdateAppDataOptions`), or the generated Swift/Kotlin constructors
+/// change and the addition breaks compiled apps.
+#[derive(uniffi::Record, Clone, Default, Debug)]
+pub struct FfiUpdateAppDataOptions {
+    /// The new value for the group's opaque `APP_DATA` string slot.
+    pub value: String,
+}
+
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
     AppData,
+    // Present on the wasm and node bindings from the start; added here
+    // so the three bindings expose the same field set.
+    MessageExpirationFromNs,
+    MessageExpirationInNs,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -1703,6 +1723,8 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
             FfiMetadataField::AppData => MetadataField::AppData,
+            FfiMetadataField::MessageExpirationFromNs => MetadataField::MessageDisappearFromNS,
+            FfiMetadataField::MessageExpirationInNs => MetadataField::MessageDisappearInNS,
         }
     }
 }
@@ -2344,9 +2366,13 @@ pub struct FfiInboxCapabilities {
 
 /// A generic membership/capability snapshot for a group. Mirrors
 /// [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
-/// the proposal migration is complete when `context_extensions` contains
-/// `AppDataDictionary`, and an inbox blocks migration when one of its
-/// installations' `supported_extensions` does not.
+/// an inbox blocks the proposal migration when one of its
+/// installations' `supported_extensions` lacks `AppDataDictionary`.
+///
+/// To ask "is this group migrated?", use
+/// [`FfiConversation::proposals_enabled`] instead of scanning
+/// `context_extensions` — the marker extension is an internal
+/// protocol detail and the semantic bool is the stable contract.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiGroupMembershipCapabilities {
     pub context_extensions: Vec<FfiMlsExtensionType>,
@@ -2945,8 +2971,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn update_app_data(&self, app_data: String) -> Result<(), FfiError> {
-        self.inner.update_app_data(app_data).await?;
+    pub async fn update_app_data(&self, options: FfiUpdateAppDataOptions) -> Result<(), FfiError> {
+        self.inner.update_app_data(options.value).await?;
         Ok(())
     }
 
@@ -2954,6 +2980,22 @@ impl FfiConversation {
     pub fn app_data(&self) -> Result<String, FfiError> {
         let app_data = self.inner.app_data()?;
         Ok(app_data)
+    }
+
+    /// Whether this group has migrated to AppData-proposal-based
+    /// metadata updates (the `AppDataDictionary` group-context
+    /// extension is present). `false` means the group is still on
+    /// the legacy GroupContextExtensions path.
+    ///
+    /// Prefer this semantic bool over scanning
+    /// [`FfiGroupMembershipCapabilities::context_extensions`] for
+    /// `AppDataDictionary` — the capabilities snapshot answers
+    /// "which members block migration", not "is this group migrated",
+    /// and the marker extension is an internal protocol detail.
+    /// Mirrors `proposalsEnabled` on the wasm and node bindings.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn proposals_enabled(&self) -> Result<bool, FfiError> {
+        Ok(self.inner.is_proposals_enabled()?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

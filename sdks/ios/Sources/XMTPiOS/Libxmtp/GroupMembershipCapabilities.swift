@@ -88,11 +88,13 @@ public struct InboxCapabilities {
 /// A generic membership/capability snapshot for a group.
 ///
 /// Reports raw facts rather than answers. For the proposal
-/// (app-data-dictionary) migration specifically: the group is already
-/// migrated when ``contextExtensions`` contains ``MlsExtensionType/appDataDictionary``,
-/// it's eligible to migrate when every installation's
-/// ``InstallationCapabilities/supportedExtensions`` contains it, and the
-/// inboxes blocking migration are those with an installation that doesn't.
+/// (app-data-dictionary) migration specifically: to ask whether the group is
+/// already migrated, prefer ``Group/proposalsEnabled()`` over scanning
+/// ``contextExtensions`` for ``MlsExtensionType/appDataDictionary``. The
+/// snapshot's job is eligibility: the group can migrate when every
+/// installation's ``InstallationCapabilities/supportedExtensions`` contains
+/// that extension, and the inboxes blocking migration are those with an
+/// installation that doesn't.
 ///
 /// Read it with ``Group/membershipCapabilities()``; drive the upgrade with
 /// ``UnstableGroup/enableProposals(force:minVersion:)`` (via

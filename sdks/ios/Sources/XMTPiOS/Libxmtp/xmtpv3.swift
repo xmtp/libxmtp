@@ -1356,6 +1356,21 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     func processStreamedConversationMessage(envelopeBytes: Data) async throws  -> [FfiMessage]
     
     /**
+     * Whether this group has migrated to AppData-proposal-based
+     * metadata updates (the `AppDataDictionary` group-context
+     * extension is present). `false` means the group is still on
+     * the legacy GroupContextExtensions path.
+     *
+     * Prefer this semantic bool over scanning
+     * [`FfiGroupMembershipCapabilities::context_extensions`] for
+     * `AppDataDictionary` — the capabilities snapshot answers
+     * "which members block migration", not "is this group migrated",
+     * and the marker extension is an internal protocol detail.
+     * Mirrors `proposalsEnabled` on the wasm and node bindings.
+     */
+    func proposalsEnabled() throws  -> Bool
+    
+    /**
      * Publish all unpublished messages
      */
     func publishMessages() async throws 
@@ -1390,7 +1405,7 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func sync() async throws 
     
-    func updateAppData(appData: String) async throws 
+    func updateAppData(options: FfiUpdateAppDataOptions) async throws 
     
     func updateConsentState(state: FfiConsentState) throws 
     
@@ -1933,6 +1948,27 @@ open func processStreamedConversationMessage(envelopeBytes: Data)async throws  -
 }
     
     /**
+     * Whether this group has migrated to AppData-proposal-based
+     * metadata updates (the `AppDataDictionary` group-context
+     * extension is present). `false` means the group is still on
+     * the legacy GroupContextExtensions path.
+     *
+     * Prefer this semantic bool over scanning
+     * [`FfiGroupMembershipCapabilities::context_extensions`] for
+     * `AppDataDictionary` — the capabilities snapshot answers
+     * "which members block migration", not "is this group migrated",
+     * and the marker extension is an internal protocol detail.
+     * Mirrors `proposalsEnabled` on the wasm and node bindings.
+     */
+open func proposalsEnabled()throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_method_fficonversation_proposals_enabled(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Publish all unpublished messages
      */
 open func publishMessages()async throws   {
@@ -2147,13 +2183,13 @@ open func sync()async throws   {
         )
 }
     
-open func updateAppData(appData: String)async throws   {
+open func updateAppData(options: FfiUpdateAppDataOptions)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_app_data(
                     self.uniffiCloneHandle(),
-                    FfiConverterString.lower(appData)
+                    FfiConverterTypeFfiUpdateAppDataOptions_lower(options)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_void,
@@ -7921,9 +7957,13 @@ public func FfiConverterTypeFfiForkRecoveryOpts_lower(_ value: FfiForkRecoveryOp
 /**
  * A generic membership/capability snapshot for a group. Mirrors
  * [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
- * the proposal migration is complete when `context_extensions` contains
- * `AppDataDictionary`, and an inbox blocks migration when one of its
- * installations' `supported_extensions` does not.
+ * an inbox blocks the proposal migration when one of its
+ * installations' `supported_extensions` lacks `AppDataDictionary`.
+ *
+ * To ask "is this group migrated?", use
+ * [`FfiConversation::proposals_enabled`] instead of scanning
+ * `context_extensions` — the marker extension is an internal
+ * protocol detail and the semantic bool is the stable contract.
  */
 public struct FfiGroupMembershipCapabilities: Equatable, Hashable {
     public var contextExtensions: [FfiMlsExtensionType]
@@ -10026,6 +10066,68 @@ public func FfiConverterTypeFfiTransactionReference_lift(_ buf: RustBuffer) thro
 #endif
 public func FfiConverterTypeFfiTransactionReference_lower(_ value: FfiTransactionReference) -> RustBuffer {
     return FfiConverterTypeFfiTransactionReference.lower(value)
+}
+
+
+/**
+ * Options for [`FfiConversation::update_app_data`]. A record (rather
+ * than a bare `String` parameter) so future knobs can be added
+ * without breaking compiled apps — same pattern as
+ * [`FfiEnableProposalsOptions`].
+ */
+public struct FfiUpdateAppDataOptions: Equatable, Hashable {
+    /**
+     * The new value for the group's opaque `APP_DATA` string slot.
+     */
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The new value for the group's opaque `APP_DATA` string slot.
+         */value: String) {
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiUpdateAppDataOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiUpdateAppDataOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiUpdateAppDataOptions {
+        return
+            try FfiUpdateAppDataOptions(
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiUpdateAppDataOptions, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiUpdateAppDataOptions_lift(_ buf: RustBuffer) throws -> FfiUpdateAppDataOptions {
+    return try FfiConverterTypeFfiUpdateAppDataOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiUpdateAppDataOptions_lower(_ value: FfiUpdateAppDataOptions) -> RustBuffer {
+    return FfiConverterTypeFfiUpdateAppDataOptions.lower(value)
 }
 
 
@@ -12735,6 +12837,8 @@ public enum FfiMetadataField: Equatable, Hashable {
     case description
     case imageUrlSquare
     case appData
+    case messageExpirationFromNs
+    case messageExpirationInNs
 
 
 
@@ -12764,6 +12868,10 @@ public struct FfiConverterTypeFfiMetadataField: FfiConverterRustBuffer {
         
         case 4: return .appData
         
+        case 5: return .messageExpirationFromNs
+        
+        case 6: return .messageExpirationInNs
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -12786,6 +12894,14 @@ public struct FfiConverterTypeFfiMetadataField: FfiConverterRustBuffer {
         
         case .appData:
             writeInt(&buf, Int32(4))
+        
+        
+        case .messageExpirationFromNs:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .messageExpirationInNs:
+            writeInt(&buf, Int32(6))
         
         }
     }
@@ -16931,6 +17047,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 45021) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_proposals_enabled() != 59452) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 1758) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16970,7 +17089,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_sync() != 52433) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 2749) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 309) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 39794) {

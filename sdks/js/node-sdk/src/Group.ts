@@ -95,7 +95,7 @@ export class Group<ContentTypes = unknown> extends Conversation<ContentTypes> {
    * @param appData The new app data for the group
    */
   async updateAppData(appData: string) {
-    return this.#conversation.updateAppData(appData);
+    return this.#conversation.updateAppData({ value: appData });
   }
 
   /**

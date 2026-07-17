@@ -171,6 +171,17 @@ impl UnstableConversation {
   }
 }
 
+/// Options for [`Conversation::updateAppData`]. An object (rather than
+/// a bare string parameter) so future knobs can be added without
+/// breaking callers — same pattern as [`EnableProposalsOptions`].
+/// New fields must be `Option` + `#[serde(default)]` to stay non-breaking.
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppDataOptions {
+  /// The new value for the group's opaque `APP_DATA` string slot.
+  pub value: String,
+}
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -737,14 +748,11 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateAppData)]
-  pub async fn update_app_data(
-    &self,
-    #[wasm_bindgen(js_name = appData)] app_data: String,
-  ) -> Result<(), JsError> {
+  pub async fn update_app_data(&self, options: UpdateAppDataOptions) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .update_app_data(app_data)
+      .update_app_data(options.value)
       .await
       .map_err(ErrorWrapper::js)?;
 

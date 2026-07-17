@@ -125,14 +125,25 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub async fn update_app_data(&self, app_data: String) -> Result<()> {
+  pub async fn update_app_data(&self, options: UpdateAppDataOptions) -> Result<()> {
     let group = self.create_mls_group();
 
     group
-      .update_app_data(app_data)
+      .update_app_data(options.value)
       .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
+}
+
+/// Options for [`Conversation::updateAppData`]. An object (rather than
+/// a bare string parameter) so future knobs can be added without
+/// breaking callers — same pattern as [`EnableProposalsOptions`].
+/// New fields must be `Option` so the generated TS type stays non-breaking.
+#[napi(object)]
+#[derive(Clone, Default)]
+pub struct UpdateAppDataOptions {
+  /// The new value for the group's opaque `APP_DATA` string slot.
+  pub value: String,
 }
