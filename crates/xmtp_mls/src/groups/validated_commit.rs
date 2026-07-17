@@ -427,6 +427,7 @@ impl ValidatedCommit {
                 openmls_group,
                 immutable_metadata,
                 mutable_metadata,
+                context.version_info().pkg_version(),
             );
         }
 
@@ -792,6 +793,7 @@ impl ValidatedCommit {
         openmls_group: &OpenMlsGroup,
         immutable_metadata: GroupMetadata,
         mutable_metadata: GroupMutableMetadata,
+        own_version: &str,
     ) -> Result<Self, CommitValidationError> {
         reject_psk_proposals(staged_commit)?;
 
@@ -811,11 +813,25 @@ impl ValidatedCommit {
         )?
         .ok_or(CommitValidationError::ProposerNotFound)?;
 
+        // A bootstrap seeding a floor above this client pauses the
+        // group (same variant the steady-state floor checks emit, so
+        // the pause machinery in `mls_sync` applies) rather than
+        // surfacing as an opaque byte-compare `Mismatch` — which
+        // above-floor members wouldn't share, i.e. a fork.
         super::app_data::bootstrap_validator::validate_bootstrap_commit(
             staged_commit,
             openmls_group,
             &gce_proposer,
-        )?;
+            own_version,
+        )
+        .map_err(|e| {
+            match e {
+            super::app_data::bootstrap_validator::BootstrapValidationError::ProtocolVersionTooLow(
+                min_version,
+            ) => CommitValidationError::ProtocolVersionTooLow(min_version),
+            other => other.into(),
+        }
+        })?;
 
         Ok(Self {
             actor,
