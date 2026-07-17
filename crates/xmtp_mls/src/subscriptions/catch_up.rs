@@ -48,8 +48,12 @@
 //! is never skipped past and a later query-path sync retries it. The cost is
 //! symmetric too: a repeat call re-requests the tail since the last durable
 //! advance and drops the already-stored copies at the seed's seen-set.
-//! Welcome cursors DO advance (the welcome pipeline advances them on every
-//! processed welcome, streamed or not).
+//! Welcomes are the same on this path: they are processed with the cursor
+//! increment OFF (`process_new_welcome(.., false, ..)`), so the streamed and
+//! catch-up arms do NOT advance the durable welcome cursor either — a
+//! re-processed welcome is dropped by group-existence dedup (the seed's
+//! `known_welcomes_above`), not by the cursor. Only the legacy full-sync
+//! fallback advances the welcome cursor.
 //!
 //! ## Fallback
 //!
