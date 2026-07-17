@@ -3571,6 +3571,206 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
     );
 }
 
+/// Build the two `AppDataUpdateOperation`s for the same-commit
+/// registry-lookahead tests: a `COMPONENT_REGISTRY` delta registering
+/// `custom_id` as an allow-all String component, and a write of
+/// `value` to that component.
+fn lookahead_register_and_write_ops(
+    custom_id: xmtp_mls_common::app_data::component_id::ComponentId,
+    value: &[u8],
+) -> (
+    openmls::messages::proposals::AppDataUpdateOperation,
+    openmls::messages::proposals::AppDataUpdateOperation,
+) {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use prost::Message;
+    use tls_codec::{Serialize, VLBytes};
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId, component_permissions::component_permissions,
+            component_registry::new_component_metadata,
+        },
+        tls_map::TlsMapDelta,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentType, MetadataPolicy as MetadataPolicyProto,
+        metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    };
+
+    let allow = || MetadataPolicyProto {
+        kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Allow as i32)),
+    };
+    let meta = new_component_metadata(
+        component_permissions()
+            .insert(allow())
+            .update(allow())
+            .delete(allow())
+            .call(),
+        ComponentType::String,
+    );
+    let registry_delta = TlsMapDelta::<ComponentId, VLBytes>::new()
+        .insert(custom_id, VLBytes::new(meta.encode_to_vec()));
+    let register = AppDataUpdateOperation::Update(
+        registry_delta
+            .tls_serialize_detached()
+            .expect("delta serializes")
+            .into(),
+    );
+    let write = AppDataUpdateOperation::Update(value.to_vec().into());
+    (register, write)
+}
+
+/// Same-commit registry lookahead, apply path: registering a custom
+/// component and writing to it inside ONE batch (queue order:
+/// register first) must dispatch the write through the just-registered
+/// type — exactly as if the registration had landed in an earlier
+/// commit. Pre-lookahead, the write failed `UnknownComponent` because
+/// dispatch only consulted the pre-commit registry snapshot.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_accumulate_registry_lookahead_register_then_write() {
+    use crate::groups::app_data::accumulate_app_data_updates;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let custom_id = ComponentId::new(0xC300);
+    let (op_register, op_write) = lookahead_register_and_write_ops(custom_id, b"hello");
+
+    let updates: openmls::group::AppDataUpdates = alix_group
+        .load_mls_group_with_lock_async(async |g| {
+            let out = accumulate_app_data_updates(
+                &g,
+                [
+                    (ComponentId::COMPONENT_REGISTRY.as_u16(), &op_register),
+                    (custom_id.as_u16(), &op_write),
+                ],
+            )
+            .map_err(crate::groups::GroupError::from)?;
+            Ok::<openmls::group::AppDataUpdates, crate::groups::GroupError>(
+                out.expect("two updates should produce dict changes"),
+            )
+        })
+        .await?;
+
+    let mut wrote: Option<Vec<u8>> = None;
+    let mut registered = false;
+    for (id, value) in updates {
+        if id == custom_id.as_u16() {
+            wrote = value;
+        } else if id == ComponentId::COMPONENT_REGISTRY.as_u16() {
+            registered = value.is_some();
+        }
+    }
+    assert!(registered, "registry snapshot missing from dict updates");
+    assert_eq!(
+        wrote.as_deref(),
+        Some(&b"hello"[..]),
+        "write to the just-registered component must dispatch via the overlay"
+    );
+}
+
+/// Queue-order discipline: the write coming BEFORE its registration in
+/// the same batch must still fail `UnknownComponent` — the overlay only
+/// looks back, never ahead, so every honest receiver rejects
+/// identically regardless of version.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_accumulate_registry_lookahead_write_before_register_fails() {
+    use crate::groups::app_data::{accumulate_app_data_updates, component_source};
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let custom_id = ComponentId::new(0xC301);
+    let (op_register, op_write) = lookahead_register_and_write_ops(custom_id, b"hello");
+
+    let err = alix_group
+        .load_mls_group_with_lock_async(async |g| {
+            Ok::<_, crate::groups::GroupError>(accumulate_app_data_updates(
+                &g,
+                [
+                    (custom_id.as_u16(), &op_write),
+                    (ComponentId::COMPONENT_REGISTRY.as_u16(), &op_register),
+                ],
+            ))
+        })
+        .await?
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            component_source::ComponentSourceError::UnknownComponent(id) if id == custom_id
+        ),
+        "write-before-register must fail UnknownComponent, got {err:?}"
+    );
+}
+
+/// Same-commit registry lookahead, validate path: the per-proposal
+/// policy check for a write to a just-registered component succeeds
+/// against the folded overlay and fails (deny-by-default
+/// `NoRegistryEntry` → `InsufficientPermissions`) without it. Drives
+/// `validate_one_app_data_update` + `RegistryOverlay::fold` directly —
+/// the same pair `validate_app_data_update_proposals_in_commit` walks
+/// in queue order.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_validate_registry_lookahead_policy_sees_folded_entry() {
+    use crate::groups::app_data::RegistryOverlay;
+    use crate::groups::validated_commit::validate_one_app_data_update;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, component_registry::ComponentRegistry,
+        validation::ActorAuthority,
+    };
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let custom_id = ComponentId::new(0xC302);
+    let (op_register, op_write) = lookahead_register_and_write_ops(custom_id, b"hello");
+    let member = ActorAuthority {
+        is_admin: false,
+        is_super_admin: false,
+    };
+
+    alix_group
+        .load_mls_group_with_lock_async(async |g| {
+            let mut overlay = RegistryOverlay::new(ComponentRegistry::new(), None);
+
+            // Without the fold: deny-by-default, no registry entry.
+            assert!(
+                validate_one_app_data_update(
+                    custom_id,
+                    &op_write,
+                    member,
+                    "test-inbox",
+                    overlay.registry(),
+                    &g,
+                )
+                .is_err(),
+                "write to an unregistered component must be rejected"
+            );
+
+            // Fold the registration (in the real loop this happens only
+            // after the registry proposal passes its super-admin check).
+            overlay
+                .fold(&op_register)
+                .expect("valid registry delta folds");
+
+            // With the fold: the allow-all entry admits the write.
+            validate_one_app_data_update(
+                custom_id,
+                &op_write,
+                member,
+                "test-inbox",
+                overlay.registry(),
+                &g,
+            )
+            .expect("write after same-batch registration must validate");
+            Ok::<(), crate::groups::GroupError>(())
+        })
+        .await?;
+}
+
 // =============================================================================
 // Sender-path tests for `IntentKind::UpdateAdminList` and
 // `IntentKind::UpdatePermission`. The AppDataUpdate path activates on

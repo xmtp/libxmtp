@@ -41,6 +41,109 @@ use self::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
 
+/// Same-commit registry lookahead: tracks the `COMPONENT_REGISTRY`
+/// snapshot as a commit's `AppDataUpdate` proposals are walked in queue
+/// order, so a component *registered* by an earlier proposal in the
+/// same commit dispatches and policy-checks exactly like one registered
+/// in an earlier commit. Without this, register-then-write batched into
+/// one commit is rejected by every receiver (the write's type dispatch
+/// and deny-by-default policy lookup would only see the pre-commit
+/// snapshot) — a permanent trap enforced by nothing on the send side.
+///
+/// Both receive stages fold through this one type so their semantics
+/// cannot drift:
+/// - the apply path ([`accumulate_app_data_updates`]) folds
+///   optimistically — its results are discarded unless commit
+///   validation later passes;
+/// - the validate path
+///   (`validate_app_data_update_proposals_in_commit`) folds only after
+///   the registry proposal itself has passed its hardcoded
+///   super-admin-only policy check, so the overlaid entries carry the
+///   same trust as ones committed earlier.
+///
+/// Queue order is fixed by the commit, so every honest receiver folds
+/// identically; write-before-register in queue order deterministically
+/// still fails.
+pub(crate) struct RegistryOverlay {
+    registry: ComponentRegistry,
+    snapshot_bytes: Option<Vec<u8>>,
+}
+
+impl RegistryOverlay {
+    /// Start from the pre-commit dict state of `mls_group`.
+    pub(crate) fn from_group(mls_group: &OpenMlsGroup) -> Result<Self, ComponentSourceError> {
+        Ok(Self {
+            registry: load_component_registry(mls_group)?,
+            snapshot_bytes: read_from_app_data_dict(ComponentId::COMPONENT_REGISTRY, mls_group),
+        })
+    }
+
+    /// Start from an already-loaded registry (the validator pre-loads
+    /// one per commit) plus the matching pre-commit dict bytes.
+    pub(crate) fn new(registry: ComponentRegistry, snapshot_bytes: Option<Vec<u8>>) -> Self {
+        Self {
+            registry,
+            snapshot_bytes,
+        }
+    }
+
+    /// The registry as of the last folded proposal (initially the
+    /// pre-commit snapshot). Hand this to type dispatch and policy
+    /// lookups for each subsequent proposal.
+    pub(crate) fn registry(&self) -> &ComponentRegistry {
+        &self.registry
+    }
+
+    /// Fold one `COMPONENT_REGISTRY` `AppDataUpdate` operation. Callers
+    /// invoke this only for proposals targeting the registry component,
+    /// in queue order.
+    pub(crate) fn fold(
+        &mut self,
+        operation: &AppDataUpdateOperation,
+    ) -> Result<(), ComponentSourceError> {
+        use xmtp_mls_common::app_data::components::tls_map_components::ComponentRegistryComponent;
+        use xmtp_mls_common::app_data::typed::Component;
+        match operation {
+            AppDataUpdateOperation::Update(payload) => {
+                let new_bytes = <ComponentRegistryComponent as Component>::apply_update_payload(
+                    payload.as_slice(),
+                    self.snapshot_bytes.as_deref(),
+                )
+                .map_err(ComponentSourceError::from)?;
+                self.set_snapshot(new_bytes)
+            }
+            AppDataUpdateOperation::Remove => {
+                // Removing the whole registry component is never legal
+                // and is rejected at validation; the optimistic
+                // apply-path view of "whatever follows" is deny-all.
+                self.registry = ComponentRegistry::new();
+                self.snapshot_bytes = None;
+                Ok(())
+            }
+        }
+    }
+
+    /// Adopt already-computed post-proposal snapshot bytes (the apply
+    /// path computes them anyway via its in-batch chaining; re-applying
+    /// the delta here would duplicate work).
+    pub(crate) fn set_snapshot(&mut self, bytes: Vec<u8>) -> Result<(), ComponentSourceError> {
+        self.registry = ComponentRegistry::from_bytes(&bytes).map_err(|e| {
+            ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("same-commit registry overlay: {e}"),
+            }
+        })?;
+        self.snapshot_bytes = Some(bytes);
+        Ok(())
+    }
+
+    /// Deny-all view — the registry component was removed in-batch.
+    pub(crate) fn clear(&mut self) {
+        self.registry = ComponentRegistry::new();
+        self.snapshot_bytes = None;
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     /// Test-only override returned by [`load_component_registry`].
@@ -101,15 +204,12 @@ where
 {
     let mut in_batch: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>> = BTreeMap::new();
 
-    // Load the pre-commit registry once. It supplies the
-    // `ComponentType` tag the type-aware dispatcher in
-    // `apply_app_data_update_payload` uses when an unknown component id
-    // arrives. Registry updates that land in the same commit don't
-    // retroactively change this snapshot — the typed path would need
-    // an in-batch registry overlay to handle the corner case where the
-    // very same commit both registers a new component and writes to
-    // it.
-    let registry = load_component_registry(mls_group)?;
+    // Registry state for type dispatch, starting from the pre-commit
+    // snapshot. `COMPONENT_REGISTRY` proposals in this batch fold into
+    // the overlay in queue order, so a component registered earlier in
+    // this same commit dispatches like one registered in an earlier
+    // commit (see [`RegistryOverlay`]).
+    let mut overlay = RegistryOverlay::from_group(mls_group)?;
 
     for (openmls_id, operation) in proposals {
         let xmtp_id = ComponentId::from(openmls_id);
@@ -127,18 +227,21 @@ where
                         xmtp_id,
                         payload.as_slice(),
                         Some(bytes.as_slice()),
-                        &registry,
+                        overlay.registry(),
                     ),
-                    Some(None) => {
-                        apply_app_data_update_payload(xmtp_id, payload.as_slice(), None, &registry)
-                    }
+                    Some(None) => apply_app_data_update_payload(
+                        xmtp_id,
+                        payload.as_slice(),
+                        None,
+                        overlay.registry(),
+                    ),
                     None => {
                         let from_dict = read_from_app_data_dict(xmtp_id, mls_group);
                         apply_app_data_update_payload(
                             xmtp_id,
                             payload.as_slice(),
                             from_dict.as_deref(),
-                            &registry,
+                            overlay.registry(),
                         )
                     }
                 }
@@ -149,9 +252,18 @@ where
                         "Failed to apply AppDataUpdate payload"
                     );
                 })?;
+                if xmtp_id == ComponentId::COMPONENT_REGISTRY {
+                    // The in-batch chaining above already computed the
+                    // post-proposal snapshot; adopt it instead of
+                    // re-applying the delta.
+                    overlay.set_snapshot(new_value.clone())?;
+                }
                 in_batch.insert(openmls_id, Some(new_value));
             }
             AppDataUpdateOperation::Remove => {
+                if xmtp_id == ComponentId::COMPONENT_REGISTRY {
+                    overlay.clear();
+                }
                 in_batch.insert(openmls_id, None);
             }
         }

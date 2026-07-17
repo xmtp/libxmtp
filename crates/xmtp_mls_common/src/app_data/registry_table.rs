@@ -85,9 +85,12 @@ use crate::app_data::{
 ///   accordingly and document that degradation at the accessor
 ///   boundary.
 /// - The component MUST land in the registry **before or with** the
-///   first commit that writes to it. Old clients consult the
-///   pre-commit registry snapshot, so a same-commit registration
-///   followed by a same-commit write fails to dispatch.
+///   first commit that writes to it. Receivers walk a commit's
+///   proposals in queue order with a same-commit registry overlay
+///   (`xmtp_mls::groups::app_data::RegistryOverlay`), so a
+///   registration EARLIER IN QUEUE ORDER than the first write —
+///   including inside the same commit — dispatches fine; a write
+///   queued before its registration deterministically fails.
 ///
 /// Two ergonomic patterns for shipping a new component without
 /// editing `WELL_KNOWN`:

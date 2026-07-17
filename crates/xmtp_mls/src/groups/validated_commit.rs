@@ -1270,7 +1270,7 @@ fn validate_membership_diff(
 ///
 /// Returns `Err(InsufficientPermissions)` on the first failure (expand or
 /// per-element check) so the caller can reject the wider message wholesale.
-fn validate_one_app_data_update(
+pub(super) fn validate_one_app_data_update(
     component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
     actor: xmtp_mls_common::app_data::validation::ActorAuthority,
@@ -1558,16 +1558,24 @@ fn validate_app_data_update_proposals_in_commit(
     }
 
     // Use the caller's pre-loaded registry when available; otherwise
-    // load lazily. `owned_registry` keeps the loaded value alive for
-    // the `registry` borrow.
-    let owned_registry;
+    // load lazily. Wrapped in a [`super::app_data::RegistryOverlay`]
+    // so `COMPONENT_REGISTRY` proposals in this commit — once they
+    // pass their own (hardcoded super-admin) policy check below — are
+    // visible to the type dispatch and policy lookups of the
+    // proposals that follow them in queue order. Same-commit
+    // register-then-write validates like register-in-an-earlier-commit;
+    // write-before-register still deterministically fails.
     let registry = match preloaded_registry {
-        Some(r) => r,
-        None => {
-            owned_registry = load_component_registry(openmls_group)?;
-            &owned_registry
-        }
+        Some(r) => r.clone(),
+        None => load_component_registry(openmls_group)?,
     };
+    let mut overlay = super::app_data::RegistryOverlay::new(
+        registry,
+        super::app_data::component_source::read_from_app_data_dict(
+            ComponentId::COMPONENT_REGISTRY,
+            openmls_group,
+        ),
+    );
 
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
@@ -1590,14 +1598,32 @@ fn validate_app_data_update_proposals_in_commit(
             }
         };
 
+        let component_id = ComponentId::from(app_data.component_id());
         validate_one_app_data_update(
-            ComponentId::from(app_data.component_id()),
+            component_id,
             app_data.operation(),
             ActorAuthority::from(proposer),
             &proposer.inbox_id,
-            registry,
+            overlay.registry(),
             openmls_group,
         )?;
+
+        // This registry mutation just passed its hardcoded
+        // super-admin-only policy check — fold it so subsequent
+        // proposals in this commit see the updated registry. Fold
+        // failures (undecodable snapshot after apply) are rejected
+        // like any other malformed proposal; the apply path fails
+        // identically, so all honest receivers agree.
+        if component_id == ComponentId::COMPONENT_REGISTRY
+            && let Err(e) = overlay.fold(app_data.operation())
+        {
+            tracing::warn!(
+                proposer_inbox_id = %proposer.inbox_id,
+                error = %e,
+                "AppDataUpdate proposal rejected: registry overlay fold failed"
+            );
+            return Err(CommitValidationError::InsufficientPermissions);
+        }
     }
 
     Ok(())
