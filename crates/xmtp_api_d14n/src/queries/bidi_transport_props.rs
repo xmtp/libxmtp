@@ -43,8 +43,8 @@ use futures::stream::BoxStream;
 use proptest::prelude::*;
 
 use super::{
-    BidiConnection, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, OpenError, TopicLease,
-    V3Binding,
+    BidiConnection, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, MAX_MUTATE_BYTES,
+    MAX_MUTATE_TOPICS, OpenError, TopicLease, V3Binding,
 };
 use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
@@ -128,10 +128,10 @@ type Servers = Arc<Mutex<Vec<MockServer>>>;
 /// A transport whose opener mints a scripted session per open, greets it
 /// with `Started` immediately (so `open`/`lease` never deadlock on the
 /// driver), and parks the server end for the driver to adopt.
-fn model_transport() -> (BidiTransport<V3Binding>, Servers) {
+fn model_transport(chunk_cap: usize, chunk_bytes: usize) -> (BidiTransport<V3Binding>, Servers) {
     let servers: Servers = Arc::default();
     let sink = servers.clone();
-    let transport = BidiTransport::new(
+    let transport = BidiTransport::new_with_chunk_limits(
         move |initial| {
             let (to_client, inbound) = tokio::sync::mpsc::unbounded_channel();
             let (captured, from_client) = tokio::sync::mpsc::unbounded_channel();
@@ -157,6 +157,8 @@ fn model_transport() -> (BidiTransport<V3Binding>, Servers) {
             }
         },
         false,
+        chunk_cap,
+        chunk_bytes,
     );
     (transport, servers)
 }
@@ -287,8 +289,8 @@ struct Driver {
 }
 
 impl Driver {
-    fn new() -> Self {
-        let (transport, servers) = model_transport();
+    fn new(chunk_cap: usize, chunk_bytes: usize) -> Self {
+        let (transport, servers) = model_transport(chunk_cap, chunk_bytes);
         let topic_index = (0..N_TOPICS)
             .map(|t| {
                 (
@@ -697,8 +699,8 @@ impl Driver {
     }
 }
 
-async fn run_schedule(ops: Vec<Op>) {
-    let mut driver = Driver::new();
+async fn run_schedule(ops: Vec<Op>, chunk_cap: usize, chunk_bytes: usize) {
+    let mut driver = Driver::new(chunk_cap, chunk_bytes);
     for op in &ops {
         driver.run_op(op).await;
         driver.settle().await;
@@ -723,6 +725,25 @@ proptest! {
             .enable_time()
             .build()
             .unwrap()
-            .block_on(run_schedule(ops));
+            .block_on(run_schedule(ops, MAX_MUTATE_TOPICS, MAX_MUTATE_BYTES));
+    }
+
+    /// The same model with the `Mutate` chunk cap shrunk (1 or 2), so a lease
+    /// or reconnect resume over more than `cap` topics splits into several
+    /// waves — fuzzing the multi-wave-per-lease completion accounting under
+    /// real interleaved delivery, yank overlap, and dedup. The per-lease
+    /// contract is unchanged: exactly the log suffix above the floor, and
+    /// exactly ONE `CatchUpComplete` however many chunks carried the replay
+    /// (the assertion that a premature or duplicated completion would trip).
+    #[xmtp_common::test]
+    fn chunked_ledger_delivers_exactly_the_asked_suffix_in_order(
+        ops in proptest::collection::vec(op_strategy(), 4..36),
+        cap in 1usize..=2,
+    ) {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(run_schedule(ops, cap, MAX_MUTATE_BYTES));
     }
 }
