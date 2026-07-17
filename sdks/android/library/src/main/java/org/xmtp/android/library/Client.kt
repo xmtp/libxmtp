@@ -152,6 +152,19 @@ class Client(
         private const val TAG = "Client"
 
         /**
+         * Process-wide control for automatic stream-lifecycle management. When
+         * true (the default), the first [Client] created registers a
+         * [androidx.lifecycle.ProcessLifecycleOwner] observer that parks the
+         * shared streaming wire while the app is backgrounded and revives it on
+         * foreground. The streaming wire is shared across every client in the
+         * process, so this is a **process-global** setting, not per-client: set
+         * it to false **before creating your first client** to opt out (e.g. to
+         * manage the lifecycle yourself).
+         */
+        @JvmStatic
+        var manageStreamLifecycle: Boolean = true
+
+        /**
          * Sentinel value assigned to [Client.dbPath] when the client was created
          * via [createInMemory]. No file exists at this path.
          */
@@ -461,14 +474,24 @@ class Client(
                     )
                 }
 
-                Client(
-                    ffiClient,
-                    dbPath,
-                    ffiClient.installationId().toHex(),
-                    ffiClient.inboxId(),
-                    clientOptions.api.env,
-                    publicIdentity,
-                )
+                val client =
+                    Client(
+                        ffiClient,
+                        dbPath,
+                        ffiClient.installationId().toHex(),
+                        ffiClient.inboxId(),
+                        clientOptions.api.env,
+                        publicIdentity,
+                    )
+
+                // Keep the shared streaming wire in step with app
+                // foreground/background. Process-global and idempotent — the
+                // first managed client registers it for every client.
+                if (manageStreamLifecycle) {
+                    StreamLifecycleManager.enableIfNeeded()
+                }
+
+                client
             }
 
         // Function to create a client with a signing key
@@ -661,14 +684,19 @@ class Client(
                         clientOptions,
                         clientOptions.appContext,
                     )
-                Client(
-                    ffiClient,
-                    dbPath,
-                    ffiClient.installationId().toHex(),
-                    ffiClient.inboxId(),
-                    clientOptions.api.env,
-                    publicIdentity,
-                )
+                val client =
+                    Client(
+                        ffiClient,
+                        dbPath,
+                        ffiClient.installationId().toHex(),
+                        ffiClient.inboxId(),
+                        clientOptions.api.env,
+                        publicIdentity,
+                    )
+                if (manageStreamLifecycle) {
+                    StreamLifecycleManager.enableIfNeeded()
+                }
+                client
             }
     }
 
@@ -774,6 +802,26 @@ class Client(
         withContext(Dispatchers.IO) {
             if (isInMemory) return@withContext
             ffiClient.dbReconnect()
+        }
+
+    /**
+     * Bring the local store current with the network, then stop — for background
+     * fetch and cold start, where holding a live stream is wasted because the
+     * wire is about to go away.
+     *
+     * Pass [timeoutMs] to bound the run against a background budget (a
+     * WorkManager job, an FCM handler); null runs to the live edge. A negative
+     * value is treated as 0 (return immediately). Cutting it short is safe:
+     * everything processed is persisted and a later call resumes from durable
+     * state.
+     *
+     * Check [CatchUpSummary.completed] before reading the counts: on the
+     * deadline path it is false and messages/conversations are reported as 0
+     * even though whatever was processed first is already persisted.
+     */
+    suspend fun catchUpToLive(timeoutMs: Long? = null): CatchUpSummary =
+        withContext(Dispatchers.IO) {
+            CatchUpSummary(ffiClient.catchUpToLive(timeoutMs?.coerceAtLeast(0)?.toULong()))
         }
 
     suspend fun inboxStatesForInboxIds(
