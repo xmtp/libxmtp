@@ -32,7 +32,18 @@ pub use types::*;
 pub type ID = i32;
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    AsExpression,
+    FromSqlRow,
+    Serialize,
+    Deserialize,
+    strum::EnumIter,
+)]
 #[diesel(sql_type = Integer)]
 pub enum IntentKind {
     SendMessage = 1,
@@ -66,6 +77,28 @@ pub enum IntentKind {
     /// `MetadataUpdate`) are not migrated by the introducing PR — they
     /// continue to work, and a follow-on can fold them in.
     AppDataUpdate = 12,
+}
+
+impl IntentKind {
+    /// Every kind this build knows how to deserialize, as a lazy
+    /// iterator — collect into a `Vec` only where a filter needs one.
+    /// Production queries pass these as the `allowed_kinds` filter so
+    /// rows written by a NEWER build (which may use discriminants this
+    /// build has no variant for) are excluded in SQL instead of
+    /// poisoning the whole `load()` — `FromSql` errors on unknown
+    /// discriminants, and one such row would otherwise wedge every
+    /// intent query for the group after an app downgrade. Unknown-kind
+    /// rows stay untouched in the table and resume processing when the
+    /// app is upgraded again.
+    ///
+    /// Exhaustive by construction: `strum::EnumIter` generates the
+    /// iteration over every variant, so a newly added `IntentKind` is
+    /// included automatically — which is exactly right here, since every
+    /// variant is, by definition, a kind this build can deserialize.
+    pub fn all() -> impl Iterator<Item = IntentKind> {
+        use strum::IntoEnumIterator;
+        IntentKind::iter()
+    }
 }
 
 impl std::fmt::Display for IntentKind {
@@ -744,6 +777,87 @@ pub(crate) mod tests {
                 .first(raw_conn)
         })
         .unwrap()
+    }
+
+    /// Exhaustiveness of `IntentKind::all()` is guaranteed by
+    /// `strum::EnumIter`, which iterates every variant; what it can't
+    /// check is the discriminant layout. Pin it here:
+    /// `unknown_kind_row_is_excluded_by_kind_filter` derives its future
+    /// discriminant as `all().len() + 1`, which is only "beyond every
+    /// known variant" while discriminants are exactly 1..=len with no
+    /// gaps or duplicates.
+    #[xmtp_common::test]
+    fn intent_kind_discriminants_are_contiguous() {
+        let mut discriminants: Vec<i32> = IntentKind::all().map(|k| k as i32).collect();
+        discriminants.sort_unstable();
+        let count = discriminants.len();
+        assert_eq!(
+            discriminants,
+            (1..=count as i32).collect::<Vec<_>>(),
+            "IntentKind discriminants must be exactly 1..={} with no gaps or duplicates",
+            count
+        );
+    }
+
+    /// Downgrade simulation: a row whose `kind` discriminant this build
+    /// doesn't know (written by a future version) must not poison
+    /// kind-filtered queries. Unfiltered queries still error — pinned
+    /// here so a future change to that behavior is a conscious one.
+    #[xmtp_common::test]
+    fn unknown_kind_row_is_excluded_by_kind_filter() {
+        let group_id = GroupId::generate();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id);
+
+            // A known-kind intent this build must keep seeing.
+            NewGroupIntent::new_test(
+                IntentKind::SendMessage,
+                group_id,
+                rand_vec::<24>(),
+                IntentState::ToPublish,
+            )
+            .store(conn)
+            .unwrap();
+
+            // A future-kind row (discriminant beyond every known
+            // variant), inserted raw — exactly what a newer build
+            // leaves behind before an app downgrade.
+            let future_kind = IntentKind::all().count() as i32 + 1;
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(future_kind),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::ToPublish),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            // Kind-filtered (the production shape): unknown row is
+            // excluded in SQL, the known intent still comes back.
+            let intents = conn
+                .find_group_intents(
+                    group_id,
+                    Some(vec![IntentState::ToPublish]),
+                    Some(IntentKind::all().collect()),
+                )
+                .unwrap();
+            assert_eq!(intents.len(), 1);
+            assert_eq!(intents[0].kind, IntentKind::SendMessage);
+
+            // Unfiltered: the unknown discriminant fails row
+            // deserialization and poisons the whole query.
+            assert!(
+                conn.find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
+                    .is_err(),
+                "unfiltered query should surface the FromSql error for unknown kinds"
+            );
+        })
     }
 
     #[xmtp_common::test]

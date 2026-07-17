@@ -89,6 +89,23 @@ use crate::app_data::{
 ///   pre-commit registry snapshot, so a same-commit registration
 ///   followed by a same-commit write fails to dispatch.
 ///
+/// **Floor-bump convention (pause, don't fork).** Any release that
+/// introduces something old receivers cannot interpret — a new
+/// [`ComponentType`], a new set/map delta mutation tag, a new registry
+/// entry format, a reserved-range (`0xFF00+`) allocation, or a change
+/// to the bootstrap synthesis encoding — MUST raise
+/// `PROPOSALS_MIN_PROTOCOL_VERSION` in the same release AND land each
+/// group's `MIN_SUPPORTED_PROTOCOL_VERSION` floor bump in a commit
+/// **strictly earlier** than the first commit using the new construct
+/// (the floor-bump commit itself must contain nothing format-novel).
+/// Receivers below a committed floor pause the group
+/// (defer-and-reprocess after upgrade) via the pause-before-parse
+/// guards in `xmtp_mls::groups::app_data` and
+/// `ValidatedCommit::from_staged_commit`; a same-commit floor bump is
+/// NOT protected — its proposal hasn't passed the super-admin policy
+/// check when the guards run, and pausing on unvalidated input would
+/// let any member freeze a group.
+///
 /// Two ergonomic patterns for shipping a new component without
 /// editing `WELL_KNOWN`:
 ///
