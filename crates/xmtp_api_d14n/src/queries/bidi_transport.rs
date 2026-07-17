@@ -181,7 +181,9 @@ const WITHHELD_FRAMES_CAP: usize = 512;
 /// to [`RECONNECT_MAX_DELAY`]. Reconnection is never given up on — an offline
 /// process resumes when the network returns.
 const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
-/// Ceiling for the reconnect backoff.
+/// Ceiling for the exponential reconnect base. The armed delay adds up to a
+/// full extra base of jitter ([`LedgerTask::arm_reconnect`]) to de-sync a
+/// fleet, so the effective wait tops out near twice this.
 const RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
 /// How long a graceful close (half-close, then drain inbound to completion)
 /// may take before the connection is dropped outright. After a half-close the
@@ -2121,18 +2123,32 @@ where
         Flow::Continue
     }
 
+    /// Arm the next reconnect at a jittered deadline and return the chosen
+    /// delay (for logging). The exponential base ([`Self::reconnect_delay`])
+    /// is the floor; a random offset of up to one more base spreads the
+    /// attempt across `[delay, 2·delay)`. A server restart releases every
+    /// client's wire in the same instant, so without this spread the whole
+    /// fleet would reconnect in lockstep and re-stampede the backend on each
+    /// backoff step — the jitter de-syncs them (same rationale as the stream
+    /// watchdog's `XMTP_STREAM_WATCHDOG_RECONNECT_JITTER_MS`).
+    fn arm_reconnect(&mut self) -> std::time::Duration {
+        let delay = self.reconnect_delay + xmtp_common::time::rand_offset(self.reconnect_delay);
+        self.reconnect_at = tokio::time::Instant::now() + delay;
+        delay
+    }
+
     /// The wire ended (server close or transport failure). Leases survive:
     /// the dead-wire select arm reconnects with a resume wave (module docs)
     /// — no stream ever observes the flap.
     fn wire_died(&mut self) -> Flow {
         self.outbox.clear();
         drop(self.conn.take());
-        self.reconnect_at = tokio::time::Instant::now() + self.reconnect_delay;
+        let retry_in = self.arm_reconnect();
         if !self.ledger.leases.is_empty() {
             tracing::warn!(
                 leases = self.ledger.leases.len(),
                 interrupted_waves = self.ledger.pending_waves.len(),
-                retry_in_ms = self.reconnect_delay.as_millis() as u64,
+                retry_in_ms = retry_in.as_millis() as u64,
                 "bidi transport: wire died; reconnecting from last-seen positions"
             );
         }
@@ -2214,7 +2230,7 @@ where
             // Unreachable — every leased topic is either in the resume adds
             // or owned by a re-issue — but never send an adds-nothing frame;
             // retry on the normal backoff instead.
-            self.reconnect_at = tokio::time::Instant::now() + self.reconnect_delay;
+            self.arm_reconnect();
             return AfterReopen::Proceed;
         };
         match self.open_preemptibly(initial).await {
@@ -2276,9 +2292,12 @@ where
                     tracing::error!("bidi transport: reconnect refused ({e}); closing");
                     return AfterReopen::Shutdown;
                 }
-                tracing::warn!("bidi transport: reconnect failed ({e}); backing off");
                 self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
-                self.reconnect_at = tokio::time::Instant::now() + self.reconnect_delay;
+                let retry_in = self.arm_reconnect();
+                tracing::warn!(
+                    retry_in_ms = retry_in.as_millis() as u64,
+                    "bidi transport: reconnect failed ({e}); backing off"
+                );
                 // Resumes deferred mid-dial were concurrent with this attempt
                 // and it failed for all of them: park their waiters on the
                 // scheduled retry. Replaying them would grant each the
