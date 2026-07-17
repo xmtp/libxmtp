@@ -623,39 +623,17 @@ class Group(
         }
 
     /**
-     * Migrate this group's metadata from the legacy GroupContextExtensions
-     * shape onto OpenMLS `AppDataUpdate` proposals. After this returns
-     * successfully, subsequent metadata writes (group name, description,
-     * image URL, admin list, permissions) flow through the proposal-based
-     * path instead of GCE commits.
-     *
-     * @param force Skip the pre-flight key-package capability check.
-     *   Post-d14n every client supports proposals by version floor
-     *   alone, so the per-member scan stops adding signal. Set `true`
-     *   to bypass it. Callers using this MUST be confident every
-     *   member is at `>= minVersion`. Defaults to `false`.
-     * @param minVersion Override the `MIN_SUPPORTED_PROTOCOL_VERSION`
-     *   floor. `null` defaults to libxmtp's
-     *   `PROPOSALS_MIN_PROTOCOL_VERSION` — the release where proposals
-     *   support first ships.
-     *
-     * Hard-fails if `force == false` and any member's latest key
-     * package doesn't advertise `ProposalType.AppDataUpdate`. The
-     * migration is one-way — a migrated group cannot return to the
-     * legacy path.
+     * Pre-release APIs, grouped under [UnstableGroup]. The `@UnstableApi`
+     * opt-in is applied once here, so every function on [UnstableGroup] is
+     * covered without a per-function annotation. Call sites must
+     * `@OptIn(UnstableApi::class)`; when a function graduates it moves onto
+     * [Group] and the opt-in stops resolving, forcing a migration.
      */
-    suspend fun enableProposals(
-        force: Boolean = false,
-        minVersion: String? = null,
-    ) = withContext(Dispatchers.IO) {
-        try {
-            libXMTPGroup.enableProposals(
-                FfiEnableProposalsOptions(force = force, minVersion = minVersion),
-            )
-        } catch (e: Exception) {
-            throw XMTPException("Unable to enable proposals on group", e)
-        }
-    }
+    @UnstableApi(
+        "APIs on Group.unstable are pre-release: shapes may change and some (e.g. enableProposals) are one-way and irreversible.",
+    )
+    val unstable: UnstableGroup
+        get() = UnstableGroup(libXMTPGroup)
 
     /**
      * Snapshot this group's membership capabilities: the group context's
@@ -668,7 +646,7 @@ class Group(
      * [org.xmtp.android.library.libxmtp.MlsExtensionType.AppDataDictionary],
      * and an inbox blocks migration when one of its installations'
      * [org.xmtp.android.library.libxmtp.InstallationCapabilities.supportedExtensions]
-     * does not. Pair with [enableProposals].
+     * does not. Pair with [UnstableGroup.enableProposals].
      */
     suspend fun membershipCapabilities(): GroupMembershipCapabilities =
         withContext(Dispatchers.IO) {

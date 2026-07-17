@@ -15,6 +15,7 @@ pub mod messages;
 pub mod metadata;
 pub mod permissions;
 pub mod streams;
+pub mod unstable;
 
 #[napi]
 #[derive(Clone)]

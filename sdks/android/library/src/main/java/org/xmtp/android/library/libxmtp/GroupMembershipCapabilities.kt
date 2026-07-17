@@ -111,7 +111,8 @@ class InboxCapabilities(
  * doesn't.
  *
  * Read it with [org.xmtp.android.library.Group.membershipCapabilities]; drive
- * the upgrade with [org.xmtp.android.library.Group.enableProposals].
+ * the upgrade with [org.xmtp.android.library.UnstableGroup.enableProposals]
+ * (via `group.unstable`, opting in with `@OptIn(UnstableApi::class)`).
  */
 class GroupMembershipCapabilities(
     private val ffi: FfiGroupMembershipCapabilities,
