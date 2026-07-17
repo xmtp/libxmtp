@@ -181,6 +181,13 @@ pub enum GroupMessageProcessingError {
     TlsError(#[from] TlsCodecError),
     #[error("unsupported message type: {0:?}")]
     UnsupportedMessageType(Discriminant<ProtocolMessage>),
+    /// Processed-message content that cannot legitimately reach the apply
+    /// phase: `UnresolvedAppDataCommit` is always resolved inside
+    /// `process_message_with_app_data`, and `OwnPendingCommit` is only
+    /// produced for public-framed commits, which libxmtp's
+    /// pure-ciphertext wire format policy never emits.
+    #[error("unexpected processed message content: {0}")]
+    UnexpectedProcessedContent(&'static str),
     #[error("commit validation")]
     CommitValidation(#[from] CommitValidationError),
     #[error("epoch increment not allowed")]
@@ -262,6 +269,11 @@ impl RetryableError for GroupMessageProcessingError {
                 super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
                     ..
                 } => false,
+                // Staging failures are validation-shaped — the same
+                // `StageCommitError` on a commit without app-data
+                // proposals surfaces through the `OpenMls` arm as a
+                // non-retryable `InvalidCommit`.
+                super::app_data::ProcessMessageWithAppDataError::ResolveAppDataCommit(_) => false,
             },
             Self::MergeStagedCommit(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
@@ -280,6 +292,7 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::DecodeProto(_)
             | Self::InvalidPayload
             | Self::Intent(_)
+            | Self::UnexpectedProcessedContent(_)
             | Self::EpochIncrementNotAllowed
             | Self::EncodeProto(_)
             | Self::IntentMissingStagedCommit
@@ -1597,6 +1610,38 @@ where
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
                 Ok(())
                 // intentionally left blank.
+            }
+            ProcessedMessageContent::OwnPrivateMessage => {
+                // Our own fanned-back private message with no matching
+                // published intent (the intent path handles the normal case —
+                // this arm is reached only once the intent record is gone).
+                // The own sender ratchet is encryption-only, so the content
+                // is undecryptable by design; upstream surfaces it as a typed
+                // skip hint where older openmls produced an opaque
+                // decryption error.
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = %self.group_id,
+                    cursor = %cursor,
+                    "skipping own fanned-back private message without a matching intent"
+                );
+                Ok(())
+            }
+            ProcessedMessageContent::OwnPendingCommit => {
+                // Only produced for public-framed commits; unreachable under
+                // libxmtp's pure-ciphertext wire format policy.
+                Err(GroupMessageProcessingError::UnexpectedProcessedContent(
+                    "OwnPendingCommit under a ciphertext-only wire format policy",
+                ))
+            }
+            ProcessedMessageContent::UnresolvedAppDataCommit(_) => {
+                // `process_message_with_app_data` resolves app-data commits
+                // into `StagedCommitMessage` before returning; this cannot
+                // reach the apply phase.
+                Err(GroupMessageProcessingError::UnexpectedProcessedContent(
+                    "UnresolvedAppDataCommit escaped process_message_with_app_data",
+                ))
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
                 let staged_commit = *staged_commit;

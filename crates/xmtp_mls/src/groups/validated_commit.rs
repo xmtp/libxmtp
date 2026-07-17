@@ -2229,9 +2229,6 @@ pub fn validate_proposal(
         Proposal::AppEphemeral(_) => {
             return Err(unsupported_error());
         }
-        Proposal::_AppAck => {
-            return Err(unsupported_error());
-        }
         Proposal::SelfRemove => {
             return Err(unsupported_error());
         }
