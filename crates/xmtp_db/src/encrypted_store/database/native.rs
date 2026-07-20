@@ -603,7 +603,7 @@ impl std::fmt::Debug for NativeDbConnection {
         write!(
             f,
             "NativeDbConnection {{ path: {}, state={:?} }}",
-            &self.customizer.options(),
+            self.customizer.options(),
             self.pool.load().as_ref().map(|s| s.state()),
         )
     }

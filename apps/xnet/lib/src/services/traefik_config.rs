@@ -426,7 +426,6 @@ mod tests {
                 rule: "Host(`example.com`)".to_string(),
                 url: "http://127.0.0.1:9999".to_string(),
                 priority: None,
-                ..Default::default()
             }])
             .unwrap();
 
@@ -446,7 +445,6 @@ mod tests {
                 rule: "Host(`migrate.xmtp.run`)".to_string(),
                 url: "http://127.0.0.1:8899".to_string(),
                 priority: Some(100),
-                ..Default::default()
             }])
             .unwrap();
 
@@ -479,7 +477,6 @@ mod tests {
                 rule: "Host(`migrate.xmtp.run`)".to_string(),
                 url: "http://127.0.0.1:8899".to_string(),
                 priority: None,
-                ..Default::default()
             }])
             .unwrap();
 
@@ -502,7 +499,6 @@ mod tests {
                 rule: "Host(`migrate.xmtp.run`)".to_string(),
                 url: "http://127.0.0.1:8899".to_string(),
                 priority: Some(100),
-                ..Default::default()
             }])
             .unwrap();
 
