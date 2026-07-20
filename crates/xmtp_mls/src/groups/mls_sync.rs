@@ -2955,29 +2955,26 @@ where
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                // Gate the AppDataUpdate path on the capability flag
-                // AND a non-empty component registry. The registry
-                // check keeps unmigrated groups on the legacy path so
-                // a sender doesn't publish commits the receiver would
-                // deny against an empty registry. `load_component_registry`
-                // also consults `TEST_REGISTRY_OVERRIDE`, so tests that
-                // install a fake registry exercise this branch even
-                // before a real bootstrap commit lands.
-                let proposals_on = self.proposals_enabled(openmls_group);
-                let registry_populated =
-                    !super::app_data::load_component_registry(openmls_group)?.is_empty();
+                // Route through AppDataUpdate only on migrated groups,
+                // via the same `is_migrated_group` predicate the
+                // UpdateAdminList / UpdatePermission gates use.
+                // `is_migrated_group` (not `registry.is_empty()`) is the
+                // correct migration signal: `ComponentRegistry::is_empty()`
+                // ignores preserved-but-unrecognized entries, so a migrated
+                // group whose entries were all tolerated as unrecognized
+                // would misreport as empty and mis-route to legacy.
+                let is_migrated = super::app_data::is_migrated_group(openmls_group);
                 tracing::debug!(
                     group_id = %self.group_id,
-                    proposals_enabled = proposals_on,
-                    registry_populated,
-                    path = if proposals_on && registry_populated {
+                    is_migrated,
+                    path = if is_migrated {
                         "app_data_update"
                     } else {
                         "legacy_gce"
                     },
                     "MetadataUpdate intent routing"
                 );
-                if proposals_on && registry_populated {
+                if is_migrated {
                     // Publish a STANDALONE AppDataUpdate proposal followed
                     // by a commit that references it (XIP §1.5.2 / §3.4).
                     // Both wire messages go in one publish batch — the

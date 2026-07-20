@@ -175,6 +175,15 @@ impl From<ComponentTypedError> for ComponentSourceError {
                 component_id: id,
                 reason: "registered ComponentType is Unspecified".to_string(),
             },
+            // A COMPONENT_REGISTRY delta that violates the registry's
+            // write invariants (reserved/hardcoded/out-of-space id,
+            // immutable overwrite, undecodable metadata). Structurally
+            // a malformed value for the registry component; the reason
+            // string carries the specific violation.
+            ComponentTypedError::RegistryMutation(e) => Self::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: e.to_string(),
+            },
         }
     }
 }
@@ -1064,6 +1073,7 @@ fn encode_inbox_id_set_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prost::Message;
     use tls_codec::VLBytes;
     use xmtp_mls_common::{
         app_data::{
@@ -1544,12 +1554,24 @@ mod tests {
     fn test_apply_component_registry_delta_against_empty() {
         // Bootstrap shape: a `TlsMapDelta<ComponentId, VLBytes>` of
         // all-`Insert` mutations applied against an empty map produces
-        // a materialized snapshot containing those entries.
+        // a materialized snapshot containing those entries. Values must
+        // be structurally valid `ComponentMetadata` — registry deltas
+        // are entry-validated at apply.
         let id_a = ComponentId::GROUP_NAME;
         let id_b = ComponentId::GROUP_DESCRIPTION;
+        let meta_a = registry_with(id_a, ComponentType::String)
+            .get(&id_a)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
+        let meta_b = registry_with(id_b, ComponentType::Bytes)
+            .get(&id_b)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
         let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
-            .insert(id_a, VLBytes::new(vec![0x11; 4]))
-            .insert(id_b, VLBytes::new(vec![0x22; 4]));
+            .insert(id_a, VLBytes::new(meta_a.clone()))
+            .insert(id_b, VLBytes::new(meta_b.clone()));
         let payload = delta.tls_serialize_detached().unwrap();
 
         let new_bytes = apply_app_data_update_payload(
@@ -1563,11 +1585,11 @@ mod tests {
         assert_eq!(map.len(), 2);
         assert_eq!(
             map.get(&id_a).map(|v| v.as_slice()),
-            Some([0x11; 4].as_slice())
+            Some(meta_a.as_slice())
         );
         assert_eq!(
             map.get(&id_b).map(|v| v.as_slice()),
-            Some([0x22; 4].as_slice())
+            Some(meta_b.as_slice())
         );
     }
 
