@@ -4027,6 +4027,129 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     );
 }
 
+/// Downgrade safety: pausing normally happens at the floor-*bump* commit
+/// (the post-policy `ProtocolVersionTooLow` check), but a client that
+/// processed the bump while ABOVE the floor and then downgrades never
+/// took that pause — its DB holds a migrated group whose committed
+/// floor exceeds its (new, lower) version, with `paused_for_version`
+/// unset. The next sync must pause the group from the committed dict
+/// floor (the pause-before-parse guards) rather than surface commit
+/// processing errors: a non-retryable rejection here is a fork, since
+/// above-floor peers accept the same commits.
+///
+/// Emulates the downgrade by re-opening the same persistent store with
+/// a client built at a lower pkg_version, mirroring the restart pattern
+/// in `test::builder::identity_persistence_test`. The post-bump commit
+/// in this test uses a format both versions understand, so it pins the
+/// end state (paused, at the right floor, no error) rather than
+/// distinguishing which floor check fired first; the guard ordering
+/// (pre-dispatch, before any payload is interpreted) is pinned by the
+/// unit tests on `committed_floor_exceeding_in_extensions` plus the
+/// guard's placement in `process_message_with_app_data`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_downgraded_client_pauses_on_migrated_group_with_higher_floor() {
+    use crate::builder::ClientBuilder;
+    use crate::client::Client;
+    use crate::groups::tests::increment_patch_version;
+    use crate::identity::IdentityStrategy;
+    use crate::utils::{DefaultTestClientCreator, VersionInfo, test::register_client};
+    use xmtp_common::tmp_path;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::XmtpTestDb;
+    use xmtp_id::InboxOwner;
+    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+
+    // Both clients start one patch above the default version so the
+    // floor can be raised to a value the default version doesn't meet.
+    let mut high_version = VersionInfo::default();
+    let bumped = increment_patch_version(high_version.pkg_version()).expect("patch bump");
+    high_version.test_update_version(&bumped);
+
+    let alix =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), high_version.clone())
+            .await;
+
+    // Bo lives on a persistent store so the same identity can be
+    // re-opened at a lower version below.
+    let bo_wallet = generate_local_wallet();
+    let bo_db_path = tmp_path();
+    let bo_ident = bo_wallet.get_identifier()?;
+    let bo_nonce = 1;
+    let bo_inbox_id = bo_ident.inbox_id(bo_nonce)?;
+    let bo_strategy = IdentityStrategy::new(bo_inbox_id.clone(), bo_ident.clone(), bo_nonce, None);
+
+    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path.clone())).await;
+    let bo = Client::builder(bo_strategy.clone())
+        .api_client(DefaultTestClientCreator::create().build()?)
+        .store(bo_store)
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .version(high_version.clone())
+        .build()
+        .await?;
+    register_client(&bo, &bo_wallet).await;
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups
+        .iter()
+        .find(|g| g.group_id == alix_group.group_id)
+        .expect("bo should receive a welcome for alix_group");
+    bo_group.sync().await?;
+
+    // Migrate with the 0.0.0 test floor so nobody pauses at bootstrap.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    // Raise the floor to the bumped version. Bo — at that same version —
+    // processes the bump WITHOUT pausing: he meets the floor.
+    alix_group.update_group_min_version(&bumped).await?;
+    bo_group.sync().await?;
+    assert!(
+        bo_group.paused_for_version()?.is_none(),
+        "bo meets the floor pre-downgrade and must not be paused"
+    );
+
+    // Traffic lands after the bump; the downgraded client below will
+    // meet this commit as the first thing it processes.
+    alix_group
+        .update_group_name("post-bump name".to_string())
+        .await?;
+
+    // The downgrade: re-open bo's store with a client at the DEFAULT
+    // (lower) pkg_version.
+    let bo_group_id = bo_group.group_id;
+    drop(bo);
+    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path)).await;
+    let bo_downgraded = Client::builder(bo_strategy)
+        .api_client(DefaultTestClientCreator::create().build()?)
+        .store(bo_store)
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .version(VersionInfo::default())
+        .build()
+        .await?;
+
+    let bo_group = bo_downgraded.group(&bo_group_id)?;
+    // The sync may surface the pause as a per-message outcome; the
+    // assertion below is the contract, not the sync result.
+    let _ = bo_group.sync().await;
+
+    assert_eq!(
+        bo_group.paused_for_version()?.as_deref(),
+        Some(bumped.as_str()),
+        "a downgraded client below the committed floor must pause the group \
+         (deferring all commits for post-upgrade reprocessing), never surface \
+         processing errors that would advance past peers"
+    );
+}
+
 /// Pause recovery: a client that's been pinned to `paused_for_version`
 /// gets the flag cleared once their `pkg_version` catches up. Without
 /// this sweep a paused group could stay paused indefinitely on quiet
