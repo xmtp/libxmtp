@@ -40,6 +40,7 @@ use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::C
 use self::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
+use crate::groups::validated_commit::LibXMTPVersion;
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
@@ -220,14 +221,14 @@ where
 /// Callers replace `mls_group.process_message(provider, message)` with
 /// `process_message_with_app_data(mls_group, provider, message)` and get
 /// back the same `ProcessedMessage` they used to.
-/// `own_version` is the client's pkg_version (threaded from the caller's
+/// `own` is the client's parsed pkg_version (threaded from the caller's
 /// context rather than read from a constant so cross-version tests can
 /// override it).
 pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     message: impl Into<ProtocolMessage>,
-    own_version: &str,
+    own: &LibXMTPVersion,
 ) -> Result<ProcessedMessage, ProcessMessageWithAppDataError<Provider::StorageError>> {
     let unverified = mls_group.unprotect_message(provider, message)?;
 
@@ -249,10 +250,10 @@ pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
             // pausing on unvalidated input would let any member freeze
             // the group for everyone. Application messages are
             // unaffected (`committed_proposals()` is `None` for them).
-            if let Some(min_version) = committed_floor_exceeding(mls_group, own_version) {
+            if let Some(min_version) = committed_floor_exceeding(mls_group, own) {
                 return Err(ProcessMessageWithAppDataError::ProtocolVersionTooLow {
                     min_version,
-                    own_version: own_version.to_string(),
+                    own_version: own.to_string(),
                 });
             }
             // Collect owned (id, operation) tuples so the iterator doesn't
@@ -620,9 +621,9 @@ pub(crate) fn load_component_registry(
 /// treatment of malformed priors: garbage must never brick the group.
 pub(crate) fn committed_floor_exceeding(
     mls_group: &OpenMlsGroup,
-    own_version: &str,
+    own: &LibXMTPVersion,
 ) -> Option<String> {
-    committed_floor_exceeding_in_extensions(mls_group.extensions(), own_version)
+    committed_floor_exceeding_in_extensions(mls_group.extensions(), own)
 }
 
 /// Extensions-only variant of [`committed_floor_exceeding`], split out
@@ -631,19 +632,16 @@ pub(crate) fn committed_floor_exceeding(
 /// `OpenMlsGroup`.
 pub(crate) fn committed_floor_exceeding_in_extensions(
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
-    own_version: &str,
+    own: &LibXMTPVersion,
 ) -> Option<String> {
-    use super::validated_commit::LibXMTPVersion;
-
     let bytes = extensions
         .app_data_dictionary()?
         .dictionary()
         .get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16())?
         .to_vec();
     let floor = String::from_utf8(bytes).ok()?;
-    let own = LibXMTPVersion::parse(own_version).ok()?;
     let floor_version = LibXMTPVersion::parse(&floor).ok()?;
-    (floor_version > own).then_some(floor)
+    (floor_version > *own).then_some(floor)
 }
 
 /// Extensions-only variant of [`load_component_registry`]. Mirrors the
@@ -730,6 +728,13 @@ mod tests {
         Extensions::from_vec(vec![]).expect("empty extensions are always valid")
     }
 
+    /// Parse a semver string the way the production caller does (once, from
+    /// the client's own `pkg_version`). Panics on invalid input — matching
+    /// `VersionInfo`, which asserts its own version is valid at construction.
+    fn ver(s: &str) -> LibXMTPVersion {
+        LibXMTPVersion::parse(s).unwrap()
+    }
+
     #[test]
     fn unmigrated_without_override_is_not_migrated() {
         // Invariant (a): no dict, no override → legacy authoritative.
@@ -808,7 +813,7 @@ mod tests {
             b"2.0.0".to_vec(),
         )]);
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.11.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
             Some("2.0.0".to_string())
         );
         // Prerelease floors order correctly under semver: 1.11.0-dev
@@ -818,11 +823,11 @@ mod tests {
             b"1.11.0-dev".to_vec(),
         )]);
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.10.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.10.0")),
             Some("1.11.0-dev".to_string())
         );
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.11.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
             None
         );
     }
@@ -835,12 +840,12 @@ mod tests {
         )]);
         // Equal: not paused — the floor is inclusive.
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.11.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
             None
         );
         // Above: not paused.
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.12.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.12.0")),
             None
         );
     }
@@ -848,17 +853,17 @@ mod tests {
     #[test]
     fn missing_floor_or_dict_does_not_fire() {
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&empty_extensions(), "1.11.0"),
+            committed_floor_exceeding_in_extensions(&empty_extensions(), &ver("1.11.0")),
             None
         );
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&extensions_with_dict(&[]), "1.11.0"),
+            committed_floor_exceeding_in_extensions(&extensions_with_dict(&[]), &ver("1.11.0")),
             None
         );
         // Dict present with other components but no floor entry.
         let exts = extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"name".to_vec())]);
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.11.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
             None
         );
     }
@@ -871,28 +876,21 @@ mod tests {
             vec![0xFF, 0xFE],
         )]);
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.11.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
             None
         );
-        // Unparseable semver → no floor.
+        // Unparseable floor semver → no floor.
         let exts = extensions_with_dict(&[(
             ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
             b"not-a-version".to_vec(),
         )]);
         assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "1.11.0"),
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
             None
         );
-        // Own version unparseable (shouldn't happen in a real build) →
-        // skip the guard rather than pausing on garbage.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"2.0.0".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, "garbage"),
-            None
-        );
+        // The client's own version can no longer be unparseable here: it is
+        // parsed once and asserted valid when `VersionInfo` is built, so this
+        // guard only ever compares against a valid `LibXMTPVersion`.
     }
 
     // ========================================================================
