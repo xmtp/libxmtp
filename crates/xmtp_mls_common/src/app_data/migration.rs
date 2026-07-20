@@ -519,6 +519,17 @@ pub struct CanonicalBootstrapExpectation {
 /// Compute the [`CanonicalBootstrapExpectation`] from a pre-flip
 /// group's state. **Sync, fully local** — no API calls — so every
 /// honest receiver produces bit-identical output.
+///
+/// **ENCODING FREEZE.** The `strict` map this produces is byte-compared
+/// by every fielded validator against incoming bootstrap commits, and
+/// groups migrate lazily — so for any input an already-shipped receiver
+/// can encounter, this encoding is permanent. The
+/// `golden_bootstrap_synthesis_*` tests pin it byte-for-byte. An
+/// encoder change is only shippable together with a
+/// `PROPOSALS_MIN_PROTOCOL_VERSION` bump (below-floor receivers pause
+/// via the floor check in `validate_bootstrap_commit` instead of
+/// byte-comparing), and the old expectation logic must keep validating
+/// bootstraps produced by older senders.
 pub fn synthesize_canonical_subset_for_validation(
     mls_group: &OpenMlsGroup,
 ) -> Result<CanonicalBootstrapExpectation, MigrationError> {
@@ -1692,6 +1703,185 @@ mod tests {
             err,
             MigrationError::InvalidFailedInstallationLength(16)
         ));
+    }
+
+    /// Format one strict entry as a stable, diffable line.
+    fn strict_lines(subset: &CanonicalBootstrapExpectation) -> Vec<String> {
+        subset
+            .strict
+            .iter()
+            .map(|(id, (op, bytes))| format!("{id} {op:?} {}", hex::encode(bytes)))
+            .collect()
+    }
+
+    /// A fully-populated legacy fixture: every metadata attribute set,
+    /// non-empty admin/super-admin lists. Fixed values only — the
+    /// golden tests below pin the synthesis encoder's exact output.
+    fn golden_gmm() -> crate::group_mutable_metadata::GroupMutableMetadata {
+        use crate::group_mutable_metadata::MetadataField;
+        let mut attributes = std::collections::HashMap::new();
+        attributes.insert(
+            MetadataField::GroupName.to_string(),
+            "Golden Group".to_string(),
+        );
+        attributes.insert(
+            MetadataField::Description.to_string(),
+            "golden description".to_string(),
+        );
+        attributes.insert(
+            MetadataField::GroupImageUrlSquare.to_string(),
+            "https://example.com/golden.png".to_string(),
+        );
+        attributes.insert(
+            MetadataField::AppData.to_string(),
+            "golden-app-data".to_string(),
+        );
+        attributes.insert(
+            MetadataField::MinimumSupportedProtocolVersion.to_string(),
+            "1.11.0".to_string(),
+        );
+        attributes.insert(
+            MetadataField::MessageDisappearFromNS.to_string(),
+            "1000000000".to_string(),
+        );
+        attributes.insert(
+            MetadataField::MessageDisappearInNS.to_string(),
+            "2000000000".to_string(),
+        );
+        attributes.insert(
+            MetadataField::CommitLogSigner.to_string(),
+            hex::encode([0xAB; 32]),
+        );
+        crate::group_mutable_metadata::GroupMutableMetadata::new(
+            attributes,
+            vec![hex_inbox(0x22)],
+            vec![hex_inbox(0x33)],
+        )
+    }
+
+    /// GOLDEN VECTORS — the strict byte-compare surface of the
+    /// bootstrap synthesis encoder, pinned byte-for-byte.
+    ///
+    /// Every fielded validator re-synthesizes these exact bytes from
+    /// pre-flip group state and byte-compares them against incoming
+    /// bootstrap commits (`bootstrap_validator.rs`), and groups migrate
+    /// lazily — so this encoding must never change for inputs that old
+    /// receivers can see. If this test fails, you have changed the
+    /// bootstrap wire encoding: that is only shippable together with a
+    /// `PROPOSALS_MIN_PROTOCOL_VERSION` bump (below-floor receivers
+    /// then pause instead of byte-comparing — see the floor check in
+    /// `validate_bootstrap_commit`), and the old expectation code must
+    /// keep validating bootstraps produced by older senders. Do NOT
+    /// simply re-pin the hex to make the test pass.
+    #[test]
+    fn golden_bootstrap_synthesis_group() {
+        let exts = build_test_extensions(
+            golden_gmm(),
+            minimal_default_policy_set(),
+            empty_membership(),
+            plain_group_metadata(),
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        let expected: Vec<String> = [
+            // SUPER_ADMIN_LIST (0x8001): TlsSet<InboxId>, one element
+            // (vlen 0x22=34, then TLS-framed versioned InboxId).
+            "0x8001 Update 2200003333333333333333333333333333333333333333333333333333333333333333",
+            // ADMIN_LIST (0x8002): TlsSet<InboxId>, one element.
+            "0x8002 Update 2200002222222222222222222222222222222222222222222222222222222222222222",
+            // GROUP_NAME (0x8004): utf-8 passthrough.
+            "0x8004 Update 476f6c64656e2047726f7570",
+            // GROUP_DESCRIPTION (0x8005)
+            "0x8005 Update 676f6c64656e206465736372697074696f6e",
+            // GROUP_IMAGE_URL (0x8006)
+            "0x8006 Update 68747470733a2f2f6578616d706c652e636f6d2f676f6c64656e2e706e67",
+            // MESSAGE_DISAPPEAR_FROM_NS (0x8007): 8-byte BE i64 1_000_000_000.
+            "0x8007 Update 000000003b9aca00",
+            // MESSAGE_DISAPPEAR_IN_NS (0x8008): 8-byte BE i64 2_000_000_000.
+            "0x8008 Update 0000000077359400",
+            // APP_DATA (0x8009)
+            "0x8009 Update 676f6c64656e2d6170702d64617461",
+            // MIN_SUPPORTED_PROTOCOL_VERSION (0x800A): utf-8 "1.11.0".
+            "0x800A Update 312e31312e30",
+            // COMMIT_LOG_SIGNER (0x800B): raw 32 key bytes.
+            "0x800B Update abababababababababababababababababababababababababababababababab",
+            // CREATOR_INBOX_ID (0xBFFE): versioned InboxId (varint v0 + 32 bytes).
+            "0xBFFE Update 001111111111111111111111111111111111111111111111111111111111111111",
+            // CONVERSATION_TYPE (0xBFFF): BE i32, Group = 1.
+            "0xBFFF Update 00000001",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        assert_eq!(
+            strict_lines(&subset),
+            expected,
+            "bootstrap synthesis encoder output changed — see the doc comment \
+             on this test before touching the pins"
+        );
+    }
+
+    /// DM + oneshot variant of [`golden_bootstrap_synthesis_group`] —
+    /// covers the optional strict seeds (DM_MEMBERS, ONESHOT_MESSAGE)
+    /// the plain-group vector can't. Same freeze rules apply.
+    #[test]
+    fn golden_bootstrap_synthesis_dm_with_oneshot() {
+        let dm_members = crate::group_metadata::DmMembers {
+            member_one_inbox_id: hex_inbox(0x22),
+            member_two_inbox_id: hex_inbox(0x33),
+        };
+        // Empty proto: zero encoded bytes, but the presence-gated seed
+        // still appears in strict — a stable pin that doesn't depend
+        // on OneshotMessage's inner shape.
+        let oneshot =
+            xmtp_proto::xmtp::mls::message_contents::OneshotMessage { message_type: None };
+        let metadata = crate::group_metadata::GroupMetadata::new(
+            xmtp_db::group::ConversationType::Dm,
+            hex_inbox(0x22),
+            Some(dm_members),
+            Some(oneshot),
+        );
+        let exts = build_test_extensions(
+            golden_gmm(),
+            minimal_default_policy_set(),
+            empty_membership(),
+            metadata,
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        let expected: Vec<String> = [
+            "0x8001 Update 2200003333333333333333333333333333333333333333333333333333333333333333",
+            "0x8002 Update 2200002222222222222222222222222222222222222222222222222222222222222222",
+            "0x8004 Update 476f6c64656e2047726f7570",
+            "0x8005 Update 676f6c64656e206465736372697074696f6e",
+            "0x8006 Update 68747470733a2f2f6578616d706c652e636f6d2f676f6c64656e2e706e67",
+            "0x8007 Update 000000003b9aca00",
+            "0x8008 Update 0000000077359400",
+            "0x8009 Update 676f6c64656e2d6170702d64617461",
+            "0x800A Update 312e31312e30",
+            "0x800B Update abababababababababababababababababababababababababababababababab",
+            // ONESHOT_MESSAGE (0xBFFC): prost encoding of the empty
+            // proto — zero bytes, seed present.
+            "0xBFFC Update ",
+            // DM_MEMBERS (0xBFFD): TlsSet<InboxId> of both members
+            // (two-byte vlen 0x4044 = 68, elements in sorted order).
+            "0xBFFD Update 40440000222222222222222222222222222222222222222222222222222222222222222200003333333333333333333333333333333333333333333333333333333333333333",
+            // CREATOR_INBOX_ID (0xBFFE): versioned InboxId.
+            "0xBFFE Update 002222222222222222222222222222222222222222222222222222222222222222",
+            // CONVERSATION_TYPE (0xBFFF): BE i32, Dm = 2.
+            "0xBFFF Update 00000002",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        assert_eq!(
+            strict_lines(&subset),
+            expected,
+            "bootstrap synthesis encoder output changed — see the doc comment \
+             on golden_bootstrap_synthesis_group before touching the pins"
+        );
     }
 
     #[test]

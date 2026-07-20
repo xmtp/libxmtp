@@ -3841,6 +3841,131 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
     );
 }
 
+/// Bootstrap-time pause path: a receiver validating a bootstrap commit
+/// whose seeded `MIN_SUPPORTED_PROTOCOL_VERSION` exceeds its own
+/// version must PAUSE at the bootstrap (`ProtocolVersionTooLow`), not
+/// byte-compare it. Reachable only via a downgrade between the step-A
+/// legacy floor bump and the bootstrap: step-A normally pauses
+/// below-floor members before they ever see step-B.
+///
+/// This test is fully differential for the bootstrap floor check:
+/// without it, the downgraded receiver's byte-compare SUCCEEDS (its
+/// synthesized expectation reads the same floor value from the
+/// pre-flip GMM — value equality, no version comparison) and it merges
+/// the bootstrap, ending migrated-and-unpaused in a group whose floor
+/// it doesn't meet. With the check it ends unmigrated-and-paused, and
+/// reprocesses the bootstrap with upgraded code later.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_downgraded_client_pauses_at_bootstrap_seeding_higher_floor() {
+    use crate::builder::ClientBuilder;
+    use crate::client::Client;
+    use crate::groups::tests::increment_patch_version;
+    use crate::identity::IdentityStrategy;
+    use crate::utils::{DefaultTestClientCreator, VersionInfo, test::register_client};
+    use xmtp_common::tmp_path;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::XmtpTestDb;
+    use xmtp_id::InboxOwner;
+    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+
+    // Both clients run one patch above the default so the legacy floor
+    // can be raised to a value the default version doesn't meet.
+    let mut high_version = VersionInfo::default();
+    let bumped = increment_patch_version(high_version.pkg_version()).expect("patch bump");
+    high_version.test_update_version(&bumped);
+
+    let alix =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), high_version.clone())
+            .await;
+
+    // Bo lives on a persistent store so the same identity can be
+    // re-opened at a lower version mid-flow.
+    let bo_wallet = generate_local_wallet();
+    let bo_db_path = tmp_path();
+    let bo_ident = bo_wallet.get_identifier()?;
+    let bo_nonce = 1;
+    let bo_strategy = IdentityStrategy::new(
+        bo_ident.inbox_id(bo_nonce)?,
+        bo_ident.clone(),
+        bo_nonce,
+        None,
+    );
+
+    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path.clone())).await;
+    let bo = Client::builder(bo_strategy.clone())
+        .api_client(DefaultTestClientCreator::create().build()?)
+        .store(bo_store)
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .version(high_version.clone())
+        .build()
+        .await?;
+    register_client(&bo, &bo_wallet).await;
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups
+        .iter()
+        .find(|g| g.group_id == alix_group.group_id)
+        .expect("bo should receive a welcome for alix_group");
+    bo_group.sync().await?;
+
+    // Step-A equivalent, processed by bo at the HIGH version: raise the
+    // legacy GMM floor to `bumped`. Bo meets it — no pause.
+    alix_group.update_group_min_version_to_match_self().await?;
+    bo_group.sync().await?;
+    assert!(
+        bo_group.paused_for_version()?.is_none(),
+        "bo meets the legacy floor pre-downgrade and must not be paused"
+    );
+
+    // The downgrade, BETWEEN the legacy bump and the bootstrap.
+    let bo_group_id = bo_group.group_id;
+    drop(bo);
+    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path)).await;
+    let bo_downgraded = Client::builder(bo_strategy)
+        .api_client(DefaultTestClientCreator::create().build()?)
+        .store(bo_store)
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .version(VersionInfo::default())
+        .build()
+        .await?;
+
+    // Alix migrates. `enable_proposals` skips its own step-A bump (the
+    // current floor already satisfies the test floor), and the
+    // bootstrap synthesis seeds `MIN_SUPPORTED_PROTOCOL_VERSION` from
+    // the GMM attribute — i.e. `bumped`.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    // The bootstrap is the first commit the downgraded bo processes.
+    let bo_group = bo_downgraded.group(&bo_group_id)?;
+    let _ = bo_group.sync().await;
+
+    assert_eq!(
+        bo_group.paused_for_version()?.as_deref(),
+        Some(bumped.as_str()),
+        "a downgraded receiver must pause AT the bootstrap seeding a floor above \
+         its version, deferring it for post-upgrade reprocessing"
+    );
+    let bo_migrated = bo_group
+        .load_mls_group_with_lock_async(async |g| {
+            Ok::<bool, crate::groups::GroupError>(bo_group.proposals_enabled(&g))
+        })
+        .await?;
+    assert!(
+        !bo_migrated,
+        "the paused bootstrap must NOT have been merged — pre-fix the byte-compare \
+         accepted it and bo ended migrated in a group whose floor it doesn't meet"
+    );
+}
+
 /// XIP §3 welcome-time pause path: when a new member is welcomed into a
 /// fully-migrated group whose AppData dict carries a
 /// `MIN_SUPPORTED_PROTOCOL_VERSION` higher than the joiner's pkg_version,
