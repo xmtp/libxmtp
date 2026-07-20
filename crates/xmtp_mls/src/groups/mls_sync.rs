@@ -2930,7 +2930,7 @@ where
                                 );
 
                                 handle_published_intent_send_failure(&db, &intent)?;
-                                return Err(err)?;
+                                Err(err)?;
                             }
                             (kind, Ok(_)) => {
                                 log_event!(
