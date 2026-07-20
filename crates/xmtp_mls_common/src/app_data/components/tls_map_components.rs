@@ -26,7 +26,7 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 use crate::{
     app_data::{
         component_id::ComponentId,
-        component_registry::ComponentOp,
+        component_registry::{ComponentOp, ComponentRegistry, ComponentRegistryError},
         typed::{Component, ComponentTypedError, ExpandedComponentChange},
     },
     inbox_id::InboxId,
@@ -110,29 +110,42 @@ where
         }]),
         AppDataUpdateOperation::Update(payload) => {
             let delta = TlsMapDelta::<K, VLBytes>::tls_deserialize_exact(payload.as_slice())?;
-            let mut out = Vec::with_capacity(delta.mutations.len());
-            for mutation in delta.mutations {
-                match mutation {
-                    TlsMapMutation::Insert { value, .. } => out.push(ExpandedComponentChange {
-                        op: ComponentOp::Insert,
-                        value: Some(value.as_slice().to_vec()),
-                    }),
-                    TlsMapMutation::Update { value, .. } => out.push(ExpandedComponentChange {
-                        op: ComponentOp::Update,
-                        value: Some(value.as_slice().to_vec()),
-                    }),
-                    TlsMapMutation::Delete { key } => {
-                        let key_bytes = key.tls_serialize_detached()?;
-                        out.push(ExpandedComponentChange {
-                            op: ComponentOp::Delete,
-                            value: Some(key_bytes),
-                        });
-                    }
-                }
-            }
-            Ok(out)
+            expand_decoded_tls_map_delta(delta)
         }
     }
+}
+
+/// Expansion body shared by [`expand_tls_map_changes`] and the
+/// registry-specific [`ComponentRegistryComponent::expand_to_changes`]
+/// override (which validates the decoded delta first and must not
+/// decode the payload twice).
+fn expand_decoded_tls_map_delta<K>(
+    delta: TlsMapDelta<K, VLBytes>,
+) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError>
+where
+    K: tls_codec::Serialize + tls_codec::Size,
+{
+    let mut out = Vec::with_capacity(delta.mutations.len());
+    for mutation in delta.mutations {
+        match mutation {
+            TlsMapMutation::Insert { value, .. } => out.push(ExpandedComponentChange {
+                op: ComponentOp::Insert,
+                value: Some(value.as_slice().to_vec()),
+            }),
+            TlsMapMutation::Update { value, .. } => out.push(ExpandedComponentChange {
+                op: ComponentOp::Update,
+                value: Some(value.as_slice().to_vec()),
+            }),
+            TlsMapMutation::Delete { key } => {
+                let key_bytes = key.tls_serialize_detached()?;
+                out.push(ExpandedComponentChange {
+                    op: ComponentOp::Delete,
+                    value: Some(key_bytes),
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 // ============================================================================
@@ -195,7 +208,84 @@ impl Component for GroupMembershipComponent {
 /// value is the prost-encoded
 /// [`ComponentMetadata`](xmtp_proto::xmtp::mls::message_contents::ComponentMetadata)
 /// describing one registered component.
+///
+/// Unlike the other map component, this impl validates every mutation
+/// in an incoming delta against the registry's write invariants (see
+/// [`validate_registry_delta`]) before applying or expanding it. The
+/// registry is load-bearing for *all* app-data validation — every
+/// policy lookup and every type-aware dispatch decodes it — so a
+/// single invalid entry accepted here would poison every subsequent
+/// [`ComponentRegistry::from_bytes`] load for every member of the
+/// group.
 pub struct ComponentRegistryComponent;
+
+/// Validate every mutation in a `COMPONENT_REGISTRY` delta against the
+/// registry's write invariants, mirroring what
+/// [`ComponentRegistry::set`] / [`ComponentRegistry::remove`] enforce
+/// for local writes:
+///
+/// - Insert/Update: the entry must pass
+///   [`ComponentRegistry::validate_entry`] (id in the component space,
+///   not reserved, not hardcoded, metadata decodable and structurally
+///   complete), and Updates must not target an immutable-range id
+///   (write-once).
+/// - Delete: the id must be modifiable at all — deletes of
+///   out-of-space / reserved / hardcoded / immutable ids are rejected.
+///   The tolerant [`ComponentRegistry::from_bytes`] means a poisoned
+///   dict CAN carry entries under such ids (preserved-but-invisible),
+///   so this arm is a deliberate policy choice, not dead code:
+///   non-modifiable poisoned entries are intentionally NOT
+///   wire-repairable via Delete. Deny-by-default already keeps them
+///   harmless, and keeping the non-modifiable ranges closed to every
+///   wire write beats opening a repair path nobody should need.
+///   (Poisoned entries under modifiable ids remain repairable — their
+///   Delete passes this check and removes the raw entry at apply.)
+///
+/// Shared by [`ComponentRegistryComponent::apply_update_payload`] and
+/// [`ComponentRegistryComponent::expand_to_changes`], so both call
+/// sites judge a delta's mutations identically. Scope caveat: this
+/// helper only sees `Update` payloads (the `TlsMapDelta`). The
+/// whole-registry `AppDataUpdateOperation::Remove` rejection in
+/// `expand_to_changes` is enforced only during commit validation
+/// (`ValidatedCommit::from_staged_commit` in `xmtp_mls`) — the apply
+/// pipeline (`accumulate_app_data_updates` in
+/// `xmtp_mls::groups::app_data`) maps `Remove` straight to a dict
+/// removal without consulting this component impl, and does not
+/// re-check because both current commit-processing paths validate
+/// before applying. The Remove ban is a validator-side guarantee, not
+/// an apply-time one.
+fn validate_registry_delta(
+    delta: &TlsMapDelta<ComponentId, VLBytes>,
+) -> Result<(), ComponentTypedError> {
+    for mutation in &delta.mutations {
+        match mutation {
+            TlsMapMutation::Insert { key, value } => {
+                ComponentRegistry::validate_entry(*key, value.as_slice())?;
+            }
+            TlsMapMutation::Update { key, value } => {
+                ComponentRegistry::validate_entry(*key, value.as_slice())?;
+                if key.is_immutable() {
+                    return Err(ComponentRegistryError::ImmutableComponent(*key).into());
+                }
+            }
+            TlsMapMutation::Delete { key } => {
+                if !key.is_in_component_space() {
+                    return Err(ComponentRegistryError::InvalidComponentId(*key).into());
+                }
+                if key.is_reserved() {
+                    return Err(ComponentRegistryError::ReservedRange(*key).into());
+                }
+                if key.is_hardcoded() {
+                    return Err(ComponentRegistryError::HardcodedComponent(*key).into());
+                }
+                if key.is_immutable() {
+                    return Err(ComponentRegistryError::ImmutableComponent(*key).into());
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 impl Component for ComponentRegistryComponent {
     const ID: ComponentId = ComponentId::COMPONENT_REGISTRY;
@@ -222,25 +312,75 @@ impl Component for ComponentRegistryComponent {
         payload: &[u8],
         prior: Option<&[u8]>,
     ) -> Result<Vec<u8>, ComponentTypedError> {
-        apply_tls_map_delta::<ComponentId>(payload, prior)
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(payload)?;
+        validate_registry_delta(&delta)?;
+        let mut map = match prior {
+            Some(bytes) => TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?,
+            None => TlsMap::new(),
+        };
+        map.apply_delta(delta)?;
+        Ok(map.tls_serialize_detached()?)
     }
 
     fn expand_to_changes(
         op: &AppDataUpdateOperation,
-        prior: Option<&[u8]>,
+        _prior: Option<&[u8]>,
     ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
-        expand_tls_map_changes::<ComponentId>(op, prior)
+        match op {
+            // Removing the entire registry component is never legal —
+            // the registry is what makes every other app-data write
+            // validatable (deny-by-default keys off its entries), and
+            // its absence is also the "unmigrated group" marker. A
+            // commit deleting it would strand the group in a
+            // validated-but-unreadable state. `HardcodedComponent`
+            // is the same verdict `ComponentRegistry::remove` gives
+            // for this id.
+            AppDataUpdateOperation::Remove => Err(ComponentRegistryError::HardcodedComponent(
+                ComponentId::COMPONENT_REGISTRY,
+            )
+            .into()),
+            AppDataUpdateOperation::Update(payload) => {
+                let delta =
+                    TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(payload.as_slice())?;
+                validate_registry_delta(&delta)?;
+                expand_decoded_tls_map_delta(delta)
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::component_permissions::component_permissions;
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy as MetadataPolicyProto,
+        metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    };
 
     fn fixture_inbox_id(seed: u8) -> InboxId {
         let mut bytes = [0u8; 32];
         bytes[0] = seed;
         InboxId::from_bytes(bytes)
+    }
+
+    /// Encoded, structurally valid `ComponentMetadata` bytes — registry
+    /// deltas are entry-validated on apply/expand, so tests must carry
+    /// real metadata, not placeholder strings.
+    fn valid_meta_bytes() -> Vec<u8> {
+        let allow = MetadataPolicyProto {
+            kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Allow as i32)),
+        };
+        crate::app_data::component_registry::new_component_metadata(
+            component_permissions()
+                .insert(allow.clone())
+                .update(allow.clone())
+                .delete(allow)
+                .call(),
+            ComponentType::Bytes,
+        )
+        .encode_to_vec()
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -373,26 +513,34 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn component_registry_apply_update_replaces_metadata() {
+        let old_meta = valid_meta_bytes();
+        let mut new_meta = valid_meta_bytes();
+        // Same structural validity, different type tag so the
+        // replacement is observable.
+        new_meta = {
+            let mut decoded = xmtp_proto::xmtp::mls::message_contents::ComponentMetadata::decode(
+                new_meta.as_slice(),
+            )
+            .unwrap();
+            decoded.component_type = ComponentType::String as i32;
+            decoded.encode_to_vec()
+        };
+
         let mut prior_map: TlsMap<ComponentId, VLBytes> = TlsMap::new();
         prior_map
-            .insert(
-                ComponentId::GROUP_NAME,
-                VLBytes::new(b"old-policy".to_vec()),
-            )
+            .insert(ComponentId::GROUP_NAME, VLBytes::new(old_meta))
             .unwrap();
         let prior_bytes = ComponentRegistryComponent::encode_value(&prior_map).unwrap();
 
-        let delta = TlsMapDelta::<ComponentId, VLBytes>::new().update(
-            ComponentId::GROUP_NAME,
-            VLBytes::new(b"new-policy".to_vec()),
-        );
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
+            .update(ComponentId::GROUP_NAME, VLBytes::new(new_meta.clone()));
         let payload = ComponentRegistryComponent::encode_mutation(&delta).unwrap();
         let new_bytes =
             ComponentRegistryComponent::apply_update_payload(&payload, Some(&prior_bytes)).unwrap();
         let new = ComponentRegistryComponent::decode_value(&new_bytes).unwrap();
         assert_eq!(
             new.get(&ComponentId::GROUP_NAME).unwrap().as_slice(),
-            b"new-policy"
+            new_meta.as_slice()
         );
     }
 
@@ -400,14 +548,127 @@ mod tests {
     fn component_registry_apply_batched_delta_atomically() {
         // Bulk-register two custom components in one proposal.
         let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
-            .insert(ComponentId::new(0xC100), VLBytes::new(b"meta1".to_vec()))
-            .insert(ComponentId::new(0xC101), VLBytes::new(b"meta2".to_vec()));
+            .insert(ComponentId::new(0xC100), VLBytes::new(valid_meta_bytes()))
+            .insert(ComponentId::new(0xC101), VLBytes::new(valid_meta_bytes()));
         let payload = ComponentRegistryComponent::encode_mutation(&delta).unwrap();
         let new_bytes = ComponentRegistryComponent::apply_update_payload(&payload, None).unwrap();
         let new = ComponentRegistryComponent::decode_value(&new_bytes).unwrap();
         assert_eq!(new.len(), 2);
         assert!(new.get(&ComponentId::new(0xC100)).is_some());
         assert!(new.get(&ComponentId::new(0xC101)).is_some());
+    }
+
+    // ------------------------------------------------------------------
+    // Registry delta entry-validation (apply + expand must agree)
+    // ------------------------------------------------------------------
+
+    /// Apply and expand must return the same verdict for the same
+    /// delta — they share `validate_registry_delta`, and this pins it.
+    fn assert_registry_delta_rejected_everywhere(delta: TlsMapDelta<ComponentId, VLBytes>) {
+        let payload = ComponentRegistryComponent::encode_mutation(&delta).unwrap();
+        let apply_err = ComponentRegistryComponent::apply_update_payload(&payload, None);
+        assert!(
+            matches!(apply_err, Err(ComponentTypedError::RegistryMutation(_))),
+            "apply must reject, got {apply_err:?}"
+        );
+        let op = AppDataUpdateOperation::Update(payload.into());
+        let expand_err = ComponentRegistryComponent::expand_to_changes(&op, None);
+        assert!(
+            matches!(expand_err, Err(ComponentTypedError::RegistryMutation(_))),
+            "expand must reject, got {expand_err:?}"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_rejects_reserved_range_insert() {
+        // THE poison case: a reserved-range entry accepted into the
+        // dict would fail every subsequent registry load. It must be
+        // rejected at the wire, on both the apply and validate paths.
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new()
+                .insert(ComponentId::new(0xFF00), VLBytes::new(valid_meta_bytes())),
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_rejects_hardcoded_insert() {
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new().insert(
+                ComponentId::SUPER_ADMIN_LIST,
+                VLBytes::new(valid_meta_bytes()),
+            ),
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_rejects_out_of_space_insert() {
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new()
+                .insert(ComponentId::new(0x0001), VLBytes::new(valid_meta_bytes())),
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_rejects_undecodable_metadata_insert() {
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new().insert(
+                ComponentId::new(0xC100),
+                VLBytes::new(vec![0xFF, 0xFF, 0xFF, 0xFF]),
+            ),
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_rejects_immutable_update_and_delete() {
+        // Write-once: immutable-range registry entries can be inserted
+        // but never overwritten or deleted, mirroring
+        // `ComponentRegistry::{set, remove}`.
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new()
+                .update(ComponentId::new(0xBE00), VLBytes::new(valid_meta_bytes())),
+        );
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new().delete(ComponentId::new(0xBE00)),
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_rejects_hardcoded_delete() {
+        assert_registry_delta_rejected_everywhere(
+            TlsMapDelta::<ComponentId, VLBytes>::new().delete(ComponentId::SUPER_ADMIN_LIST),
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_component_rejects_whole_component_remove() {
+        // Deleting the entire COMPONENT_REGISTRY dict slot would strand
+        // the group (the registry's presence is the migration marker
+        // and the policy source). Never legal.
+        let err =
+            ComponentRegistryComponent::expand_to_changes(&AppDataUpdateOperation::Remove, None);
+        assert!(
+            matches!(err, Err(ComponentTypedError::RegistryMutation(_))),
+            "Remove of the registry component must be rejected, got {err:?}"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_delta_valid_mutations_expand_and_apply() {
+        // The happy path still works end-to-end after entry validation:
+        // register a custom component, then observe it in both the
+        // expanded changes and the applied map.
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
+            .insert(ComponentId::new(0xC200), VLBytes::new(valid_meta_bytes()));
+        let payload = ComponentRegistryComponent::encode_mutation(&delta).unwrap();
+
+        let op = AppDataUpdateOperation::Update(payload.clone().into());
+        let changes = ComponentRegistryComponent::expand_to_changes(&op, None).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].op, ComponentOp::Insert);
+
+        let new_bytes = ComponentRegistryComponent::apply_update_payload(&payload, None).unwrap();
+        let new = ComponentRegistryComponent::decode_value(&new_bytes).unwrap();
+        assert!(new.get(&ComponentId::new(0xC200)).is_some());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
