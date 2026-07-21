@@ -1,21 +1,29 @@
 use crate::{ErrorWrapper, client::Client};
-use napi::bindgen_prelude::{BigInt, Result};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 
 /// Counts of what a single `catchUpToLive` run brought into the local store.
 #[napi(object)]
 pub struct CatchUpSummary {
   /// Messages newly persisted during this run.
-  pub messages: BigInt,
+  pub messages: u32,
   /// Conversations newly joined during this run.
-  pub conversations: BigInt,
+  pub conversations: u32,
+  /// Whether the run reached the live edge. Always `true` here — the node
+  /// binding has no caller deadline (see `catchUpToLive`).
+  pub completed: bool,
 }
 
 impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for CatchUpSummary {
   fn from(summary: xmtp_mls::subscriptions::catch_up::CatchUpSummary) -> Self {
+    // Saturate rather than let `as u32` wrap: a single catch-up run persisting
+    // more than u32::MAX items is unreachable in practice, but clamping keeps a
+    // pathological count honest and monotonic instead of wrapping it toward
+    // zero.
     Self {
-      messages: BigInt::from(summary.messages),
-      conversations: BigInt::from(summary.conversations),
+      messages: u32::try_from(summary.messages).unwrap_or(u32::MAX),
+      conversations: u32::try_from(summary.conversations).unwrap_or(u32::MAX),
+      completed: summary.completed,
     }
   }
 }
