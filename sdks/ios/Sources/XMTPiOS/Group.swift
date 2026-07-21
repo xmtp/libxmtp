@@ -235,7 +235,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func updateAppData(appData: String) async throws {
-		try await ffiGroup.updateAppData(appData: appData)
+		try await ffiGroup.updateAppData(
+			options: FfiUpdateAppDataOptions(value: appData)
+		)
 	}
 
 	/// Pre-release APIs, grouped under ``UnstableGroup`` and gated behind
@@ -248,16 +250,25 @@ public struct Group: Identifiable, Equatable, Hashable {
 		UnstableGroup(ffiGroup: ffiGroup)
 	}
 
+	/// Whether this group has migrated to AppData-proposal-based metadata
+	/// updates. `false` means the group is still on the legacy
+	/// GroupContextExtensions path. Prefer this semantic bool over scanning
+	/// ``membershipCapabilities()`` for the marker extension.
+	public func proposalsEnabled() throws -> Bool {
+		try ffiGroup.proposalsEnabled()
+	}
+
 	/// Snapshot this group's membership capabilities: the group context's
 	/// extension types plus, per member inbox and installation, the extension
 	/// types each advertises.
 	///
 	/// These are generic facts you filter to a specific question. For the
-	/// proposal (app-data-dictionary) migration: the group is migrated when
-	/// ``GroupMembershipCapabilities/contextExtensions`` contains
-	/// ``MlsExtensionType/appDataDictionary``, and an inbox blocks migration
-	/// when one of its installations' ``InstallationCapabilities/supportedExtensions``
-	/// does not. Pair with ``UnstableGroup/enableProposals(force:minVersion:)``.
+	/// proposal (app-data-dictionary) migration: use ``proposalsEnabled()``
+	/// to ask "is this group migrated" — this snapshot answers the other
+	/// question: an inbox blocks migration when one of its installations'
+	/// ``InstallationCapabilities/supportedExtensions`` does not contain
+	/// ``MlsExtensionType/appDataDictionary``. Pair with
+	/// ``UnstableGroup/enableProposals(force:minVersion:)``.
 	public func membershipCapabilities() async throws -> GroupMembershipCapabilities {
 		try await GroupMembershipCapabilities(ffi: ffiGroup.membershipCapabilities())
 	}

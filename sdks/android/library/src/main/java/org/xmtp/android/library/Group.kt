@@ -42,6 +42,7 @@ import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.FfiSortBy
+import uniffi.xmtpv3.FfiUpdateAppDataOptions
 import java.util.Date
 
 class Group(
@@ -616,7 +617,7 @@ class Group(
     suspend fun updateAppData(appData: String) =
         withContext(Dispatchers.IO) {
             try {
-                libXMTPGroup.updateAppData(appData)
+                libXMTPGroup.updateAppData(FfiUpdateAppDataOptions(value = appData))
             } catch (e: Exception) {
                 throw XMTPException("Permission denied: Unable to update group app data", e)
             }
@@ -636,17 +637,33 @@ class Group(
         get() = UnstableGroup(libXMTPGroup)
 
     /**
+     * Whether this group has migrated to AppData-proposal-based metadata
+     * updates. `false` means the group is still on the legacy
+     * GroupContextExtensions path. Prefer this semantic bool over scanning
+     * [membershipCapabilities] for the marker extension.
+     */
+    suspend fun proposalsEnabled(): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                libXMTPGroup.proposalsEnabled()
+            } catch (e: Exception) {
+                throw XMTPException("Unable to read proposals enabled state on group", e)
+            }
+        }
+
+    /**
      * Snapshot this group's membership capabilities: the group context's
      * extension types plus, per member inbox and installation, the extension
      * types each advertises.
      *
      * These are generic facts you filter to a specific question. For the
-     * proposal (app-data-dictionary) migration: the group is migrated when
-     * [GroupMembershipCapabilities.contextExtensions] contains
-     * [org.xmtp.android.library.libxmtp.MlsExtensionType.AppDataDictionary],
-     * and an inbox blocks migration when one of its installations'
+     * proposal (app-data-dictionary) migration: use [proposalsEnabled] to ask
+     * "is this group migrated" — this snapshot answers the other question: an
+     * inbox blocks migration when one of its installations'
      * [org.xmtp.android.library.libxmtp.InstallationCapabilities.supportedExtensions]
-     * does not. Pair with [UnstableGroup.enableProposals].
+     * does not contain
+     * [org.xmtp.android.library.libxmtp.MlsExtensionType.AppDataDictionary].
+     * Pair with [UnstableGroup.enableProposals].
      */
     suspend fun membershipCapabilities(): GroupMembershipCapabilities =
         withContext(Dispatchers.IO) {
