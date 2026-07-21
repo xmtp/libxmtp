@@ -177,6 +177,79 @@ const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_mil
 /// converts unbounded memory growth into the channel-wedge recovery: the
 /// lease is dropped and its consumer re-leases from durable cursors.
 const WITHHELD_FRAMES_CAP: usize = 512;
+/// The most topics packed into one `Mutate` frame. A larger add-wave — a
+/// lease over very many groups, or a reconnect resuming an agent's whole
+/// subscription set — is split into this many topics per frame. A predictable
+/// per-frame count (bounding memory and latency per wave) that works alongside
+/// the byte budget below; whichever is reached first closes the frame. Chunks
+/// of one lease share its wave owner, so the lease stays catching-up until its
+/// last chunk resolves ([`LedgerTask::complete`]). Held as a field
+/// ([`Ledger::chunk_cap`]) so tests shrink it per transport without a shared
+/// global; production is always this value.
+pub(crate) const MAX_MUTATE_TOPICS: usize = 1000;
+/// Byte ceiling for one `Mutate` frame's topic payload — well under the
+/// transport's 25 MiB encode limit, leaving headroom for the frame's own
+/// framing. Bounding by *bytes*, not just count, keeps a frame under the limit
+/// regardless of topic identifier length: [`MAX_MUTATE_TOPICS`] alone would not,
+/// since a [`Topic`] is a `Vec<u8>` with no type-level size bound (today every
+/// topic is a 17–33 B kind+id, but the guarantee should not rest on that).
+pub(crate) const MAX_MUTATE_BYTES: usize = 16 * 1024 * 1024;
+/// Upper bound on one entry's encoded overhead in a `Mutate` beyond its topic
+/// bytes: the `id_cursor` varint (≤10 B) plus protobuf field tags and length
+/// prefixes for the `Subscription`, generous enough to stay an upper bound
+/// across both bindings' cursor shapes (a removes entry has no cursor, so this
+/// over-counts it — safe, it only makes chunks smaller).
+const PER_ENTRY_OVERHEAD: usize = 64;
+
+/// Upper bound on the bytes one topic contributes to a `Mutate` frame: the
+/// full topic bytes (kind byte + identifier) plus [`PER_ENTRY_OVERHEAD`]. An
+/// over-estimate, so a byte-budgeted chunk never exceeds the budget.
+fn topic_wire_cost(topic: &Topic) -> usize {
+    1 + topic.identifier().len() + PER_ENTRY_OVERHEAD
+}
+
+/// Split `items` into chunks bounded by BOTH a count cap and an encoded-byte
+/// budget, where `wire_cost` upper-bounds an item's encoded size. Each chunk
+/// holds at least one item, so a single item larger than the budget still
+/// makes progress (degenerate — no real topic approaches the budget) rather
+/// than looping forever. Empty in → empty out.
+fn chunk_by_budget<T>(
+    items: Vec<T>,
+    max_count: usize,
+    max_bytes: usize,
+    wire_cost: impl Fn(&T) -> usize,
+) -> Vec<Vec<T>> {
+    let mut chunks: Vec<Vec<T>> = Vec::new();
+    let mut current: Vec<T> = Vec::new();
+    let mut current_bytes = 0usize;
+    for item in items {
+        let cost = wire_cost(&item);
+        if !current.is_empty() && (current.len() >= max_count || current_bytes + cost > max_bytes) {
+            chunks.push(std::mem::take(&mut current));
+            current_bytes = 0;
+        }
+        current_bytes += cost;
+        current.push(item);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
+/// Split a subscription add-set into per-frame chunks, each bounded to the
+/// shared `Mutate` frame limits ([`MAX_MUTATE_TOPICS`] and [`MAX_MUTATE_BYTES`]).
+/// The transport chunks its own waves internally; this is for callers that
+/// build `history_only` `Mutate`s directly off the shared transport — the
+/// bounded catch-up path — so their frames stay under the same encode ceiling
+/// regardless of how many topics the client owns. Order-preserving; empty in →
+/// empty out.
+pub fn chunk_mutate_adds<C>(adds: Vec<(Topic, C)>) -> Vec<Vec<(Topic, C)>> {
+    chunk_by_budget(adds, MAX_MUTATE_TOPICS, MAX_MUTATE_BYTES, |(topic, _)| {
+        topic_wire_cost(topic)
+    })
+}
+
 /// First retry after an unexpected wire death; doubles per failed attempt up
 /// to [`RECONNECT_MAX_DELAY`]. Reconnection is never given up on — an offline
 /// process resumes when the network returns.
@@ -450,6 +523,44 @@ where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
         Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
     {
+        Self::spawn(
+            opener,
+            initially_suspended,
+            MAX_MUTATE_TOPICS,
+            MAX_MUTATE_BYTES,
+        )
+    }
+
+    /// [`Self::new`] with the per-`Mutate` chunk limits shrunk, so a test can
+    /// cross the count or byte boundary without leasing thousands of topics or
+    /// allocating megabytes. The limits are per-transport fields
+    /// ([`Ledger::chunk_cap`]/[`Ledger::chunk_bytes`]), so concurrent tests
+    /// never race on them; production always uses [`MAX_MUTATE_TOPICS`] /
+    /// [`MAX_MUTATE_BYTES`].
+    #[cfg(test)]
+    pub(crate) fn new_with_chunk_limits<O, Fut>(
+        opener: O,
+        initially_suspended: bool,
+        chunk_cap: usize,
+        chunk_bytes: usize,
+    ) -> Self
+    where
+        O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
+        Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
+    {
+        Self::spawn(opener, initially_suspended, chunk_cap, chunk_bytes)
+    }
+
+    fn spawn<O, Fut>(
+        opener: O,
+        initially_suspended: bool,
+        chunk_cap: usize,
+        chunk_bytes: usize,
+    ) -> Self
+    where
+        O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
+        Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
+    {
         let (cmds, cmds_rx) = mpsc::unbounded_channel();
         let opener: Opener<B> = Box::new(
             move |initial| -> BoxDynFuture<'static, Result<Connection<B>, OpenError>> {
@@ -465,6 +576,8 @@ where
                 cmds_rx,
                 cmds.clone().downgrade(),
                 initially_suspended,
+                chunk_cap,
+                chunk_bytes,
             ),
         );
         Self { cmds }
@@ -586,6 +699,15 @@ where
 }
 
 type Opener<B> = Box<dyn OpenWire<B>>;
+
+/// One chunked add-wave from [`Ledger::chunk_waves`]: its fresh wave id, the
+/// topics it claims (for completion/blocker accounting), and the built
+/// `Mutate` frame to send.
+type ChunkWave<B> = (
+    WaveId,
+    HashMap<Topic, <B as TransportBinding>::Cursor>,
+    <B as BidiBinding>::Mutate,
+);
 
 /// Whose `CatchUpComplete` a wave resolves.
 enum WaveOwner {
@@ -726,6 +848,13 @@ where
     next_lease: u64,
     /// Wave correlation ids start at 1: `0` means "no correlation" on the wire.
     next_wave: u64,
+    /// The most topics [`Ledger::chunk_waves`] packs into one `Mutate`, and the
+    /// byte budget for the same frame. Production is [`MAX_MUTATE_TOPICS`] /
+    /// [`MAX_MUTATE_BYTES`]; tests set them per transport so small inputs cross
+    /// the chunk boundary — per-instance fields, not globals, so concurrent
+    /// tests never race on them.
+    chunk_cap: usize,
+    chunk_bytes: usize,
 }
 
 struct LeaseState<B: TransportBinding>
@@ -846,6 +975,8 @@ where
             pending_waves: HashMap::new(),
             next_lease: 0,
             next_wave: 1,
+            chunk_cap: MAX_MUTATE_TOPICS,
+            chunk_bytes: MAX_MUTATE_BYTES,
         }
     }
 }
@@ -859,6 +990,30 @@ where
         let id = WaveId(self.next_wave);
         self.next_wave += 1;
         id
+    }
+
+    /// Split an add-set into waves bounded by [`MAX_MUTATE_TOPICS`] and
+    /// [`MAX_MUTATE_BYTES`] — one fresh wave id and one `Mutate` per chunk — so
+    /// no single frame can exceed the encode limit however many topics a lease
+    /// or a resume covers, and regardless of topic identifier length. Returns
+    /// the per-chunk `(wave id, claims, mutate)`; the caller registers each as
+    /// a [`PendingWave`] and sends or queues its mutate. Empty in → empty out
+    /// (an adds-nothing wave is never sent).
+    fn chunk_waves(&mut self, adds: Vec<(Topic, B::Cursor)>) -> Vec<ChunkWave<B>> {
+        let groups = chunk_by_budget(adds, self.chunk_cap, self.chunk_bytes, |(topic, _)| {
+            topic_wire_cost(topic)
+        });
+        let mut chunks = Vec::with_capacity(groups.len());
+        for group in groups {
+            let wave = self.next_wave_id();
+            let claims: HashMap<Topic, B::Cursor> = group
+                .iter()
+                .map(|(topic, cursor)| (topic.clone(), *cursor))
+                .collect();
+            let mutate = B::build_mutate(group, None, wave.0);
+            chunks.push((wave, claims, mutate));
+        }
+        chunks
     }
 
     fn register(
@@ -983,18 +1138,26 @@ where
         // the line is forward-looking only.
         let last_seen = &self.last_seen;
         let blocker = self.pending_waves.values_mut().find(|wave| {
-            state.topics.iter().any(|topic| {
-                wave.claims.get(topic).is_some_and(|claim| {
-                    let below_wire = last_seen
-                        .get(topic)
-                        .is_some_and(|line| !B::covers(claim, line));
-                    let below_floor = state
-                        .floors
-                        .get(topic)
-                        .is_some_and(|line| !B::covers(claim, line));
-                    below_wire || below_floor
+            // Another chunk of this lease's own add-set is still catching up.
+            // A lease split across several waves (topic chunking) is not
+            // caught up until its LAST wave resolves; the claims check below
+            // only defers on a sibling's *lower* re-add, never on an own
+            // same-floor chunk, so this arm carries the multi-wave-per-lease
+            // case. A no-op when the lease has one wave: the completing wave
+            // was already removed from `pending_waves` before this runs.
+            matches!(wave.owner, WaveOwner::Lease(owner) if owner == lease)
+                || state.topics.iter().any(|topic| {
+                    wave.claims.get(topic).is_some_and(|claim| {
+                        let below_wire = last_seen
+                            .get(topic)
+                            .is_some_and(|line| !B::covers(claim, line));
+                        let below_floor = state
+                            .floors
+                            .get(topic)
+                            .is_some_and(|line| !B::covers(claim, line));
+                        below_wire || below_floor
+                    })
                 })
-            })
         });
         if let Some(wave) = blocker {
             if !wave.holds.contains(&lease) {
@@ -1784,6 +1947,8 @@ async fn run_ledger<B: TransportBinding>(
     // command channel (and therefore itself) alive.
     lease_cmds: mpsc::WeakUnboundedSender<Cmd<B>>,
     initially_suspended: bool,
+    chunk_cap: usize,
+    chunk_bytes: usize,
 ) where
     B::GroupMessage: Clone,
     B::WelcomeMessage: Clone,
@@ -1792,7 +1957,11 @@ async fn run_ledger<B: TransportBinding>(
         opener,
         cmds,
         lease_cmds,
-        ledger: Ledger::default(),
+        ledger: Ledger {
+            chunk_cap,
+            chunk_bytes,
+            ..Ledger::default()
+        },
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
@@ -1934,33 +2103,45 @@ where
         depth: usize,
         reply: oneshot::Sender<Result<TopicLease<B>, TransportError>>,
     ) -> Flow {
-        let wave = self.ledger.next_wave_id();
         let topics: Vec<Topic> = subs.iter().map(|(topic, _)| topic.clone()).collect();
         let floors: HashMap<Topic, B::Cursor> = subs
             .iter()
             .map(|(topic, cursor)| (topic.clone(), *cursor))
             .collect();
-        let mutate = B::build_mutate(subs, None, wave.0);
-        let mut queued = None;
-        if self.conn.is_none() && self.ledger.leases.is_empty() && !self.suspended {
-            // Cold open, seeded with this lease's adds. The dial is
-            // preemptible: commands keep flowing while it runs, and a
-            // Suspend drops it. The failure is this caller's to see —
+        // One wave per ≤`MAX_MUTATE_TOPICS` chunk, so an add-set over very many
+        // topics never rides one oversized frame. Every chunk is owned by this
+        // lease, which stays catching-up until the last resolves (`complete`).
+        let mut chunks = self.ledger.chunk_waves(subs);
+
+        // A cold open (no wire, no other lease, not suspended) seeds the dial
+        // with the first chunk; the rest follow on the outbox. The peeled
+        // first chunk is registered as pending below like the others, but its
+        // mutate is already on the dial (Opened) or dropped with it
+        // (Suspended), so it is never re-queued.
+        let cold = self.conn.is_none() && self.ledger.leases.is_empty() && !self.suspended;
+        let mut peeled: Option<(WaveId, HashMap<Topic, B::Cursor>)> = None;
+        if cold && !chunks.is_empty() {
+            let (wave0, claims0, mutate0) = chunks.remove(0);
+            peeled = Some((wave0, claims0));
+            // The dial is preemptible: commands keep flowing while it runs,
+            // and a Suspend drops it. The failure is this caller's to see —
             // nobody else is waiting on the wire.
-            match self.open_preemptibly(mutate).await {
+            match self.open_preemptibly(mutate0).await {
                 OpenOutcome::Opened(wire) => {
                     self.conn = Some(wire);
                     self.reconnect_delay = RECONNECT_INITIAL_DELAY;
                     self.wire_opens += 1;
                     tracing::info!(
                         topics = topics.len(),
+                        waves = chunks.len() + 1,
                         "bidi transport: wire opened (cold open)"
                     );
                 }
                 OpenOutcome::Failed(e) => {
                     // The failure also travels to the caller, but join
                     // results are rarely read — the log is the reliable
-                    // trace (the reconnect path warns the same way).
+                    // trace (the reconnect path warns the same way). Nothing
+                    // is registered yet, so no orphan lease is left behind.
                     tracing::warn!("bidi cold open failed: {e}");
                     let _ = reply.send(Err(TransportError::Open(e)));
                     return Flow::Continue;
@@ -1973,13 +2154,7 @@ where
                 }
                 OpenOutcome::Shutdown => return Flow::Shutdown,
             }
-        } else if self.conn.is_some() {
-            queued = Some(mutate);
         }
-        // else: the wire is down (mid-backoff or suspended) — the wave
-        // registered below is re-issued from its floors by the next reopen
-        // (reconnect arm or `resume()`), so its mutate is deliberately
-        // dropped here.
 
         // Registered for routing immediately, NOT at CatchUpComplete: the
         // lease's own replay arrives *before* its CatchUpComplete — tagged
@@ -1990,19 +2165,35 @@ where
         // arrives via the sibling-gap rule; module docs).
         let (tx, events) = mpsc::channel(depth.max(1));
         let id = self.ledger.register(topics.clone(), floors.clone(), tx);
+        let wave_count = chunks.len() + peeled.is_some() as usize;
         tracing::debug!(
             lease = id.0,
-            wave = wave.0,
+            waves = wave_count,
             topics = topics.len(),
             "bidi transport: lease registered"
         );
-        self.ledger
-            .pending_waves
-            .insert(wave, PendingWave::new(WaveOwner::Lease(id), floors));
-        if let Some(mutate) = queued {
-            // Tagged with the lease so a deref can purge it if it never
-            // reaches the wire.
-            self.outbox.push(Some(id), wave, mutate);
+        // Every chunk — the peeled first plus the rest — is a pending wave
+        // owned by this lease.
+        if let Some((wave, claims)) = peeled {
+            self.ledger
+                .pending_waves
+                .insert(wave, PendingWave::new(WaveOwner::Lease(id), claims));
+        }
+        for (wave, claims, _) in &chunks {
+            self.ledger.pending_waves.insert(
+                *wave,
+                PendingWave::new(WaveOwner::Lease(id), claims.clone()),
+            );
+        }
+        // Queue the remaining chunk mutates iff the wire is up now (cold-opened
+        // or already warm), each tagged with the lease so a deref can purge it
+        // if it never reaches the wire. When the wire is down (suspended or
+        // mid-backoff) every mutate is dropped and the next reopen reissues
+        // from the lease's floors.
+        if self.conn.is_some() {
+            for (wave, _, mutate) in chunks {
+                self.outbox.push(Some(id), wave, mutate);
+            }
         }
         let Some(cmds) = self.lease_cmds.upgrade() else {
             // Command channel fully closed while we were opening; the loop
@@ -2205,26 +2396,24 @@ where
         // resume wave (an adds-nothing wave is refused by the wire contract)
         // and the first re-issue seeds the open instead.
         let resumed_topics = resume_adds.len();
-        let resume_wave = (!resume_adds.is_empty()).then(|| self.ledger.next_wave_id());
-        let mut outbound = std::collections::VecDeque::with_capacity(reissues.len() + 1);
-        let resume_pending = resume_wave.map(|wave| {
-            let claims = resume_adds.iter().cloned().collect();
-            outbound.push_back((None, wave, B::build_mutate(resume_adds, None, wave.0)));
-            (wave, PendingWave::new(WaveOwner::Resume, claims))
-        });
-        let mut reissue_waves = Vec::with_capacity(reissues.len());
+        let mut outbound = std::collections::VecDeque::new();
+        // Every open obligation is chunked to ≤`MAX_MUTATE_TOPICS` topics per
+        // frame, so resuming an agent's whole subscription set never rides one
+        // oversized `Mutate`. Resume chunks carry no owner lease (their replay
+        // reaches holders via the sibling-gap rule); each interrupted lease's
+        // re-issue chunks stay owned by that lease, so `complete` holds it
+        // until its last chunk lands.
+        let mut new_waves: Vec<(WaveId, PendingWave<B>)> = Vec::new();
+        for (wave, claims, mutate) in self.ledger.chunk_waves(resume_adds) {
+            outbound.push_back((None, wave, mutate));
+            new_waves.push((wave, PendingWave::new(WaveOwner::Resume, claims)));
+        }
         for reissue in reissues {
-            let wave = self.ledger.next_wave_id();
-            let claims = reissue.adds.iter().cloned().collect();
-            outbound.push_back((
-                Some(reissue.lease),
-                wave,
-                B::build_mutate(reissue.adds, None, wave.0),
-            ));
-            reissue_waves.push((
-                wave,
-                PendingWave::new(WaveOwner::Lease(reissue.lease), claims),
-            ));
+            let lease = reissue.lease;
+            for (wave, claims, mutate) in self.ledger.chunk_waves(reissue.adds) {
+                outbound.push_back((Some(lease), wave, mutate));
+                new_waves.push((wave, PendingWave::new(WaveOwner::Lease(lease), claims)));
+            }
         }
         let Some((_, _, initial)) = outbound.pop_front() else {
             // Unreachable — every leased topic is either in the resume adds
@@ -2241,7 +2430,7 @@ where
                 tracing::info!(
                     reconnects = self.wire_opens.saturating_sub(1),
                     resumed_topics,
-                    reissued_waves = reissue_waves.len(),
+                    waves = new_waves.len(),
                     "bidi transport: wire reopened"
                 );
                 // Waves from the dead wire can never resolve on this one —
@@ -2257,10 +2446,7 @@ where
                 for (_, wave) in self.ledger.pending_waves.drain() {
                     released.extend(wave.holds);
                 }
-                for (wave, pending) in reissue_waves {
-                    self.ledger.pending_waves.insert(wave, pending);
-                }
-                if let Some((wave, pending)) = resume_pending {
+                for (wave, pending) in new_waves {
                     self.ledger.pending_waves.insert(wave, pending);
                 }
                 // Re-issued mutates follow the initial frame in issue order,
@@ -2396,15 +2582,26 @@ where
         if removes.is_empty() || self.conn.is_none() {
             return;
         }
-        // Minted, not `0`: the server acks EVERY Mutate (always-ack),
-        // echoing this id back. The ledger ignores the ack — the id is in no
-        // pending wave, deliberately: a removes wave carries no obligation —
-        // but it must not be `0`, or the echo would be indistinguishable
-        // from a pre-tags backend's empty `CatchUpComplete` and trip the
-        // untagged-backend tombstone in [`LedgerTask::wire_event`].
-        let wave = self.ledger.next_wave_id();
-        self.outbox
-            .push(None, wave, B::build_mutate(None, removes, wave.0));
+        // Chunked like add-waves ([`Ledger::chunk_waves`]): a mass unsubscribe
+        // — dropping a lease over very many topics — must not ride one
+        // oversized frame either. Each removes wave's id is minted, not `0`:
+        // the server acks EVERY Mutate (always-ack), echoing the id back. The
+        // ledger ignores the ack — the id is in no pending wave, deliberately:
+        // a removes wave carries no obligation — but it must not be `0`, or the
+        // echo would be indistinguishable from a pre-tags backend's empty
+        // `CatchUpComplete` and trip the untagged-backend tombstone in
+        // [`LedgerTask::wire_event`].
+        let groups = chunk_by_budget(
+            removes,
+            self.ledger.chunk_cap,
+            self.ledger.chunk_bytes,
+            topic_wire_cost,
+        );
+        for group in groups {
+            let wave = self.ledger.next_wave_id();
+            self.outbox
+                .push(None, wave, B::build_mutate(None, group, wave.0));
+        }
     }
 
     /// Push waves onto the wire until it's momentarily full, closed, or the
@@ -2702,6 +2899,31 @@ mod tests {
         (transport, servers)
     }
 
+    /// [`transport`] with the chunk limits shrunk, to force byte- or
+    /// count-based splitting on a handful of small topics.
+    fn transport_capped(
+        max_topics: usize,
+        max_bytes: usize,
+    ) -> (BidiTransport<V3Binding>, Servers) {
+        let servers: Servers = Arc::default();
+        let sink = servers.clone();
+        let transport = BidiTransport::new_with_chunk_limits(
+            move |initial| {
+                let (api, server) = mock_pair();
+                sink.lock().unwrap().push(server);
+                async move {
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(OpenError::new)
+                }
+            },
+            false,
+            max_topics,
+            max_bytes,
+        );
+        (transport, servers)
+    }
+
     fn take_server(servers: &Servers) -> MockServer {
         servers.lock().unwrap().remove(0)
     }
@@ -2813,6 +3035,169 @@ mod tests {
         assert_eq!(mutate.adds[1].id_cursor, 0);
         assert!(mutate.removes.is_empty());
         assert_ne!(mutate.mutate_id, 0, "waves must be correlatable");
+    }
+
+    /// A lease over more than [`MAX_MUTATE_TOPICS`] topics is split across
+    /// several `Mutate` frames, none exceeding the cap, so no single frame can
+    /// approach the encode limit. Each chunk is its own wave, and the lease is
+    /// not caught up until its LAST chunk completes — completing only the
+    /// first leaves it deferred.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_lease_over_the_cap_splits_into_bounded_frames() {
+        let (transport, servers) = transport();
+        let topics: Vec<(Topic, u64)> = (0..(MAX_MUTATE_TOPICS as u32 + 1))
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let mut lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        // Cold open rides the first chunk; the overflow follows on the outbox.
+        let first = server.next_mutate().await;
+        let second = server.next_mutate().await;
+        assert_eq!(first.adds.len(), MAX_MUTATE_TOPICS, "first frame is capped");
+        assert_eq!(second.adds.len(), 1, "the overflow rides a second frame");
+        assert_ne!(
+            first.mutate_id, second.mutate_id,
+            "each chunk is its own correlatable wave"
+        );
+
+        // Completing only the first chunk must NOT catch the lease up.
+        server.send(catchup_complete(first.mutate_id));
+        let quiet = tokio::time::timeout(Duration::from_millis(200), lease.next()).await;
+        assert!(
+            quiet.is_err(),
+            "a chunked lease must not report caught-up until its last chunk completes"
+        );
+
+        // The last chunk's completion catches it up.
+        server.send(catchup_complete(second.mutate_id));
+        assert!(
+            matches!(recv(&mut lease).await, Some(LeaseEvent::CatchUpComplete)),
+            "the last chunk's completion catches the lease up"
+        );
+    }
+
+    /// A reconnect resuming more than [`MAX_MUTATE_TOPICS`] topics chunks the
+    /// resume wave the same way — an agent's whole subscription set never
+    /// rides one oversized frame on reconnect.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_reconnect_resume_over_the_cap_splits_into_bounded_frames() {
+        let (transport, servers) = transport();
+        let topics: Vec<(Topic, u64)> = (0..(MAX_MUTATE_TOPICS as u32 + 1))
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let mut lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        // Catch both cold-open chunks up so every topic is live on the wire.
+        let first = server.next_mutate().await;
+        let second = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        server.send(catchup_complete(second.mutate_id));
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // The wire dies; the reconnect re-adds every leased topic, and that
+        // resume is itself chunked.
+        drop(server);
+        let mut reconnect = wait_for_server(&servers).await;
+        let resume_a = reconnect.next_mutate().await;
+        let resume_b = reconnect.next_mutate().await;
+        assert_eq!(
+            resume_a.adds.len(),
+            MAX_MUTATE_TOPICS,
+            "resume frame is capped"
+        );
+        assert_eq!(
+            resume_b.adds.len(),
+            1,
+            "the overflow rides a second resume frame"
+        );
+        assert_ne!(
+            resume_a.mutate_id, resume_b.mutate_id,
+            "each resume chunk is its own wave"
+        );
+    }
+
+    /// A lease whose topics exceed the BYTE budget (not the count cap) still
+    /// splits into bounded frames — the guarantee holds regardless of topic
+    /// identifier length, not just topic count.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_lease_over_the_byte_budget_splits_into_bounded_frames() {
+        // Count cap is effectively off, so only the byte budget bites; the
+        // budget is exactly two topics' worth, so each frame holds two.
+        let per_topic = topic_wire_cost(&group_topic(&0u32.to_le_bytes()));
+        let (transport, servers) = transport_capped(usize::MAX, 2 * per_topic);
+        let topics: Vec<(Topic, u64)> = (0..5u32)
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let _lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        // Read frames until every topic is subscribed; each frame stays within
+        // the budget (≤ 2 adds here).
+        let mut subscribed = 0;
+        while subscribed < 5 {
+            let mutate = server.next_mutate().await;
+            assert!(
+                !mutate.adds.is_empty() && mutate.adds.len() <= 2,
+                "a byte-budgeted frame holds 1–2 adds, got {}",
+                mutate.adds.len()
+            );
+            subscribed += mutate.adds.len();
+        }
+        assert_eq!(subscribed, 5, "every topic is subscribed across the frames");
+    }
+
+    /// Dropping a lease over more topics than the cap retires them in chunked
+    /// removes waves — a mass unsubscribe is bounded just like an add-wave. A
+    /// keeper lease holds the wire open, so the drop retires the topics rather
+    /// than closing the wire (which is what dropping the *last* lease does).
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_mass_unsubscribe_chunks_the_removes_wave() {
+        let (transport, servers) = transport_capped(2, usize::MAX);
+        let keeper = transport
+            .lease(vec![(group_topic(b"keep"), 0)], DEFAULT_LEASE_DEPTH)
+            .await?;
+        let mut server = take_server(&servers);
+        let k = server.next_mutate().await;
+        server.send(catchup_complete(k.mutate_id));
+
+        // A big lease over three topics unique to it, chunked into two
+        // add-waves (2 + 1) at the count cap; catch both up so they are live.
+        let big = transport
+            .lease(
+                (0..3u32)
+                    .map(|i| (group_topic(&i.to_le_bytes()), 0))
+                    .collect(),
+                DEFAULT_LEASE_DEPTH,
+            )
+            .await?;
+        let a = server.next_mutate().await;
+        let b = server.next_mutate().await;
+        server.send(catchup_complete(a.mutate_id));
+        server.send(catchup_complete(b.mutate_id));
+
+        // Drop the big lease; its three topics have no other holder and retire,
+        // and the removes wave is chunked at the same cap → 2 + 1.
+        drop(big);
+        let mut removed = 0;
+        while removed < 3 {
+            let mutate = server.next_mutate().await;
+            if mutate.removes.is_empty() {
+                continue; // ignore a trailing add/echo frame
+            }
+            assert!(
+                mutate.removes.len() <= 2,
+                "each removes frame respects the cap, got {}",
+                mutate.removes.len()
+            );
+            removed += mutate.removes.len();
+        }
+        assert_eq!(removed, 3, "every dropped topic is unsubscribed");
+        drop(keeper);
     }
 
     /// A second lease reuses the open wire, and its adds are sent even for a

@@ -3,8 +3,10 @@
 //! [`Client::catch_up_to_live`] brings the local store current with the
 //! server — every pending welcome joined, every leased-topic message replayed
 //! and processed — and then stops, leaving nothing running. XIP-83 bounded
-//! sync: one `Subscribe` stream opened with a `history_only` Mutate for every
-//! topic this client owns (each from its durable cursor), a half-close once
+//! sync: one `Subscribe` stream carrying a `history_only` Mutate for every
+//! topic this client owns (each from its durable cursor) — chunked to the
+//! shared per-`Mutate` frame limit, so a large account opens with a bounded
+//! first frame and the rest follow as their own waves — a half-close once
 //! everything owed has arrived, and a server-side close in reply. The shape
 //! for "sync me, then let the process sleep" callers — an agent priming
 //! before it serves, a mobile background fetch — where a live stream would be
@@ -68,7 +70,7 @@ use std::time::Duration;
 
 use tracing::Instrument;
 use xmtp_api_d14n::v3::V3ProtoGroupMessage;
-use xmtp_api_d14n::{BidiConnection, BidiEvent, OpenError, TryMutateError};
+use xmtp_api_d14n::{BidiConnection, BidiEvent, OpenError, TryMutateError, chunk_mutate_adds};
 use xmtp_common::{ErrorCode, RetryableError, retryable};
 use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_db::prelude::*;
@@ -187,6 +189,25 @@ fn history_only_mutate(adds: Vec<(Topic, SequenceId)>, mutate_id: u64) -> Mutate
         history_only: true,
         mutate_id,
     }
+}
+
+/// Plan the opening waves for a bounded run: the whole subscription set,
+/// chunked to the shared `Mutate` frame limit so a client with very many
+/// conversations never opens with one oversized `history_only` frame. The
+/// first chunk seeds the open (wave `1`); each remaining chunk is a follow-up
+/// wave (ids `2..`) queued below and completed like a discovery add. Wave ids
+/// are contiguous from `1`, so the caller derives the outstanding set and the
+/// next free id from the overflow count alone.
+fn plan_catch_up_waves(subs: Vec<(Topic, SequenceId)>) -> (Mutate, Vec<Mutate>) {
+    // `subs` always carries at least the welcome topic, so there is always a
+    // first chunk; `unwrap_or_default` only guards the impossible empty case.
+    let mut chunks = chunk_mutate_adds(subs).into_iter();
+    let open = history_only_mutate(chunks.next().unwrap_or_default(), 1);
+    let overflow = chunks
+        .enumerate()
+        .map(|(i, chunk)| history_only_mutate(chunk, i as u64 + 2))
+        .collect();
+    (open, overflow)
 }
 
 impl<Context> Client<Context>
@@ -358,7 +379,12 @@ where
         let mut seen = seeds.seen;
 
         let api = self.context.api().api_client.clone();
-        let mut conn = match BidiConnection::open(&api, history_only_mutate(subs, 1)).await {
+        // Chunk the subscription set so a very large account never opens with
+        // one oversized frame; the overflow chunks ride the follow-up queue
+        // below as their own waves.
+        let (open, overflow) = plan_catch_up_waves(subs);
+        let overflow_waves = overflow.len() as u64;
+        let mut conn = match BidiConnection::open(&api, open).await {
             Ok(conn) => conn,
             Err(e) => {
                 let open = OpenError::new(e);
@@ -377,13 +403,15 @@ where
         let mut intake =
             WelcomeIntake::new(self.context.clone(), welcome_floor, known, None, true, None);
         // Waves whose CatchUpComplete is still owed (including queued,
-        // not-yet-sent follow-ups) — `1` is the initial wave.
-        let mut outstanding: HashSet<u64> = HashSet::from([1]);
-        let mut next_mutate_id: u64 = 2;
+        // not-yet-sent follow-ups) — `1` is the initial wave, `2..=1+overflow`
+        // its chunked remainder (all pre-queued below).
+        let mut outstanding: HashSet<u64> = (1..=1 + overflow_waves).collect();
+        let mut next_mutate_id: u64 = 2 + overflow_waves;
         // Follow-up waves awaiting a command slot. `try_mutate`, never
         // `mutate`: this task is the sole event drainer, and parking on the
         // command channel while events back up is the documented deadlock.
-        let mut queued: VecDeque<Mutate> = VecDeque::new();
+        // Seeded with the initial set's overflow chunks; discovery appends more.
+        let mut queued: VecDeque<Mutate> = overflow.into_iter().collect();
 
         loop {
             while let Some(wave) = queued.pop_front() {
@@ -686,5 +714,67 @@ mod tests {
             CatchUpSummary::default(),
             "a repeat legacy run persists nothing and must report zero"
         );
+    }
+}
+
+/// Pure planning tests — no wire, no backend, feature-independent.
+#[cfg(test)]
+mod plan_tests {
+    use super::plan_catch_up_waves;
+    use xmtp_proto::types::Topic;
+
+    /// A subscription set far larger than one frame's topic cap splits into
+    /// several bounded waves: ids contiguous from `1`, every wave an add-only
+    /// `history_only` frame, and every topic carried exactly once. Guards the
+    /// bounded-open invariant that keeps a large account from opening catch-up
+    /// with one oversized frame.
+    #[xmtp_common::test]
+    fn plan_splits_a_large_subscription_set_into_bounded_waves() {
+        let n: u32 = 5000;
+        let subs: Vec<(Topic, u64)> = (0..n)
+            .map(|i| (Topic::new_group_message(i.to_le_bytes()), i as u64))
+            .collect();
+
+        let (open, overflow) = plan_catch_up_waves(subs);
+
+        // The cap is well under 5000, so the set must have split.
+        assert!(!overflow.is_empty(), "a 5000-topic set must split");
+        assert_eq!(open.mutate_id, 1, "the open is always wave 1");
+
+        let waves: Vec<_> = std::iter::once(&open).chain(overflow.iter()).collect();
+        let cap = open.adds.len();
+        for (i, wave) in waves.iter().enumerate() {
+            assert_eq!(
+                wave.mutate_id,
+                i as u64 + 1,
+                "wave ids run contiguously from 1"
+            );
+            assert!(
+                wave.history_only && wave.removes.is_empty(),
+                "every catch-up wave is an add-only history frame"
+            );
+            assert!(!wave.adds.is_empty(), "no empty wave is ever emitted");
+            assert!(
+                wave.adds.len() <= cap,
+                "no wave exceeds the first (full) frame"
+            );
+        }
+        let total: usize = waves.iter().map(|w| w.adds.len()).sum();
+        assert_eq!(total as u32, n, "every topic is carried exactly once");
+    }
+
+    /// The common case — a set that fits in one frame — opens with a single
+    /// wave and queues no overflow.
+    #[xmtp_common::test]
+    fn plan_keeps_a_small_set_in_one_wave() {
+        let subs: Vec<(Topic, u64)> = (0u32..3)
+            .map(|i| (Topic::new_group_message(i.to_le_bytes()), i as u64))
+            .collect();
+
+        let (open, overflow) = plan_catch_up_waves(subs);
+
+        assert!(overflow.is_empty(), "a 3-topic set fits one frame");
+        assert_eq!(open.mutate_id, 1);
+        assert_eq!(open.adds.len(), 3, "all three topics ride the open");
     }
 }
