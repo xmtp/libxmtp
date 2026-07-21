@@ -236,6 +236,20 @@ fn chunk_by_budget<T>(
     }
     chunks
 }
+
+/// Split a subscription add-set into per-frame chunks, each bounded to the
+/// shared `Mutate` frame limits ([`MAX_MUTATE_TOPICS`] and [`MAX_MUTATE_BYTES`]).
+/// The transport chunks its own waves internally; this is for callers that
+/// build `history_only` `Mutate`s directly off the shared transport — the
+/// bounded catch-up path — so their frames stay under the same encode ceiling
+/// regardless of how many topics the client owns. Order-preserving; empty in →
+/// empty out.
+pub fn chunk_mutate_adds<C>(adds: Vec<(Topic, C)>) -> Vec<Vec<(Topic, C)>> {
+    chunk_by_budget(adds, MAX_MUTATE_TOPICS, MAX_MUTATE_BYTES, |(topic, _)| {
+        topic_wire_cost(topic)
+    })
+}
+
 /// First retry after an unexpected wire death; doubles per failed attempt up
 /// to [`RECONNECT_MAX_DELAY`]. Reconnection is never given up on — an offline
 /// process resumes when the network returns.
