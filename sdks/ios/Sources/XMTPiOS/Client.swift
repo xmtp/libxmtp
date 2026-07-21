@@ -960,13 +960,16 @@ public final class Client {
 	/// Cutting it short is safe: everything processed is persisted and a later
 	/// call resumes from durable state.
 	///
-	/// Check ``CatchUpSummary/completed`` before reading the counts: on the
-	/// deadline path it is `false` and `messages`/`conversations` are reported
-	/// as `0` even though whatever was processed first is already persisted.
+	/// Check ``CatchUpSummary/completed`` before treating the counts as the
+	/// whole story: on the deadline path it is `false`, whatever was processed
+	/// before the cut is already stored (the counts may undercount it), and a
+	/// later call resumes from there.
 	public func catchUpToLive(timeoutMs: UInt64? = nil) async throws
 		-> CatchUpSummary
 	{
-		try await CatchUpSummary(ffiClient.catchUpToLive(timeoutMs: timeoutMs))
+		try await CatchUpSummary(
+			ffiClient.catchUpToLive(opts: FfiCatchUpOptions(timeoutMs: timeoutMs))
+		)
 	}
 
 	public func inboxIdFromIdentity(identity: PublicIdentity) async throws

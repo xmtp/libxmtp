@@ -40,7 +40,7 @@ impl Client {
   pub async fn catch_up_to_live(&self) -> Result<CatchUpSummary> {
     let summary = self
       .inner_client
-      .catch_up_to_live()
+      .catch_up_to_live(None)
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(summary.into())

@@ -18,6 +18,7 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
 import uniffi.xmtpv3.DbOptions
+import uniffi.xmtpv3.FfiCatchUpOptions
 import uniffi.xmtpv3.FfiClientMode
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
@@ -815,13 +816,18 @@ class Client(
      * everything processed is persisted and a later call resumes from durable
      * state.
      *
-     * Check [CatchUpSummary.completed] before reading the counts: on the
-     * deadline path it is false and messages/conversations are reported as 0
-     * even though whatever was processed first is already persisted.
+     * Check [CatchUpSummary.completed] before treating the counts as the whole
+     * story: on the deadline path it is false, whatever was processed before
+     * the cut is already stored (the counts may undercount it), and a later
+     * call resumes from there.
      */
     suspend fun catchUpToLive(timeoutMs: Long? = null): CatchUpSummary =
         withContext(Dispatchers.IO) {
-            CatchUpSummary(ffiClient.catchUpToLive(timeoutMs?.coerceAtLeast(0)?.toULong()))
+            CatchUpSummary(
+                ffiClient.catchUpToLive(
+                    FfiCatchUpOptions(timeoutMs = timeoutMs?.coerceAtLeast(0)?.toULong()),
+                ),
+            )
         }
 
     suspend fun inboxStatesForInboxIds(

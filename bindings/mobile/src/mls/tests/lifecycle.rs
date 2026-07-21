@@ -8,7 +8,7 @@
 //! `just test` does. The gate-off test deliberately leaves it unset.
 
 use super::*;
-use crate::mls::{resume_streams, suspend_streams};
+use crate::mls::{FfiCatchUpOptions, resume_streams, suspend_streams};
 
 /// The Application-kind message payloads in a conversation's durable store, in
 /// order. Lets a test assert what catch-up/replay actually wrote to disk — the
@@ -28,17 +28,18 @@ async fn stored_app_payloads(convo: &FfiConversation) -> Vec<Vec<u8>> {
 /// everything published while the wire is off the network, and on
 /// `resume_streams` replays exactly that from its durable cursor.
 ///
-/// v3-only. This exercises the *live* bidi wire — a `BidiTransport` over the v3
-/// `SubscribeEnvelopes` bidi RPC. The d14n gateway client does not expose that
-/// RPC, so under `--features d14n` the cold open is refused and the process
-/// latches onto the legacy streams (see the fallback latch in `router_callbacks`).
-/// `suspend`/`resume` only touch the bidi transport, so over legacy streams they
-/// are no-ops and cannot withhold — the withhold assertion below would rightly
-/// fail. The one-shot `catch_up_to_live` tests need no live wire, so they run on
-/// both backends.
+/// v3-only. Exercises the *live* bidi wire — a `BidiTransport` over the v3
+/// `SubscribeEnvelopes` bidi RPC. Under `--features d14n` the d14n gateway
+/// *client* does not yet wire up that subscribe RPC — the cold open reports
+/// "the v3 bidi subscription is not available on this client" even though the
+/// pinned xmtpd backend (`sha-ac17e82`) serves it — so the process latches onto
+/// the legacy streams, where `suspend`/`resume` are no-ops and cannot withhold;
+/// the assertions below would rightly fail. Un-gate once `xmtp_api_d14n` exposes
+/// the bidi subscribe for the d14n binding. The one-shot `catch_up_to_live`
+/// tests need no live wire, so they run on both backends.
 #[cfg_attr(
     feature = "d14n",
-    ignore = "requires the v3 bidi wire, which the d14n backend does not expose (falls back to legacy streams, where suspend/resume are no-ops)"
+    ignore = "the d14n gateway client does not yet expose the v3 bidi SubscribeEnvelopes RPC (cold open refused → legacy fallback, where suspend/resume are no-ops)"
 )]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn bidi_suspend_and_resume_redelivers() {
@@ -208,11 +209,20 @@ async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
     }
 
     // May finish or be cut short — both are contractually valid. On the deadline
-    // the counts are zeroed (the in-flight tally is dropped with the future).
-    let bounded = alix.catch_up_to_live(Some(1)).await.unwrap();
+    // the summary carries the partial total persisted before the cut (possibly
+    // zero if nothing landed in time) and `completed` is false; the full run
+    // below proves the cut left no partial/corrupt state regardless.
+    let bounded = alix
+        .catch_up_to_live(Some(FfiCatchUpOptions {
+            timeout_ms: Some(1),
+        }))
+        .await
+        .unwrap();
     if !bounded.completed {
-        assert_eq!(bounded.messages, 0);
-        assert_eq!(bounded.conversations, 0);
+        assert!(
+            bounded.messages <= 5,
+            "partial count cannot exceed what was owed"
+        );
     }
 
     // Whether or not the bounded run was cut off, a full run converges the store

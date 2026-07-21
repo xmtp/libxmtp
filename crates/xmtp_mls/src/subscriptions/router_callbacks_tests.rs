@@ -263,8 +263,9 @@ async fn single_conversation_callback_is_scoped_to_its_group() {
 }
 
 /// The app-lifecycle round trip: a message sent while suspended is replayed
-/// by the resume wave and reaches the callback — resume() resolving is the
-/// "catch up, then done" signal.
+/// by the resume wave and reaches the callback. Resume is fire-and-forget,
+/// so the replay arrives behind the call — the awaited channel reads below
+/// are the arrival signal, not resume() resolving.
 #[xmtp_common::test(unwrap_try = true)]
 async fn suspend_resume_replays_what_was_missed() {
     tester!(alix);
@@ -824,27 +825,37 @@ fn destinations_latch_independently() {
 
 /// A born-suspended wire defers its backend's capability discovery to the
 /// resume re-open — past the point where any stream could see the refusal
-/// and latch. The lifecycle fold must latch it instead: suspend intent, a
-/// first lease that parks, then a resume whose open refuses tombstones the
-/// transport, and the destination ends up latched so re-subscribes ride
-/// legacy.
+/// and latch. Resume is fire-and-forget (its acks are dropped, so it cannot
+/// latch), which defers the latch one step further: the refusal tombstones
+/// the transport in the background, and the next observation point — a
+/// stream re-subscribing via the open path, or the next lifecycle fold —
+/// latches the destination so later subscribes ride legacy.
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_resume_time_refusal_latches_its_destination() {
+async fn a_resume_time_refusal_latches_at_the_next_lifecycle_fold() {
     use xmtp_proto::types::Topic;
 
     suspend_bidi_streams().await?;
     let transport = shared_transport(FixedHostApi("test://born-refused"));
     // Registers and parks — born suspended, the refusing opener never runs.
-    let _lease = transport
+    let mut lease = transport
         .lease(vec![(Topic::new_group_message(b"g"), 0)], 8)
         .await?;
 
-    // The re-open runs the opener, the refusal tombstones the transport,
-    // and the fold latches the destination — while the call itself settles
-    // Ok (a tombstoned destination is vacuously resumed).
+    // Fire-and-forget: the call settles Ok before the re-open can refuse.
     resume_bidi_streams().await?;
+
+    // The re-open runs the refusing opener in the ledger task; the tombstone
+    // is observable as the parked lease ending. (In production a stream's
+    // lease ending is what triggers its re-subscribe, which latches via the
+    // open path.)
+    while lease.next().await.is_some() {}
+
+    // A bare lease has no re-subscribe machinery, so the next lifecycle fold
+    // is the observation point here: suspend's settle sees `Closed` for the
+    // tombstoned transport and latches the destination.
+    suspend_bidi_streams().await?;
     assert!(
         bidi_unsupported_latched("test://born-refused"),
-        "a refusal first seen at resume must latch its destination"
+        "a refusal first seen at resume must latch by the next lifecycle fold"
     );
 }
