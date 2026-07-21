@@ -95,7 +95,8 @@ public struct InboxCapabilities {
 /// inboxes blocking migration are those with an installation that doesn't.
 ///
 /// Read it with ``Group/membershipCapabilities()``; drive the upgrade with
-/// ``Group/enableProposals(force:minVersion:)``.
+/// ``UnstableGroup/enableProposals(force:minVersion:)`` (via
+/// `@_spi(Unstable) import XMTPiOS`).
 public struct GroupMembershipCapabilities {
 	let ffi: FfiGroupMembershipCapabilities
 
