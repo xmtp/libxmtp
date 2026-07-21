@@ -311,6 +311,12 @@ impl LibXMTPVersion {
     }
 }
 
+impl std::fmt::Display for LibXMTPVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 /**
  * A [`ValidatedCommit`] is a summary of changes coming from a MLS commit, after all of our validation rules have been applied
  *
@@ -387,7 +393,7 @@ impl ValidatedCommit {
         if is_migrated
             && let Some(min_version) = super::app_data::committed_floor_exceeding(
                 openmls_group,
-                context.version_info().pkg_version(),
+                context.version_info().pkg_semver(),
             )
         {
             return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
@@ -742,7 +748,7 @@ impl ValidatedCommit {
             .metadata_validation_info
             .minimum_supported_protocol_version
         {
-            let current_version = LibXMTPVersion::parse(context.version_info().pkg_version())?;
+            let current_version = context.version_info().pkg_semver();
             let min_supported_version = LibXMTPVersion::parse(min_version)?;
             tracing::info!(
                 "Validating commit with min_supported_version: {:?}, current_version: {:?}",
@@ -750,7 +756,7 @@ impl ValidatedCommit {
                 current_version
             );
 
-            if min_supported_version > current_version {
+            if min_supported_version > *current_version {
                 return Err(CommitValidationError::ProtocolVersionTooLow(
                     min_version.clone(),
                 ));

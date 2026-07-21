@@ -284,9 +284,10 @@ where
         if paused.is_empty() {
             return Ok(0);
         }
-        // Parse current version once; reuse across every paused group.
+        // The client's own version is parsed once at `VersionInfo`
+        // construction; reuse it across every paused group.
         let own_version_str = self.context.version_info().pkg_version().to_string();
-        let own_v = LibXMTPVersion::parse(&own_version_str)?;
+        let own_v = self.context.version_info().pkg_semver();
 
         let mut unstuck = 0usize;
         for (group_id, required_str) in paused {
@@ -301,7 +302,7 @@ where
                 );
                 continue;
             };
-            if required_v <= own_v {
+            if required_v <= *own_v {
                 // Same leniency as the parse-error branch above: a
                 // transient DB failure on one row shouldn't abort the
                 // sweep for the others. The next sync sweep will pick

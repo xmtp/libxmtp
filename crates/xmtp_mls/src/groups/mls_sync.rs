@@ -482,10 +482,10 @@ where
                 required_min_version_str
             );
             let current_version_str = self.context.version_info().pkg_version();
-            let current_version = LibXMTPVersion::parse(current_version_str)?;
+            let current_version = self.context.version_info().pkg_semver();
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
-            if required_min_version <= current_version {
+            if required_min_version <= *current_version {
                 tracing::info!(
                     "Unpausing group since version requirements are met. \
                      Group ID: {}",
@@ -1167,7 +1167,7 @@ where
                 mls_group,
                 &provider,
                 message.clone(),
-                self.context.version_info().pkg_version(),
+                self.context.version_info().pkg_semver(),
             ));
             // Roll back: sync with the server before committing.
             Ok::<TransactionOutcome<()>, StorageError>(Rollback)
@@ -1257,7 +1257,7 @@ where
                 // by a member to freeze a group.
                 if let Some(min_version) = super::app_data::committed_floor_exceeding(
                     mls_group,
-                    self.context.version_info().pkg_version(),
+                    self.context.version_info().pkg_semver(),
                 ) {
                     return Err(CommitValidationError::ProtocolVersionTooLow(min_version).into());
                 }
@@ -1436,7 +1436,7 @@ where
                 mls_group,
                 &provider,
                 message.clone(),
-                self.context.version_info().pkg_version(),
+                self.context.version_info().pkg_semver(),
             )
             .map_err(GroupMessageProcessingError::from_app_data_processing)?;
             let identifier = self.process_external_message(
