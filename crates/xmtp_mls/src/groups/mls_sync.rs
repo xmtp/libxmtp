@@ -578,10 +578,13 @@ where
         tracing::instrument(level = "trace", skip_all)
     )]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
+        // Filter to kinds this build understands: after a downgrade,
+        // rows written by a newer build would otherwise fail `FromSql`
+        // and poison the whole query (see `IntentKind::all`).
         let intents = self.context.db().find_group_intents(
             self.group_id,
             Some(vec![IntentState::ToPublish, IntentState::Published]),
-            None,
+            Some(IntentKind::all().collect()),
         )?;
 
         let Some(intent) = intents.last() else {
@@ -2823,10 +2826,11 @@ where
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         self.load_mls_group_with_lock_async(async |mut mls_group| {
+            // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
             let intents = db.find_group_intents(
                 self.group_id,
                 Some(vec![IntentState::ToPublish]),
-                None,
+                Some(IntentKind::all().collect()),
             )?;
 
             for intent in intents {
@@ -3532,11 +3536,10 @@ where
                 // similar extension shape can't accidentally trigger
                 // the bootstrap path.
                 //
-                // NOTE: honest receivers reject the bootstrap commit
-                // until the receiver-side validator that understands
-                // `COMPONENT_REGISTRY` / `GROUP_MEMBERSHIP` writes is
-                // wired. Emitting this intent is only useful when the
-                // validator lands in the same release.
+                // Receive-side validation lives in
+                // `validated_commit.rs` (`is_bootstrap_commit` routes
+                // into `validate_bootstrap_and_build`, which drives
+                // `bootstrap_validator::validate_bootstrap_commit`).
                 let intent_data =
                     ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
 
@@ -3947,7 +3950,12 @@ where
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         let intents =
-            db.find_group_intents(self.group_id, Some(vec![IntentState::Committed]), None)?;
+            // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
+            db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Committed]),
+                Some(IntentKind::all().collect()),
+            )?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {

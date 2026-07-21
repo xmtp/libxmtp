@@ -513,10 +513,10 @@ pub(crate) fn is_migrated_group(mls_group: &OpenMlsGroup) -> bool {
 /// [`TEST_REGISTRY_OVERRIDE`] scope the group is treated as migrated
 /// regardless of what the dict contains. This bridges the gap for
 /// tests that exercise post-bootstrap reader semantics without
-/// actually running the bootstrap commit (which writes the real
-/// `COMPONENT_REGISTRY` entry — that work lives in a follow-up
-/// branch). Production paths never hit this branch because the
-/// task-local is only initialized inside test scopes.
+/// actually running the bootstrap commit (`enable_proposals()` end to
+/// end, which writes the real `COMPONENT_REGISTRY` entry). Production
+/// paths never hit this branch because the task-local is only
+/// initialized inside test scopes.
 pub(crate) fn is_migrated_extensions(
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
 ) -> bool {
