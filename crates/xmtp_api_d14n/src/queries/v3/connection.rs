@@ -79,8 +79,17 @@ impl BidiBinding for V3Binding {
                 welcome: messages.welcome_messages,
                 mutate_id: messages.mutate_id,
             },
-            // A future-revision arm: informational frames are safe to skip.
-            None => Inbound::Skip,
+            // An unset response case: a frame kind a newer server added
+            // (prost decodes an unknown oneof tag as `None`), or an empty
+            // frame. Skipping keeps the wire alive, but warn so a mandatory
+            // frame a future server sends WITHOUT gating it behind a
+            // `Started.capabilities` bit surfaces in metrics instead of being
+            // dropped invisibly — the XIP-83 forward-compat contract is that
+            // any new response frame a client must act on is capability-gated.
+            None => {
+                tracing::warn!("bidi subscription dropping an unknown or unset response frame");
+                Inbound::Skip
+            }
         }
     }
 }
