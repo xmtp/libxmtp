@@ -379,6 +379,13 @@ where
         let mut seen = seeds.seen;
 
         let api = self.context.api().api_client.clone();
+        // Defensive: `subs` always carries the welcome topic (pushed above), so
+        // it is never empty — but an empty set would seed an adds-nothing open
+        // frame that never earns a `CatchUpComplete`, stalling the run until the
+        // watchdog fires. Nothing owed means nothing to catch up.
+        if subs.is_empty() {
+            return Ok(AttemptEnd::Complete);
+        }
         // Chunk the subscription set so a very large account never opens with
         // one oversized frame; the overflow chunks ride the follow-up queue
         // below as their own waves.
