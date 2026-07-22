@@ -633,11 +633,23 @@ where
     /// that dying drain with the fresh wire; the resume wave re-serves
     /// anything the drain discarded, so nothing is lost.
     pub async fn suspend(&self) -> Result<(), TransportError> {
+        self.enqueue_suspend()?
+            .await
+            .map_err(|_| TransportError::Closed)
+    }
+
+    /// Push a suspend command without awaiting its ack, returning the reply
+    /// channel to await later. Splitting the enqueue (a synchronous push onto
+    /// the unbounded command channel) from the await lets the process-level
+    /// lifecycle fan-out push the command under the same lock that orders the
+    /// suspend flag, so a concurrent resume cannot interleave its command send
+    /// between that flag flip and this one.
+    pub fn enqueue_suspend(&self) -> Result<oneshot::Receiver<()>, TransportError> {
         let (reply, response) = oneshot::channel();
         self.cmds
             .send(Cmd::Suspend { reply })
             .map_err(|_| TransportError::Closed)?;
-        response.await.map_err(|_| TransportError::Closed)
+        Ok(response)
     }
 
     /// Come back onto the network after [`Self::suspend`]: re-opens with the
@@ -655,11 +667,21 @@ where
     /// connection's own watchdog detects the stale wire and the transport
     /// reconnects transparently.
     pub async fn resume(&self) -> Result<(), TransportError> {
+        self.enqueue_resume()?
+            .await
+            .map_err(|_| TransportError::Closed)
+    }
+
+    /// Push a resume command without awaiting its catch-up, returning the reply
+    /// channel to await later. The enqueue counterpart of [`Self::suspend`]'s
+    /// [`Self::enqueue_suspend`] — see it for why the push is split from the
+    /// await.
+    pub fn enqueue_resume(&self) -> Result<oneshot::Receiver<()>, TransportError> {
         let (reply, response) = oneshot::channel();
         self.cmds
             .send(Cmd::Resume { reply })
             .map_err(|_| TransportError::Closed)?;
-        response.await.map_err(|_| TransportError::Closed)
+        Ok(response)
     }
 }
 
