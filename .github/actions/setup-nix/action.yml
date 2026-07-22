@@ -1,5 +1,5 @@
 name: "Setup Nix"
-description: "Install Nix with Cachix caching for XMTP"
+description: "Install Nix with Blacksmith sticky-disk store persistence (Linux) and Cachix caching for XMTP"
 inputs:
   github-token:
     description: "GitHub token for Nix installation"
@@ -11,28 +11,71 @@ inputs:
     description: "Enable sccache with GitHub Actions cache backend"
     required: false
     default: "false"
-  with-warpbuild-cache:
-    description: "whether to enable the warpbuild nix cache"
-    required: false
-    default: "true"
-  gc-max-store-size:
-    description: "Max Nix store size before garbage collection (e.g. 5G, 10G). Only applies on WarpBuild runners."
-    required: false
-    default: "20G"
 runs:
   using: "composite"
   steps:
-    - uses: cachix/install-nix-action@v31
+    # Persistent /nix sticky disk, one per (repo, OS, arch); must mount
+    # before Nix installs. Concurrent jobs clone the last snapshot;
+    # Cachix backfills anything a lost commit race drops.
+    - name: Prepare /nix mount point
+      if: ${{ runner.os == 'Linux' }}
+      run: |
+        sudo mkdir -p /nix/store
+        sudo chmod -R 777 /nix
+      shell: bash
+    - name: Mount /nix sticky disk
+      if: ${{ runner.os == 'Linux' }}
+      uses: useblacksmith/stickydisk@v1
       with:
-        # https://github.com/nixos/nix/issues/15619 2.34.4 causes pach failures
+        key: ${{ github.repository }}-nix-${{ runner.os }}-${{ runner.arch }}
+        path: /nix
+        # Untrusted PR jobs never commit — a malicious PR could persist
+        # tampered store paths that release builds later consume. Trusted
+        # events (push/tag/dispatch/schedule) commit on-change.
+        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
+    # Posts run in reverse order: registered after the mount = runs right
+    # before unmount+commit. Store-binary daemons (gradle/kotlin/adb) hold
+    # /nix busy; spare cachix daemon, its own post stops it. See convos-releases#31.
+    # action-post-run exec()s its `run` input as a bare executable (no
+    # shell), so the script must live in a file.
+    - name: Write /nix busy-process cleanup script
+      if: ${{ runner.os == 'Linux' }}
+      run: |
+        cat > "$RUNNER_TEMP/nix-unmount-cleanup.sh" << 'EOF'
+        #!/usr/bin/env bash
+        keep="$(pgrep -f 'cachix daemon' || true)"
+        for pid in $(sudo fuser -M -m /nix 2>/dev/null); do
+          echo "$keep" | grep -qx "$pid" || sudo kill -9 "$pid" 2>/dev/null
+        done
+        sleep 2
+        exit 0
+        EOF
+        chmod +x "$RUNNER_TEMP/nix-unmount-cleanup.sh"
+      shell: bash
+    - name: Register /nix busy-process cleanup
+      if: ${{ runner.os == 'Linux' }}
+      uses: webiny/action-post-run@3.1.0
+      with:
+        run: bash ${{ runner.temp }}/nix-unmount-cleanup.sh
+    # Single-user install, works with pre-populated /nix. Stay on 2.31.x:
+    # 2.34.4 breaks patches (https://github.com/nixos/nix/issues/15619).
+    - name: Install Nix (Linux)
+      if: ${{ runner.os == 'Linux' }}
+      uses: nixbuild/nix-quick-install-action@v35
+      with:
+        nix_version: 2.31.5
+        nix_conf: |
+          accept-flake-config = true
+          access-tokens = github.com=${{ inputs.github-token }}
+    - name: Install Nix (macOS)
+      if: ${{ runner.os != 'Linux' }}
+      uses: cachix/install-nix-action@v31
+      with:
+        # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures
         install_url: https://releases.nixos.org/nix/nix-2.31.2/install
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
-    - uses: ./.github/actions/setup-nix-cache
-      if: ${{ inputs.with-warpbuild-cache == 'true' }}
-      with:
-        gc-max-store-size: ${{ inputs.gc-max-store-size }}
     - uses: cachix/cachix-action@v17
       if: ${{ inputs.cachix-auth-token != '' }}
       with:

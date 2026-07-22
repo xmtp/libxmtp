@@ -28,7 +28,7 @@ on:
 
 jobs:
   publish:
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

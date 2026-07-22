@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 jobs:
   build-linux:
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
           retention-days: 1
   package-kotlin:
     needs: [build-linux]
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
