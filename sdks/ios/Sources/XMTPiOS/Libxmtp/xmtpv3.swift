@@ -10074,6 +10074,12 @@ public func FfiConverterTypeFfiTransactionReference_lower(_ value: FfiTransactio
  * than a bare `String` parameter) so future knobs can be added
  * without breaking compiled apps — same pattern as
  * [`FfiEnableProposalsOptions`].
+ *
+ * WARNING: uniffi Records get NO default field values unless the field
+ * carries `#[uniffi(default = ...)]`. Any field added later MUST carry
+ * a uniffi default (and a serde/napi default on the wasm/node
+ * `UpdateAppDataOptions`), or the generated Swift/Kotlin constructors
+ * change and the addition breaks compiled apps.
  */
 public struct FfiUpdateAppDataOptions: Equatable, Hashable {
     /**
