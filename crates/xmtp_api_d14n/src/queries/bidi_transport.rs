@@ -2266,8 +2266,15 @@ where
             close_gracefully(wire);
         }
         // Pending waves stay, progress intact: their leases are still owed a
-        // CatchUpComplete, and `reopen` re-issues them alongside the resume
-        // wave that carries any parked resume() waiters.
+        // CatchUpComplete, re-issued alongside the next reopen's resume wave.
+        // But a resume already awaiting catch-up is superseded by this suspend
+        // — the app is going off the network, so it can never reach its live
+        // edge on this transition. Conclude those waiters now instead of
+        // stranding them (and their callers' tasks) for the whole background
+        // sojourn; the next resume parks a fresh waiter.
+        for waiter in self.resume_notify.drain(..) {
+            let _ = waiter.send(());
+        }
         let _ = reply.send(());
         Flow::Continue
     }
@@ -2391,7 +2398,13 @@ where
     /// suspended, outrank any resumes the dial had deferred, and acknowledge.
     fn suspend_preempted(&mut self, ack: oneshot::Sender<()>) {
         self.suspended = true;
+        // Move any dial-deferred resumes into `resume_notify`, then conclude
+        // every parked resume: this suspend supersedes them all (same reason
+        // as [`Self::suspend`]).
         self.park_deferred_resumes();
+        for waiter in self.resume_notify.drain(..) {
+            let _ = waiter.send(());
+        }
         let _ = ack.send(());
     }
 
@@ -4174,6 +4187,9 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_millis(20)).await;
         tokio::time::timeout(WAIT, transport.suspend()).await??;
+        // The deferred resume was superseded by the suspend: its waiter
+        // concludes now, not stranded until some later resume.
+        tokio::time::timeout(WAIT, first_resume).await?.unwrap()?;
         let mut alpha = tokio::time::timeout(WAIT, leased).await?.unwrap()?;
 
         // The stale resume must not resurrect the network.
@@ -4184,8 +4200,7 @@ mod tests {
             "a resume deferred before the suspend must not redial"
         );
 
-        // A later, explicit resume brings everything back — including the
-        // parked waiter from before the suspend.
+        // A later, explicit resume brings the wire back.
         let second_resume = tokio::spawn({
             let transport = transport.clone();
             async move { transport.resume().await }
@@ -4194,7 +4209,6 @@ mod tests {
         let resume = server.next_mutate().await;
         server.send(catchup_complete(resume.mutate_id));
         tokio::time::timeout(WAIT, second_resume).await?.unwrap()?;
-        tokio::time::timeout(WAIT, first_resume).await?.unwrap()?;
         assert!(matches!(
             recv(&mut alpha).await,
             Some(LeaseEvent::CatchUpComplete)
