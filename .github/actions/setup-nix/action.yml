@@ -37,6 +37,36 @@ runs:
         # (push, tag, dispatch, schedule) commit, mirroring GitHub's own
         # actions/cache trust model.
         commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
+    # Post-steps run in reverse registration order, so registering this
+    # right after the mount makes it run immediately BEFORE the sticky
+    # disk's unmount+commit post-step. Daemons spawned from store binaries
+    # (gradle/kotlin daemons, adb server, emulators) otherwise hold /nix
+    # busy and the unmount fails through all its retries. The cachix
+    # daemon is excluded: its own post step stops it cleanly (and errors
+    # if it is already dead) — registration order already puts that stop
+    # before this kill, but the exclusion keeps the step safe if steps
+    # are ever reordered. Same fix as xmtplabs/convos-releases#31.
+    # action-post-run exec()s its `run` input as a bare executable (no
+    # shell), so the script must live in a file.
+    - name: Write /nix busy-process cleanup script
+      if: ${{ runner.os == 'Linux' }}
+      run: |
+        cat > "$RUNNER_TEMP/nix-unmount-cleanup.sh" << 'EOF'
+        #!/usr/bin/env bash
+        keep="$(pgrep -f 'cachix daemon' || true)"
+        for pid in $(sudo fuser -M -m /nix 2>/dev/null); do
+          echo "$keep" | grep -qx "$pid" || sudo kill -9 "$pid" 2>/dev/null
+        done
+        sleep 2
+        exit 0
+        EOF
+        chmod +x "$RUNNER_TEMP/nix-unmount-cleanup.sh"
+      shell: bash
+    - name: Register /nix busy-process cleanup
+      if: ${{ runner.os == 'Linux' }}
+      uses: webiny/action-post-run@3.1.0
+      with:
+        run: bash ${{ runner.temp }}/nix-unmount-cleanup.sh
     # Single-user install; unlike cachix/install-nix-action it is designed
     # to work with an already-populated /nix.
     # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures,
