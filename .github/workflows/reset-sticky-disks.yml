@@ -1,8 +1,6 @@
 name: Reset Sticky Disks
-# Nix stores on sticky disks only grow (every flake.lock bump adds a
-# closure), and CoW snapshots mean in-filesystem deletion doesn't shrink
-# billed size. Periodically drop the disks; the next run per disk is cold
-# but repopulates from Cachix via substitution, not rebuilds.
+# Sticky-disk Nix stores only grow, and CoW snapshots don't shrink on
+# file deletion. Drop disks periodically; next run repopulates from Cachix.
 on:
   schedule:
     # 1st of every other month (Jan, Mar, May, Jul, Sep, Nov) at 00:00 UTC

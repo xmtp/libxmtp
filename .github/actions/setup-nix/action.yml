@@ -14,11 +14,9 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # On Blacksmith Linux runners, /nix lives on a sticky disk that
-    # persists across jobs. The disk must be mounted before Nix is
-    # installed. One shared disk per (repo, OS, arch); concurrent jobs
-    # each get a clone of the last committed snapshot, and Cachix
-    # backfills anything a lost commit race drops.
+    # Persistent /nix sticky disk, one per (repo, OS, arch); must mount
+    # before Nix installs. Concurrent jobs clone the last snapshot;
+    # Cachix backfills anything a lost commit race drops.
     - name: Prepare /nix mount point
       if: ${{ runner.os == 'Linux' }}
       run: |
@@ -31,21 +29,13 @@ runs:
       with:
         key: ${{ github.repository }}-nix-${{ runner.os }}-${{ runner.arch }}
         path: /nix
-        # PR jobs mount a warm clone of the last trusted snapshot but never
-        # write back — untrusted code must not persist store modifications
-        # that later release builds would consume. Only trusted events
-        # (push, tag, dispatch, schedule) commit, mirroring GitHub's own
-        # actions/cache trust model.
+        # Untrusted PR jobs never commit — a malicious PR could persist
+        # tampered store paths that release builds later consume. Trusted
+        # events (push/tag/dispatch/schedule) commit on-change.
         commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
-    # Post-steps run in reverse registration order, so registering this
-    # right after the mount makes it run immediately BEFORE the sticky
-    # disk's unmount+commit post-step. Daemons spawned from store binaries
-    # (gradle/kotlin daemons, adb server, emulators) otherwise hold /nix
-    # busy and the unmount fails through all its retries. The cachix
-    # daemon is excluded: its own post step stops it cleanly (and errors
-    # if it is already dead) — registration order already puts that stop
-    # before this kill, but the exclusion keeps the step safe if steps
-    # are ever reordered. Same fix as xmtplabs/convos-releases#31.
+    # Posts run in reverse order: registered after the mount = runs right
+    # before unmount+commit. Store-binary daemons (gradle/kotlin/adb) hold
+    # /nix busy; spare cachix daemon, its own post stops it. See convos-releases#31.
     # action-post-run exec()s its `run` input as a bare executable (no
     # shell), so the script must live in a file.
     - name: Write /nix busy-process cleanup script
@@ -67,10 +57,8 @@ runs:
       uses: webiny/action-post-run@3.1.0
       with:
         run: bash ${{ runner.temp }}/nix-unmount-cleanup.sh
-    # Single-user install; unlike cachix/install-nix-action it is designed
-    # to work with an already-populated /nix.
-    # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures,
-    # so stay on the 2.31.x line.
+    # Single-user install, works with pre-populated /nix. Stay on 2.31.x:
+    # 2.34.4 breaks patches (https://github.com/nixos/nix/issues/15619).
     - name: Install Nix (Linux)
       if: ${{ runner.os == 'Linux' }}
       uses: nixbuild/nix-quick-install-action@v35
