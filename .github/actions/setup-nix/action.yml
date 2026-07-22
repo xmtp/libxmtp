@@ -1,5 +1,5 @@
 name: "Setup Nix"
-description: "Install Nix with Cachix caching for XMTP"
+description: "Install Nix with Blacksmith sticky-disk store persistence (Linux) and Cachix caching for XMTP"
 inputs:
   github-token:
     description: "GitHub token for Nix installation"
@@ -11,28 +11,47 @@ inputs:
     description: "Enable sccache with GitHub Actions cache backend"
     required: false
     default: "false"
-  with-warpbuild-cache:
-    description: "whether to enable the warpbuild nix cache"
-    required: false
-    default: "true"
-  gc-max-store-size:
-    description: "Max Nix store size before garbage collection (e.g. 5G, 10G). Only applies on WarpBuild runners."
-    required: false
-    default: "20G"
 runs:
   using: "composite"
   steps:
-    - uses: cachix/install-nix-action@v31
+    # On Blacksmith Linux runners, /nix lives on a sticky disk that
+    # persists across jobs. The disk must be mounted before Nix is
+    # installed. One shared disk per (repo, OS, arch); concurrent jobs
+    # each get a clone of the last committed snapshot, and Cachix
+    # backfills anything a lost commit race drops.
+    - name: Prepare /nix mount point
+      if: ${{ runner.os == 'Linux' }}
+      run: |
+        sudo mkdir -p /nix/store
+        sudo chmod -R 777 /nix
+      shell: bash
+    - name: Mount /nix sticky disk
+      if: ${{ runner.os == 'Linux' }}
+      uses: useblacksmith/stickydisk@v1
       with:
-        # https://github.com/nixos/nix/issues/15619 2.34.4 causes pach failures
+        key: ${{ github.repository }}-nix-${{ runner.os }}-${{ runner.arch }}
+        path: /nix
+    # Single-user install; unlike cachix/install-nix-action it is designed
+    # to work with an already-populated /nix.
+    # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures,
+    # so stay on the 2.31.x line.
+    - name: Install Nix (Linux)
+      if: ${{ runner.os == 'Linux' }}
+      uses: nixbuild/nix-quick-install-action@v35
+      with:
+        nix_version: 2.31.5
+        nix_conf: |
+          accept-flake-config = true
+          access-tokens = github.com=${{ inputs.github-token }}
+    - name: Install Nix (macOS)
+      if: ${{ runner.os != 'Linux' }}
+      uses: cachix/install-nix-action@v31
+      with:
+        # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures
         install_url: https://releases.nixos.org/nix/nix-2.31.2/install
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
-    - uses: ./.github/actions/setup-nix-cache
-      if: ${{ inputs.with-warpbuild-cache == 'true' }}
-      with:
-        gc-max-store-size: ${{ inputs.gc-max-store-size }}
     - uses: cachix/cachix-action@v17
       if: ${{ inputs.cachix-auth-token != '' }}
       with:
