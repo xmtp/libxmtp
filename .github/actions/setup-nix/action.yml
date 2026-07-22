@@ -31,6 +31,12 @@ runs:
       with:
         key: ${{ github.repository }}-nix-${{ runner.os }}-${{ runner.arch }}
         path: /nix
+        # PR jobs mount a warm clone of the last trusted snapshot but never
+        # write back — untrusted code must not persist store modifications
+        # that later release builds would consume. Only trusted events
+        # (push, tag, dispatch, schedule) commit, mirroring GitHub's own
+        # actions/cache trust model.
+        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
     # Single-user install; unlike cachix/install-nix-action it is designed
     # to work with an already-populated /nix.
     # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures,
