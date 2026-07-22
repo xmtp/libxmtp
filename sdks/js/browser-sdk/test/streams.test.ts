@@ -400,7 +400,9 @@ describe("createStream", () => {
         retryAttempts: 1,
       });
 
-      await vi.waitFor(() => expect(onFailSpy).toHaveBeenCalled(), { timeout: 10_000 });
+      await vi.waitFor(() => expect(onFailSpy).toHaveBeenCalled(), {
+        timeout: 10_000,
+      });
       await stream.end();
     });
 
@@ -425,10 +427,9 @@ describe("createStream", () => {
       });
 
       // onRetry should be called with (currentAttempt, maxAttempts)
-      await vi.waitFor(
-        () => expect(onRetrySpy).toHaveBeenCalledWith(1, 3),
-        { timeout: 10_000 },
-      );
+      await vi.waitFor(() => expect(onRetrySpy).toHaveBeenCalledWith(1, 3), {
+        timeout: 10_000,
+      });
       await stream.end();
     });
 
@@ -454,10 +455,9 @@ describe("createStream", () => {
         retryAttempts: 3,
       });
 
-      await vi.waitFor(
-        () => expect(onRestartSpy).toHaveBeenCalledTimes(1),
-        { timeout: 10_000 },
-      );
+      await vi.waitFor(() => expect(onRestartSpy).toHaveBeenCalledTimes(1), {
+        timeout: 10_000,
+      });
       await stream.end();
     });
 
@@ -625,7 +625,9 @@ describe("createStream", () => {
       });
 
       // onFail should be called when the stream fails via the onFail callback
-      await vi.waitFor(() => expect(onFailSpy).toHaveBeenCalled(), { timeout: 10_000 });
+      await vi.waitFor(() => expect(onFailSpy).toHaveBeenCalled(), {
+        timeout: 10_000,
+      });
       await stream.end();
     });
 
@@ -800,10 +802,9 @@ describe("createStream", () => {
         onValue: onValueSpy,
       });
 
-      await vi.waitFor(
-        () => expect(onValueSpy).toHaveBeenCalledWith("test"),
-        { timeout: 10_000 },
-      );
+      await vi.waitFor(() => expect(onValueSpy).toHaveBeenCalledWith("test"), {
+        timeout: 10_000,
+      });
       await stream.end();
     });
   });

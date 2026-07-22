@@ -52,7 +52,8 @@ where
     }
 }
 
-impl<V3, R, W> XmtpTestClientExt for MigrationClient<V3, ReadWriteClient<R, W>, Arc<dyn CursorStore>>
+impl<V3, R, W> XmtpTestClientExt
+    for MigrationClient<V3, ReadWriteClient<R, W>, Arc<dyn CursorStore>>
 where
     V3: XmtpTestClient,
     R: XmtpTestClient<Builder = W::Builder>,
