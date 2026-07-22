@@ -11,6 +11,10 @@ inputs:
     description: "Enable sccache with GitHub Actions cache backend"
     required: false
     default: "false"
+  docker-builder:
+    description: "Set up Blacksmith buildx builder with sticky-disk Docker layer caching"
+    required: false
+    default: "false"
 runs:
   using: "composite"
   steps:
@@ -57,6 +61,15 @@ runs:
       uses: webiny/action-post-run@3.1.0
       with:
         run: bash ${{ runner.temp }}/nix-unmount-cleanup.sh
+    # Buildx builder backed by a sticky-disk layer cache (per Dockerfile,
+    # shared repo-wide, LWW commits). Speeds up compose-built backend
+    # images (validation service, anvil).
+    - name: Setup Blacksmith Docker builder
+      if: ${{ inputs.docker-builder == 'true' && runner.os == 'Linux' }}
+      uses: useblacksmith/setup-docker-builder@v1
+      with:
+        # Prune cap so stale layers don't grow the disk unbounded.
+        max-cache-size-mb: "10240"
     # Single-user install, works with pre-populated /nix. Stay on 2.31.x:
     # 2.34.4 breaks patches (https://github.com/nixos/nix/issues/15619).
     - name: Install Nix (Linux)
