@@ -71,7 +71,7 @@ jobs:
       # ---- Single build step with conditional push ----
       - name: Build (and conditionally push)
         id: build
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: ./dev/validation_service/Dockerfile
