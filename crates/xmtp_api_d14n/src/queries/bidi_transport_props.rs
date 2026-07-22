@@ -710,10 +710,12 @@ async fn run_schedule(ops: Vec<Op>, chunk_cap: usize, chunk_bytes: usize) {
 
 proptest! {
     #![proptest_config(ProptestConfig {
+        // Default raised for the delicate chunked-completion accounting; set
+        // PROPTEST_CASES=1 for a fast local run, or higher in a nightly lane.
         cases: std::env::var("PROPTEST_CASES")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(16),
+            .unwrap_or(32),
         ..ProptestConfig::default()
     })]
 

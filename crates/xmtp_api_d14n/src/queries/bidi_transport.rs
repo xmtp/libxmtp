@@ -258,6 +258,13 @@ const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_m
 /// full extra base of jitter ([`LedgerTask::arm_reconnect`]) to de-sync a
 /// fleet, so the effective wait tops out near twice this.
 const RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a wire must stay up before its death resets the backoff to the
+/// floor. A wire that opens and dies inside this window is flapping, so its
+/// backoff keeps growing instead — this stops an accept-then-immediately-close
+/// server (an overloaded node RSTing right after accept) from pinning a client
+/// at the reconnect floor. Only an open that *proves stable* earns the reset; a
+/// bare accept no longer does.
+const MIN_STABLE_UPTIME: std::time::Duration = std::time::Duration::from_secs(10);
 /// How long a graceful close (half-close, then drain inbound to completion)
 /// may take before the connection is dropped outright. After a half-close the
 /// server finishes any in-flight catch-up waves before closing with `OK`
@@ -626,11 +633,23 @@ where
     /// that dying drain with the fresh wire; the resume wave re-serves
     /// anything the drain discarded, so nothing is lost.
     pub async fn suspend(&self) -> Result<(), TransportError> {
+        self.enqueue_suspend()?
+            .await
+            .map_err(|_| TransportError::Closed)
+    }
+
+    /// Push a suspend command without awaiting its ack, returning the reply
+    /// channel to await later. Splitting the enqueue (a synchronous push onto
+    /// the unbounded command channel) from the await lets the process-level
+    /// lifecycle fan-out push the command under the same lock that orders the
+    /// suspend flag, so a concurrent resume cannot interleave its command send
+    /// between that flag flip and this one.
+    pub fn enqueue_suspend(&self) -> Result<oneshot::Receiver<()>, TransportError> {
         let (reply, response) = oneshot::channel();
         self.cmds
             .send(Cmd::Suspend { reply })
             .map_err(|_| TransportError::Closed)?;
-        response.await.map_err(|_| TransportError::Closed)
+        Ok(response)
     }
 
     /// Come back onto the network after [`Self::suspend`]: re-opens with the
@@ -648,11 +667,21 @@ where
     /// connection's own watchdog detects the stale wire and the transport
     /// reconnects transparently.
     pub async fn resume(&self) -> Result<(), TransportError> {
+        self.enqueue_resume()?
+            .await
+            .map_err(|_| TransportError::Closed)
+    }
+
+    /// Push a resume command without awaiting its catch-up, returning the reply
+    /// channel to await later. The enqueue counterpart of [`Self::suspend`]'s
+    /// [`Self::enqueue_suspend`] — see it for why the push is split from the
+    /// await.
+    pub fn enqueue_resume(&self) -> Result<oneshot::Receiver<()>, TransportError> {
         let (reply, response) = oneshot::channel();
         self.cmds
             .send(Cmd::Resume { reply })
             .map_err(|_| TransportError::Closed)?;
-        response.await.map_err(|_| TransportError::Closed)
+        Ok(response)
     }
 }
 
@@ -1965,6 +1994,7 @@ async fn run_ledger<B: TransportBinding>(
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
+        wire_opened_at: None,
         suspended: initially_suspended,
         wire_opens: 0,
         resume_notify: Vec::new(),
@@ -2003,6 +2033,10 @@ where
     /// sleep from `reconnect_delay` each loop iteration would let a steady
     /// stream of commands postpone the reconnect forever.
     reconnect_at: tokio::time::Instant,
+    /// When the current wire opened, or `None` between wires. A wire that dies
+    /// having been up at least [`MIN_STABLE_UPTIME`] resets the backoff to the
+    /// floor; a shorter-lived one is flapping and keeps it growing.
+    wire_opened_at: Option<tokio::time::Instant>,
     /// `suspend()`ed: the wire stays down on purpose — no lazy open for new
     /// leases, no reconnect backoff — until `resume()` clears it.
     suspended: bool,
@@ -2129,7 +2163,9 @@ where
             match self.open_preemptibly(mutate0).await {
                 OpenOutcome::Opened(wire) => {
                     self.conn = Some(wire);
-                    self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+                    // Backoff resets on stable death, not on open: a bare accept
+                    // doesn't prove the wire works ([`Self::wire_died`]).
+                    self.wire_opened_at = Some(tokio::time::Instant::now());
                     self.wire_opens += 1;
                     tracing::info!(
                         topics = topics.len(),
@@ -2252,8 +2288,15 @@ where
             close_gracefully(wire);
         }
         // Pending waves stay, progress intact: their leases are still owed a
-        // CatchUpComplete, and `reopen` re-issues them alongside the resume
-        // wave that carries any parked resume() waiters.
+        // CatchUpComplete, re-issued alongside the next reopen's resume wave.
+        // But a resume already awaiting catch-up is superseded by this suspend
+        // — the app is going off the network, so it can never reach its live
+        // edge on this transition. Conclude those waiters now instead of
+        // stranding them (and their callers' tasks) for the whole background
+        // sojourn; the next resume parks a fresh waiter.
+        for waiter in self.resume_notify.drain(..) {
+            let _ = waiter.send(());
+        }
         let _ = reply.send(());
         Flow::Continue
     }
@@ -2334,6 +2377,19 @@ where
     fn wire_died(&mut self) -> Flow {
         self.outbox.clear();
         drop(self.conn.take());
+        // A wire that proved stable resets the backoff to the floor so the
+        // reconnect is prompt; one that died inside `MIN_STABLE_UPTIME` is
+        // flapping — grow the backoff so an accept-then-close server can't pin
+        // us at the floor. Only surviving resets it; a bare open never did.
+        let stable = self
+            .wire_opened_at
+            .take()
+            .is_some_and(|opened| opened.elapsed() >= MIN_STABLE_UPTIME);
+        self.reconnect_delay = if stable {
+            RECONNECT_INITIAL_DELAY
+        } else {
+            (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY)
+        };
         let retry_in = self.arm_reconnect();
         if !self.ledger.leases.is_empty() {
             tracing::warn!(
@@ -2364,7 +2420,13 @@ where
     /// suspended, outrank any resumes the dial had deferred, and acknowledge.
     fn suspend_preempted(&mut self, ack: oneshot::Sender<()>) {
         self.suspended = true;
+        // Move any dial-deferred resumes into `resume_notify`, then conclude
+        // every parked resume: this suspend supersedes them all (same reason
+        // as [`Self::suspend`]).
         self.park_deferred_resumes();
+        for waiter in self.resume_notify.drain(..) {
+            let _ = waiter.send(());
+        }
         let _ = ack.send(());
     }
 
@@ -2425,7 +2487,8 @@ where
         match self.open_preemptibly(initial).await {
             OpenOutcome::Opened(wire) => {
                 self.conn = Some(wire);
-                self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+                // Backoff resets on stable death, not on open ([`wire_died`]).
+                self.wire_opened_at = Some(tokio::time::Instant::now());
                 self.wire_opens += 1;
                 tracing::info!(
                     reconnects = self.wire_opens.saturating_sub(1),
@@ -3119,6 +3182,109 @@ mod tests {
             resume_a.mutate_id, resume_b.mutate_id,
             "each resume chunk is its own wave"
         );
+    }
+
+    /// A lease over the cap that is STILL catching up when the wire dies is
+    /// re-issued *whole* on reopen — re-chunked into fresh bounded waves, no
+    /// topic dropped — and reports caught-up only once its LAST reopened chunk
+    /// completes. Deterministic coverage for the chunking x reconnect x
+    /// completion interaction the property test otherwise carries alone.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_over_cap_lease_still_catching_up_survives_a_wire_death() {
+        // Cap 2: a 3-topic lease chunks into 2 + 1.
+        let (transport, servers) = transport_capped(2, usize::MAX);
+        let topics: Vec<(Topic, u64)> = (0..3u32)
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let mut lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        let second = server.next_mutate().await;
+        assert_eq!(first.adds.len() + second.adds.len(), 3);
+        // Ack only the FIRST chunk, then kill the wire: the lease is still
+        // catching up (its second chunk never completed).
+        server.send(catchup_complete(first.mutate_id));
+        drop(server);
+
+        // Reopen re-issues the WHOLE lease, re-chunked into fresh 2 + 1 waves.
+        let mut reconnect = wait_for_server(&servers).await;
+        let resume_a = reconnect.next_mutate().await;
+        let resume_b = reconnect.next_mutate().await;
+        assert_eq!(
+            resume_a.adds.len() + resume_b.adds.len(),
+            3,
+            "the whole lease is re-issued after the death, not just the unfinished chunk"
+        );
+        for id in [resume_a.mutate_id, resume_b.mutate_id] {
+            assert!(
+                id != first.mutate_id && id != second.mutate_id,
+                "reissued chunks carry fresh wave ids"
+            );
+        }
+
+        // Completing only the first reopened chunk must NOT catch it up.
+        reconnect.send(catchup_complete(resume_a.mutate_id));
+        let quiet = tokio::time::timeout(Duration::from_millis(200), lease.next()).await;
+        assert!(
+            quiet.is_err(),
+            "a re-chunked lease stays catching-up until its LAST reopened chunk completes"
+        );
+        // The last reopened chunk catches it up — exactly once.
+        reconnect.send(catchup_complete(resume_b.mutate_id));
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+    }
+
+    /// Suspending then resuming a lease over the cap re-subscribes it across
+    /// multiple bounded frames, and `resume()` resolves only once every resumed
+    /// chunk has completed — the chunking x suspend/resume interaction.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_over_cap_lease_survives_suspend_and_resume() {
+        let (transport, servers) = transport_capped(2, usize::MAX);
+        let topics: Vec<(Topic, u64)> = (0..3u32)
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let mut lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        let second = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        server.send(catchup_complete(second.mutate_id));
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // Suspend parks the wire; resume re-opens and re-subscribes the whole
+        // lease, chunked into bounded frames again.
+        transport.suspend().await?;
+        drop(server);
+        let mut resume = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+
+        let mut reconnect = wait_for_server(&servers).await;
+        let resume_a = reconnect.next_mutate().await;
+        let resume_b = reconnect.next_mutate().await;
+        assert_eq!(
+            resume_a.adds.len() + resume_b.adds.len(),
+            3,
+            "the whole lease is re-subscribed on resume, chunked into bounded frames"
+        );
+        // resume() resolves only once EVERY resumed chunk has completed.
+        reconnect.send(catchup_complete(resume_a.mutate_id));
+        let pending = tokio::time::timeout(Duration::from_millis(200), &mut resume).await;
+        assert!(
+            pending.is_err(),
+            "resume() must not resolve until every resumed chunk is caught up"
+        );
+        reconnect.send(catchup_complete(resume_b.mutate_id));
+        tokio::time::timeout(WAIT, resume).await?.unwrap()?;
     }
 
     /// A lease whose topics exceed the BYTE budget (not the count cap) still
@@ -4146,6 +4312,9 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_millis(20)).await;
         tokio::time::timeout(WAIT, transport.suspend()).await??;
+        // The deferred resume was superseded by the suspend: its waiter
+        // concludes now, not stranded until some later resume.
+        tokio::time::timeout(WAIT, first_resume).await?.unwrap()?;
         let mut alpha = tokio::time::timeout(WAIT, leased).await?.unwrap()?;
 
         // The stale resume must not resurrect the network.
@@ -4156,8 +4325,7 @@ mod tests {
             "a resume deferred before the suspend must not redial"
         );
 
-        // A later, explicit resume brings everything back — including the
-        // parked waiter from before the suspend.
+        // A later, explicit resume brings the wire back.
         let second_resume = tokio::spawn({
             let transport = transport.clone();
             async move { transport.resume().await }
@@ -4166,7 +4334,6 @@ mod tests {
         let resume = server.next_mutate().await;
         server.send(catchup_complete(resume.mutate_id));
         tokio::time::timeout(WAIT, second_resume).await?.unwrap()?;
-        tokio::time::timeout(WAIT, first_resume).await?.unwrap()?;
         assert!(matches!(
             recv(&mut alpha).await,
             Some(LeaseEvent::CatchUpComplete)

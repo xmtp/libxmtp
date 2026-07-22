@@ -309,17 +309,21 @@ where
 /// suspended defers its backend's capability discovery to the resume
 /// re-open; see [`settle_lifecycle`] for how a refusal there still latches.
 pub async fn suspend_bidi_streams() -> Result<()> {
-    let wires: Vec<_> = {
+    // Enqueue each transport's command UNDER the same lock that flips the
+    // process flag, so a concurrent resume can't interleave its command send
+    // between our flag flip and ours — the actor then sees Suspend/Resume in
+    // the order the lock ordered the flags, not in scheduler order. The push is
+    // synchronous; only the reply await below runs outside the lock.
+    let (wires, pending): (Vec<_>, Vec<_>) = {
         let mut shared = SHARED_WIRES.lock();
         shared.suspend_requested = true;
         shared
             .transports
             .iter()
-            .map(|(host, t)| (host.clone(), t.clone()))
-            .collect()
+            .map(|(host, t)| ((host.clone(), t.clone()), t.enqueue_suspend()))
+            .unzip()
     };
-    let results = futures::future::join_all(wires.iter().map(|(_, t)| t.suspend())).await;
-    settle_lifecycle(&wires, results)
+    settle_lifecycle(&wires, await_lifecycle_acks(pending).await)
 }
 
 /// Bring the shared bidi wires back (`willEnterForeground`), resolving once
@@ -333,17 +337,34 @@ pub async fn suspend_bidi_streams() -> Result<()> {
 /// ([`suspend_bidi_streams`]), so transports created from here on are born
 /// live again. A no-op when no transport was ever opened.
 pub async fn resume_bidi_streams() -> Result<()> {
-    let wires: Vec<_> = {
+    // Enqueue under the flag lock, same as [`suspend_bidi_streams`]: the
+    // command order must match the flag order under all interleavings.
+    let (wires, pending): (Vec<_>, Vec<_>) = {
         let mut shared = SHARED_WIRES.lock();
         shared.suspend_requested = false;
         shared
             .transports
             .iter()
-            .map(|(host, t)| (host.clone(), t.clone()))
-            .collect()
+            .map(|(host, t)| ((host.clone(), t.clone()), t.enqueue_resume()))
+            .unzip()
     };
-    let results = futures::future::join_all(wires.iter().map(|(_, t)| t.resume())).await;
-    settle_lifecycle(&wires, results)
+    settle_lifecycle(&wires, await_lifecycle_acks(pending).await)
+}
+
+/// Await every enqueued lifecycle reply, mapping a dropped sender (a closed
+/// transport) to `Closed`. The command pushes already happened under the
+/// registry lock ([`suspend_bidi_streams`]); only this await runs outside it,
+/// so a slow catch-up on one destination never delays another's command.
+async fn await_lifecycle_acks(
+    pending: Vec<std::result::Result<tokio::sync::oneshot::Receiver<()>, TransportError>>,
+) -> Vec<std::result::Result<(), TransportError>> {
+    futures::future::join_all(pending.into_iter().map(|reply| async move {
+        match reply {
+            Ok(rx) => rx.await.map_err(|_| TransportError::Closed),
+            Err(e) => Err(e),
+        }
+    }))
+    .await
 }
 
 /// Fold a lifecycle fan-out's results, driving EVERY destination before
