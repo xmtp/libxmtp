@@ -51,7 +51,7 @@ jobs:
       - uses: taiki-e/install-action@just
 
       - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
         with:
           key: ignored-${{ matrix.name }}
           workspaces: |
