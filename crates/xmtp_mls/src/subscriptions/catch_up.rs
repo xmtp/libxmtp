@@ -503,15 +503,21 @@ where
         // Bounded-sync half-close (XIP-83): we are done sending; the server
         // finishes and closes its side. Everything owed has already arrived
         // and been attempted, so from here the run is complete no matter how
-        // gracefully the wire goes down.
-        if conn.finish().await.is_ok() {
-            let drain = async { while conn.next().await.is_some() {} };
-            if tokio::time::timeout(POST_FINISH_DRAIN, drain)
-                .await
-                .is_err()
-            {
-                tracing::debug!("catch-up peer did not close after the half-close; dropping");
+        // gracefully the wire goes down. Time-box the whole close — the
+        // half-close send AND the drain: `finish()` blocks on the connection's
+        // command channel, which a wedged actor (parked emitting into a full
+        // event channel) could hold forever, so the courtesy close must never
+        // outlast the run (mirrors the transport's `close_gracefully` budget).
+        let close = async {
+            if conn.finish().await.is_ok() {
+                while conn.next().await.is_some() {}
             }
+        };
+        if tokio::time::timeout(POST_FINISH_DRAIN, close)
+            .await
+            .is_err()
+        {
+            tracing::debug!("catch-up half-close did not settle in time; dropping the wire");
         }
         Ok(AttemptEnd::Complete)
     }
