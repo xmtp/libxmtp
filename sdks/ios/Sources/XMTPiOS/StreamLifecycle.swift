@@ -50,16 +50,17 @@ public struct CatchUpSummary: Sendable {
 ///   reconciler instead re-checks the desired state after every applied op and
 ///   issues a correcting op if it changed, converging to the last intent.
 ///
-/// **Known limitation — background launch.** State is seeded to foreground and
-/// only reacts to *transitions*; a process launched straight into the
-/// background (silent push / `BGTask`) fires no `didEnterBackground`, so if it
-/// opens live streams and never foregrounds, the wire can stay live in the
-/// background. We can't seed from `UIApplication.shared.applicationState`
-/// without breaking app-extension builds (`.shared` is extension-unavailable).
-/// Backgrounds that only catch up — the normal pattern — are unaffected, since
-/// ``Client/catchUpToLive(timeoutMs:)`` uses its own connection, not this wire.
-/// The complete fix is for the shared transport to honor a suspend requested
-/// before it is first opened (a libxmtp follow-on).
+/// **Background launch.** A process launched straight into the background
+/// (silent push / `BGTask`) fires no `didEnterBackground`, so registration seeds
+/// the backgrounded case explicitly by reading the current application state
+/// (see `launchedInBackground()`) — foreground is already the default. A stream
+/// opened while still backgrounded is then born parked by the shared transport's
+/// suspend-before-open latch, so it never opens a live wire in the background.
+/// Because XMTPiOS is usable from app-extension targets — where
+/// `UIApplication.shared` is compile-time unavailable — the state read is dynamic
+/// and app-process-only; in an extension it is skipped (there is no app lifecycle
+/// to seed from, and ``Client/catchUpToLive(timeoutMs:)`` uses its own
+/// connection, not this wire).
 final class StreamLifecycleManager: @unchecked Sendable {
 	static let shared = StreamLifecycleManager()
 
@@ -77,8 +78,10 @@ final class StreamLifecycleManager: @unchecked Sendable {
 	func enableIfNeeded() {
 		#if canImport(UIKit)
 			lock.lock()
-			defer { lock.unlock() }
-			guard !isRegistered else { return }
+			if isRegistered {
+				lock.unlock()
+				return
+			}
 			isRegistered = true
 
 			let center = NotificationCenter.default
@@ -96,6 +99,44 @@ final class StreamLifecycleManager: @unchecked Sendable {
 			) { [weak self] _ in
 				self?.setDesired(live: true)
 			}
+			lock.unlock()
+
+			// A process launched straight into the background fires no
+			// `didEnterBackground`; seed the backgrounded case so a stream opened
+			// before any foreground is born parked. `setDesired` takes the lock,
+			// so this must run after unlocking. `nil` (can't tell / app extension)
+			// leaves the foreground default.
+			if launchedInBackground() == true {
+				setDesired(live: false)
+			}
+		#endif
+	}
+
+	/// Whether the host app is currently backgrounded, or `nil` when it can't be
+	/// determined — an app extension (no app-level lifecycle to seed from) or an
+	/// unexpected runtime shape. XMTPiOS is usable from extension targets, where
+	/// `UIApplication.shared` is compile-time unavailable, so this reads the
+	/// shared application and its state dynamically and only in the app process.
+	/// Any failure returns `nil`, leaving the foreground default — it can never
+	/// regress a normally-foregrounded app.
+	private func launchedInBackground() -> Bool? {
+		#if canImport(UIKit)
+			guard
+				Bundle.main.bundleURL.pathExtension != "appex",
+				let appClass = NSClassFromString("UIApplication")
+			else { return nil }
+			// Read `+[UIApplication sharedApplication].applicationState` dynamically
+			// through the ObjC runtime, so nothing references the
+			// extension-unavailable `.shared` at compile time.
+			let selector = NSSelectorFromString("sharedApplication")
+			guard
+				(appClass as AnyObject).responds(to: selector),
+				let shared = (appClass as AnyObject).perform(selector)?.takeUnretainedValue(),
+				let state = (shared as AnyObject).value(forKey: "applicationState") as? Int
+			else { return nil }
+			return state == 2 // UIApplication.State.background
+		#else
+			return nil
 		#endif
 	}
 

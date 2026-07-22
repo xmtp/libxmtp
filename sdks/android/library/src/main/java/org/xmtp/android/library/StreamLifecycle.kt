@@ -52,15 +52,15 @@ data class CatchUpSummary(
  *   so a naive launch-per-callback could complete out of order and strand the
  *   wire live-while-backgrounded; the loop instead converges to the last intent.
  *
- * **Known limitation — background launch.** Registration seeds the desired state
- * from [ProcessLifecycleOwner]'s current state, so a process created in the
- * background starts suspended. But a stream opened *after* that while still
- * backgrounded opens a fresh live wire the model can't see (no lifecycle
- * transition fires), so it can sit live-while-backgrounded until the next
- * foreground/background cycle. Backgrounds that only catch up — the normal
- * pattern — are unaffected, since [Client.catchUpToLive] uses its own
- * connection, not this wire. The complete fix is for the shared transport to
- * honor a suspend requested before it is first opened (a libxmtp follow-on).
+ * **Background launch.** Registration seeds the desired state from
+ * [ProcessLifecycleOwner]'s current state, so a process created in the background
+ * starts suspended. A stream opened *after* that while still backgrounded is born
+ * parked too: the seeded suspend records the intent on the shared transport
+ * (suspend-before-open latch), so its first lease opens parked rather than
+ * dialing a live wire. Backgrounds that only catch up — the normal pattern — use
+ * their own connection ([Client.catchUpToLive]), not this wire. (Narrow residual:
+ * the seed runs a few async hops after registration; a stream opened inside that
+ * cold-start window can still be born live — see [enableIfNeeded].)
  */
 internal object StreamLifecycleManager {
     private val lock = Any()
