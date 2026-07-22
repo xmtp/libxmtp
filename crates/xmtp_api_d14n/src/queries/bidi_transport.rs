@@ -258,6 +258,13 @@ const RECONNECT_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_m
 /// full extra base of jitter ([`LedgerTask::arm_reconnect`]) to de-sync a
 /// fleet, so the effective wait tops out near twice this.
 const RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a wire must stay up before its death resets the backoff to the
+/// floor. A wire that opens and dies inside this window is flapping, so its
+/// backoff keeps growing instead — this stops an accept-then-immediately-close
+/// server (an overloaded node RSTing right after accept) from pinning a client
+/// at the reconnect floor. Only an open that *proves stable* earns the reset; a
+/// bare accept no longer does.
+const MIN_STABLE_UPTIME: std::time::Duration = std::time::Duration::from_secs(10);
 /// How long a graceful close (half-close, then drain inbound to completion)
 /// may take before the connection is dropped outright. After a half-close the
 /// server finishes any in-flight catch-up waves before closing with `OK`
@@ -1965,6 +1972,7 @@ async fn run_ledger<B: TransportBinding>(
         conn: None,
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
+        wire_opened_at: None,
         suspended: initially_suspended,
         wire_opens: 0,
         resume_notify: Vec::new(),
@@ -2003,6 +2011,10 @@ where
     /// sleep from `reconnect_delay` each loop iteration would let a steady
     /// stream of commands postpone the reconnect forever.
     reconnect_at: tokio::time::Instant,
+    /// When the current wire opened, or `None` between wires. A wire that dies
+    /// having been up at least [`MIN_STABLE_UPTIME`] resets the backoff to the
+    /// floor; a shorter-lived one is flapping and keeps it growing.
+    wire_opened_at: Option<tokio::time::Instant>,
     /// `suspend()`ed: the wire stays down on purpose — no lazy open for new
     /// leases, no reconnect backoff — until `resume()` clears it.
     suspended: bool,
@@ -2129,7 +2141,9 @@ where
             match self.open_preemptibly(mutate0).await {
                 OpenOutcome::Opened(wire) => {
                     self.conn = Some(wire);
-                    self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+                    // Backoff resets on stable death, not on open: a bare accept
+                    // doesn't prove the wire works ([`Self::wire_died`]).
+                    self.wire_opened_at = Some(tokio::time::Instant::now());
                     self.wire_opens += 1;
                     tracing::info!(
                         topics = topics.len(),
@@ -2334,6 +2348,19 @@ where
     fn wire_died(&mut self) -> Flow {
         self.outbox.clear();
         drop(self.conn.take());
+        // A wire that proved stable resets the backoff to the floor so the
+        // reconnect is prompt; one that died inside `MIN_STABLE_UPTIME` is
+        // flapping — grow the backoff so an accept-then-close server can't pin
+        // us at the floor. Only surviving resets it; a bare open never did.
+        let stable = self
+            .wire_opened_at
+            .take()
+            .is_some_and(|opened| opened.elapsed() >= MIN_STABLE_UPTIME);
+        self.reconnect_delay = if stable {
+            RECONNECT_INITIAL_DELAY
+        } else {
+            (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY)
+        };
         let retry_in = self.arm_reconnect();
         if !self.ledger.leases.is_empty() {
             tracing::warn!(
@@ -2425,7 +2452,8 @@ where
         match self.open_preemptibly(initial).await {
             OpenOutcome::Opened(wire) => {
                 self.conn = Some(wire);
-                self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+                // Backoff resets on stable death, not on open ([`wire_died`]).
+                self.wire_opened_at = Some(tokio::time::Instant::now());
                 self.wire_opens += 1;
                 tracing::info!(
                     reconnects = self.wire_opens.saturating_sub(1),
