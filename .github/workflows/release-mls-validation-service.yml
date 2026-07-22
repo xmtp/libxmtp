@@ -9,7 +9,7 @@ on:
 jobs:
   push_to_registry:
     name: Build MLS Validation Docker Image
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write

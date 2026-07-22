@@ -6,7 +6,7 @@ env:
 jobs:
   lint:
     name: Lint (Node)
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6

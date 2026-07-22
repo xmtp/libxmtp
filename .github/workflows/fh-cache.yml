@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [warp-ubuntu-latest-x64-16x, warp-macos-26-arm64-12x]
+        os: [blacksmith-16vcpu-ubuntu-2404, warp-macos-26-arm64-12x]
     runs-on: ${{ matrix.os }}
     permissions:
       id-token: write
@@ -43,7 +43,7 @@ jobs:
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
   validation-image-aarch64:
-    runs-on: warp-ubuntu-latest-arm64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404-arm
     permissions:
       id-token: write
       contents: read

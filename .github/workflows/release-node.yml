@@ -69,7 +69,7 @@ jobs:
 
   build-linux:
     needs: setup
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2204
     strategy:
       fail-fast: false
       matrix:

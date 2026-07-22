@@ -4,7 +4,7 @@ on:
 jobs:
   check:
     name: Check (keepalive-probe)
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -14,6 +14,5 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          with-warpbuild-cache: "false"
       - name: Check keepalive-probe compiles
         run: nix-fast-build --no-nom --flake .#cargo-clippy.x86_64-linux.keepalive-probe

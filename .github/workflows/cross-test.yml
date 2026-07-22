@@ -76,7 +76,7 @@ concurrency:
 jobs:
   compat:
     name: ${{ matrix.kind }} (${{ matrix.profile }})
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     strategy:
       # All four cells always run; each (kind, profile) is independently
       # meaningful — broken nightlies in cross-talk don't mask stable
@@ -112,8 +112,6 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          with-warpbuild-cache: "true"
-          gc-max-store-size: "5G"
 
       - name: Resolve sample size
         id: sample
