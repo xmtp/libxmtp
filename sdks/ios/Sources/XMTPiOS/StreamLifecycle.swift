@@ -43,12 +43,13 @@ public struct CatchUpSummary: Sendable {
 ///
 /// - **Transitions are reconciled, not fired.** Each notification only records
 ///   the desired state; a single serial reconciler drives the wire toward it,
-///   one operation at a time. `resumeStreams()` is unbounded while offline and
-///   uniffi does not propagate task cancellation, so a naive
-///   `Task { await resume }` / `Task { await suspend }` per notification could
-///   complete out of order and strand the wire live-while-backgrounded. The
-///   reconciler instead re-checks the desired state after every applied op and
-///   issues a correcting op if it changed, converging to the last intent.
+///   one operation at a time. Swift gives concurrent `Task`s no start-order
+///   guarantee, so a naive `Task { await resume }` / `Task { await suspend }`
+///   per notification could apply out of order and strand the wire
+///   live-while-backgrounded (`resumeStreams()` is fire-and-forget, but
+///   `suspendStreams()` still awaits its release). The reconciler instead
+///   re-checks the desired state after every applied op and issues a
+///   correcting op if it changed, converging to the last intent.
 ///
 /// **Background launch.** A process launched straight into the background
 /// (silent push / `BGTask`) fires no `didEnterBackground`, so registration seeds
@@ -153,10 +154,11 @@ final class StreamLifecycleManager: @unchecked Sendable {
 	}
 
 	/// Drives the wire toward `desiredLive`, one op at a time, until they agree.
-	/// Applying an op is async and may be slow (`resumeStreams` blocks while
-	/// offline); the loop re-reads `desiredLive` afterward so a flip mid-op is
-	/// corrected rather than lost. The lock is only touched by the synchronous
-	/// helpers — never held across an `await`.
+	/// Applying an op is async and may take a moment (`suspendStreams` awaits
+	/// the wire's release; `resumeStreams` returns once the resume is enqueued);
+	/// the loop re-reads `desiredLive` afterward so a flip mid-op is corrected
+	/// rather than lost. The lock is only touched by the synchronous helpers —
+	/// never held across an `await`.
 	///
 	/// A failed op does *not* advance `appliedLive`: recording a transition that
 	/// never happened would leave the wire stuck in the wrong state with no retry.

@@ -48,9 +48,11 @@ data class CatchUpSummary(
  *
  * - **Transitions are reconciled, not fired.** Each callback only records the
  *   desired state; a single serial loop drives the wire toward it one op at a
- *   time, re-checking after each. `resumeStreams()` is unbounded while offline,
- *   so a naive launch-per-callback could complete out of order and strand the
- *   wire live-while-backgrounded; the loop instead converges to the last intent.
+ *   time, re-checking after each. Coroutines launched per-callback have no
+ *   start-order guarantee, so a naive launch-per-callback could apply out of
+ *   order and strand the wire live-while-backgrounded (`resumeStreams()` is
+ *   fire-and-forget, but `suspendStreams()` still awaits its release); the
+ *   loop instead converges to the last intent.
  *
  * **Background launch.** Registration seeds the desired state from
  * [ProcessLifecycleOwner]'s current state, so a process created in the background

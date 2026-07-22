@@ -118,6 +118,11 @@ pub struct CatchUpSummary {
     pub messages: u64,
     /// Conversations newly joined by this call.
     pub conversations: u64,
+    /// Whether the run reached the live edge before its optional deadline.
+    /// `false` means a `timeout` cut it short; the counts above are then the
+    /// partial total persisted so far (bidi path) or zero (legacy fallback),
+    /// and a later call resumes from durable state.
+    pub completed: bool,
 }
 
 #[derive(Debug, thiserror::Error, ErrorCode)]
@@ -221,6 +226,11 @@ where
     /// durable cursor and processed, nothing left running afterwards. See
     /// the module docs for the wire shape and its bounds.
     ///
+    /// `timeout` bounds the whole call (`None` = run to completion, bounded only
+    /// by the wire-death retry cap). On the deadline the returned summary is the
+    /// partial persisted so far with `completed == false` (bidi path; the legacy
+    /// fallback reports zero), and a later call resumes from durable state.
+    ///
     /// Individual message- and welcome-processing failures are logged, not
     /// fatal — like a live stream, the durable cursors are not advanced
     /// past them (a failed welcome stays unrecorded), so the next call, a
@@ -230,10 +240,18 @@ where
     /// "everything else synced, one item pending replay" into a hard error
     /// on every wake. `Ok` therefore means "everything owed was received
     /// and attempted", not "zero processing errors".
-    pub async fn catch_up_to_live(&self) -> Result<CatchUpSummary, CatchUpError> {
+    pub async fn catch_up_to_live(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<CatchUpSummary, CatchUpError> {
+        // `checked_add` so an absurd `timeout` (it arrives as a u64 millisecond
+        // count over the FFI) degrades to "no deadline" instead of panicking on
+        // the Instant overflow — a caller asking to wait ~forever gets exactly
+        // that.
+        let deadline = timeout.and_then(|d| tokio::time::Instant::now().checked_add(d));
         let host = self.context.api().api_client.host().to_owned();
         if bidi_streams_active(&host) {
-            match self.catch_up_bidi().await {
+            match self.catch_up_bidi(deadline).await {
                 Ok(summary) => return Ok(summary),
                 Err(CatchUpError::Unsupported(e)) => {
                     tracing::error!(
@@ -251,21 +269,60 @@ where
                 Err(e) => return Err(e),
             }
         }
-        self.catch_up_legacy().await
+        // The legacy arm computes a terminal store diff, so it has no partial to
+        // hand back mid-flight: on the deadline return an empty, `completed=false`
+        // summary (its stores are still persisted; a later call resumes them).
+        match deadline {
+            Some(dl) => match tokio::time::timeout_at(dl, self.catch_up_legacy()).await {
+                Ok(res) => res,
+                Err(_) => Ok(CatchUpSummary::default()),
+            },
+            None => self.catch_up_legacy().await,
+        }
     }
 
     /// The bidi arm: bounded runs with a bounded retry on wire death. The
     /// summary accumulates across retries — an attempt's stores survive its
     /// wire death, and the next attempt reseeds from durable state, so its
-    /// replays of them are deduped and never recounted.
-    pub(crate) async fn catch_up_bidi(&self) -> Result<CatchUpSummary, CatchUpError> {
+    /// replays of them are deduped and never recounted. On the `deadline` the
+    /// run stops and returns the summary accumulated so far with
+    /// `completed = false` — its `&mut summary` is owned here, so the counts
+    /// earned before the cut survive the cancelled attempt.
+    pub(crate) async fn catch_up_bidi(
+        &self,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<CatchUpSummary, CatchUpError> {
         let mut summary = CatchUpSummary::default();
         for attempt in 1..=MAX_ATTEMPTS {
-            match self.catch_up_attempt(&mut summary).await? {
-                AttemptEnd::Complete => return Ok(summary),
+            let end = match deadline {
+                Some(dl) => {
+                    match tokio::time::timeout_at(dl, self.catch_up_attempt(&mut summary)).await {
+                        Ok(res) => res?,
+                        // Deadline hit mid-attempt: `summary` holds everything
+                        // processed so far (`completed` stays false).
+                        Err(_) => return Ok(summary),
+                    }
+                }
+                None => self.catch_up_attempt(&mut summary).await?,
+            };
+            match end {
+                AttemptEnd::Complete => {
+                    summary.completed = true;
+                    return Ok(summary);
+                }
                 AttemptEnd::WireDied => {
                     tracing::warn!(attempt, "catch-up wire died; retrying from durable state");
-                    tokio::time::sleep(RETRY_BACKOFF * attempt).await;
+                    let backoff = RETRY_BACKOFF * attempt;
+                    // Don't sleep past the deadline; return the partial instead.
+                    // `checked_add` mirrors the deadline computation above: the
+                    // bounded backoff can't actually overflow, but if it ever
+                    // did we'd treat it as "past the deadline" and stop rather
+                    // than sleep for an unrepresentable duration.
+                    let wake = tokio::time::Instant::now().checked_add(backoff);
+                    if matches!(deadline, Some(dl) if wake.is_none_or(|w| w >= dl)) {
+                        return Ok(summary);
+                    }
+                    tokio::time::sleep(backoff).await;
                 }
             }
         }
@@ -332,6 +389,7 @@ where
                 !sync_ids.contains(group_id) && !pre_stored.contains(cursor)
             })
             .count() as u64;
+        summary.completed = true;
         Ok(summary)
     }
 
@@ -621,7 +679,7 @@ mod tests {
         group.send_msg(b"while you were out").await;
         group.send_msg(b"still out").await;
 
-        let summary = alix.catch_up_bidi().await?;
+        let summary = alix.catch_up_bidi(None).await?;
 
         let alix_group = alix.group(&group.group_id)?;
         let bodies: Vec<Vec<u8>> = alix_group
@@ -655,7 +713,7 @@ mod tests {
         group.send_msg(b"missed one").await;
         group.send_msg(b"missed two").await;
 
-        let first = bo.catch_up_bidi().await?;
+        let first = bo.catch_up_bidi(None).await?;
         let count_after_first = bo_group.find_messages(&MsgQueryArgs::default())?.len();
         let bodies: Vec<Vec<u8>> = bo_group
             .find_messages(&MsgQueryArgs::default())?
@@ -673,13 +731,16 @@ mod tests {
 
         // The honesty proof for the counter: the replay of already-stored
         // history persists nothing, so the summary must say so.
-        let second = bo.catch_up_bidi().await?;
+        let second = bo.catch_up_bidi(None).await?;
         let count_after_second = bo_group.find_messages(&MsgQueryArgs::default())?.len();
         assert_eq!(count_after_first, count_after_second);
         assert_eq!(
             second,
-            CatchUpSummary::default(),
-            "a second run persists nothing and must report zero"
+            CatchUpSummary {
+                completed: true,
+                ..Default::default()
+            },
+            "a second run still reaches live, but persists nothing, so its counts are zero"
         );
     }
 
@@ -688,11 +749,14 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn catch_up_with_nothing_owed_completes() {
         tester!(alix);
-        let summary = alix.catch_up_bidi().await?;
+        let summary = alix.catch_up_bidi(None).await?;
         assert_eq!(
             summary,
-            CatchUpSummary::default(),
-            "nothing owed means nothing counted"
+            CatchUpSummary {
+                completed: true,
+                ..Default::default()
+            },
+            "nothing owed still completes, with zero counts"
         );
     }
 
@@ -724,8 +788,11 @@ mod tests {
         let second = bo.catch_up_legacy().await?;
         assert_eq!(
             second,
-            CatchUpSummary::default(),
-            "a repeat legacy run persists nothing and must report zero"
+            CatchUpSummary {
+                completed: true,
+                ..Default::default()
+            },
+            "a repeat legacy run still completes, but persists nothing, so its counts are zero"
         );
     }
 }

@@ -207,13 +207,16 @@ pub async fn suspend_streams() -> Result<(), FfiError> {
 }
 
 /// Bring the streaming wire back after [`suspend_streams`] — the "app entered
-/// foreground" half. Fire-and-forget: do **not** await this to drive UI. It
-/// resolves at a wire-level mark (the reconnect's catch-up wave completing),
-/// which is unbounded while the network is down and can still have replayed
-/// messages decoding behind it; awaiting it for a "synced" spinner would stall.
-/// Let the message callbacks update the UI as messages arrive, and use
-/// [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable
-/// "I am current now". A no-op when nothing is streaming.
+/// foreground" half. **Fire-and-forget**: it enqueues the resume and returns
+/// immediately; the reconnect (and its catch-up wave) proceeds in the
+/// background, unbounded while the network is down. Do **not** treat its return
+/// as "synced" — replayed messages are still arriving via the stream callbacks
+/// behind it. Let those callbacks update the UI as messages land, and use
+/// [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable "I am
+/// current now". A no-op when nothing is streaming.
+///
+/// Process-scoped: one streaming wire is shared across every client in the
+/// process, so this is a free function, not a client method.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn resume_streams() -> Result<(), FfiError> {
     xmtp_mls::subscriptions::router_callbacks::resume_bidi_streams().await?;
@@ -774,28 +777,20 @@ impl FfiXmtpClient {
     /// conversation's missed messages are replayed from durable cursors and
     /// persisted, then the wire closes.
     ///
-    /// `timeout_ms` bounds the whole call (`None` = unbounded). On the deadline
-    /// the returned summary has `completed = false`; whatever was processed
-    /// first is already persisted and a later call resumes from durable state,
-    /// so cutting it short is always safe.
+    /// `opts.timeout_ms` bounds the whole call (`None` = unbounded). On the
+    /// deadline the returned summary has `completed = false` and its counts are
+    /// the partial total already persisted before the cut (the bidi path; the
+    /// legacy fallback reports zero). A later call resumes from durable state, so
+    /// cutting it short is always safe.
     #[tracing::instrument(skip_all)]
     pub async fn catch_up_to_live(
         &self,
-        timeout_ms: Option<u64>,
+        opts: Option<FfiCatchUpOptions>,
     ) -> Result<FfiCatchUpSummary, FfiError> {
-        let fut = self.inner_client.catch_up_to_live();
-        match timeout_ms {
-            None => Ok(fut.await?.into()),
-            Some(ms) => match tokio::time::timeout(std::time::Duration::from_millis(ms), fut).await
-            {
-                Ok(res) => Ok(res?.into()),
-                Err(_elapsed) => Ok(FfiCatchUpSummary {
-                    messages: 0,
-                    conversations: 0,
-                    completed: false,
-                }),
-            },
-        }
+        let timeout = opts
+            .and_then(|o| o.timeout_ms)
+            .map(std::time::Duration::from_millis);
+        Ok(self.inner_client.catch_up_to_live(timeout).await?.into())
     }
 
     #[tracing::instrument(skip_all)]
@@ -1212,12 +1207,32 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for FfiGroupSyncSumm
     }
 }
 
+/// Options for [`FfiXmtpClient::catch_up_to_live`]. Taken as a struct (rather
+/// than a bare argument) so future knobs can be added as defaulted fields
+/// without breaking the exported signature — same pattern as
+/// [`FfiUpdateAppDataOptions`].
+///
+/// WARNING: uniffi Records get NO default field values unless the field
+/// carries `#[uniffi(default = ...)]`. Any field added later MUST carry a
+/// uniffi default, or the generated Swift/Kotlin constructors change and the
+/// addition breaks compiled apps.
+#[derive(uniffi::Record, Default, Clone, Debug)]
+pub struct FfiCatchUpOptions {
+    /// Wall-clock bound on the whole catch-up. `None` runs to completion
+    /// (unbounded); on the deadline the returned summary is the partial persisted
+    /// so far with `completed == false`, and a later call resumes from durable
+    /// state.
+    #[uniffi(default = None)]
+    pub timeout_ms: Option<u64>,
+}
+
 /// Outcome of [`FfiXmtpClient::catch_up_to_live`].
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct FfiCatchUpSummary {
-    /// Application messages newly persisted by this call. Meaningful only when
-    /// `completed` is true; `0` on a deadline (the in-flight tally is dropped
-    /// with the cancelled future — the messages themselves are still stored).
+    /// Application messages newly persisted by this call. On a deadline
+    /// (`completed == false`) this is the partial total persisted before the cut
+    /// on the bidi path, or `0` on the legacy fallback — the messages themselves
+    /// are stored either way.
     pub messages: u64,
     /// Conversations newly joined by this call. Same caveat as `messages`.
     pub conversations: u64,
@@ -1232,7 +1247,7 @@ impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for FfiCatchUpSumma
         Self {
             messages: summary.messages,
             conversations: summary.conversations,
-            completed: true,
+            completed: summary.completed,
         }
     }
 }

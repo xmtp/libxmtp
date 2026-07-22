@@ -307,7 +307,8 @@ where
 /// [`Client::catch_up_to_live`](crate::Client::catch_up_to_live) is exempt
 /// by design — a background fetch is a deliberate dial). A wire born
 /// suspended defers its backend's capability discovery to the resume
-/// re-open; see [`settle_lifecycle`] for how a refusal there still latches.
+/// re-open; a refusal there latches via the stream-open path when the parked
+/// streams re-subscribe (resume acks are fire-and-forget and never settle).
 pub async fn suspend_bidi_streams() -> Result<()> {
     // Enqueue each transport's command UNDER the same lock that flips the
     // process flag, so a concurrent resume can't interleave its command send
@@ -326,29 +327,34 @@ pub async fn suspend_bidi_streams() -> Result<()> {
     settle_lifecycle(&wires, await_lifecycle_acks(pending).await)
 }
 
-/// Bring the shared bidi wires back (`willEnterForeground`), resolving once
-/// every destination's live wire has no catch-up wave left in flight. That
-/// is a wire-level mark: replayed messages may still be decoding and storing
-/// in the stream pipeline behind it; the wait is unbounded while the network
-/// is down, and a concurrent fresh subscribe on a shared transport extends
-/// it — the FFI exposure (follow-on) owes callers a processing-drain barrier
-/// and a deadline before this can honestly serve as the background-fetch
-/// primitive. Also clears the recorded suspend intent
-/// ([`suspend_bidi_streams`]), so transports created from here on are born
-/// live again. A no-op when no transport was ever opened.
+/// Bring the shared bidi wires back (`willEnterForeground`): clear the recorded
+/// suspend intent so transports created from here on are born live again, and
+/// enqueue a resume on every existing wire. **Fire-and-forget** — it does NOT
+/// await the reconnect. The enqueue happens under the same lock that flips the
+/// process flag (the same discipline as [`suspend_bidi_streams`]), so command
+/// order always matches flag order and the wire converges to the last intent;
+/// the reconnect (and its catch-up wave) proceeds in the transport's ledger
+/// task, unbounded while the network is down, which is why nothing here waits
+/// on it. A caller that needs a bounded, awaitable "I am current" uses
+/// [`Client::catch_up_to_live`](crate::Client::catch_up_to_live) instead; an
+/// honest "streams are live and drained" signal is still owed (a
+/// processing-drain barrier — a follow-on). Because the acks are dropped, a
+/// bidi refusal on a born-suspended wire's re-open is not latched here; the
+/// parked leases end, their streams re-subscribe, and the stream-open path
+/// latches the destination onto legacy. A no-op when no transport was ever
+/// opened.
 pub async fn resume_bidi_streams() -> Result<()> {
     // Enqueue under the flag lock, same as [`suspend_bidi_streams`]: the
-    // command order must match the flag order under all interleavings.
-    let (wires, pending): (Vec<_>, Vec<_>) = {
-        let mut shared = SHARED_WIRES.lock();
-        shared.suspend_requested = false;
-        shared
-            .transports
-            .iter()
-            .map(|(host, t)| ((host.clone(), t.clone()), t.enqueue_resume()))
-            .unzip()
-    };
-    settle_lifecycle(&wires, await_lifecycle_acks(pending).await)
+    // command order must match the flag order under all interleavings. The
+    // reply receivers are dropped — fire-and-forget — and an `Err` from a
+    // closed (tombstoned) transport is dropped with them: a destination
+    // permanently off the network is vacuously resumed.
+    let mut shared = SHARED_WIRES.lock();
+    shared.suspend_requested = false;
+    for t in shared.transports.values() {
+        let _ = t.enqueue_resume();
+    }
+    Ok(())
 }
 
 /// Await every enqueued lifecycle reply, mapping a dropped sender (a closed
@@ -374,15 +380,15 @@ async fn await_lifecycle_acks(
 /// A `Closed` transport is a tombstoned destination — its ledger only ever
 /// dies by shutting down after an unretryable re-open, so `Closed` here is
 /// the same verdict a stream's `lease()` would see, and it latches the same
-/// way ([`is_bidi_unsupported`]). That latch matters most for a
-/// born-suspended wire: its capability discovery is deferred to the resume
-/// re-open, so a refusal there is seen by NO stream — the parked leases
-/// just end (their `on_close` fires; re-subscribing recovers, and lands on
-/// legacy because of this latch). The lifecycle intent holds for a
+/// way ([`is_bidi_unsupported`]). The lifecycle intent holds for a
 /// tombstoned destination vacuously — permanently off the network, streams
-/// on legacy — so `Closed` is not an error here. No other error shape is
-/// reachable today (`suspend()`/`resume()` only produce `Closed`); anything
-/// else is surfaced defensively after the fan-out settles.
+/// on legacy — so `Closed` is not an error here. Only the suspend fan-out
+/// settles through this fold (resume acks are fire-and-forget and dropped);
+/// a refusal first seen at a born-suspended wire's resume re-open latches
+/// via the stream-open path instead, when the parked leases end and their
+/// streams re-subscribe. No other error shape is reachable today
+/// (the enqueue primitives only produce `Closed`); anything else is
+/// surfaced defensively after the fan-out settles.
 fn settle_lifecycle(
     wires: &[(String, BidiTransport<V3Binding>)],
     results: Vec<std::result::Result<(), TransportError>>,
