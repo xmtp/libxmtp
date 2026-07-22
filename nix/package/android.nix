@@ -15,6 +15,12 @@ let
     # set buildInputs to empty to force the android build to link against libraries in the NDK sysroot instead
     # of nix library path. This avoids compiling C dependencies by using android-native libs and having to patch nixpkgs packages.
     buildInputs = [ ];
+    # commonArgs pins openssl-sys to nixpkgs' host OpenSSL; Android must
+    # vendor instead (NDK sysroot has no OpenSSL). Nulls drop the vars.
+    OPENSSL_NO_VENDOR = null;
+    OPENSSL_DIR = null;
+    OPENSSL_LIB_DIR = null;
+    OPENSSL_INCLUDE_DIR = null;
   };
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false specialArgs;

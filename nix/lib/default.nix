@@ -99,6 +99,23 @@ in
       let
         hostPkgs = mkHostPkgs system;
         overlays = baseOverlays ++ [ (xmtpOverlay hostPkgs) ];
+        # iOS cross-compilation support not yet in nixpkgs, applied as a
+        # patch from the upstream iOS branch. Remove once it merges.
+        #
+        # Pinned by commit SHAs (immutable compare URL): pushes to the
+        # branch never affect this build. To pick up new branch commits,
+        # bump the head SHA, set hash = lib.fakeHash, rebuild once, and
+        # paste the printed hash.
+        nixpkgs-patched = hostPkgs.applyPatches {
+          name = "nixpkgs-ios-cross";
+          src = inputs.nixpkgs;
+          patches = [
+            (hostPkgs.fetchpatch2 {
+              url = "https://github.com/NixOS/nixpkgs/compare/af9204149566f50f1c12f1b9522b1d606a404f0c...insipx:nixpkgs:e550a4f3a5e0fa9c1c7b06519a5369873b90b4e4.patch";
+              hash = "sha256-qkT2/kVBr9I+WeMSJ4l6aiDmrA/mz/+8snW5bCbc76Y=";
+            })
+          ];
+        };
       in
       lib.listToAttrs (
         map (
@@ -107,11 +124,11 @@ in
             t = normalize target;
           in
           {
-            name = t.config;
-            value = import inputs.nixpkgs {
+            name = t.name or t.config;
+            value = import nixpkgs-patched {
               inherit config overlays;
               localSystem = system;
-              crossSystem = t;
+              crossSystem = removeAttrs t [ "name" ];
             };
           }
         ) targets

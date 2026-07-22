@@ -48,6 +48,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: ./.github/actions/setup-ios-xcode
       - name: Compute version
         id: version
         run: |
@@ -76,17 +77,20 @@ jobs:
           echo "base-version=$BASE" >> "$GITHUB_OUTPUT"
           echo "Computed version: $VERSION"
       - name: Build xcframeworks
-        run: nix build .#ios-xcframeworks --out-link build/ios
+        run: nix build .#ios-release --out-link build/ios
 
       - name: Package and checksum
         id: checksum
         run: |
-          cp -rL build/ios/LibXMTPSwiftFFI LibXMTPSwiftFFI
+          # cp -R + zip -y: the macOS dynamic framework's Versions/ symlinks
+          # are part of the signed bundle — dereferencing them post-signing
+          # invalidates the rcodesign signature.
+          mkdir LibXMTPSwiftFFI && cp -R build/ios/LibXMTPSwiftFFI/. LibXMTPSwiftFFI/
           chmod -R u+w LibXMTPSwiftFFI
-          (cd LibXMTPSwiftFFI && zip -qr ../LibXMTPSwiftFFI.zip .)
-          cp -rL build/ios/LibXMTPSwiftFFIDynamic LibXMTPSwiftFFIDynamic
+          (cd LibXMTPSwiftFFI && zip -qry ../LibXMTPSwiftFFI.zip .)
+          mkdir LibXMTPSwiftFFIDynamic && cp -R build/ios/LibXMTPSwiftFFIDynamic/. LibXMTPSwiftFFIDynamic/
           chmod -R u+w LibXMTPSwiftFFIDynamic
-          (cd LibXMTPSwiftFFIDynamic && zip -qr ../LibXMTPSwiftFFIDynamic.zip .)
+          (cd LibXMTPSwiftFFIDynamic && zip -qry ../LibXMTPSwiftFFIDynamic.zip .)
           echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
           echo "dynamic-checksum=$(shasum -a 256 LibXMTPSwiftFFIDynamic.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
       - name: Create or update GitHub Release

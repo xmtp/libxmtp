@@ -52,9 +52,7 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           with-warpbuild-cache: "false"
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "26"
+      - uses: ./.github/actions/setup-ios-xcode
       - uses: taiki-e/install-action@just
       - name: Build and test
         env:

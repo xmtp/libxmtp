@@ -31,6 +31,9 @@ let
     nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];
+    # Test executables link the nix openssl/sqlcipher dynamically
+    # (OPENSSL_NO_VENDOR) and cargo doesn't rpath — resolve at run time.
+    LD_LIBRARY_PATH = xmtp.base.runtimeLibPath;
   };
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
