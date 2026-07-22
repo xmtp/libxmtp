@@ -3184,6 +3184,109 @@ mod tests {
         );
     }
 
+    /// A lease over the cap that is STILL catching up when the wire dies is
+    /// re-issued *whole* on reopen — re-chunked into fresh bounded waves, no
+    /// topic dropped — and reports caught-up only once its LAST reopened chunk
+    /// completes. Deterministic coverage for the chunking x reconnect x
+    /// completion interaction the property test otherwise carries alone.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_over_cap_lease_still_catching_up_survives_a_wire_death() {
+        // Cap 2: a 3-topic lease chunks into 2 + 1.
+        let (transport, servers) = transport_capped(2, usize::MAX);
+        let topics: Vec<(Topic, u64)> = (0..3u32)
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let mut lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        let second = server.next_mutate().await;
+        assert_eq!(first.adds.len() + second.adds.len(), 3);
+        // Ack only the FIRST chunk, then kill the wire: the lease is still
+        // catching up (its second chunk never completed).
+        server.send(catchup_complete(first.mutate_id));
+        drop(server);
+
+        // Reopen re-issues the WHOLE lease, re-chunked into fresh 2 + 1 waves.
+        let mut reconnect = wait_for_server(&servers).await;
+        let resume_a = reconnect.next_mutate().await;
+        let resume_b = reconnect.next_mutate().await;
+        assert_eq!(
+            resume_a.adds.len() + resume_b.adds.len(),
+            3,
+            "the whole lease is re-issued after the death, not just the unfinished chunk"
+        );
+        for id in [resume_a.mutate_id, resume_b.mutate_id] {
+            assert!(
+                id != first.mutate_id && id != second.mutate_id,
+                "reissued chunks carry fresh wave ids"
+            );
+        }
+
+        // Completing only the first reopened chunk must NOT catch it up.
+        reconnect.send(catchup_complete(resume_a.mutate_id));
+        let quiet = tokio::time::timeout(Duration::from_millis(200), lease.next()).await;
+        assert!(
+            quiet.is_err(),
+            "a re-chunked lease stays catching-up until its LAST reopened chunk completes"
+        );
+        // The last reopened chunk catches it up — exactly once.
+        reconnect.send(catchup_complete(resume_b.mutate_id));
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+    }
+
+    /// Suspending then resuming a lease over the cap re-subscribes it across
+    /// multiple bounded frames, and `resume()` resolves only once every resumed
+    /// chunk has completed — the chunking x suspend/resume interaction.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_over_cap_lease_survives_suspend_and_resume() {
+        let (transport, servers) = transport_capped(2, usize::MAX);
+        let topics: Vec<(Topic, u64)> = (0..3u32)
+            .map(|i| (group_topic(&i.to_le_bytes()), 0))
+            .collect();
+        let mut lease = transport.lease(topics, DEFAULT_LEASE_DEPTH).await?;
+
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+        let second = server.next_mutate().await;
+        server.send(catchup_complete(first.mutate_id));
+        server.send(catchup_complete(second.mutate_id));
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+
+        // Suspend parks the wire; resume re-opens and re-subscribes the whole
+        // lease, chunked into bounded frames again.
+        transport.suspend().await?;
+        drop(server);
+        let mut resume = tokio::spawn({
+            let transport = transport.clone();
+            async move { transport.resume().await }
+        });
+
+        let mut reconnect = wait_for_server(&servers).await;
+        let resume_a = reconnect.next_mutate().await;
+        let resume_b = reconnect.next_mutate().await;
+        assert_eq!(
+            resume_a.adds.len() + resume_b.adds.len(),
+            3,
+            "the whole lease is re-subscribed on resume, chunked into bounded frames"
+        );
+        // resume() resolves only once EVERY resumed chunk has completed.
+        reconnect.send(catchup_complete(resume_a.mutate_id));
+        let pending = tokio::time::timeout(Duration::from_millis(200), &mut resume).await;
+        assert!(
+            pending.is_err(),
+            "resume() must not resolve until every resumed chunk is caught up"
+        );
+        reconnect.send(catchup_complete(resume_b.mutate_id));
+        tokio::time::timeout(WAIT, resume).await?.unwrap()?;
+    }
+
     /// A lease whose topics exceed the BYTE budget (not the count cap) still
     /// splits into bounded frames — the guarantee holds regardless of topic
     /// identifier length, not just topic count.
