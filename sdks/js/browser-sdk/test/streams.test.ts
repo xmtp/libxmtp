@@ -213,10 +213,11 @@ describe("createStream", () => {
         onError: onErrorSpy,
       });
 
-      await sleep(50);
+      await vi.waitFor(
+        () => expect(onErrorSpy).toHaveBeenCalledWith(mutatorError),
+        { timeout: 10_000 },
+      );
       await stream.end();
-
-      expect(onErrorSpy).toHaveBeenCalledWith(mutatorError);
     });
 
     it("should call onError when async mutator rejects", async () => {
@@ -239,10 +240,11 @@ describe("createStream", () => {
         onError: onErrorSpy,
       });
 
-      await sleep(100);
+      await vi.waitFor(
+        () => expect(onErrorSpy).toHaveBeenCalledWith(mutatorError),
+        { timeout: 10_000 },
+      );
       await stream.end();
-
-      expect(onErrorSpy).toHaveBeenCalledWith(mutatorError);
     });
   });
 
@@ -262,10 +264,11 @@ describe("createStream", () => {
         onError: onErrorSpy,
       });
 
-      await sleep(50);
+      await vi.waitFor(
+        () => expect(onErrorSpy).toHaveBeenCalledWith(streamError),
+        { timeout: 10_000 },
+      );
       await stream.end();
-
-      expect(onErrorSpy).toHaveBeenCalledWith(streamError);
     });
 
     it("should throw StreamInvalidRetryAttemptsError when retryAttempts < 0 and retryOnFail is true", async () => {
@@ -352,7 +355,15 @@ describe("createStream", () => {
         retryAttempts: 1,
       });
 
-      await sleep(100);
+      await vi.waitFor(
+        () =>
+          expect(
+            onErrorSpy.mock.calls
+              .map((call) => call[0])
+              .some((e) => e instanceof StreamFailedError),
+          ).toBe(true),
+        { timeout: 10_000 },
+      );
       await stream.end();
 
       // Find the StreamFailedError
@@ -389,10 +400,8 @@ describe("createStream", () => {
         retryAttempts: 1,
       });
 
-      await sleep(100);
+      await vi.waitFor(() => expect(onFailSpy).toHaveBeenCalled(), { timeout: 10_000 });
       await stream.end();
-
-      expect(onFailSpy).toHaveBeenCalled();
     });
 
     it("should call onRetry when retrying", async () => {
@@ -415,11 +424,12 @@ describe("createStream", () => {
         retryAttempts: 3,
       });
 
-      await sleep(100);
-      await stream.end();
-
       // onRetry should be called with (currentAttempt, maxAttempts)
-      expect(onRetrySpy).toHaveBeenCalledWith(1, 3);
+      await vi.waitFor(
+        () => expect(onRetrySpy).toHaveBeenCalledWith(1, 3),
+        { timeout: 10_000 },
+      );
+      await stream.end();
     });
 
     it("should call onRestart when stream restarts successfully", async () => {
@@ -444,10 +454,11 @@ describe("createStream", () => {
         retryAttempts: 3,
       });
 
-      await sleep(100);
+      await vi.waitFor(
+        () => expect(onRestartSpy).toHaveBeenCalledTimes(1),
+        { timeout: 10_000 },
+      );
       await stream.end();
-
-      expect(onRestartSpy).toHaveBeenCalledTimes(1);
     });
 
     it("should fail after max retry attempts with StreamFailedError", async () => {
@@ -466,7 +477,15 @@ describe("createStream", () => {
         retryAttempts: 2,
       });
 
-      await sleep(200);
+      await vi.waitFor(
+        () =>
+          expect(
+            onErrorSpy.mock.calls
+              .map((call) => call[0])
+              .some((e) => e instanceof StreamFailedError),
+          ).toBe(true),
+        { timeout: 10_000 },
+      );
       await stream.end();
 
       // Should have received StreamFailedError at the end
@@ -539,10 +558,16 @@ describe("createStream", () => {
         retryAttempts: 3,
       });
 
-      await sleep(100);
+      // onRetry fires a retryDelay after onError — wait for both before
+      // ending the stream, or end() cancels the pending retry
+      await vi.waitFor(
+        () => {
+          expect(onErrorSpy).toHaveBeenCalledWith(new Error("Initial failure"));
+          expect(onRetrySpy).toHaveBeenCalled();
+        },
+        { timeout: 10_000 },
+      );
       await stream.end();
-
-      expect(onErrorSpy).toHaveBeenCalledWith(new Error("Initial failure"));
       expect(onRetrySpy).toHaveBeenCalled();
     });
 
@@ -599,11 +624,9 @@ describe("createStream", () => {
         retryAttempts: 3,
       });
 
-      await sleep(200);
-      await stream.end();
-
       // onFail should be called when the stream fails via the onFail callback
-      expect(onFailSpy).toHaveBeenCalled();
+      await vi.waitFor(() => expect(onFailSpy).toHaveBeenCalled(), { timeout: 10_000 });
+      await stream.end();
     });
 
     it("should call onEnd and streamCloser after successful retry", async () => {
@@ -630,7 +653,12 @@ describe("createStream", () => {
         retryAttempts: 3,
       });
 
-      await sleep(100);
+      // wait for the retry to succeed (second streamFunction call) so the
+      // stream closer exists before ending
+      await vi.waitFor(
+        () => expect(mockStreamFunction).toHaveBeenCalledTimes(2),
+        { timeout: 10_000 },
+      );
       await stream.end();
 
       expect(streamCloserSpy).toHaveBeenCalledTimes(1);
@@ -716,7 +744,15 @@ describe("createStream", () => {
         retryAttempts: 0,
       });
 
-      await sleep(100);
+      await vi.waitFor(
+        () =>
+          expect(
+            onErrorSpy.mock.calls
+              .map((call) => call[0])
+              .some((e) => e instanceof StreamFailedError),
+          ).toBe(true),
+        { timeout: 10_000 },
+      );
       await stream.end();
 
       // With 0 retry attempts, it should fail immediately
@@ -764,10 +800,11 @@ describe("createStream", () => {
         onValue: onValueSpy,
       });
 
-      await sleep(50);
+      await vi.waitFor(
+        () => expect(onValueSpy).toHaveBeenCalledWith("test"),
+        { timeout: 10_000 },
+      );
       await stream.end();
-
-      expect(onValueSpy).toHaveBeenCalledWith("test");
     });
   });
 });

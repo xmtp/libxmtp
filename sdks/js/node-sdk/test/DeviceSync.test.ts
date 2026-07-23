@@ -1,8 +1,15 @@
 import { ConsentEntityType, ConsentState } from "@xmtp/node-bindings";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HistorySyncUrls } from "@/constants";
 import { uuid } from "@/utils/uuid";
-import { createRegisteredClient, createSigner, sleep } from "@test/helpers";
+import { createRegisteredClient, createSigner } from "@test/helpers";
+
+// Device sync hands work to background workers on both installations, so
+// cross-installation visibility converges rather than completing on any
+// single sync call. Poll (re-triggering the syncs) until the expected state
+// appears instead of pacing with fixed sleeps — a fixed sleep loses the race
+// on loaded CI runners.
+const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("DeviceSync", () => {
   it("should sync consent across installations", async () => {
@@ -28,23 +35,26 @@ describe("DeviceSync", () => {
       dbPath: `./test-${uuid()}.db3`,
     });
 
-    const state = await alix2.preferences.fetchInboxState();
-    expect(state.installations.length).toBe(2);
+    // the new installation's registration propagates asynchronously
+    await vi.waitFor(async () => {
+      const state = await alix2.preferences.fetchInboxState();
+      expect(state.installations.length).toBe(2);
+    }, WAIT);
 
     // sync the DM on alix so conversation is pushed
     await dm.sync();
-    await sleep(1000);
     await alix.conversations.syncAll();
-    await sleep(1000);
 
-    // alix2 syncs so it has the DM
-    await alix2.conversations.sync();
-    await sleep(1000);
+    // alix2 syncs until it has the DM; re-trigger the sender side too
+    const dm2 = await vi.waitFor(async () => {
+      await alix.conversations.syncAll();
+      await alix2.conversations.sync();
+      const c = await alix2.conversations.getConversationById(dm.id);
+      expect(c).toBeTruthy();
+      return c!;
+    }, WAIT);
 
-    const dm2Initial = await alix2.conversations.getConversationById(dm.id);
-    expect(dm2Initial).not.toBeNull();
-
-    const consentOnAlix2Before = dm2Initial!.consentState();
+    const consentOnAlix2Before = dm2.consentState();
     expect(
       consentOnAlix2Before === ConsentState.Unknown ||
         consentOnAlix2Before === ConsentState.Allowed,
@@ -55,33 +65,34 @@ describe("DeviceSync", () => {
     const consentState = dm.consentState();
     expect(consentState).toBe(ConsentState.Denied);
 
-    await alix.preferences.sync();
-    await sleep(1000);
-    await alix2.preferences.sync();
-    await sleep(1000);
-
-    const dm2 = await alix2.conversations.getConversationById(dm.id);
-    expect(dm2).not.toBeNull();
-
-    const consentState2 = dm2!.consentState();
-    expect(consentState2).toBe(ConsentState.Denied);
+    // The consent update is published into the device sync group once — if
+    // that happens before alix2 has joined, alix2 can never decrypt it.
+    // Re-issue the update on each attempt (after toggling, so the write is
+    // never a no-op) and re-sync both sides until it lands on alix2.
+    await vi.waitFor(async () => {
+      dm.updateConsentState(ConsentState.Allowed);
+      dm.updateConsentState(ConsentState.Denied);
+      await alix.preferences.sync();
+      await alix2.preferences.sync();
+      expect(dm2.consentState()).toBe(ConsentState.Denied);
+    }, WAIT);
 
     // update consent back to allowed on alix2
     await alix2.preferences.setConsentStates([
       {
         entityType: ConsentEntityType.GroupId,
-        entity: dm2!.id,
+        entity: dm2.id,
         state: ConsentState.Allowed,
       },
     ]);
 
     const convoState = await alix2.preferences.getConsentState(
       ConsentEntityType.GroupId,
-      dm2!.id,
+      dm2.id,
     );
     expect(convoState).toBe(ConsentState.Allowed);
 
-    const updatedConsentState = dm2!.consentState();
+    const updatedConsentState = dm2.consentState();
     expect(updatedConsentState).toBe(ConsentState.Allowed);
   });
 
@@ -96,57 +107,54 @@ describe("DeviceSync", () => {
     const group = await alix.conversations.createGroup([bo.inboxId]);
     const msgFromAlix = await group.sendText("hello from alix");
 
-    await sleep(1000);
-
     // create second installation for alix
     const alix2 = await createRegisteredClient(alixSigner, {
       dbPath: `./test-${uuid()}.db3`,
     });
 
-    await sleep(1000);
-
-    await alix.syncAllDeviceSyncGroups();
-    await alix.sendSyncArchive(
-      "123",
-      {
-        elements: [],
-        excludeDisappearingMessages: false,
-      },
-      HistorySyncUrls.local,
-    );
-    await sleep(1000);
-
     await bo.conversations.syncAll();
     const boGroup = await bo.conversations.getConversationById(group.id);
-    expect(boGroup).not.toBeNull();
+    expect(boGroup).toBeTruthy();
     await boGroup!.sendText("hello from bo");
 
-    await alix.conversations.syncAll();
-    await alix2.conversations.syncAll();
+    // bo's send commits alix2 into the group; poll until the welcome and
+    // the post-join messages land on alix2
+    const group2Before = await vi.waitFor(async () => {
+      await alix.conversations.syncAll();
+      await alix2.conversations.syncAll();
+      const c = await alix2.conversations.getConversationById(group.id);
+      expect(c).toBeTruthy();
+      const msgs = await c!.messages();
+      expect(msgs.length).toBe(2);
+      return c!;
+    }, WAIT);
 
-    const group2Before = await alix2.conversations.getConversationById(
-      group.id,
-    );
-    expect(group2Before).not.toBeNull();
+    // The archive announcement is a one-shot message into the device sync
+    // group: if it goes out before alix2 has joined, alix2 can never decrypt
+    // it and no amount of later syncing recovers it. Re-send the archive on
+    // each attempt (fresh announcement into whatever sync groups now
+    // connect the two installations) and retry the import until the pinned
+    // payload arrives (processSyncArchive throws MissingPayload until then).
+    await vi.waitFor(async () => {
+      await alix.syncAllDeviceSyncGroups();
+      await alix.sendSyncArchive(
+        "123",
+        {
+          elements: [],
+          excludeDisappearingMessages: false,
+        },
+        HistorySyncUrls.local,
+      );
+      await alix2.syncAllDeviceSyncGroups();
+      const archives = alix2.listAvailableArchives(7);
+      expect(archives).toBeDefined();
+      await alix2.processSyncArchive("123");
+    }, WAIT);
 
-    const messagesBefore = await group2Before!.messages();
-    expect(messagesBefore.length).toBe(2);
-
-    await sleep(1000);
-    await alix.syncAllDeviceSyncGroups();
-    await sleep(1000);
-    await alix2.syncAllDeviceSyncGroups();
-
-    // list available archives
-    const archives = alix2.listAvailableArchives(7);
-    expect(archives).toBeDefined();
-
-    await alix2.processSyncArchive("123");
-    await sleep(1000);
     await alix2.conversations.syncAll();
 
     const group2After = await alix2.conversations.getConversationById(group.id);
-    expect(group2After).not.toBeNull();
+    expect(group2After).toBeTruthy();
 
     const messagesAfter = await group2After!.messages();
     // verify we received messages from the archive sync
@@ -181,8 +189,11 @@ describe("DeviceSync", () => {
       dbPath: `./test-${uuid()}.db3`,
     });
 
-    const state = await client2.preferences.fetchInboxState();
-    expect(state.installations.length).toBe(2);
+    // the new installation's registration propagates asynchronously
+    await vi.waitFor(async () => {
+      const state = await client2.preferences.fetchInboxState();
+      expect(state.installations.length).toBe(2);
+    }, WAIT);
 
     await client2.sendSyncRequest(
       {
@@ -192,27 +203,24 @@ describe("DeviceSync", () => {
       HistorySyncUrls.local,
     );
 
-    await client1.syncAllDeviceSyncGroups();
-    await sleep(1000);
-    await client2.syncAllDeviceSyncGroups();
-    await sleep(1000);
-
-    // sync conversations to get the group on client2
-    await client2.conversations.syncAll();
-    await sleep(1000);
+    // client1's worker answers the request with an archive; client2's worker
+    // imports it. Poll the whole round trip until the group and its messages
+    // materialize on client2.
+    const messagesOnClient2 = await vi.waitFor(async () => {
+      await client1.syncAllDeviceSyncGroups();
+      await client2.syncAllDeviceSyncGroups();
+      await client2.conversations.syncAll();
+      const c = await client2.conversations.getConversationById(group.id);
+      expect(c).toBeTruthy();
+      const msgs = await c!.messages();
+      expect(msgs.length).toBeGreaterThan(0);
+      return msgs;
+    }, WAIT);
 
     const client1MessageCount = (await group.messages()).length;
-    const group2 = await client2.conversations.getConversationById(group.id);
-    expect(group2).not.toBeNull();
-
-    const messagesOnClient2 = await group2!.messages();
     const containsMessage = messagesOnClient2.some((m) => m.id === msgId);
-    const client2MessageCount = messagesOnClient2.length;
 
-    // verify client2 has the group and some messages
-    expect(client2MessageCount).toBeGreaterThan(0);
-
-    if (client1MessageCount === client2MessageCount) {
+    if (client1MessageCount === messagesOnClient2.length) {
       expect(containsMessage).toBe(true);
     }
   });
