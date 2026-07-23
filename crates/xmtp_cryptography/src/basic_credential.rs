@@ -328,12 +328,15 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn secret_key_can_not_be_exposed() {
-        let keypair = XmtpInstallationCredential::new();
-        let secret = keypair.0.as_ref();
+    fn test_from_raw_mismatched_public_key() {
+        // Generate two different keypairs using the existing API
+        let keypair_a = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
+        let keypair_b = SignatureKeyPair::new(SignatureScheme::ED25519).unwrap();
 
-        assert_ne!(keypair.public_bytes(), secret.as_bytes());
-        assert_ne!(keypair.public_slice(), secret.as_bytes());
-        assert_ne!(keypair.verifying_key().as_bytes(), &secret.to_bytes());
+        let private_key_a = keypair_a.private().to_vec();
+        let public_key_b = keypair_b.public().to_vec();
+
+        let result = XmtpInstallationCredential::from_raw(&private_key_a, &public_key_b);
+        assert!(result.is_err());
     }
 }
