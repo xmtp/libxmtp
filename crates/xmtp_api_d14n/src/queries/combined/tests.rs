@@ -299,3 +299,42 @@ async fn is_d14n_returns_true_after_migration() {
 
     assert!(client.is_d14n()?);
 }
+
+/// Commit-log (fork detection) must stay on the retained centralized v3 service
+/// even after the client has migrated to d14n. With `has_migrated = true` every
+/// other call routes to the xmtpd client, but `publish_commit_log` /
+/// `query_commit_log` must still hit v3 — the d14n mock has no expectations, so
+/// a call wrongly routed there panics.
+#[xmtp_common::test(unwrap_try = true)]
+async fn commit_log_stays_on_v3_after_migration() {
+    use xmtp_proto::mls_v1::{BatchPublishCommitLogRequest, BatchQueryCommitLogRequest};
+
+    let store = InMemoryCursorStore::new();
+    store.set_has_migrated(true)?;
+
+    // v3 mock counts every request and answers with an empty (default-decoding)
+    // body; d14n mock is left bare so any commit-log call routed to it panics.
+    let v3_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let v3 = {
+        let calls = v3_calls.clone();
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request().returning(move |_req, _path, _body| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(http::Response::new(prost::bytes::Bytes::new()))
+        });
+        TestNetworkClient::from_mock(mock)
+    };
+    let d14n = TestNetworkClient::new();
+
+    let client = build_test_client(v3, d14n, store);
+
+    client
+        .publish_commit_log(BatchPublishCommitLogRequest::default())
+        .await?;
+    client
+        .query_commit_log(BatchQueryCommitLogRequest::default())
+        .await?;
+
+    // Both calls reached v3, never the migrated (d14n) client.
+    assert_eq!(v3_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
