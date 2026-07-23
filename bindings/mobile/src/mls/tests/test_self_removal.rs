@@ -233,7 +233,10 @@ async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
     // admin to Bo, then drop Alix's own super admin, so the creator is allowed to
     // leave (and so Bo can drive the removal and re-add).
     alix_group.add_super_admin(bo.inbox_id()).await.unwrap();
-    alix_group.remove_super_admin(alix.inbox_id()).await.unwrap();
+    alix_group
+        .remove_super_admin(alix.inbox_id())
+        .await
+        .unwrap();
     alix_group.sync().await.unwrap();
     bo_group.sync().await.unwrap();
 
