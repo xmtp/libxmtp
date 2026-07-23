@@ -27,6 +27,11 @@ mod streams;
 mod to_dyn_api;
 mod xmtp_query;
 
+xmtp_common::if_test! {
+    mod test_client;
+    pub use test_client::*;
+}
+
 static ERROR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(xmtp_configuration::D14N_MIGRATION_MSG_REGEX).expect("static regex must be valid")
 });
