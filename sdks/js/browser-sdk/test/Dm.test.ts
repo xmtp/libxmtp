@@ -6,10 +6,15 @@ import {
   type GroupUpdated,
   type MessageDisappearingSettings,
 } from "@xmtp/wasm-bindings";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DecodedMessage } from "@/DecodedMessage";
 import { metadataFieldName } from "@/utils/metadata";
 import { createRegisteredClient, createSigner, sleep } from "@test/helpers";
+
+// Background workers (self-remove, disappearing messages) complete
+// asynchronously; poll until the expected state appears instead of pacing
+// with fixed sleeps — a fixed sleep loses the race on loaded CI runners.
+const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("Dm", () => {
   it("should have a topic", async () => {
@@ -161,7 +166,11 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId!);
 
-    // wait a second to exclude GroupUpdated message
+    // Settle before subscribing: the fixed sleep lets the server index the
+    // creation-time fanout so the subscription cursor starts after it. This
+    // is a server-side race with no client-observable condition — do NOT
+    // replace with client syncs, which trigger worker activity that injects
+    // extra messages into the stream.
     await sleep(1000);
 
     const streamedMessages: unknown[] = [];
@@ -249,11 +258,11 @@ describe("Dm", () => {
     });
     expect(await dm2.isMessageDisappearingEnabled()).toBe(true);
 
-    // wait for the messages to be deleted
-    await sleep(2000);
-
-    // verify that the messages are deleted
-    expect((await dm.messages()).length).toBe(1);
+    // poll until the disappearing-messages worker deletes the expired
+    // messages
+    await vi.waitFor(async () => {
+      expect((await dm.messages()).length).toBe(1);
+    }, WAIT);
 
     // verify that the messages are deleted on the other client
     expect((await dm2.messages()).length).toBe(1);
