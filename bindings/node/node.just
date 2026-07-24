@@ -41,6 +41,7 @@ test: install (_prepare-dist "--features test-utils")
 test-ci:
     rm -rf dist
     nix build .#packages.{{ nix_system }}.node-bindings-test
+    ../../dev/ci/warm-deps .#packages.{{ nix_system }}.node-bindings-test
     cp -r result/dist dist
     yarn vitest run
 

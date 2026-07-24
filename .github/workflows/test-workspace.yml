@@ -27,6 +27,8 @@ jobs:
         run: |
           nix build .#nextest.x86_64-linux.v3 --out-link v3 --option sandbox relaxed
           nix build .#nextest.x86_64-linux.d14n --out-link d14n --option sandbox relaxed
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#nextest.x86_64-linux.v3 .#nextest.x86_64-linux.d14n
       - name: merge coverage files
         run: nix run nixpkgs#lcov -- --add-tracefile v3/coverage --add-tracefile d14n/coverage --output-file lcov.info
       - name: Upload coverage
