@@ -934,12 +934,24 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     && (existing_group.sequence_id.is_none()
                         || group.sequence_id > existing_group.sequence_id)
                 {
+                    // Co-set `originator_id` alongside `sequence_id`. The incoming
+                    // (welcome-built) group already carries the correct originator
+                    // (e.g. `Originators::WELCOME_MESSAGES` via `Cursor::v3_welcomes`),
+                    // and the builder invariant guarantees that whenever
+                    // `sequence_id.is_some()` the `originator_id` is also set. Writing
+                    // only `sequence_id` here (the previous behavior) could leave a row
+                    // in the invalid `(sequence_id = NOT NULL, originator_id = NULL)`
+                    // state, which later aborts `group_cursors()`.
                     self.raw_query(|c| {
                         diesel::update(dsl::groups.find(&group.id))
-                            .set(dsl::sequence_id.eq(group.sequence_id))
+                            .set((
+                                dsl::sequence_id.eq(group.sequence_id),
+                                dsl::originator_id.eq(group.originator_id),
+                            ))
                             .execute(c)
                     })?;
                     existing_group.sequence_id = group.sequence_id;
+                    existing_group.originator_id = group.originator_id;
                 }
                 Ok(existing_group)
             }
@@ -956,11 +968,25 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .select((dsl::sequence_id, dsl::originator_id))
                 .load::<(Option<i64>, Option<i64>)>(conn)?
                 .into_iter()
-                .map(|(seq, orig)| {
-                    Cursor::new(
-                        seq.expect("Filtered for not null") as u64,
-                        orig.expect("if seq is not null, originator must not be null") as u32,
-                    )
+                .filter_map(|(seq, orig)| match (seq, orig) {
+                    (Some(seq), Some(orig)) => Some(Cursor::new(seq as u64, orig as u32)),
+                    // Defense in depth: a row with a `sequence_id` but a NULL
+                    // `originator_id` violates the builder invariant and previously
+                    // aborted the whole conversation stream on startup (bricking the
+                    // app until local data was wiped). Skip such a row and warn rather
+                    // than crash, so a single half-populated cursor can't take the
+                    // client down. The write-path fix above prevents new rows from
+                    // reaching this state; a heal migration backfills existing ones.
+                    (Some(seq), None) => {
+                        tracing::warn!(
+                            sequence_id = seq,
+                            "group row has sequence_id but NULL originator_id; skipping cursor"
+                        );
+                        None
+                    }
+                    // `sequence_id.is_not_null()` filters these out at the SQL layer;
+                    // handled here only for exhaustiveness.
+                    (None, _) => None,
                 })
                 .collect())
         })
@@ -1717,6 +1743,82 @@ pub(crate) mod tests {
                     .map(|c| c.sequence_id)
                     .collect::<Vec<u64>>()
             );
+        })
+    }
+
+    /// Regression test for the `group_cursors` abort
+    /// (`if seq is not null, originator must not be null`).
+    ///
+    /// A group can legitimately exist locally with no cursor (the creator /
+    /// local-create path stores `sequence_id = NULL, originator_id = NULL`). When a
+    /// welcome for that same, already-existing group is later processed,
+    /// `insert_or_replace_group` takes its "group already exists" update branch. That
+    /// update must co-set `originator_id` with `sequence_id`; otherwise the row lands
+    /// in the invalid `(sequence_id = NOT NULL, originator_id = NULL)` state that
+    /// aborts `group_cursors()` on the next conversation-stream startup.
+    #[xmtp_common::test]
+    fn test_insert_or_replace_group_update_preserves_originator() {
+        with_connection(|conn| {
+            // 1. Cursorless group created locally (both fields NULL — valid).
+            let group = generate_group(None);
+            assert!(group.sequence_id.is_none());
+            assert!(group.originator_id.is_none());
+            group.store(conn).unwrap();
+
+            // 2. A welcome for the same group arrives carrying a real v3 welcome
+            //    cursor (seq set, originator = WELCOME_MESSAGES = 11).
+            let incoming = StoredGroup {
+                sequence_id: Some(5),
+                originator_id: Some(Originators::WELCOME_MESSAGES as i64),
+                ..group.clone()
+            };
+            conn.insert_or_replace_group(incoming).unwrap();
+
+            // 3. The stored row must keep the invariant: seq set => originator set.
+            let stored: StoredGroup = conn.fetch(&group.id).ok().flatten().unwrap();
+            assert_eq!(stored.sequence_id, Some(5));
+            assert_eq!(
+                stored.originator_id,
+                Some(Originators::WELCOME_MESSAGES as i64),
+                "update path must co-set originator_id with sequence_id"
+            );
+
+            // 4. group_cursors() (run on conversation-stream startup) must not abort.
+            let cursors = conn.group_cursors().unwrap();
+            assert_eq!(cursors.len(), 1);
+            assert_eq!(cursors[0].sequence_id, 5);
+            assert_eq!(cursors[0].originator_id, Originators::WELCOME_MESSAGES);
+        })
+    }
+
+    /// Defense in depth: even if a legacy / half-populated row already exists with
+    /// `sequence_id` set but `originator_id` NULL (users may be in this state in the
+    /// wild since the originator-id migration), `group_cursors()` must not abort the
+    /// stream. It should skip the bad row instead of `.expect()`-panicking.
+    #[xmtp_common::test]
+    fn test_group_cursors_skips_row_with_null_originator() {
+        with_connection(|conn| {
+            // A healthy cursor'd group.
+            let good = generate_group_with_welcome(None, Some(30));
+            good.store(conn).unwrap();
+
+            // A cursorless group, then force the invalid state directly via a raw
+            // UPDATE that sets sequence_id only (mimicking the pre-fix write path and
+            // legacy data). Deliberately bypasses the builder invariant.
+            let bad = generate_group(None);
+            bad.store(conn).unwrap();
+            conn.raw_query(|c| {
+                diesel::update(dsl::groups.find(&bad.id))
+                    .set(dsl::sequence_id.eq(Some(7i64)))
+                    .execute(c)
+            })
+            .unwrap();
+
+            // Must not panic; the bad row is skipped, the good one is returned.
+            let cursors = conn.group_cursors().unwrap();
+            assert_eq!(cursors.len(), 1);
+            assert_eq!(cursors[0].sequence_id, 30);
+            assert_eq!(cursors[0].originator_id, Originators::WELCOME_MESSAGES);
         })
     }
 
