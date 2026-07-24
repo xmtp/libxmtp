@@ -129,9 +129,10 @@ describe("Preferences", () => {
     const group = await client.conversations.createGroup([client2.inboxId!]);
     const stream = await client.preferences.streamConsent();
 
-    // Consume the stream in the background and wait for each update's batch
-    // to arrive before issuing the next update — batch boundaries stay
-    // deterministic without pacing on fixed sleeps.
+    // Consume the stream in the background. Background workers can emit
+    // their own consent batches at any time, so batch counts and indices
+    // aren't stable — wait for and assert on the content of the updates
+    // we issue instead.
     const batches: Consent[][] = [];
     const consumed = (async () => {
       for await (const updates of stream) {
@@ -139,8 +140,28 @@ describe("Preferences", () => {
       }
     })();
 
+    const observed = (
+      entityType: ConsentEntityType,
+      entity: string,
+      state: ConsentState,
+    ) =>
+      batches
+        .flat()
+        .some(
+          (u) =>
+            u.entityType === entityType &&
+            u.entity === entity &&
+            u.state === state,
+        );
+
     await group.updateConsentState(ConsentState.Denied);
-    await vi.waitFor(() => expect(batches.length).toBe(1), WAIT);
+    await vi.waitFor(
+      () =>
+        expect(
+          observed(ConsentEntityType.GroupId, group.id, ConsentState.Denied),
+        ).toBe(true),
+      WAIT,
+    );
 
     await client.preferences.setConsentStates([
       {
@@ -149,7 +170,13 @@ describe("Preferences", () => {
         state: ConsentState.Allowed,
       },
     ]);
-    await vi.waitFor(() => expect(batches.length).toBe(2), WAIT);
+    await vi.waitFor(
+      () =>
+        expect(
+          observed(ConsentEntityType.GroupId, group.id, ConsentState.Allowed),
+        ).toBe(true),
+      WAIT,
+    );
 
     await client.preferences.setConsentStates([
       {
@@ -163,26 +190,31 @@ describe("Preferences", () => {
         state: ConsentState.Allowed,
       },
     ]);
-    await vi.waitFor(() => expect(batches.length).toBe(3), WAIT);
+    // the two-entry update is delivered together in a single batch
+    await vi.waitFor(
+      () =>
+        expect(
+          batches.some(
+            (b) =>
+              b.some(
+                (u) =>
+                  u.entityType === ConsentEntityType.GroupId &&
+                  u.entity === group.id &&
+                  u.state === ConsentState.Denied,
+              ) &&
+              b.some(
+                (u) =>
+                  u.entityType === ConsentEntityType.InboxId &&
+                  u.entity === client2.inboxId &&
+                  u.state === ConsentState.Allowed,
+              ),
+          ),
+        ).toBe(true),
+      WAIT,
+    );
 
     await stream.end();
     await consumed;
-
-    expect(batches[0].length).toBe(1);
-    expect(batches[0][0].state).toBe(ConsentState.Denied);
-    expect(batches[0][0].entity).toBe(group.id);
-    expect(batches[0][0].entityType).toBe(ConsentEntityType.GroupId);
-    expect(batches[1].length).toBe(1);
-    expect(batches[1][0].state).toBe(ConsentState.Allowed);
-    expect(batches[1][0].entity).toBe(group.id);
-    expect(batches[1][0].entityType).toBe(ConsentEntityType.GroupId);
-    expect(batches[2].length).toBe(2);
-    expect(batches[2][0].state).toBe(ConsentState.Denied);
-    expect(batches[2][0].entity).toBe(group.id);
-    expect(batches[2][0].entityType).toBe(ConsentEntityType.GroupId);
-    expect(batches[2][1].state).toBe(ConsentState.Allowed);
-    expect(batches[2][1].entity).toBe(client2.inboxId);
-    expect(batches[2][1].entityType).toBe(ConsentEntityType.InboxId);
   });
 
   it("should stream preferences", async () => {

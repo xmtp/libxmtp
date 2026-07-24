@@ -11,6 +11,12 @@ import { createRegisteredClient, createSigner } from "@test/helpers";
 // on loaded CI runners.
 const WAIT = { timeout: 30_000, interval: 1000 };
 
+// The request→archive→import round trip crosses two background-worker hops
+// (one worker builds and uploads the archive, the other downloads and
+// imports it), so give it a much larger budget than the single-hop waits
+// and pace the retries so the workers aren't flooded with requests.
+const ROUND_TRIP_WAIT = { timeout: 90_000, interval: 3000 };
+
 describe("DeviceSync", () => {
   it("should sync consent across installations", async () => {
     const { signer: boSigner } = createSigner();
@@ -195,18 +201,20 @@ describe("DeviceSync", () => {
       expect(state.installations.length).toBe(2);
     }, WAIT);
 
-    await client2.sendSyncRequest(
-      {
-        elements: [],
-        excludeDisappearingMessages: false,
-      },
-      HistorySyncUrls.local,
-    );
-
-    // client1's worker answers the request with an archive; client2's worker
-    // imports it. Poll the whole round trip until the group and its messages
-    // materialize on client2.
+    // The sync request is a one-shot message into the device sync group: if
+    // it goes out before client1's worker has joined, client1 can never
+    // decrypt it and no archive ever comes back. Re-issue the request on
+    // each attempt, then poll the whole round trip — client1's worker
+    // answers with an archive, client2's worker imports it — until the
+    // group and its messages materialize on client2.
     const messagesOnClient2 = await vi.waitFor(async () => {
+      await client2.sendSyncRequest(
+        {
+          elements: [],
+          excludeDisappearingMessages: false,
+        },
+        HistorySyncUrls.local,
+      );
       await client1.syncAllDeviceSyncGroups();
       await client2.syncAllDeviceSyncGroups();
       await client2.conversations.syncAll();
@@ -215,7 +223,7 @@ describe("DeviceSync", () => {
       const msgs = await c!.messages();
       expect(msgs.length).toBeGreaterThan(0);
       return msgs;
-    }, WAIT);
+    }, ROUND_TRIP_WAIT);
 
     const client1MessageCount = (await group.messages()).length;
     const containsMessage = messagesOnClient2.some((m) => m.id === msgId);
