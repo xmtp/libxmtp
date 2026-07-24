@@ -532,30 +532,35 @@ async fn test_task_runner_adds_new_installation_to_groups() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_sync_group_creation_schedules_reconcile_task() {
+async fn test_sync_group_creation_leaves_no_reconcile_task() {
     use crate::worker::{WorkerConfig, WorkerKind};
     use prost::Message;
     use xmtp_db::tasks::QueryTasks;
     use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
-    // TaskRunner disabled so the enqueued row is observable (not consumed).
+    // TaskRunner disabled so any enqueued row would be observable (not consumed).
     let mut cfg = WorkerConfig::default();
     cfg.enabled.insert(WorkerKind::TaskRunner, false);
     tester!(alix, worker_config: cfg);
 
-    let sync_group = alix.device_sync_client().get_sync_group().await?;
+    alix.device_sync_client().get_sync_group().await?;
 
-    // The group row persists before the inline add runs, so a failed inline
-    // add would never be re-attempted — the durable task is the safety net.
+    // The durable reconcile task is armed only from the inline add's error
+    // path. A successful creation must NOT leave one behind — an enqueue-first
+    // version duplicated the reconcile (and its identity fetch) on every
+    // sync-group creation, breaking the pinned network-call-count tests on
+    // mobile bindings.
     let has_task = alix.context.db().get_tasks()?.iter().any(|t| {
         matches!(
-            TaskProto::decode(t.data.as_slice()).ok().and_then(|p| p.task),
-            Some(TaskKind::AddMissingInstallations(a)) if a.group_id == sync_group.group_id.to_vec()
+            TaskProto::decode(t.data.as_slice())
+                .ok()
+                .and_then(|p| p.task),
+            Some(TaskKind::AddMissingInstallations(_))
         )
     });
     assert!(
-        has_task,
-        "sync-group creation must enqueue a durable reconcile task"
+        !has_task,
+        "successful sync-group creation must not enqueue a reconcile task"
     );
 }
 
