@@ -78,7 +78,7 @@ export class WorkerConversation {
   }
 
   async updateAppData(appData: string) {
-    return this.#group.updateAppData(appData);
+    return this.#group.updateAppData({ value: appData });
   }
 
   get isActive() {

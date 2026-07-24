@@ -1,6 +1,7 @@
 //! Tests for group creation, permissions, metadata, membership, listing, and pagination
 
 use super::*;
+use crate::FfiUpdateAppDataOptions;
 
 use xmtp_proto::types::GroupId;
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -332,7 +333,9 @@ async fn test_app_data_permission_update() {
     // Verify bola cannot update app_data (not an admin)
     bola_group
         .conversation
-        .update_app_data("bola's data".to_string())
+        .update_app_data(FfiUpdateAppDataOptions {
+            value: "bola's data".to_string(),
+        })
         .await
         .unwrap_err();
 
@@ -364,7 +367,9 @@ async fn test_app_data_permission_update() {
     // Now bola CAN update app_data
     bola_group
         .conversation
-        .update_app_data("bola's data".to_string())
+        .update_app_data(FfiUpdateAppDataOptions {
+            value: "bola's data".to_string(),
+        })
         .await
         .unwrap();
 

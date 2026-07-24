@@ -31,6 +31,10 @@ impl<C> Client for BoxedClient<C>
 where
     C: Client,
 {
+    fn host(&self) -> &str {
+        self.inner.host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,

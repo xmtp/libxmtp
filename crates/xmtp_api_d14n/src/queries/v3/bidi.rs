@@ -22,6 +22,10 @@ where
 
     type Error = ApiClientError;
 
+    fn host(&self) -> &str {
+        self.client.host()
+    }
+
     // Spans the open handshake (not the stream's lifetime) as `rpc.subscribe_bidi`.
     // Bidi is consumed directly by `xmtp_mls` with no `xmtp_api` wrapper in front,
     // so this transport impl is the RPC boundary — the same layer the other

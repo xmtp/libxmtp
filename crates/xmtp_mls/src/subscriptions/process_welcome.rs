@@ -50,9 +50,9 @@ pub enum ProcessWelcomeResult<Context> {
 /// independent of any stream/poll machinery — the welcome analog of
 /// [`super::process_message::Processed`].
 ///
-/// As with messages, dedup bookkeeping is the caller's job: record `seen` into
-/// whatever known-welcome set the caller owns (the per-stream `known_welcome_ids`
-/// set, or the bidi manager's central set).
+/// As with messages, dedup bookkeeping is the caller's job: record `seen`
+/// into whatever known-welcome set the caller owns (every stream keeps its
+/// own).
 pub struct WelcomeOutcome<Context> {
     /// The conversation to surface to the subscriber, if this welcome produced one
     /// that passed the stream's filters.
@@ -417,44 +417,6 @@ where
             group.created_at_ns,
         )))
     }
-}
-
-/// Run a single raw welcome through the shared processing pipeline and interpret the
-/// result. The decode half of the conversation stream, lifted out of the poll machinery
-/// so the XIP-83 bidi multiplexing manager can reuse it from an async task.
-///
-/// `known_welcome_ids` is borrowed from the caller's authoritative dedup set and
-/// snapshotted for the pipeline (an already-seen cursor short-circuits into an
-/// ignore outcome). The borrow makes the safe pattern the default: a caller
-/// processing welcomes sequentially — check, call, record
-/// [`WelcomeOutcome::seen`] — gets correct dedup by construction, because the
-/// set cannot be mutated while a call borrows it. A caller that wants
-/// concurrent calls must clone the set explicitly, and then owns the
-/// consequence: two in-flight calls for the same cursor will each see it as
-/// unseen and both surface the conversation. Serialize same-cursor decisions
-/// (the XIP-83 router routes from a single task for exactly this reason).
-pub async fn process_welcome_one<Context>(
-    context: Context,
-    known_welcome_ids: &HashSet<Cursor>,
-    welcome: WelcomeMessage,
-    conversation_type: Option<ConversationType>,
-    include_duplicate_dms: bool,
-    consent_states: Option<Vec<ConsentState>>,
-) -> Result<WelcomeOutcome<Context>>
-where
-    Context: XmtpSharedContext,
-{
-    let result = ProcessWelcomeFuture::new(
-        known_welcome_ids.clone(),
-        context,
-        WelcomeOrGroup::Welcome(welcome),
-        conversation_type,
-        include_duplicate_dms,
-        consent_states,
-    )?
-    .process()
-    .await?;
-    Ok(result.into_outcome())
 }
 
 #[cfg(test)]

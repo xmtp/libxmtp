@@ -19,7 +19,7 @@ env:
 jobs:
   run-ignored:
     name: Ignored Tests (${{ matrix.name }})
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -43,15 +43,15 @@ jobs:
 
       - uses: ./.github/actions/setup-nix
         with:
+          docker-builder: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          with-warpbuild-cache: "false"
 
       - uses: taiki-e/install-action@just
 
       - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+        uses: Swatinem/rust-cache@v2
         with:
           key: ignored-${{ matrix.name }}
           workspaces: |

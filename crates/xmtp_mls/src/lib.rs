@@ -19,6 +19,8 @@ pub mod utils;
 pub mod worker;
 pub use definitions::*;
 
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "d14n"))]
+mod migration_tests;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 #[cfg(test)]

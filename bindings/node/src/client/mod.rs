@@ -10,6 +10,7 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_mls::groups::MlsGroup;
 
 pub mod backend;
+mod catch_up;
 mod consent_state;
 pub mod create_client;
 pub(crate) mod gateway_auth;

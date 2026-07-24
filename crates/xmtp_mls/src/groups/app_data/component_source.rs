@@ -175,6 +175,15 @@ impl From<ComponentTypedError> for ComponentSourceError {
                 component_id: id,
                 reason: "registered ComponentType is Unspecified".to_string(),
             },
+            // A COMPONENT_REGISTRY delta that violates the registry's
+            // write invariants (reserved/hardcoded/out-of-space id,
+            // immutable overwrite, undecodable metadata). Structurally
+            // a malformed value for the registry component; the reason
+            // string carries the specific violation.
+            ComponentTypedError::RegistryMutation(e) => Self::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: e.to_string(),
+            },
         }
     }
 }
@@ -285,34 +294,10 @@ pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
     }
 }
 
-/// Single source of truth for the `MetadataField` ↔ `ComponentId` bijection
-/// over the Bytes-typed mutable-metadata family. Both lookup helpers below
-/// and `merge_app_data_into_mutable_metadata` derive from this table.
-const METADATA_FIELD_COMPONENT_MAP: &[(MetadataField, ComponentId)] = &[
-    (MetadataField::GroupName, ComponentId::GROUP_NAME),
-    (MetadataField::Description, ComponentId::GROUP_DESCRIPTION),
-    (
-        MetadataField::GroupImageUrlSquare,
-        ComponentId::GROUP_IMAGE_URL,
-    ),
-    (
-        MetadataField::MessageDisappearFromNS,
-        ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
-    ),
-    (
-        MetadataField::MessageDisappearInNS,
-        ComponentId::MESSAGE_DISAPPEAR_IN_NS,
-    ),
-    (
-        MetadataField::MinimumSupportedProtocolVersion,
-        ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
-    ),
-    (
-        MetadataField::CommitLogSigner,
-        ComponentId::COMMIT_LOG_SIGNER,
-    ),
-    (MetadataField::AppData, ComponentId::APP_DATA),
-];
+/// Re-export of the `MetadataField` ↔ `ComponentId` bijection, moved
+/// to `xmtp_mls_common` (single source of truth shared with the
+/// dict↔legacy merge and the archive exporter).
+pub(crate) use xmtp_mls_common::group_mutable_metadata::METADATA_FIELD_COMPONENT_MAP;
 
 /// Map a [`MetadataField`] string to its corresponding `ComponentId`.
 ///
@@ -781,63 +766,24 @@ pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
     if !super::is_migrated_extensions(extensions) {
         return Ok(());
     }
-    let Some(ext) = extensions.app_data_dictionary() else {
-        return Ok(());
-    };
-    let dict = ext.dictionary();
-
-    for (field, id) in METADATA_FIELD_COMPONENT_MAP {
-        if let Some(bytes) = dict.get(&id.as_u16()) {
-            // Each typed `Component`'s wire shape decides how the dict
-            // bytes round-trip back into the legacy
-            // `GroupMutableMetadata.attributes` string map:
-            //
-            // - `MESSAGE_DISAPPEAR_*` are 8-byte BE `i64` on the wire;
-            //   format as a base-10 string for the legacy reader.
-            // - `COMMIT_LOG_SIGNER` is the raw 32-byte private key on
-            //   the wire; hex-encode for the legacy reader.
-            // - All other metadata-attribute components are UTF-8.
-            let legacy_value = match *id {
-                ComponentId::MESSAGE_DISAPPEAR_FROM_NS | ComponentId::MESSAGE_DISAPPEAR_IN_NS => {
-                    let arr: [u8; 8] = bytes.try_into().map_err(|_| {
-                        ComponentSourceError::MalformedComponentValue {
-                            component_id: *id,
-                            reason: format!("expected 8 bytes (BE i64), got {}", bytes.len()),
-                        }
-                    })?;
-                    i64::from_be_bytes(arr).to_string()
-                }
-                ComponentId::COMMIT_LOG_SIGNER => hex::encode(bytes),
-                _ => std::str::from_utf8(bytes)
-                    .map_err(|e| ComponentSourceError::MalformedComponentValue {
-                        component_id: *id,
-                        reason: format!("non-UTF-8 bytes: {e}"),
-                    })?
-                    .to_string(),
-            };
-            base.attributes
-                .insert(field.as_str().to_string(), legacy_value);
-        }
-    }
-
-    // ADMIN_LIST / SUPER_ADMIN_LIST overlay: on migrated groups the
-    // dict is authoritative; decode the `TlsSet<InboxId>` and
-    // hex-encode each id back to string form for the base GMM.
-    for (component_id, list) in [
-        (ComponentId::ADMIN_LIST, &mut base.admin_list),
-        (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
-    ] {
-        if let Some(bytes) = dict.get(&component_id.as_u16()) {
-            let set = TlsSet::<InboxId>::tls_deserialize_exact(bytes).map_err(|e| {
-                ComponentSourceError::MalformedComponentValue {
-                    component_id,
-                    reason: format!("invalid TlsSet<InboxId>: {e}"),
-                }
-            })?;
-            *list = set.iter().map(|id| id.to_hex()).collect();
-        }
-    }
-    Ok(())
+    // The merge body lives in `xmtp_mls_common` so crates below
+    // `xmtp_mls` in the dependency graph (the archive exporter) can
+    // reuse it; only the (test-override-aware) migration gate above
+    // stays here. Map the per-component error back to
+    // `MalformedComponentValue` so this function's error shape (which
+    // callers and tests match on, and `component_id()` extracts from)
+    // is unchanged by the move.
+    xmtp_mls_common::group_mutable_metadata::merge_dict_into_mutable_metadata(base, extensions)
+        .map_err(|e| match e {
+            GroupMutableMetadataError::MalformedComponent {
+                component_id: Some(component_id),
+                reason,
+            } => ComponentSourceError::MalformedComponentValue {
+                component_id,
+                reason,
+            },
+            other => ComponentSourceError::GroupMutableMetadata(other),
+        })
 }
 
 // ============================================================================
@@ -1127,6 +1073,7 @@ fn encode_inbox_id_set_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prost::Message;
     use tls_codec::VLBytes;
     use xmtp_mls_common::{
         app_data::{
@@ -1607,12 +1554,24 @@ mod tests {
     fn test_apply_component_registry_delta_against_empty() {
         // Bootstrap shape: a `TlsMapDelta<ComponentId, VLBytes>` of
         // all-`Insert` mutations applied against an empty map produces
-        // a materialized snapshot containing those entries.
+        // a materialized snapshot containing those entries. Values must
+        // be structurally valid `ComponentMetadata` — registry deltas
+        // are entry-validated at apply.
         let id_a = ComponentId::GROUP_NAME;
         let id_b = ComponentId::GROUP_DESCRIPTION;
+        let meta_a = registry_with(id_a, ComponentType::String)
+            .get(&id_a)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
+        let meta_b = registry_with(id_b, ComponentType::Bytes)
+            .get(&id_b)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
         let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
-            .insert(id_a, VLBytes::new(vec![0x11; 4]))
-            .insert(id_b, VLBytes::new(vec![0x22; 4]));
+            .insert(id_a, VLBytes::new(meta_a.clone()))
+            .insert(id_b, VLBytes::new(meta_b.clone()));
         let payload = delta.tls_serialize_detached().unwrap();
 
         let new_bytes = apply_app_data_update_payload(
@@ -1626,11 +1585,11 @@ mod tests {
         assert_eq!(map.len(), 2);
         assert_eq!(
             map.get(&id_a).map(|v| v.as_slice()),
-            Some([0x11; 4].as_slice())
+            Some(meta_a.as_slice())
         );
         assert_eq!(
             map.get(&id_b).map(|v| v.as_slice()),
-            Some([0x22; 4].as_slice())
+            Some(meta_b.as_slice())
         );
     }
 

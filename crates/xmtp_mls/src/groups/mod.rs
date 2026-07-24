@@ -239,12 +239,19 @@ pub struct EnableProposalsOptions {
     /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
     /// release where proposals support first ships.
     ///
+    /// Non-test builds clamp the override to
+    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] `<=
+    /// min_version <=` own `pkg_version`: the bootstrap encoder is
+    /// byte-frozen against receivers at or above that constant, so a
+    /// seeded floor below it would reopen the byte-compare fork the
+    /// pause path closes.
+    ///
     /// Use cases:
     /// - Tests that want a synthetic floor (e.g. `"99.0.0"` to force
-    ///   the pause path) or no floor (e.g. `"0.0.0"`).
-    /// - Dev / nightly builds that need to migrate groups without
-    ///   pausing peers running older `pkg_version`s.
-    /// - Staged production rollouts that need a non-default floor.
+    ///   the pause path) or no floor (e.g. `"0.0.0"`) — below-floor
+    ///   values are accepted only in `test` / `test-utils` builds.
+    /// - Staged production rollouts that need a floor above the
+    ///   default.
     pub min_version: Option<String>,
 }
 
@@ -843,6 +850,9 @@ where
     /// Returns an error if:
     /// - `force = false` and not all existing members support proposals
     /// - `min_version` is set to an invalid semver string
+    /// - `min_version` is outside the allowed bounds: above the
+    ///   caller's own `pkg_version`, or — in non-test builds — below
+    ///   [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`]
     /// - The group context extension update fails
     pub async fn enable_proposals(
         &self,
@@ -1011,6 +1021,36 @@ where
                         requested: min_version.clone(),
                         own: own_version_str.clone(),
                     });
+                }
+                // Encoder-freeze clamp (lower bound): the bootstrap
+                // encoder is byte-frozen, and receive-side validators
+                // accept its output via strict byte-compare only down
+                // to `PROPOSALS_MIN_PROTOCOL_VERSION`. Seeding a floor
+                // below that constant would drop below-floor receivers
+                // — whose frozen decoder may disagree on the bytes —
+                // back into the byte-compare instead of the pause
+                // path, reopening the fork the floor exists to close.
+                // Refuse, so the effective invariant is
+                // `PROPOSALS_MIN_PROTOCOL_VERSION <= min_version <=
+                // own pkg_version`. Test builds are exempt so
+                // `EnableProposalsOptions::test_default()` can seed a
+                // synthetic below-floor value (`"0.0.0"`) that never
+                // pauses workspace-version peers.
+                #[cfg(not(any(test, feature = "test-utils")))]
+                {
+                    let floor_str = xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION;
+                    let floor_v = LibXMTPVersion::parse(floor_str).map_err(|e| {
+                        GroupError::InvalidMinVersion {
+                            value: floor_str.to_string(),
+                            reason: format!("PROPOSALS_MIN_PROTOCOL_VERSION: {e}"),
+                        }
+                    })?;
+                    if target_v < floor_v {
+                        return Err(GroupError::MinVersionDowngrade {
+                            requested: min_version.clone(),
+                            current: floor_str.to_string(),
+                        });
+                    }
                 }
                 let metadata =
                     xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(

@@ -126,6 +126,7 @@ serde_json = { version = "1.0", default-features = false }
 serde_path_to_error = "0.1"
 # must stay on this version for compatibility with ed25519_dalek
 sha2 = "0.10.9"
+strum = { version = "0.27", features = ["derive"] }
 syn = { version = "2.0", features = [
   "parsing",
   "proc-macro",

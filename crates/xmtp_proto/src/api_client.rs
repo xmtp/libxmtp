@@ -45,6 +45,8 @@ pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
 xmtp_common::if_native! {
     pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
     pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
+    pub type BoxedSubscribeS<Err> =
+        Pin<Box<dyn Stream<Item = Result<crate::mls_v1::SubscribeResponse, Err>> + Send>>;
 }
 
 xmtp_common::if_wasm! {
@@ -179,6 +181,13 @@ xmtp_common::if_native! {
             + MaybeSend;
 
         type Error: RetryableError + 'static;
+
+        /// The URL this client's bidi surface dials
+        /// ([`Client::host`](crate::traits::Client::host)) — the wire-sharing
+        /// key: clients whose surfaces dial the same URL multiplex onto one
+        /// process-shared wire, and each URL carries its own unsupported
+        /// latch (see xmtp_mls's router callbacks).
+        fn host(&self) -> &str;
 
         /// Open the bidirectional stream. `requests` is the outbound
         /// client→server frame stream (typically fed by a channel; the first

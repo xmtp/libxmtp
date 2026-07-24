@@ -255,6 +255,13 @@ impl RetryableError for GroupMessageProcessingError {
                 // Decode failures are wire-format violations from the
                 // peer — retrying won't help.
                 super::app_data::ProcessMessageWithAppDataError::AppDataDecode(_) => false,
+                // Resolved by upgrading, not by retrying. In practice
+                // this variant never reaches here: the call sites remap
+                // it to `CommitValidation(ProtocolVersionTooLow)` so
+                // the pause machinery in `post_process_message` fires.
+                super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
+                    ..
+                } => false,
             },
             Self::MergeStagedCommit(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
@@ -295,6 +302,29 @@ impl RetryableError for GroupMessageProcessingError {
 }
 
 impl GroupMessageProcessingError {
+    /// Route an app-data processing failure into this error type.
+    ///
+    /// The pre-dispatch floor guard in `process_message_with_app_data`
+    /// surfaces as the same `ProtocolVersionTooLow` commit-validation
+    /// error the validator's post-policy floor check emits, so
+    /// `post_process_message` pauses the group (held cursor,
+    /// `set_group_paused`) instead of treating it like a wire-format
+    /// rejection that advances past the commit. Every other variant
+    /// wraps as `OpenMlsProcessMessageWithAppData`, same as `From`.
+    /// Use this instead of `?`'s implicit conversion at call sites
+    /// that can see commits from newer protocol versions.
+    fn from_app_data_processing(
+        err: super::app_data::ProcessMessageWithAppDataError<sql_key_store::SqlKeyStoreError>,
+    ) -> Self {
+        match err {
+            super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
+                min_version,
+                ..
+            } => Self::CommitValidation(CommitValidationError::ProtocolVersionTooLow(min_version)),
+            other => other.into(),
+        }
+    }
+
     pub(crate) fn commit_result(&self) -> CommitResult {
         use super::app_data::ProcessMessageWithAppDataError;
         match self {
@@ -452,10 +482,10 @@ where
                 required_min_version_str
             );
             let current_version_str = self.context.version_info().pkg_version();
-            let current_version = LibXMTPVersion::parse(current_version_str)?;
+            let current_version = self.context.version_info().pkg_semver();
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
-            if required_min_version <= current_version {
+            if required_min_version <= *current_version {
                 tracing::info!(
                     "Unpausing group since version requirements are met. \
                      Group ID: {}",
@@ -548,10 +578,13 @@ where
         tracing::instrument(level = "trace", skip_all)
     )]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
+        // Filter to kinds this build understands: after a downgrade,
+        // rows written by a newer build would otherwise fail `FromSql`
+        // and poison the whole query (see `IntentKind::all`).
         let intents = self.context.db().find_group_intents(
             self.group_id,
             Some(vec![IntentState::ToPublish, IntentState::Published]),
-            None,
+            Some(IntentKind::all().collect()),
         )?;
 
         let Some(intent) = intents.last() else {
@@ -1134,6 +1167,7 @@ where
                 mls_group,
                 &provider,
                 message.clone(),
+                self.context.version_info().pkg_semver(),
             ));
             // Roll back: sync with the server before committing.
             Ok::<TransactionOutcome<()>, StorageError>(Rollback)
@@ -1143,7 +1177,9 @@ where
                 .map(TransactionOutcome::into_continued)
                 .inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
-        let processed_message = processed_message.expect("Was just set to Some")?;
+        let processed_message = processed_message
+            .expect("Was just set to Some")
+            .map_err(GroupMessageProcessingError::from_app_data_processing)?;
 
         // Reload the mlsgroup to clear the it's internal cache
         mls_group.reload(provider.storage())?;
@@ -1205,6 +1241,27 @@ where
                 Some(validated_commit)
             }
             ProcessedMessageContent::ProposalMessage(queued_proposal) => {
+                // Floor-first: if this migrated group's committed protocol floor
+                // exceeds our version, pause BEFORE validating or storing the
+                // proposal — exactly as the commit branch does above, and without
+                // advancing the cursor. Post-migration metadata updates are
+                // published propose-then-commit, so a below-floor client that
+                // instead rejected-and-skipped a new-format standalone proposal
+                // here would later be unable to stage the commit that references
+                // it (the proposal would be missing from the store) and fork.
+                // Holding the cursor before the proposal lets it replay after the
+                // client upgrades and the group un-pauses.
+                //
+                // This reads only committed group-context state (the pre-commit
+                // dictionary), never the arriving proposal, so it cannot be used
+                // by a member to freeze a group.
+                if let Some(min_version) = super::app_data::committed_floor_exceeding(
+                    mls_group,
+                    self.context.version_info().pkg_semver(),
+                ) {
+                    return Err(CommitValidationError::ProtocolVersionTooLow(min_version).into());
+                }
+
                 // Reject Add/Remove proposals if proposals are not enabled on this group.
                 // GCE proposals are exempt because enable_proposals() uses them to bootstrap
                 // proposal support — they must be allowed through to flip the flag on.
@@ -1379,7 +1436,9 @@ where
                 mls_group,
                 &provider,
                 message.clone(),
-            )?;
+                self.context.version_info().pkg_semver(),
+            )
+            .map_err(GroupMessageProcessingError::from_app_data_processing)?;
             let identifier = self.process_external_message(
                 mls_group,
                 processed_message,
@@ -2258,6 +2317,24 @@ where
                     let mut error_cause = None;
                     let (next_intent_state, internal_message_id) = match result {
                         Err(err) => {
+                            // Floor-first (own-intent path): a below-floor client
+                            // processing its OWN commit on a migrated group must
+                            // PAUSE, not fold the failure into a terminal `Error`.
+                            // Folding would commit the cursor advance above (past
+                            // its own commit) and leave the intent `Error` — forking
+                            // from peers who merged the commit, with no upgrade-based
+                            // recovery. Roll the transaction back (undoing the cursor
+                            // advance) so the error reaches `post_process_message`'s
+                            // pause arm, exactly like the external-commit path, and
+                            // the intent stays for revalidation after upgrade.
+                            if matches!(
+                                err.processing_error,
+                                GroupMessageProcessingError::CommitValidation(
+                                    CommitValidationError::ProtocolVersionTooLow(_)
+                                )
+                            ) {
+                                return Err(err.processing_error);
+                            }
                             if err.processing_error.is_retryable() {
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
@@ -2749,10 +2826,11 @@ where
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         self.load_mls_group_with_lock_async(async |mut mls_group| {
+            // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
             let intents = db.find_group_intents(
                 self.group_id,
                 Some(vec![IntentState::ToPublish]),
-                None,
+                Some(IntentKind::all().collect()),
             )?;
 
             for intent in intents {
@@ -2856,7 +2934,7 @@ where
                                 );
 
                                 handle_published_intent_send_failure(&db, &intent)?;
-                                return Err(err)?;
+                                Err(err)?;
                             }
                             (kind, Ok(_)) => {
                                 log_event!(
@@ -2955,29 +3033,26 @@ where
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                // Gate the AppDataUpdate path on the capability flag
-                // AND a non-empty component registry. The registry
-                // check keeps unmigrated groups on the legacy path so
-                // a sender doesn't publish commits the receiver would
-                // deny against an empty registry. `load_component_registry`
-                // also consults `TEST_REGISTRY_OVERRIDE`, so tests that
-                // install a fake registry exercise this branch even
-                // before a real bootstrap commit lands.
-                let proposals_on = self.proposals_enabled(openmls_group);
-                let registry_populated =
-                    !super::app_data::load_component_registry(openmls_group)?.is_empty();
+                // Route through AppDataUpdate only on migrated groups,
+                // via the same `is_migrated_group` predicate the
+                // UpdateAdminList / UpdatePermission gates use.
+                // `is_migrated_group` (not `registry.is_empty()`) is the
+                // correct migration signal: `ComponentRegistry::is_empty()`
+                // ignores preserved-but-unrecognized entries, so a migrated
+                // group whose entries were all tolerated as unrecognized
+                // would misreport as empty and mis-route to legacy.
+                let is_migrated = super::app_data::is_migrated_group(openmls_group);
                 tracing::debug!(
                     group_id = %self.group_id,
-                    proposals_enabled = proposals_on,
-                    registry_populated,
-                    path = if proposals_on && registry_populated {
+                    is_migrated,
+                    path = if is_migrated {
                         "app_data_update"
                     } else {
                         "legacy_gce"
                     },
                     "MetadataUpdate intent routing"
                 );
-                if proposals_on && registry_populated {
+                if is_migrated {
                     // Publish a STANDALONE AppDataUpdate proposal followed
                     // by a commit that references it (XIP §1.5.2 / §3.4).
                     // Both wire messages go in one publish batch — the
@@ -3461,11 +3536,10 @@ where
                 // similar extension shape can't accidentally trigger
                 // the bootstrap path.
                 //
-                // NOTE: honest receivers reject the bootstrap commit
-                // until the receiver-side validator that understands
-                // `COMPONENT_REGISTRY` / `GROUP_MEMBERSHIP` writes is
-                // wired. Emitting this intent is only useful when the
-                // validator lands in the same release.
+                // Receive-side validation lives in
+                // `validated_commit.rs` (`is_bootstrap_commit` routes
+                // into `validate_bootstrap_and_build`, which drives
+                // `bootstrap_validator::validate_bootstrap_commit`).
                 let intent_data =
                     ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
 
@@ -3876,7 +3950,12 @@ where
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         let intents =
-            db.find_group_intents(self.group_id, Some(vec![IntentState::Committed]), None)?;
+            // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
+            db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Committed]),
+                Some(IntentKind::all().collect()),
+            )?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {

@@ -37,6 +37,12 @@ where
     Read: Client,
     Write: Client,
 {
+    // The read side: connection identity here keys receive-only shared
+    // state (the bidi wire), and reads are where this client receives.
+    fn host(&self) -> &str {
+        self.read.host()
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,

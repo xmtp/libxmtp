@@ -17,14 +17,17 @@ where
     C: xmtp_proto::api_client::XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,
 {
-    BidiTransport::new(move |initial| {
-        let api = api.clone();
-        async move {
-            BidiConnection::open(&api, initial)
-                .await
-                .map_err(|e| Box::new(e) as OpenError)
-        }
-    })
+    BidiTransport::new(
+        move |initial| {
+            let api = api.clone();
+            async move {
+                BidiConnection::open(&api, initial)
+                    .await
+                    .map_err(OpenError::new)
+            }
+        },
+        false,
+    )
 }
 
 /// Live delivery: a message sent after subscribing arrives decoded on the
@@ -169,4 +172,29 @@ async fn sibling_conversation_streams_both_receive_a_welcome() {
             "{name} stream must surface the new conversation"
         );
     }
+}
+
+/// A panicked welcome task must surface an error from `next_outcome`, not
+/// vanish: swallowed, the empty task set parks the next poll on `pending()`
+/// and a caller with no other wake source left (the bounded catch-up after
+/// its waves complete) never re-checks its `is_idle` termination — a hang.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_panicked_welcome_task_surfaces_instead_of_parking() {
+    use crate::subscriptions::stream_router::WelcomeIntake;
+    use std::collections::HashSet;
+
+    tester!(alix);
+    let mut intake = WelcomeIntake::new(alix.context.clone(), 0, HashSet::new(), None, true, None);
+    intake.spawn_panicking_task();
+
+    let outcome = tokio::time::timeout(WAIT, intake.next_outcome()).await;
+    match outcome {
+        Ok(Err(_)) => {} // the dead task surfaced; the caller wakes and re-checks
+        Ok(Ok(_)) => panic!("a dead task cannot produce an outcome"),
+        Err(_) => panic!("next_outcome parked forever on a dead task"),
+    }
+    assert!(
+        intake.is_idle(),
+        "nothing is left in flight once the dead task surfaced"
+    );
 }

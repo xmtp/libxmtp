@@ -86,11 +86,11 @@ impl std::fmt::Debug for RemoteCommitLog {
             "RemoteCommitLog {{ rowid: {:?}, log_sequence_id: {:?}, group_id {:?}, commit_sequence_id: {:?}, commit_result: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?} }}",
             self.rowid,
             self.log_sequence_id,
-            &self.group_id.as_slice().snippet(),
+            self.group_id.as_slice().snippet(),
             self.commit_sequence_id,
             self.commit_result,
             self.applied_epoch_number,
-            &self.applied_epoch_authenticator.snippet()
+            self.applied_epoch_authenticator.snippet()
         )
     }
 }

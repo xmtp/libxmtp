@@ -1,0 +1,27 @@
+name: Reset Sticky Disks
+# Sticky-disk Nix stores only grow, and CoW snapshots don't shrink on
+# file deletion. Drop disks periodically; next run repopulates from Cachix.
+on:
+  schedule:
+    # 1st of every other month (Jan, Mar, May, Jul, Sep, Nov) at 00:00 UTC
+    - cron: "0 0 1 */2 *"
+  workflow_dispatch:
+jobs:
+  reset-nix-disks:
+    name: Delete Nix store sticky disks
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Disk namespace is per-arch: deletion must run on a matching-arch
+        # runner. arch must match runner.arch in the setup-nix disk key.
+        include:
+          - arch: X64
+            runner: blacksmith-2vcpu-ubuntu-2404
+          - arch: ARM64
+            runner: blacksmith-2vcpu-ubuntu-2404-arm
+    steps:
+      - name: Delete ${{ github.repository }}-nix-Linux-${{ matrix.arch }}
+        uses: useblacksmith/stickydisk-delete@v1
+        with:
+          delete-key: ${{ github.repository }}-nix-Linux-${{ matrix.arch }}

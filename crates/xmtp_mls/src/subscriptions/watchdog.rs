@@ -352,30 +352,19 @@ where
     }
 }
 
-/// Spawn a self-healing subscription: wrap each underlying stream in a [`WatchdogStream`],
-/// forward every item to `callback`, and transparently re-subscribe when the watchdog trips
-/// on a silently-dead stream — resuming from the persisted cursor.
-///
-/// `subscribe` builds a fresh underlying stream on each call (it owns its inputs and clones
-/// per call, so the returned stream is `'static`). The first call establishes the stream
-/// before readiness is signaled: a failure there is a *startup* failure and is propagated to
-/// the caller. Once the stream has been live, a creation failure is a transient hiccup and is
-/// retried with the reconnect throttle instead of terminating the subscription.
-///
-/// On a stale trip the next subscription is established *before* the throttle wait and while
-/// the stale stream is still in scope — so the new stream (and, for the conversation stream,
-/// its `LocalEvents` broadcast receiver) is already buffering during the wait, and events
-/// arriving mid-reconnect are not dropped. `on_close` runs exactly once when the loop ends
-/// (clean end, cancellation, or startup error).
+/// Spawn a self-healing subscription: [`run_watchdog_stream`] as its own task, with
+/// readiness signaled once the first underlying stream is established.
 ///
 /// This is the single implementation behind `stream_messages_with_callback`,
 /// `stream_conversations_with_callback`, and `stream_all_messages_with_callback`; keeping it
-/// in one place is what stops those three from drifting apart.
+/// in one place is what stops those three from drifting apart. (The bidi pump's legacy
+/// fallback awaits [`run_watchdog_stream`] inside its own already-spawned task — same
+/// runner, same semantics, no second spawn.)
 pub(crate) fn spawn_watchdog_stream<T, S, Fut, Sub, Cb, Close>(
     cancel: CancellationToken,
     label: &'static str,
-    mut subscribe: Sub,
-    mut callback: Cb,
+    subscribe: Sub,
+    callback: Cb,
     on_close: Close,
 ) -> impl StreamHandle<StreamOutput = Result<(), SubscribeError>>
 where
@@ -387,80 +376,122 @@ where
     Close: FnOnce() + MaybeSend + 'static,
 {
     let (tx, rx) = oneshot::channel();
-    xmtp_common::spawn(Some(rx), async move {
-        tracing::debug!(stream = label, "starting watchdog stream");
+    xmtp_common::spawn(
+        Some(rx),
+        run_watchdog_stream(
+            cancel,
+            label,
+            subscribe,
+            move || {
+                let _ = tx.send(());
+            },
+            callback,
+            on_close,
+        ),
+    )
+}
 
-        // Initial subscription. A failure here is a startup failure: propagate it so the
-        // caller's stream setup errors out rather than closing as a silent `Ok`.
-        let mut attempt_started = Instant::now();
-        let mut current = match subscribe().await {
-            Ok(stream) => stream,
-            Err(e) => {
-                tracing::warn!(stream = label, "failed to create stream: {e}");
-                on_close();
-                return Err(e);
-            }
-        };
-        let _ = tx.send(());
+/// Drive a self-healing subscription to completion: wrap each underlying stream in a
+/// [`WatchdogStream`], forward every item to `callback`, and transparently re-subscribe when
+/// the watchdog trips on a silently-dead stream — resuming from the persisted cursor.
+///
+/// `subscribe` builds a fresh underlying stream on each call (it owns its inputs and clones
+/// per call, so the returned stream is `'static`). The first call establishes the stream
+/// before `ready` is invoked: a failure there is a *startup* failure and is propagated to
+/// the caller. Once the stream has been live, a creation failure is a transient hiccup and is
+/// retried with the reconnect throttle instead of terminating the subscription.
+///
+/// On a stale trip the next subscription is established *before* the throttle wait and while
+/// the stale stream is still in scope — so the new stream (and, for the conversation stream,
+/// its `LocalEvents` broadcast receiver) is already buffering during the wait, and events
+/// arriving mid-reconnect are not dropped. `on_close` runs exactly once when the loop ends
+/// (clean end, cancellation, or startup error).
+pub(crate) async fn run_watchdog_stream<T, S, Fut, Sub, Ready, Cb, Close>(
+    cancel: CancellationToken,
+    label: &'static str,
+    mut subscribe: Sub,
+    ready: Ready,
+    mut callback: Cb,
+    on_close: Close,
+) -> Result<(), SubscribeError>
+where
+    T: 'static,
+    S: Stream<Item = Result<T, SubscribeError>> + MaybeSend + 'static,
+    Fut: Future<Output = Result<S, SubscribeError>> + MaybeSend + 'static,
+    Sub: FnMut() -> Fut + MaybeSend + 'static,
+    Ready: FnOnce() + MaybeSend + 'static,
+    Cb: FnMut(Result<T, SubscribeError>) + MaybeSend + 'static,
+    Close: FnOnce() + MaybeSend + 'static,
+{
+    tracing::debug!(stream = label, "starting watchdog stream");
 
-        let result = 'reconnect: loop {
-            // Consume the current subscription under the watchdog until it goes stale
-            // (silent), ends cleanly, or we're cancelled.
-            let watched = WatchdogStream::new(current, WATCHDOG.idle_timeout());
-            futures::pin_mut!(watched);
-            let mut stale = false;
-            let cancelled = loop {
-                tokio::select! {
-                    _ = cancel.cancelled() => break true,
-                    next = watched.next() => match next {
-                        Some(item) => {
-                            if matches!(&item, Err(SubscribeError::StreamStale)) {
-                                stale = true;
-                                break false;
-                            }
-                            callback(item);
-                        }
-                        None => break false,
-                    }
-                }
-            };
-            // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
-            if cancelled || !stale {
-                break 'reconnect Ok(());
-            }
-            tracing::debug!(stream = label, "stream went stale; reconnecting");
+    // Initial subscription. A failure here is a startup failure: propagate it so the
+    // caller's stream setup errors out rather than closing as a silent `Ok`.
+    let mut attempt_started = Instant::now();
+    let mut current = match subscribe().await {
+        Ok(stream) => stream,
+        Err(e) => {
+            tracing::warn!(stream = label, "failed to create stream: {e}");
+            on_close();
+            return Err(e);
+        }
+    };
+    ready();
 
-            // Re-subscribe *before* the throttle, while the stale `watched` is still in
-            // scope, so the new subscription is already buffering during the wait. A
-            // transient creation failure is retried with the throttle, not fatal.
-            let next = loop {
-                match subscribe().await {
-                    Ok(stream) => break stream,
-                    Err(e) => {
-                        tracing::warn!(
-                            stream = label,
-                            "failed to recreate stream, will retry: {e}"
-                        );
-                        tokio::select! {
-                            _ = cancel.cancelled() => break 'reconnect Ok(()),
-                            _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
-                        }
-                    }
-                }
-            };
-            // Throttle: never resubscribe faster than the floor. A long-idle trip waits ~0;
-            // only a tight loop is paced. `next` buffers during the wait.
+    let result = 'reconnect: loop {
+        // Consume the current subscription under the watchdog until it goes stale
+        // (silent), ends cleanly, or we're cancelled.
+        let watched = WatchdogStream::new(current, WATCHDOG.idle_timeout());
+        futures::pin_mut!(watched);
+        let mut stale = false;
+        let cancelled = loop {
             tokio::select! {
-                _ = cancel.cancelled() => break 'reconnect Ok(()),
-                _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
+                _ = cancel.cancelled() => break true,
+                next = watched.next() => match next {
+                    Some(item) => {
+                        if matches!(&item, Err(SubscribeError::StreamStale)) {
+                            stale = true;
+                            break false;
+                        }
+                        callback(item);
+                    }
+                    None => break false,
+                }
             }
-            attempt_started = Instant::now();
-            current = next;
         };
-        tracing::debug!(stream = label, "watchdog stream ended, dropping stream");
-        on_close();
-        result
-    })
+        // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
+        if cancelled || !stale {
+            break 'reconnect Ok(());
+        }
+        tracing::debug!(stream = label, "stream went stale; reconnecting");
+
+        // Re-subscribe *before* the throttle, while the stale `watched` is still in
+        // scope, so the new subscription is already buffering during the wait. A
+        // transient creation failure is retried with the throttle, not fatal.
+        let next = loop {
+            match subscribe().await {
+                Ok(stream) => break stream,
+                Err(e) => {
+                    tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
+                    tokio::select! {
+                        _ = cancel.cancelled() => break 'reconnect Ok(()),
+                        _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
+                    }
+                }
+            }
+        };
+        // Throttle: never resubscribe faster than the floor. A long-idle trip waits ~0;
+        // only a tight loop is paced. `next` buffers during the wait.
+        tokio::select! {
+            _ = cancel.cancelled() => break 'reconnect Ok(()),
+            _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
+        }
+        attempt_started = Instant::now();
+        current = next;
+    };
+    tracing::debug!(stream = label, "watchdog stream ended, dropping stream");
+    on_close();
+    result
 }
 
 #[cfg(test)]

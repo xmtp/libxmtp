@@ -27,6 +27,11 @@ mod streams;
 mod to_dyn_api;
 mod xmtp_query;
 
+xmtp_common::if_test! {
+    mod test_client;
+    pub use test_client::*;
+}
+
 static ERROR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(xmtp_configuration::D14N_MIGRATION_MSG_REGEX).expect("static regex must be valid")
 });
@@ -205,22 +210,27 @@ where
             .await
     }
 
+    // Commit-log (fork detection) is deliberately not part of d14n's network
+    // ordering; it stays on a centralized v3-shaped service that is kept running
+    // through and past the cutover. So — unlike every other call — commit-log
+    // does NOT follow `choose_client`: a migrated client whose reads/writes go
+    // to xmtpd must keep publishing and reading its commit log on v3, or fork
+    // detection silently dies the moment it crosses the cutover (the d14n
+    // client's commit-log methods are deliberate no-ops). Route to v3
+    // unconditionally. No `write_with_refresh`: this service never emits the
+    // migration-rejection signal that reroutes writes to xmtpd.
     async fn publish_commit_log(
         &self,
         request: mls_v1::BatchPublishCommitLogRequest,
     ) -> Result<(), Self::Error> {
-        self.write_with_refresh(|| {
-            let value = request.clone();
-            async move { self.choose_client().await?.publish_commit_log(value).await }
-        })
-        .await
+        self.v3_client.publish_commit_log(request).await
     }
 
     async fn query_commit_log(
         &self,
         request: mls_v1::BatchQueryCommitLogRequest,
     ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        self.choose_client().await?.query_commit_log(request).await
+        self.v3_client.query_commit_log(request).await
     }
 
     async fn get_newest_group_message(
