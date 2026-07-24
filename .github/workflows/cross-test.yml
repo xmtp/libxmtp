@@ -109,6 +109,7 @@ jobs:
 
       - uses: ./.github/actions/setup-nix
         with:
+          disk-key: cross-test
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
