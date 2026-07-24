@@ -13,6 +13,7 @@ jobs:
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
+          disk-key: test-node
           docker-builder: "true"
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just

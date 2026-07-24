@@ -4,11 +4,22 @@ inputs:
   github-token:
     description: "GitHub token for Nix installation"
     required: true
+  disk-key:
+    description: >-
+      Per-workflow namespace for the /nix sticky disk; pass the workflow file
+      stem (e.g. test-workspace). Required on Linux. Keep the value a literal:
+      reset-sticky-disks.yml greps workflows for `disk-key:` to enumerate disks.
+    required: false
+    default: ""
   cachix-auth-token:
     description: "Cachix auth token for xmtp cache"
     required: false
   sccache:
     description: "Enable sccache with GitHub Actions cache backend"
+    required: false
+    default: "false"
+  gradle-disk:
+    description: "Mount the shared repo-wide sticky disk at ~/.gradle (Linux); enable in jobs that run Gradle"
     required: false
     default: "false"
   docker-builder:
@@ -18,9 +29,18 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # Persistent /nix sticky disk, one per (repo, OS, arch); must mount
-    # before Nix installs. Concurrent jobs clone the last snapshot;
-    # Cachix backfills anything a lost commit race drops.
+    # Persistent /nix sticky disk, one per (repo, workflow, OS, arch); must
+    # mount before Nix installs. Per-workflow keys stop concurrent workflows
+    # from overwriting each other's commits (last write wins per disk, so the
+    # slowest workflow used to decide what the shared disk kept). Concurrent
+    # jobs within a workflow still race, but they build near-identical
+    # closures and Cachix backfills anything a lost commit drops.
+    - name: Require disk-key on Linux
+      if: ${{ runner.os == 'Linux' && inputs.disk-key == '' }}
+      run: |
+        echo "::error::setup-nix needs a disk-key input on Linux (the workflow file stem, e.g. test-workspace)"
+        exit 1
+      shell: bash
     - name: Prepare /nix mount point
       if: ${{ runner.os == 'Linux' }}
       run: |
@@ -31,15 +51,28 @@ runs:
       if: ${{ runner.os == 'Linux' }}
       uses: useblacksmith/stickydisk@v1
       with:
-        key: ${{ github.repository }}-nix-${{ runner.os }}-${{ runner.arch }}
+        key: ${{ github.repository }}-nix-${{ inputs.disk-key }}-${{ runner.os }}-${{ runner.arch }}
         path: /nix
         # Untrusted PR jobs never commit — a malicious PR could persist
         # tampered store paths that release builds later consume. Trusted
         # events (push/tag/dispatch/schedule) commit on-change.
         commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
-    # Posts run in reverse order: registered after the mount = runs right
+    # Gradle wrapper dist + dependency/transform caches for Android jobs.
+    # One disk repo-wide (not per workflow): contents are append-only
+    # downloads, so a lost commit race just re-downloads a few jars.
+    # Must be registered before the busy-process cleanup below so the cleanup
+    # post (which kills gradle/kotlin daemons) runs before this unmounts.
+    - name: Mount ~/.gradle sticky disk
+      if: ${{ inputs.gradle-disk == 'true' && runner.os == 'Linux' }}
+      uses: useblacksmith/stickydisk@v1
+      with:
+        key: ${{ github.repository }}-gradle-${{ runner.os }}-${{ runner.arch }}
+        path: ~/.gradle
+        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
+    # Posts run in reverse order: registered after the mounts = runs right
     # before unmount+commit. Store-binary daemons (gradle/kotlin/adb) hold
-    # /nix busy; spare cachix daemon, its own post stops it. See convos-releases#31.
+    # /nix and ~/.gradle busy; spare cachix daemon, its own post stops it.
+    # See convos-releases#31.
     # action-post-run exec()s its `run` input as a bare executable (no
     # shell), so the script must live in a file.
     - name: Write /nix busy-process cleanup script
@@ -48,8 +81,11 @@ runs:
         cat > "$RUNNER_TEMP/nix-unmount-cleanup.sh" << 'EOF'
         #!/usr/bin/env bash
         keep="$(pgrep -f 'cachix daemon' || true)"
-        for pid in $(sudo fuser -M -m /nix 2>/dev/null); do
-          echo "$keep" | grep -qx "$pid" || sudo kill -9 "$pid" 2>/dev/null
+        # fuser -M no-ops when the path is not a mount point (gradle-disk off)
+        for mnt in /nix "$HOME/.gradle"; do
+          for pid in $(sudo fuser -M -m "$mnt" 2>/dev/null); do
+            echo "$keep" | grep -qx "$pid" || sudo kill -9 "$pid" 2>/dev/null
+          done
         done
         sleep 2
         exit 0
@@ -101,9 +137,6 @@ runs:
     - name: Setup sccache
       if: ${{ inputs.sccache == 'true' }}
       uses: mozilla-actions/sccache-action@v0.0.9
-    - name: Install nix-fast-build
-      run: nix profile add github:Mic92/nix-fast-build
-      shell: bash
     - name: Configure sccache env
       if: ${{ inputs.sccache == 'true' }}
       run: |
