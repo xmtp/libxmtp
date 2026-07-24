@@ -370,10 +370,22 @@ where
                 // Safety net behind the inline add below: the group row is
                 // already persisted, so a failed inline add would otherwise
                 // never be re-attempted (later calls take the `Some` branch).
-                // The durable task no-ops once membership is current.
-                self.schedule_add_missing_installations_task(sync_group.group_id)
-                    .map_err(Box::new)?;
-                sync_group.add_missing_installations().await?;
+                // The durable task no-ops once membership is current. A failed
+                // enqueue must not short-circuit the inline add for the same
+                // reason — the inline add runs regardless.
+                let scheduled = self.schedule_add_missing_installations_task(sync_group.group_id);
+                if let Err(err) = &scheduled {
+                    tracing::warn!(%err, "failed to enqueue reconcile task for new sync group");
+                }
+                if let Err(inline_err) = sync_group.add_missing_installations().await {
+                    if scheduled.is_err() {
+                        // Both halves failed: one more enqueue attempt so the
+                        // durable path can heal what the inline path could not.
+                        self.schedule_add_missing_installations_task(sync_group.group_id)
+                            .map_err(Box::new)?;
+                    }
+                    return Err(inline_err);
+                }
                 sync_group.sync_with_conn().await?;
 
                 self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
