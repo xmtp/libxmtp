@@ -352,23 +352,26 @@ async fn test_only_added_to_correct_groups() {
         .register_interest(SyncMetric::SyncGroupWelcomesProcessed, 1)
         .wait()
         .await?;
-    alix2.sync_welcomes().await?;
 
-    // Added to new fresh group
-    let alix2_new_group = alix2.group(&new_group.group_id);
-    assert!(alix2_new_group.is_ok());
+    // The adds are durable TaskRunner work now — the metric above fires when
+    // the tasks are scheduled, not when the commits land. Poll until alix2
+    // has been welcomed into every eligible group: the new fresh group, the
+    // unknown-consent group, and the consented DM.
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2.sync_welcomes().await;
+        (alix2.group(&new_group.group_id).is_ok()
+            && alix2.group(&alix_bo_group_unknown.group_id).is_ok()
+            && alix2.group(&alix_bo_dm.group_id).is_ok())
+        .then_some(())
+    })
+    .await
+    .expect("alix2 must be added to all eligible groups");
 
+    // The negatives are meaningful once the positive set has converged: the
+    // filtered-out groups never get an AddMissingInstallations task at all.
     // Not added to old stale group
     let alix2_old_group = alix2.group(&old_group.group_id);
     assert!(alix2_old_group.is_err());
-
-    // Added to group with unknown consent state
-    let alix2_bo_group_unknown = alix2.group(&alix_bo_group_unknown.group_id);
-    assert!(alix2_bo_group_unknown.is_ok());
-
-    // Added to consented DM
-    let alix2_bo_dm = alix2.group(&alix_bo_dm.group_id);
-    assert!(alix2_bo_dm.is_ok());
 
     // Not added to denied group from Bo
     let alix2_bo_group_denied = alix2.group(&alix_bo_group_denied.group_id);
@@ -517,11 +520,12 @@ async fn test_task_runner_adds_new_installation_to_groups() {
     // The welcome handler enqueues the task; the TaskRunner publishes the
     // membership commit; alix2 then receives the group via welcome. Poll —
     // the whole chain is async.
-    xmtp_common::wait_for_ok(|| async {
-        alix2.sync_welcomes().await.map_err(|e| e.to_string())?;
-        alix2.group(&group.group_id).map_err(|e| e.to_string())
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2.sync_welcomes().await;
+        alix2.group(&group.group_id).ok().map(|_| ())
     })
-    .await?;
+    .await
+    .expect("alix2 must receive the group via the TaskRunner membership add");
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
