@@ -1,4 +1,8 @@
-import { ConsentEntityType, ConsentState } from "@xmtp/node-bindings";
+import {
+  BackupElementSelectionOption,
+  ConsentEntityType,
+  ConsentState,
+} from "@xmtp/node-bindings";
 import { describe, expect, it, vi } from "vitest";
 import { HistorySyncUrls } from "@/constants";
 import { uuid } from "@/utils/uuid";
@@ -146,7 +150,13 @@ describe("DeviceSync", () => {
       await alix.sendSyncArchive(
         "123",
         {
-          elements: [],
+          // Request real content: an empty selection produces an empty
+          // archive, leaving the assertion entirely dependent on the
+          // membership-add welcome path.
+          elements: [
+            BackupElementSelectionOption.Messages,
+            BackupElementSelectionOption.Consent,
+          ],
           excludeDisappearingMessages: false,
         },
         HistorySyncUrls.local,
@@ -210,7 +220,14 @@ describe("DeviceSync", () => {
     const messagesOnClient2 = await vi.waitFor(async () => {
       await client2.sendSyncRequest(
         {
-          elements: [],
+          // Request real content: with an empty selection the archive is
+          // empty and the group can only arrive via the membership-add
+          // welcome path, which converges too slowly on loaded CI runners.
+          // A Messages archive makes every retry attempt self-sufficient.
+          elements: [
+            BackupElementSelectionOption.Messages,
+            BackupElementSelectionOption.Consent,
+          ],
           excludeDisappearingMessages: false,
         },
         HistorySyncUrls.local,

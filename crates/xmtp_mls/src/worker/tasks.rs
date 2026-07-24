@@ -437,6 +437,9 @@ where
                     .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::AddMissingInstallations(add)) => {
+                Self::run_add_missing_installations(task, add, context).await?;
+            }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
                 context.db().delete_task(task.id)?;
@@ -479,6 +482,42 @@ where
             Ok(group) => {
                 // No-op unless super-admin; idempotent, so retries are safe.
                 group.process_pending_self_removals().await?;
+                Ok(())
+            }
+            Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
+                tracing::debug!(
+                    "Task {} targets a group that no longer exists. Deleting.",
+                    task.id
+                );
+                context.db().delete_task(task.id)?;
+                Ok(())
+            }
+            // A DB/connection error is transient — let it retry.
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Run an `AddMissingInstallations` task: load the group and reconcile its
+    /// membership with the inbox's latest identity state. Idempotent — the
+    /// underlying group method no-ops when membership is already current, so
+    /// retries and duplicate rows are safe.
+    async fn run_add_missing_installations(
+        task: &DbTask,
+        add: xmtp_proto::xmtp::mls::database::AddMissingInstallations,
+        context: &Context,
+    ) -> Result<(), TaskWorkerError> {
+        // A malformed group_id can never succeed — drop the task, don't retry.
+        let Ok(group_id) = xmtp_proto::types::GroupId::try_from(add.group_id.as_slice()) else {
+            tracing::warn!(
+                "Task {} has a malformed group_id for AddMissingInstallations. Deleting.",
+                task.id
+            );
+            context.db().delete_task(task.id)?;
+            return Ok(());
+        };
+        match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
+            Ok(group) => {
+                group.add_missing_installations().await?;
                 Ok(())
             }
             Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
@@ -588,6 +627,26 @@ mod tests {
         let row = seed(&db, unique_proto(), now - 1, i64::MAX, 0, i32::MAX);
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
         assert!(db.get_tasks()?.is_empty(), "Done task must be deleted");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn add_missing_installations_missing_group_deletes_task() {
+        tester!(alix, worker_config: no_runner_cfg());
+        let db = alix.context.db();
+        let now = xmtp_common::time::now_ns();
+        let proto = TaskProto {
+            task: Some(TaskKind::AddMissingInstallations(
+                xmtp_proto::xmtp::mls::database::AddMissingInstallations {
+                    group_id: xmtp_common::rand_vec::<16>(),
+                },
+            )),
+        };
+        let row = seed(&db, proto, now - 1, i64::MAX, 0, 3);
+        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        assert!(
+            db.get_tasks()?.is_empty(),
+            "task for a nonexistent group must be deleted, not retried"
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
