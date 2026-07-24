@@ -135,7 +135,27 @@ where
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
-        while let Ok(event) = self.receiver.recv().await {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            let event = match self.receiver.recv().await {
+                Ok(event) => event,
+                Err(RecvError::Lagged(skipped)) => {
+                    // The skipped events may have included NewSyncGroupFromWelcome,
+                    // whose durable task rows were never created. Re-scheduling is
+                    // cheap and deduped, so recover level-triggered instead of
+                    // losing the edge; a Tick-equivalent sweep covers skipped
+                    // NewSyncGroupMsg events the same way.
+                    tracing::warn!(
+                        skipped,
+                        "sync worker receiver lagged; re-scheduling installation reconciliation"
+                    );
+                    self.client.schedule_add_installations_to_groups()?;
+                    self.evt_new_sync_group_msg(true).await?;
+                    continue;
+                }
+                Err(RecvError::Closed) => break,
+            };
+
             // Tick is the internal timer heartbeat (every 20s): no real work, so
             // dispatch it directly without opening a worker_turn span.
             if matches!(event, SyncWorkerEvent::Tick) {

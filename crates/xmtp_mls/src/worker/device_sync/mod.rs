@@ -28,7 +28,7 @@ use xmtp_db::{
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
     device_sync::content::{
         DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
@@ -367,6 +367,12 @@ where
                     hex::encode(self.context.installation_id()),
                     hex::encode(sync_group.group_id)
                 );
+                // Safety net behind the inline add below: the group row is
+                // already persisted, so a failed inline add would otherwise
+                // never be re-attempted (later calls take the `Some` branch).
+                // The durable task no-ops once membership is current.
+                self.schedule_add_missing_installations_task(sync_group.group_id)
+                    .map_err(Box::new)?;
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
@@ -397,26 +403,32 @@ where
             ..Default::default()
         })?;
 
-        let db = self.context.db();
-        let mut scheduled = 0;
         for group in &groups {
-            let task = NewTask::builder()
-                .originating_message_sequence_id(0)
-                .originating_message_originator_id(0)
-                .build(TaskProto {
-                    task: Some(TaskKindProto::AddMissingInstallations(
-                        AddMissingInstallationsProto {
-                            group_id: group.group_id.to_vec(),
-                        },
-                    )),
-                })?;
-            db.create_or_ignore_task(task)?;
-            scheduled += 1;
+            self.schedule_add_missing_installations_task(group.group_id)?;
         }
-        if scheduled > 0 {
-            self.context.task_channels().wake();
-        }
-        Ok(scheduled)
+        Ok(groups.len())
+    }
+
+    /// Durably enqueue one AddMissingInstallations task for `group_id`
+    /// (deduped by payload hash against any pending row for the same group)
+    /// and wake the TaskRunner.
+    pub(crate) fn schedule_add_missing_installations_task(
+        &self,
+        group_id: GroupId,
+    ) -> Result<(), DeviceSyncError> {
+        let task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .build(TaskProto {
+                task: Some(TaskKindProto::AddMissingInstallations(
+                    AddMissingInstallationsProto {
+                        group_id: group_id.to_vec(),
+                    },
+                )),
+            })?;
+        self.context.db().create_or_ignore_task(task)?;
+        self.context.task_channels().wake();
+        Ok(())
     }
 }
 
