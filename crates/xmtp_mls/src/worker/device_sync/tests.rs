@@ -496,3 +496,88 @@ async fn test_incremental_consent() {
     let dm2 = alix2.group(&dm.group_id)?;
     assert_eq!(dm2.consent_state()?, ConsentState::Allowed);
 }
+
+#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_task_runner_adds_new_installation_to_groups() {
+    // Live sync worker + live TaskRunner (tester! defaults enable the runner).
+    // `stream` keeps alix1 receiving welcomes so the sync-group welcome from
+    // alix2's registration reaches alix1's device-sync worker.
+    tester!(alix1, stream, sync_worker);
+    tester!(bo);
+
+    let group = alix1
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    tester!(alix2, from: alix1);
+
+    // The welcome handler enqueues the task; the TaskRunner publishes the
+    // membership commit; alix2 then receives the group via welcome. Poll —
+    // the whole chain is async.
+    xmtp_common::wait_for_ok(|| async {
+        alix2.sync_welcomes().await.map_err(|e| e.to_string())?;
+        alix2.group(&group.group_id).map_err(|e| e.to_string())
+    })
+    .await?;
+}
+
+#[xmtp_common::timeout(std::time::Duration::from_secs(30))]
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_welcome_schedules_add_installation_tasks() {
+    use crate::worker::{WorkerConfig, WorkerKind};
+    use prost::Message;
+    use xmtp_db::tasks::QueryTasks;
+    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+
+    // TaskRunner disabled so enqueued rows are observable (not consumed).
+    let mut cfg = WorkerConfig::default();
+    cfg.enabled.insert(WorkerKind::TaskRunner, false);
+    tester!(alix1, worker_config: cfg);
+    tester!(bo);
+
+    let group = alix1
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    let count_add_tasks = || -> Vec<Vec<u8>> {
+        alix1
+            .context
+            .db()
+            .get_tasks()
+            .unwrap()
+            .iter()
+            .filter_map(|t| match TaskProto::decode(t.data.as_slice()).ok()?.task {
+                Some(TaskKind::AddMissingInstallations(a)) => Some(a.group_id),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // Call the schedule path directly (unit level — no live sync worker needed).
+    let scheduled = alix1
+        .device_sync_client()
+        .schedule_add_installations_to_groups()?;
+    assert!(scheduled >= 1);
+
+    let add_tasks = count_add_tasks();
+    assert!(
+        add_tasks.iter().any(|gid| gid == &group.group_id.to_vec()),
+        "expected an AddMissingInstallations task for the conversation group"
+    );
+
+    // Re-scheduling dedups on payload hash: row count stays put.
+    alix1
+        .device_sync_client()
+        .schedule_add_installations_to_groups()?;
+    let after = count_add_tasks();
+    assert_eq!(
+        add_tasks.len(),
+        after.len(),
+        "create_or_ignore must dedup identical payloads"
+    );
+}

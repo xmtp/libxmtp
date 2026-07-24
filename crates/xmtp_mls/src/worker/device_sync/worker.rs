@@ -231,8 +231,9 @@ where
         tracing::info!("New sync group from welcome detected.");
 
         // A new sync group from a welcome indicates a new installation.
-        // We need to add that installation to the groups.
-        self.client.add_new_installation_to_groups().await?;
+        // Schedule durable per-group reconciliation on the TaskRunner —
+        // a one-shot inline add here is lost forever if it fails once.
+        self.client.schedule_add_installations_to_groups()?;
 
         self.metrics
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
