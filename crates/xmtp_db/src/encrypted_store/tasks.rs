@@ -550,7 +550,9 @@ pub(crate) mod tests {
     /// constants without a row-migration story.
     #[xmtp_common::test]
     fn data_hash_encoding_is_pinned() {
-        use xmtp_proto::xmtp::mls::database::{KpDeletion, KpRotation, PullInDeadline};
+        use xmtp_proto::xmtp::mls::database::{
+            AddMissingInstallations, KpDeletion, KpRotation, PullInDeadline,
+        };
         let rotation = TaskProto {
             task: Some(TaskKind::KpRotation(KpRotation {})),
         };
@@ -578,6 +580,19 @@ pub(crate) mod tests {
         assert_eq!(
             hex::encode(data_hash_for(&pull_in)),
             "16b424873a34096e5157ab9f0a31e80dff1d23ebd8b1aab2b948a4732abfc849"
+        );
+        // AddMissingInstallations (bytes group_id): outer tag for oneof field 7
+        // is (7<<3)|2 = 0x3a, LEN 0x22 (34 = 2-byte inner header + 32 bytes);
+        // inner field 1 tag 0x0a, LEN 0x20.
+        let add = TaskProto {
+            task: Some(TaskKind::AddMissingInstallations(AddMissingInstallations {
+                group_id: vec![0x22; 32],
+            })),
+        };
+        assert_eq!(add.encode_to_vec()[..4], [0x3a, 0x22, 0x0a, 0x20]);
+        assert_eq!(
+            hex::encode(data_hash_for(&add)),
+            "2180ffa08703d0dcc600a070da9d162da6821e29176af24e7a9955af2cf43764"
         );
         // Determinism under repetition and a decode round-trip.
         let bytes = pull_in.encode_to_vec();
