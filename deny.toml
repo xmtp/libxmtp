@@ -1,20 +1,8 @@
 [advisories]
 ignore = [
-  { id = "RUSTSEC-2026-0124", reason = "need to upgrade openmls" },
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
-  { id = "RUSTSEC-2021-0139", reason = "ansi_term is only used in tests" },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
   { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },
-  # libcrux crypto backend, transitive via the openmls libcrux provider
-  # (hpke-rs-libcrux / openmls_libcrux_crypto) pinned by the openmls fork.
-  # No upstream fix without a fork bump; tracked with the openmls upgrade
-  # (RUSTSEC-2026-0124).
-  { id = "RUSTSEC-2026-0207", reason = "libcrux SHAKE incremental-output bug; transitive via openmls libcrux provider, pending fork bump" },
-  { id = "RUSTSEC-2026-0208", reason = "libcrux AVX2 SHAKE-256 panic; transitive via openmls libcrux provider, pending fork bump" },
-  { id = "RUSTSEC-2026-0209", reason = "libcrux-aesgcm AAD-length enforcement; transitive via openmls libcrux provider, pending fork bump" },
-  { id = "RUSTSEC-2026-0210", reason = "libcrux-aesgcm renamed/unmaintained; transitive via openmls libcrux provider, pending fork bump" },
-  { id = "RUSTSEC-2026-0211", reason = "libcrux-aesgcm non-constant-time tag check; transitive via openmls libcrux provider, pending fork bump" },
-  { id = "RUSTSEC-2026-0212", reason = "libcrux aarch64 constant-time swap/select; transitive via openmls libcrux provider, pending fork bump" },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests
