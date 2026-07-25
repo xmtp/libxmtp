@@ -17,3 +17,5 @@ jobs:
           sccache: "false"
       - name: Check xdbg compiles
         run: nix build --no-link .#cargo-clippy.x86_64-linux.xdbg
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#cargo-clippy.x86_64-linux.xdbg

@@ -88,6 +88,9 @@ jobs:
       - name: Build wasm-bindings
         run: nix build .#packages.x86_64-linux.wasm-bindings
 
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#packages.x86_64-linux.wasm-bindings
+
       - name: Upload build output
         uses: actions/upload-artifact@v7
         with:

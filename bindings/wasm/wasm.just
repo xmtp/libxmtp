@@ -59,6 +59,7 @@ nix-test: nix-test-v3 nix-test-d14n
 test-ci:
     nix build --no-link .#nextest.{{ nix_system }}.wasm-v3 --option sandbox relaxed
     nix build --no-link .#nextest.{{ nix_system }}.wasm-d14n --option sandbox relaxed
+    ../../dev/ci/warm-deps .#nextest.{{ nix_system }}.wasm-v3 .#nextest.{{ nix_system }}.wasm-d14n
 
 # WASM JS integration tests
 [script("bash")]
