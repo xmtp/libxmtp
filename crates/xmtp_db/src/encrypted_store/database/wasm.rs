@@ -1,9 +1,13 @@
 //! WebAssembly specific connection for a SQLite Database
 //! Stores a single connection behind a RefCell that's used for every libxmtp operation
+#[cfg(feature = "sync")]
 use crate::DbConnection;
 use crate::PersistentOrMem;
+#[cfg(feature = "sync")]
 use crate::{ConnectionExt, StorageOption, XmtpDb};
+#[cfg(feature = "sync")]
 use diesel::prelude::SqliteConnection;
+#[cfg(feature = "sync")]
 use diesel::{connection::SimpleConnection, prelude::*};
 use sqlite_wasm_vfs::sahpool::OpfsSAHPoolCfg;
 use std::cell::RefCell;
@@ -170,6 +174,7 @@ pub struct WasmDbConnection {
     path: String,
 }
 
+#[cfg(feature = "sync")]
 impl WasmDbConnection {
     pub fn new(path: &str) -> Result<Self, PlatformStorageError> {
         let mut conn = SqliteConnection::establish(path)?;
@@ -197,6 +202,7 @@ impl WasmDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for WasmDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where

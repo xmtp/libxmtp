@@ -13,9 +13,8 @@ use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
-use xmtp_db::XmtpDb;
+use xmtp_db::identity_update::StoredIdentityUpdate;
 use xmtp_db::prelude::*;
-use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     AsIdRef, InboxIdRef,
     associations::{
@@ -89,7 +88,9 @@ pub async fn get_association_state_with_verifier(
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<AssociationState, ClientError> {
-    let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
+    let updates = conn
+        .get_identity_updates(inbox_id, None, to_sequence_id)
+        .await?;
     let last_sequence_id = updates
         .last()
         .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
@@ -100,7 +101,7 @@ pub async fn get_association_state_with_verifier(
         return Err(AssociationError::MissingIdentityUpdate.into());
     }
 
-    if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id)? {
+    if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id).await? {
         return Ok(association_state.try_into().map_err(StorageError::from)?);
     }
 
@@ -117,7 +118,8 @@ pub async fn get_association_state_with_verifier(
         inbox_id.to_owned(),
         last_sequence_id,
         association_state.clone().into(),
-    )?;
+    )
+    .await?;
 
     Ok(association_state)
 }
@@ -210,7 +212,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_latest_association_state(
         &self,
-        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl xmtp_db::DbQuery,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
         load_identity_updates(self.context.api(), conn, &[inbox_id]).await?;
@@ -264,8 +266,9 @@ where
             .await?;
 
         // Get any identity updates that need to be applied
-        let incremental_updates =
-            conn.get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?;
+        let incremental_updates = conn
+            .get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)
+            .await?;
 
         let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
         if ending_sequence_id.is_some()
@@ -299,7 +302,8 @@ where
                 inbox_id.to_string(),
                 last_sequence_id,
                 final_state.clone().into(),
-            )?;
+            )
+            .await?;
         }
 
         Ok(initial_state.diff(&final_state))
@@ -512,7 +516,7 @@ where
         load_identity_updates(
             self.context.api(),
             conn,
-            &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice())?,
+            &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice()).await?,
         )
         .await?;
 
@@ -601,7 +605,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     }
     tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
-    let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids)?;
+    let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids).await?;
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
         .iter()
         .map(|inbox_id| GetIdentityUpdatesV2Filter {
@@ -627,7 +631,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         })
         .collect::<Vec<StoredIdentityUpdate>>();
 
-    conn.insert_or_ignore_identity_updates(&to_store)?;
+    conn.insert_or_ignore_identity_updates(&to_store).await?;
     Ok(updates)
 }
 
@@ -698,7 +702,7 @@ pub async fn get_creation_signature_kind(
     scw_verifier: impl SmartContractSignatureVerifier,
     inbox_id: InboxIdRef<'_>,
 ) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
-    let updates = conn.get_identity_updates(inbox_id, None, None)?;
+    let updates = conn.get_identity_updates(inbox_id, None, None).await?;
 
     let first_update = updates
         .first()
@@ -765,7 +769,7 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    fn insert_identity_update<C>(conn: &DbConnection<C>, inbox_id: &str, sequence_id: i64)
+    async fn insert_identity_update<C>(conn: &DbConnection<C>, inbox_id: &str, sequence_id: i64)
     where
         C: ConnectionExt,
     {
@@ -778,6 +782,7 @@ pub(crate) mod tests {
         );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
+            .await
             .expect("insert should succeed");
     }
 
@@ -987,15 +992,15 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         let conn = client.context.db();
 
-        insert_identity_update(&conn, "inbox_1", 1);
-        insert_identity_update(&conn, "inbox_2", 2);
-        insert_identity_update(&conn, "inbox_3", 3);
+        insert_identity_update(&conn, "inbox_1", 1).await;
+        insert_identity_update(&conn, "inbox_2", 2).await;
+        insert_identity_update(&conn, "inbox_3", 3).await;
 
         let filtered =
             // Inbox 1 is requesting an inbox ID higher than what is in the DB. Inbox 2 is requesting one that matches the DB.
             // Inbox 3 is requesting one lower than what is in the DB
             crate::groups::filter_inbox_ids_needing_updates(&conn, &[("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
-        assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
+        assert_eq!(filtered.await.unwrap(), vec!["inbox_1"]);
     }
 
     #[rstest::rstest]
@@ -1060,10 +1065,14 @@ pub(crate) mod tests {
             .expect("load should succeed");
 
         // Get the latest sequence IDs so we can construct the updates
-        let latest_sequence_ids = other_conn.get_latest_sequence_id(ids.as_slice()).unwrap();
+        let latest_sequence_ids = other_conn
+            .get_latest_sequence_id(ids.as_slice())
+            .await
+            .unwrap();
 
         let inbox_1_first_sequence_id = other_conn
-            .get_identity_updates(inbox_ids[0].clone(), None, None)
+            .get_identity_updates(&inbox_ids[0].clone(), None, None)
+            .await
             .unwrap()
             .first()
             .unwrap()
@@ -1151,6 +1160,7 @@ pub(crate) mod tests {
         .expect("load should succeed");
         let latest_sequence_id = *other_conn
             .get_latest_sequence_id(&[inbox_id.as_str()])
+            .await
             .unwrap()
             .get(&inbox_id)
             .unwrap();

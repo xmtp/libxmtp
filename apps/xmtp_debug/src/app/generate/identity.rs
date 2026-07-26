@@ -274,7 +274,7 @@ async fn poll_association_readiness(inbox_id_hex: &str) -> Result<()> {
     loop {
         let state = reader
             .identity_updates()
-            .get_latest_association_state(&conn, inbox_id_hex)
+            .get_latest_association_state(&*conn, inbox_id_hex)
             .await?;
         if !state.members().is_empty() {
             assoc_ready = true;
@@ -333,7 +333,7 @@ async fn measure_sync_and_lookup(
     let t_lookup = Instant::now();
     let _ = tmp
         .identity_updates()
-        .get_latest_association_state(&conn, inbox_id_hex)
+        .get_latest_association_state(&*conn, inbox_id_hex)
         .await?;
     let lookup_secs = t_lookup.elapsed().as_secs_f64();
 
@@ -357,7 +357,7 @@ async fn verify_identities_readable(identities: &[Identity]) -> Result<()> {
         let t_verify = Instant::now();
         let _ = verify_client
             .identity_updates()
-            .get_latest_association_state(&verify_conn, &inbox_id_hex)
+            .get_latest_association_state(&*verify_conn, &inbox_id_hex)
             .await?;
         let verify_secs = t_verify.elapsed().as_secs_f64();
 

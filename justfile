@@ -38,11 +38,26 @@ _check-crate +crates:
 
 lint: lint-rust lint-config lint-markdown
 
-lint-rust:
+lint-rust: lint-rust-async
     cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
     cargo fmt --check
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
+
+# The async storage track, which the workspace lint above cannot reach:
+# `--all-features` turns `sync` on, and `maybe-async/is_sync` is a global switch,
+# so every sqlx impl (gated `not(feature = "sync")`) is compiled out of it. Left
+# unlinted this build accumulated ~30 real warnings behind 159 copies of
+# `async_fn_in_trait`.
+#
+# Lib target only, deliberately: xmtp_db's self dev-dependency pulls `sync` in,
+# so `--all-targets` would stop being an async-only build. The Postgres impls are
+# exercised by `xmtp_db_pg_tests` instead, which is outside the workspace and so
+# needs its own invocation.
+lint-rust-async:
+    cargo clippy --locked -p xmtp_db --no-default-features --features async --no-deps -- -Dwarnings
+    cargo clippy --locked --manifest-path crates/xmtp_db_pg_tests/Cargo.toml --all-targets --no-deps -- -Dwarnings
+    cargo fmt --check --manifest-path crates/xmtp_db_pg_tests/Cargo.toml
 
 # Config linting: TOML, Nix, shell scripts
 lint-config: lint-treefmt
@@ -97,6 +112,20 @@ _test-d14n *args="":
 _test-crate +crates:
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     {{ cargo_test }} $args
+
+# Postgres-backed tests for xmtp_db's async (sqlx) storage track.
+#
+# `xmtp_db_pg_tests` is deliberately outside the workspace so it can depend on
+# xmtp_db with the default `sync` feature OFF -- see its Cargo.toml. That is why
+# this is a manifest-path invocation and not `just test crate ...`.
+#
+# Needs a scratch Postgres. Locally:
+#   docker run -d --name xmtp-asyncdb-pg -e POSTGRES_USER=xmtp \
+#     -e POSTGRES_PASSWORD=xmtp -e POSTGRES_DB=xmtp_asyncdb \
+#     -p 55432:5432 postgres:16
+test-pg *args="":
+    XMTP_ASYNCDB_PG_URL="${XMTP_ASYNCDB_PG_URL:-postgres://xmtp:xmtp@127.0.0.1:55432/xmtp_asyncdb}" \
+      cargo test --manifest-path crates/xmtp_db_pg_tests/Cargo.toml {{ args }}
 
 # Run xdbg cross-version compat harness. Stable HEADs by default; pass
 # --profile nightly for nightly samples. Anything after `--` is forwarded

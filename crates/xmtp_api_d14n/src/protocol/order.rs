@@ -64,9 +64,9 @@ where
 
     /// try to find any lost children and re-apply them to the
     /// end of the envelopes list before any resolution occurs
-    fn recover_lost_children(&mut self) -> Result<(), EnvelopeError> {
+    async fn recover_lost_children(&mut self) -> Result<(), EnvelopeError> {
         let cursors: Vec<_> = self.envelopes.iter().map(|e| e.cursor()).try_collect()?;
-        let children = self.store.resolve_children(&cursors)?;
+        let children = self.store.resolve_children(&cursors).await?;
         if !children.is_empty() {
             tracing::info!("recovered {} children", children.len());
             if tracing::enabled!(Level::TRACE) {
@@ -121,7 +121,7 @@ where
     // 3.) resolution of missing is attempted
     // 4.) child re-iced if resolution failed
     async fn order(&mut self) -> Result<(), ResolutionError> {
-        self.recover_lost_children()?;
+        self.recover_lost_children().await?;
         self.timestamp_sort()?;
         while let Some(mut missing) = self.causal_sort()? {
             let needed_envelopes = self.required_dependencies(&missing)?;
@@ -136,18 +136,18 @@ where
                         }
                     })
                     .try_collect()?;
-                self.store.ice(orphans)?;
+                self.store.ice(orphans).await?;
                 break;
             }
             self.envelopes.append(&mut resolved);
             self.envelopes.append(&mut missing);
-            self.recover_lost_children()?;
+            self.recover_lost_children().await?;
         }
         Ok(())
     }
 
-    fn order_offline(&mut self) -> Result<(), ResolutionError> {
-        self.recover_lost_children()?;
+    async fn order_offline(&mut self) -> Result<(), ResolutionError> {
+        self.recover_lost_children().await?;
         self.timestamp_sort()?;
         if let Some(missing) = self.causal_sort()? {
             tracing::debug!("icing {} orphans", missing.len());
@@ -160,7 +160,7 @@ where
                     }
                 })
                 .try_collect()?;
-            self.store.ice(orphans)?;
+            self.store.ice(orphans).await?;
         }
         Ok(())
     }
@@ -503,7 +503,10 @@ mod test {
                 // If the newly available envelope had children, they should be recovered
                 // (orphan count should decrease)
                 let (had_children, returned) = {
-                    let returned = store.resolve_children(&[newly_available.cursor()]);
+                    let returned = store
+                        .resolve_children(&[newly_available.cursor()])
+                        .now_or_never()
+                        .expect("Future should complete immediately");
                     assert_ok!(&returned);
                     let returned = returned.unwrap();
                     // Check if any orphan was a child of the newly available envelope

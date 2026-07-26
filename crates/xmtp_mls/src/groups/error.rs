@@ -447,7 +447,9 @@ pub enum GroupError {
     UninitializedResult,
     /// Diesel ORM error.
     ///
-    /// Raw database query failed. May be retryable.
+    /// Raw database query failed. May be retryable. Sync (diesel) track only;
+    /// async DB errors arrive via `Db`/`Storage` (`ConnectionError`/`StorageError`).
+    #[cfg(feature = "sync")]
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     /// Uninitialized field.
@@ -629,6 +631,7 @@ impl RetryableError for GroupError {
             Self::MetadataPermissionsError(e) => e.is_retryable(),
             Self::WrapWelcome(e) => e.is_retryable(),
             Self::UnwrapWelcome(e) => e.is_retryable(),
+            #[cfg(feature = "sync")]
             Self::Diesel(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::DeleteMessage(e) => e.is_retryable(),

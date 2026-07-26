@@ -1,14 +1,20 @@
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
     schema::d14n_migration_cutover::{self, dsl},
 };
 use crate::StorageError;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 
-#[derive(Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone)]
-#[diesel(table_name = d14n_migration_cutover)]
-#[diesel(primary_key(id))]
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Identifiable, Insertable, Queryable, AsChangeset)
+)]
+#[cfg_attr(feature = "sync", diesel(table_name = d14n_migration_cutover))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 pub struct StoredMigrationCutover {
     pub id: i32,
     pub cutover_ns: i64,
@@ -28,46 +34,61 @@ impl Default for StoredMigrationCutover {
 }
 
 pub trait QueryMigrationCutover {
-    fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError>;
+    fn get_migration_cutover(
+        &self,
+    ) -> impl std::future::Future<Output = Result<StoredMigrationCutover, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError>;
+    fn set_cutover_ns(
+        &self,
+        cutover_ns: i64,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    fn get_last_checked_ns(&self) -> Result<i64, StorageError>;
+    fn get_last_checked_ns(
+        &self,
+    ) -> impl std::future::Future<Output = Result<i64, StorageError>> + xmtp_common::MaybeSend;
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError>;
+    fn set_last_checked_ns(
+        &self,
+        last_checked_ns: i64,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError>;
+    fn set_has_migrated(
+        &self,
+        has_migrated: bool,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
-impl<T: QueryMigrationCutover> QueryMigrationCutover for &T {
-    fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
-        (**self).get_migration_cutover()
+impl<T: QueryMigrationCutover + xmtp_common::MaybeSync> QueryMigrationCutover for &T {
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
+        (**self).get_migration_cutover().await
     }
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
-        (**self).set_cutover_ns(cutover_ns)
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
+        (**self).set_cutover_ns(cutover_ns).await
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
-        (**self).get_last_checked_ns()
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
+        (**self).get_last_checked_ns().await
     }
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
-        (**self).set_last_checked_ns(last_checked_ns)
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
+        (**self).set_last_checked_ns(last_checked_ns).await
     }
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
-        (**self).set_has_migrated(has_migrated)
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
+        (**self).set_has_migrated(has_migrated).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
-    fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
         let result = self.raw_query(|conn| dsl::d14n_migration_cutover.first(conn).optional())?;
         Ok(result.unwrap_or_default())
     }
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::cutover_ns.eq(cutover_ns))
@@ -76,12 +97,12 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
         Ok(())
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
-        let cutover = self.get_migration_cutover()?;
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
+        let cutover = self.get_migration_cutover().await?;
         Ok(cutover.last_checked_ns)
     }
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::last_checked_ns.eq(last_checked_ns))
@@ -90,12 +111,75 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
         Ok(())
     }
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::has_migrated.eq(has_migrated))
                 .execute(conn)
         })?;
+        Ok(())
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl QueryMigrationCutover for crate::pg::PgDb {
+    /// The migration seeds row 1, so the `unwrap_or_default` here is a fallback
+    /// for a database that predates it rather than the normal path.
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
+        use sqlx::Row;
+        let mut c = self.conn().await?;
+        let row = sqlx::query(
+            "SELECT id, cutover_ns, last_checked_ns, has_migrated \
+             FROM d14n_migration_cutover LIMIT 1",
+        )
+        .fetch_optional(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        let Some(row) = row else {
+            return Ok(StoredMigrationCutover::default());
+        };
+        Ok(StoredMigrationCutover {
+            id: row.try_get(0).map_err(crate::ConnectionError::from)?,
+            cutover_ns: row.try_get(1).map_err(crate::ConnectionError::from)?,
+            last_checked_ns: row.try_get(2).map_err(crate::ConnectionError::from)?,
+            has_migrated: row.try_get(3).map_err(crate::ConnectionError::from)?,
+        })
+    }
+
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query("UPDATE d14n_migration_cutover SET cutover_ns = $1 WHERE id = 1")
+            .bind(cutover_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
+        Ok(self.get_migration_cutover().await?.last_checked_ns)
+    }
+
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query("UPDATE d14n_migration_cutover SET last_checked_ns = $1 WHERE id = 1")
+            .bind(last_checked_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query("UPDATE d14n_migration_cutover SET has_migrated = $1 WHERE id = 1")
+            .bind(has_migrated)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
         Ok(())
     }
 }
@@ -106,59 +190,64 @@ mod tests {
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
-    fn test_default_migration_cutover() {
-        with_connection(|conn| {
-            let cutover = conn.get_migration_cutover().unwrap();
+    async fn test_default_migration_cutover() {
+        with_connection(async |conn| {
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert_eq!(cutover.cutover_ns, i64::MAX);
             assert_eq!(cutover.last_checked_ns, 0);
             assert!(!cutover.has_migrated);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_set_cutover_ns() {
-        with_connection(|conn| {
+    async fn test_set_cutover_ns() {
+        with_connection(async |conn| {
             let timestamp = 1_700_000_000_000_000_000i64;
-            conn.set_cutover_ns(timestamp).unwrap();
+            conn.set_cutover_ns(timestamp).await.unwrap();
 
-            let cutover = conn.get_migration_cutover().unwrap();
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert_eq!(cutover.cutover_ns, timestamp);
             assert_eq!(cutover.last_checked_ns, 0);
             assert!(!cutover.has_migrated);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_set_last_checked_ns() {
-        with_connection(|conn| {
+    async fn test_set_last_checked_ns() {
+        with_connection(async |conn| {
             let timestamp = 1_700_000_000_000_000_000i64;
-            conn.set_last_checked_ns(timestamp).unwrap();
+            conn.set_last_checked_ns(timestamp).await.unwrap();
 
-            let cutover = conn.get_migration_cutover().unwrap();
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert_eq!(cutover.cutover_ns, i64::MAX);
             assert_eq!(cutover.last_checked_ns, timestamp);
             assert!(!cutover.has_migrated);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_last_checked_ns() {
-        with_connection(|conn| {
+    async fn test_get_last_checked_ns() {
+        with_connection(async |conn| {
             let timestamp = 1_700_000_000_000_000_000i64;
-            conn.set_last_checked_ns(timestamp).unwrap();
+            conn.set_last_checked_ns(timestamp).await.unwrap();
 
-            let last_checked = conn.get_last_checked_ns().unwrap();
+            let last_checked = conn.get_last_checked_ns().await.unwrap();
             assert_eq!(last_checked, timestamp);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_set_has_migrated() {
-        with_connection(|conn| {
-            conn.set_has_migrated(true).unwrap();
+    async fn test_set_has_migrated() {
+        with_connection(async |conn| {
+            conn.set_has_migrated(true).await.unwrap();
 
-            let cutover = conn.get_migration_cutover().unwrap();
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert!(cutover.has_migrated);
         })
+        .await
     }
 }

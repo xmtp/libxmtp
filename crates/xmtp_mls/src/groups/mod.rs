@@ -81,6 +81,7 @@ use xmtp_db::group_message::Deletable;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
+use xmtp_db::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
@@ -90,10 +91,6 @@ use xmtp_db::{
     refresh_state::EntityKind,
 };
 use xmtp_db::{Store, StoreOrIgnore};
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
-};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
@@ -468,12 +465,12 @@ where
     /// # Returns
     ///
     /// Returns the Group and the stored group information as a tuple.
-    pub fn new_cached(
+    pub async fn new_cached(
         context: Context,
         group_id: &GroupId,
     ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
-        if let Some(group) = conn.find_group(group_id)? {
+        if let Some(group) = conn.find_group(group_id).await? {
             Ok((
                 Self::new_from_arc(
                     context,
@@ -510,31 +507,6 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn load_mls_group_with_lock<F, R>(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        operation: F,
-    ) -> Result<R, GroupError>
-    where
-        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
-    {
-        // Get the group ID for locking
-        let group_id = self.group_id;
-
-        // Acquire the lock synchronously using blocking_lock
-        let _lock = self.mls_commit_lock.get_lock_sync(group_id);
-        // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &self.group_id.to_openmls())
-            .inspect_err(|e| tracing::error!("openmls error while loading group {e}"))
-            .map_err(|_| NotFound::MlsGroup(self.group_id))?
-            .ok_or(NotFound::MlsGroup(self.group_id))?;
-
-        // Perform the operation with the MLS group
-        operation(mls_group)
-    }
-
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip(operation))]
     pub(crate) async fn load_mls_group_with_lock_async<R, E>(
         &self,
@@ -551,7 +523,7 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id).await;
 
         // Load the MLS group
-        let mls_group = OpenMlsGroup::load(mls_storage, &self.group_id.to_openmls())?
+        let mls_group = maybe_await!(OpenMlsGroup::load(mls_storage, &self.group_id.to_openmls()))?
             .ok_or(StorageError::from(NotFound::GroupById(self.group_id)))?;
 
         // Perform the operation with the MLS group
@@ -812,10 +784,11 @@ where
     /// Like [`Self::proposals_enabled`], but loads the group from storage
     /// instead of taking a caller-held `OpenMlsGroup`. The convenience
     /// shape bindings need for a plain "is this group migrated?" read.
-    pub fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(self.proposals_enabled(&mls_group))
-        })
+    pub async fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
+        self.load_mls_group_with_lock_async(
+            async |mls_group| Ok(self.proposals_enabled(&mls_group)),
+        )
+        .await
     }
 
     /// Enable proposals on this group (proposal-by-reference flow).
@@ -1106,7 +1079,7 @@ where
                 .into();
             let min_version_intent = intents::QueueIntent::metadata_update()
                 .data(min_version_intent_data)
-                .queue(self)?;
+                .queue(self).await?;
             self.sync_until_intent_resolved(min_version_intent.id)
                 .await?;
         }
@@ -1198,7 +1171,7 @@ where
         let intent_data = intents::ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
         let bootstrap_intent = intents::QueueIntent::bootstrap_migration()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         self.sync_until_intent_resolved(bootstrap_intent.id).await?;
 
@@ -1250,7 +1223,7 @@ where
     }
 
     // Create a new group and save it to the DB
-    pub(crate) fn create_and_insert(
+    pub(crate) async fn create_and_insert(
         context: Context,
         conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
@@ -1266,7 +1239,8 @@ where
             permissions_policy_set,
             opts,
             oneshot_message,
-        )?;
+        )
+        .await?;
         let new_group = Self::new_from_arc(
             context.clone(),
             stored_group.id,
@@ -1277,13 +1251,15 @@ where
 
         // Consent state defaults to allowed when the user creates the group
         if !conversation_type.is_virtual() {
-            new_group.update_consent_state(ConsentState::Allowed)?;
+            new_group
+                .update_consent_state(ConsentState::Allowed)
+                .await?;
         }
 
         Ok(new_group)
     }
 
-    pub(crate) fn insert(
+    pub(crate) async fn insert(
         context: &Context,
         existing_group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
@@ -1321,9 +1297,11 @@ where
                 context.identity(),
                 &group_config,
                 GroupId::try_from(existing_group_id)?,
-            )?
+            )
+            .await?
         } else {
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)
+                .await?
         };
 
         let group_id: GroupId = mls_group.group_id().try_into()?;
@@ -1346,13 +1324,13 @@ where
             .should_publish_commit_log(should_publish_commit_log)
             .build()?;
 
-        stored_group.store_or_ignore(&context.db())?;
+        stored_group.store_or_ignore(&context.db()).await?;
 
         Ok(stored_group)
     }
 
     // Create a new DM and save it to the DB
-    pub(crate) fn create_dm_and_insert(
+    pub(crate) async fn create_dm_and_insert(
         context: &Context,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
@@ -1384,9 +1362,11 @@ where
                 context.identity(),
                 &group_config,
                 GroupId::try_from(group_id)?,
-            )?
+            )
+            .await?
         } else {
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)
+                .await?
         };
 
         let group_id: GroupId = mls_group.group_id().try_into()?;
@@ -1410,7 +1390,7 @@ where
             ))
             .build()?;
 
-        stored_group.store(&context.db())?;
+        stored_group.store(&context.db()).await?;
         let new_group = Self::new_from_arc(
             context.clone(),
             group_id,
@@ -1419,7 +1399,9 @@ where
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        new_group
+            .update_consent_state(ConsentState::Allowed)
+            .await?;
         Ok(new_group)
     }
 
@@ -1441,7 +1423,7 @@ where
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        if !self.is_active()? {
+        if !self.is_active().await? {
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
         }
@@ -1454,13 +1436,14 @@ where
         // OpenMLS blocks message creation when there are pending proposals
         self.commit_pending_proposals_if_any().await?;
 
-        let message_id =
-            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
+        let message_id = self
+            .prepare_message(message, opts, |key| Self::into_envelope(message, key))
+            .await?;
 
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(message_id)
     }
@@ -1483,7 +1466,7 @@ where
             );
 
             // Queue a CommitPendingProposals intent and wait for it to resolve
-            let intent = intents::QueueIntent::commit_pending_proposals().queue(self)?;
+            let intent = intents::QueueIntent::commit_pending_proposals().queue(self).await?;
             self.sync_until_intent_resolved(intent.id).await?;
         }
 
@@ -1501,7 +1484,7 @@ where
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(())
     }
@@ -1517,13 +1500,14 @@ where
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
-    pub fn send_message_optimistic(
+    pub async fn send_message_optimistic(
         &self,
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        let message_id =
-            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
+        let message_id = self
+            .prepare_message(message, opts, |key| Self::into_envelope(message, key))
+            .await?;
         Ok(message_id)
     }
 
@@ -1539,7 +1523,7 @@ where
     ///   derived from. Defaults to the send timestamp when `None`.
     ///
     /// Returns the message ID.
-    pub fn prepare_message_for_later_publish(
+    pub async fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
         should_push: bool,
@@ -1556,7 +1540,7 @@ where
         // Idempotent: a retry with the same key + content resolves to the same id.
         // Return the existing message rather than failing on the PK conflict, so
         // crash-recovery retries are at-least-once-with-dedup instead of an error.
-        if let Some(existing) = self.context.db().get_group_message(&message_id)? {
+        if let Some(existing) = self.context.db().get_group_message(&message_id).await? {
             return Ok(existing.id);
         }
 
@@ -1581,7 +1565,7 @@ where
             should_push,
             idempotency_key,
         };
-        group_message.store(&self.context.db())?;
+        group_message.store(&self.context.db()).await?;
 
         Ok(message_id)
     }
@@ -1595,7 +1579,7 @@ where
     /// Returns an error if the message is not found.
     #[xmtp_common::mls_span]
     pub async fn publish_stored_message(&self, message_id: &[u8]) -> Result<(), GroupError> {
-        if !self.is_active()? {
+        if !self.is_active().await? {
             return Err(GroupError::GroupInactive);
         }
         self.ensure_not_paused().await?;
@@ -1604,7 +1588,8 @@ where
         let message = self
             .context
             .db()
-            .get_group_message(message_id)?
+            .get_group_message(message_id)
+            .await?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
 
         // Silent no-op if already published
@@ -1624,7 +1609,7 @@ where
         QueueIntent::send_message()
             .data(intent_data)
             .should_push(message.should_push)
-            .queue(self)?;
+            .queue(self).await?;
 
         // Publish
         self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
@@ -1632,7 +1617,7 @@ where
         self.sync_until_last_intent_resolved().await?;
 
         // Implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(())
     }
@@ -1653,14 +1638,15 @@ where
     ///
     /// # Returns
     /// The ID of the deletion message
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
+    pub async fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
         use error::DeleteMessageError;
 
         let conn = self.context.db();
 
         // Load the original message
         let original_msg = conn
-            .get_group_message(&message_id)?
+            .get_group_message(&message_id)
+            .await?
             .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
 
         // Validate message belongs to this group (prevent cross-group deletion)
@@ -1669,13 +1655,13 @@ where
         }
 
         // Check if message is already deleted
-        if conn.is_message_deleted(&message_id)? {
+        if conn.is_message_deleted(&message_id).await? {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
         }
 
         let sender_inbox_id = self.context.inbox_id();
         let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
-        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string())?;
+        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string()).await?;
 
         if !is_sender && !is_super_admin {
             return Err(DeleteMessageError::NotAuthorized.into());
@@ -1693,7 +1679,9 @@ where
         let mut buf = Vec::new();
         encoded_delete.encode(&mut buf)?;
 
-        let deletion_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
+        let deletion_message_id = self
+            .send_message_optimistic(&buf, SendMessageOpts::default())
+            .await?;
 
         let is_super_admin_deletion = !is_sender && is_super_admin;
 
@@ -1706,7 +1694,7 @@ where
             deleted_at_ns: now_ns(),
         };
 
-        deletion.store(&conn)?;
+        deletion.store(&conn).await?;
 
         Ok(deletion_message_id)
     }
@@ -1737,7 +1725,7 @@ where
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub(crate) fn prepare_message<F>(
+    pub(crate) async fn prepare_message<F>(
         &self,
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
@@ -1747,17 +1735,16 @@ where
         F: FnOnce(&str) -> PlaintextEnvelope,
     {
         // Store the message locally first (with should_push preference)
-        let message_id = self.prepare_message_for_later_publish(
-            message,
-            opts.should_push,
-            opts.idempotency_key,
-        )?;
+        let message_id = self
+            .prepare_message_for_later_publish(message, opts.should_push, opts.idempotency_key)
+            .await?;
 
         // Fetch the stored message to get the resolved idempotency key
         let stored_message = self
             .context
             .db()
-            .get_group_message(&message_id)?
+            .get_group_message(&message_id)
+            .await?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
 
         // Create envelope using the stored idempotency key so the id stays consistent
@@ -1770,7 +1757,7 @@ where
         QueueIntent::send_message()
             .data(intent_data)
             .should_push(stored_message.should_push)
-            .queue(self)?;
+            .queue(self).await?;
 
         Ok(message_id)
     }
@@ -1786,57 +1773,60 @@ where
 
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     /// and limit
-    pub fn find_messages(
+    pub async fn find_messages(
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let messages = conn.get_group_messages(&self.group_id, args).await?;
         Ok(messages)
     }
 
     /// Count the number of stored messages matching the given criteria
-    pub fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
+    pub async fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
         let conn = self.context.db();
-        let count = conn.count_group_messages(&self.group_id, args)?;
+        let count = conn.count_group_messages(&self.group_id, args).await?;
         Ok(count)
     }
 
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     /// and limit
-    pub fn find_messages_with_reactions(
+    pub async fn find_messages_with_reactions(
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
+        let messages = conn
+            .get_group_messages_with_reactions(&self.group_id, args)
+            .await?;
         Ok(messages)
     }
 
     /// Query for enriched messages (with reactions, replies, and deletion status)
     #[xmtp_common::mls_span]
-    pub fn find_enriched_messages(
+    pub async fn find_enriched_messages(
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let messages = conn.get_group_messages(&self.group_id, args).await?;
         let enriched =
-            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
+            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages).await?;
         Ok(enriched)
     }
 
-    pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
+    pub async fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
         let conn = self.context.db();
-        let latest_read_receipt =
-            conn.get_latest_message_times_by_sender(self.group_id, &[ContentType::ReadReceipt])?;
+        let latest_read_receipt = conn
+            .get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])
+            .await?;
         Ok(latest_read_receipt)
     }
 
     /// Load the group reference stored in the local database
-    pub fn load(&self) -> Result<StoredGroup, StorageError> {
+    pub async fn load(&self) -> Result<StoredGroup, StorageError> {
         let conn = self.context.db();
-        if let Some(group) = conn.find_group(&self.group_id)? {
+        if let Some(group) = conn.find_group(&self.group_id).await? {
             Ok(group)
         } else {
             tracing::error!("group {} does not exist", hex::encode(self.group_id));
@@ -1926,7 +1916,7 @@ where
 
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         self.sync_until_intent_resolved(intent.id).await?;
         let epoch = self.epoch().await?;
@@ -1988,7 +1978,7 @@ where
         let intent_data = self.get_membership_update_intent(&[], inbox_ids).await?;
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
@@ -2014,7 +2004,7 @@ where
 
         let readd_min_version =
             LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)?;
-        let metadata = self.mutable_metadata()?;
+        let metadata = self.mutable_metadata().await?;
         let group_version = metadata
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
@@ -2029,7 +2019,7 @@ where
         let intent_data: Vec<u8> = ReaddInstallationsIntentData::new(installations.clone()).into();
         let intent = QueueIntent::readd_installations()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
@@ -2060,7 +2050,7 @@ where
     /// * `Ok(())` - All valid pending members were successfully removed
     /// * `Err(GroupError)` - Failed to retrieve metadata, validate permissions or execute removals
     pub async fn remove_members_pending_removal(&self) -> Result<(), GroupError> {
-        let pending_removal_list = self.pending_remove_list()?;
+        let pending_removal_list = self.pending_remove_list().await?;
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
@@ -2071,7 +2061,9 @@ where
             return Ok(());
         }
 
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self
+            .is_super_admin(self.context.inbox_id().to_string())
+            .await?;
         if !is_super_admin {
             tracing::debug!(
                 group_id = %self.group_id,
@@ -2163,7 +2155,7 @@ where
         );
 
         // Get both lists upfront
-        let pending_removal_list = self.pending_remove_list()?;
+        let pending_removal_list = self.pending_remove_list().await?;
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
@@ -2173,7 +2165,8 @@ where
             // Clear the pending leave request status
             self.context
                 .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+                .await?;
             return Ok(());
         }
 
@@ -2202,16 +2195,18 @@ where
             // Remove all users who are no longer in the group from pending list
             self.context
                 .db()
-                .delete_pending_remove_users(&self.group_id, removed_members)?;
+                .delete_pending_remove_users(&self.group_id, removed_members)
+                .await?;
         }
 
         // After cleanup, check if there are any pending removals left
-        let remaining_pending_list = self.pending_remove_list()?;
+        let remaining_pending_list = self.pending_remove_list().await?;
         if remaining_pending_list.is_empty() {
             // Clear the pending leave request status if no pending removals remain
             self.context
                 .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+                .await?;
         }
 
         tracing::info!(
@@ -2245,7 +2240,9 @@ where
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self
+            .is_super_admin(self.context.inbox_id().to_string())
+            .await?;
 
         // super-admin cannot leave a group; must be demoted first
         // since SuperAdmins can't remove other SuperAdmins they need to be demoted first
@@ -2253,7 +2250,7 @@ where
             return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
         }
 
-        if !self.is_in_pending_remove(self.context.inbox_id())? {
+        if !self.is_in_pending_remove(self.context.inbox_id()).await? {
             let content = LeaveRequestCodec::encode(LeaveRequest {
                 authenticated_note: None,
             })?;
@@ -2298,7 +2295,7 @@ where
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2346,7 +2343,7 @@ where
             // hand the caller an error where it asked a question. A genuine
             // read failure still propagates — an unreadable group is not
             // evidence that someone else wrote the field.
-            let actual = self.read_single_component::<AppDataComponent>()?;
+            let actual = self.read_single_component::<AppDataComponent>().await?;
             if actual.as_deref() != Some(expected.as_str()) {
                 return Err(GroupError::AppDataSuperseded {
                     expected: expected.clone(),
@@ -2365,7 +2362,7 @@ where
                 .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         match self.sync_until_intent_resolved(intent.id).await {
             Ok(_) => Ok(()),
@@ -2375,7 +2372,7 @@ where
                 // stale write is distinguishable from a genuine sync failure.
                 if let Some(expected) = expected_app_data
                     && matches!(
-                        self.context.db().fetch(&intent.id),
+                        Fetch::<StoredGroupIntent>::fetch(&self.context.db(), &intent.id).await,
                         Ok(Some(StoredGroupIntent {
                             state: IntentState::Superseded,
                             ..
@@ -2387,7 +2384,7 @@ where
                     // if it somehow fails, that error is the honest one.
                     return Err(GroupError::AppDataSuperseded {
                         expected,
-                        actual: self.app_data()?,
+                        actual: self.app_data().await?,
                     });
                 }
                 Err(err)
@@ -2460,7 +2457,8 @@ where
             });
         }
         let current_str = self
-            .mutable_metadata()?
+            .mutable_metadata()
+            .await?
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
             .cloned();
@@ -2499,7 +2497,7 @@ where
             .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2520,7 +2518,7 @@ where
             UpdateMetadataIntentData::new_update_commit_log_signer(commit_log_signer).into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2567,23 +2565,25 @@ where
 
         let intent = QueueIntent::update_permission()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
 
     /// Retrieves the group name from the group's mutable metadata extension.
-    pub fn group_name(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupNameComponent>()?
+    pub async fn group_name(&self) -> Result<String, GroupError> {
+        self.read_single_component::<GroupNameComponent>()
+            .await?
             .ok_or_else(|| {
                 MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
             })
     }
 
     /// Retrieves the app_data field from the group's mutable metadata extension
-    pub fn app_data(&self) -> Result<String, GroupError> {
-        self.read_single_component::<AppDataComponent>()?
+    pub async fn app_data(&self) -> Result<String, GroupError> {
+        self.read_single_component::<AppDataComponent>()
+            .await?
             .ok_or_else(|| {
                 MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
             })
@@ -2614,14 +2614,15 @@ where
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
 
-    pub fn group_description(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupDescriptionComponent>()?
+    pub async fn group_description(&self) -> Result<String, GroupError> {
+        self.read_single_component::<GroupDescriptionComponent>()
+            .await?
             .ok_or_else(|| {
                 GroupError::MetadataPermissionsError(
                     GroupMutableMetadataError::MissingExtension.into(),
@@ -2655,15 +2656,16 @@ where
                 .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
-    pub fn group_image_url_square(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupImageUrlComponent>()?
+    pub async fn group_image_url_square(&self) -> Result<String, GroupError> {
+        self.read_single_component::<GroupImageUrlComponent>()
+            .await?
             .ok_or_else(|| {
                 MetadataPermissionsError::Mutable(GroupMutableMetadataError::MissingExtension)
                     .into()
@@ -2711,7 +2713,7 @@ where
             .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
@@ -2732,30 +2734,39 @@ where
                 .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
-    pub fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
-        let paused_for_version = self.context.db().get_group_paused_version(&self.group_id)?;
+    pub async fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
+        let paused_for_version = self
+            .context
+            .db()
+            .get_group_paused_version(&self.group_id)
+            .await?;
         Ok(paused_for_version)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        if let Some(min_version) = self.context.db().get_group_paused_version(&self.group_id)? {
+        if let Some(min_version) = self
+            .context
+            .db()
+            .get_group_paused_version(&self.group_id)
+            .await?
+        {
             Err(GroupError::GroupPausedUntilUpdate(min_version))
         } else {
             Ok(())
         }
     }
 
-    pub fn conversation_message_disappearing_settings(
+    pub async fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<MessageDisappearingSettings, GroupError> {
-        let metadata = self.mutable_metadata()?;
+        let metadata = self.mutable_metadata().await?;
         Self::conversation_message_disappearing_settings_from_extensions(&metadata)
     }
 
@@ -2784,18 +2795,20 @@ where
         }
     }
 
-    pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
+    pub async fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
         self.context
             .db()
             .get_pending_remove_users(&self.group_id)
+            .await
             .map_err(Into::into)
     }
 
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
-    pub fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
+    pub async fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
         self.context
             .db()
             .get_user_pending_remove_status(&self.group_id, inbox_id)
+            .await
             .map_err(Into::into)
     }
 
@@ -2807,22 +2820,24 @@ where
     /// stored (insertion) order. Both contracts pre-date this refactor;
     /// preserving each side avoids surprising binding consumers that
     /// rely on the pre-migration order.
-    pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
+    pub async fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         self.read_admin_set_preserving_legacy_order(AdminListKind::Admin)
+            .await
     }
 
     /// Retrieves the super admin list of the group from the group's mutable metadata extension.
     ///
     /// Same ordering contract as [`Self::admin_list`].
-    pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
+    pub async fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
         self.read_admin_set_preserving_legacy_order(AdminListKind::SuperAdmin)
+            .await
     }
 
-    fn read_admin_set_preserving_legacy_order(
+    async fn read_admin_set_preserving_legacy_order(
         &self,
         kind: AdminListKind,
     ) -> Result<Vec<String>, GroupError> {
-        let ctx = self.load_group_context()?;
+        let ctx = self.load_group_context().await?;
         let extensions = ctx.extensions();
         if self::app_data::is_migrated_extensions(extensions) {
             let facade = self::app_data::typed_facade::MlsGroupAppData::new(extensions);
@@ -2878,14 +2893,14 @@ where
     }
 
     /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
-    pub fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub async fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata().await?;
         Ok(mutable_metadata.admin_list.contains(&inbox_id))
     }
 
     /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch.
-    pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub async fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata().await?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
@@ -2920,7 +2935,11 @@ where
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
     pub async fn conversation_type(&self) -> Result<ConversationType, GroupError> {
-        let conversation_type = self.context.db().get_conversation_type(&self.group_id)?;
+        let conversation_type = self
+            .context
+            .db()
+            .get_conversation_type(&self.group_id)
+            .await?;
         Ok(conversation_type)
     }
 
@@ -2948,26 +2967,28 @@ where
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = QueueIntent::update_admin_list()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group
-    pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
+    pub async fn added_by_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context.db();
         let group = conn
-            .find_group(&self.group_id)?
+            .find_group(&self.group_id)
+            .await?
             .ok_or(NotFound::GroupById(self.group_id))?;
         Ok(group.added_by_inbox_id)
     }
 
     /// Find the `consent_state` of the group
-    pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
+    pub async fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.db();
-        let record =
-            conn.get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?;
+        let record = conn
+            .get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)
+            .await?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -2976,7 +2997,7 @@ where
     }
 
     // Returns new consent records. Does not broadcast changes.
-    pub fn quietly_update_consent_state(
+    pub async fn quietly_update_consent_state(
         &self,
         state: ConsentState,
         db: &impl DbQuery,
@@ -2987,14 +3008,17 @@ where
             hex::encode(self.group_id),
         );
 
-        Ok(db.insert_or_replace_consent_records(std::slice::from_ref(&consent_record))?)
+        Ok(db
+            .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
+            .await?)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let db = self.context.db();
         let new_records: Vec<PreferenceUpdate> = self
-            .quietly_update_consent_state(state, &db)?
+            .quietly_update_consent_state(state, &db)
+            .await?
             .into_iter()
             .map(PreferenceUpdate::Consent)
             .collect();
@@ -3032,29 +3056,37 @@ where
 
     pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
-        let msgs = db.get_last_cursor_for_originator(
-            self.group_id,
-            EntityKind::ApplicationMessage,
-            Originators::APPLICATION_MESSAGES,
-        )?;
-        let commits = db.get_last_cursor_for_originator(
-            self.group_id,
-            EntityKind::CommitMessage,
-            Originators::MLS_COMMITS,
-        )?;
+        let msgs = db
+            .get_last_cursor_for_originator(
+                self.group_id.as_slice(),
+                EntityKind::ApplicationMessage,
+                Originators::APPLICATION_MESSAGES,
+            )
+            .await?;
+        let commits = db
+            .get_last_cursor_for_originator(
+                self.group_id.as_slice(),
+                EntityKind::CommitMessage,
+                Originators::MLS_COMMITS,
+            )
+            .await?;
         Ok([msgs, commits])
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
-        Ok(self.context.db().get_group_logs(&self.group_id)?)
+        Ok(self.context.db().get_group_logs(&self.group_id).await?)
     }
 
     pub async fn remote_commit_log(&self) -> Result<Vec<RemoteCommitLog>, GroupError> {
-        Ok(self.context.db().get_remote_commit_log_after_cursor(
-            &self.group_id,
-            0,
-            RemoteCommitLogOrder::AscendingByRowid,
-        )?)
+        Ok(self
+            .context
+            .db()
+            .get_remote_commit_log_after_cursor(
+                &self.group_id,
+                0,
+                RemoteCommitLogOrder::AscendingByRowid,
+            )
+            .await?)
     }
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
@@ -3064,7 +3096,7 @@ where
         let remote_commit_log = self.remote_commit_log().await?;
         let db = self.context.db();
 
-        let stored_group = match db.find_group(&self.group_id)? {
+        let stored_group = match db.find_group(&self.group_id).await? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
@@ -3089,7 +3121,7 @@ where
         tracing::instrument(level = "trace", skip(self))
     )]
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let intent = QueueIntent::key_update().queue(self)?;
+        let intent = QueueIntent::key_update().queue(self).await?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
@@ -3098,9 +3130,9 @@ where
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn is_active(&self) -> Result<bool, GroupError> {
+    pub async fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
-        let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
+        let Some(stored_group) = self.context.db().find_group(&self.group_id).await? else {
             return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
         };
         if matches!(
@@ -3110,18 +3142,18 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(mls_group.is_active())
-        })
+        self.load_mls_group_with_lock_async(async |mls_group| Ok(mls_group.is_active()))
+            .await
     }
 
     /// Returns the membership state of the current user in this group.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
+    pub async fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
         let stored_group = self
             .context
             .db()
-            .find_group(&self.group_id)?
+            .find_group(&self.group_id)
+            .await?
             .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id)))?;
         Ok(stored_group.membership_state)
     }
@@ -3183,13 +3215,17 @@ where
     /// (The pre-refactor sync `load_mls_group_with_lock` used only an *advisory*
     /// lock for these reads — a failed `get_lock_sync` was ignored and the read
     /// proceeded anyway — so dropping it changes nothing for reads.)
-    pub(crate) fn load_group_context(&self) -> Result<openmls::group::GroupContext, GroupError> {
+    pub(crate) async fn load_group_context(
+        &self,
+    ) -> Result<openmls::group::GroupContext, GroupError> {
         use openmls_traits::storage::StorageProvider as _;
-        self.context
-            .mls_storage()
-            .group_context::<_, openmls::group::GroupContext>(&self.group_id.to_openmls())
-            .map_err(GroupError::from)?
-            .ok_or_else(|| GroupError::from(StorageError::from(NotFound::GroupById(self.group_id))))
+        maybe_await!(
+            self.context
+                .mls_storage()
+                .group_context::<_, openmls::group::GroupContext>(&self.group_id.to_openmls())
+        )
+        .map_err(GroupError::from)?
+        .ok_or_else(|| GroupError::from(StorageError::from(NotFound::GroupById(self.group_id))))
     }
 
     /// Get the `GroupMutableMetadata` of the group.
@@ -3208,9 +3244,9 @@ where
     /// have `proposals_enabled == true` but not yet have completed
     /// its bootstrap commit, during which window the legacy GMM is
     /// still authoritative.
-    pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
+    pub async fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         use self::app_data::component_source::ComponentSourceError;
-        let ctx = self.load_group_context()?;
+        let ctx = self.load_group_context().await?;
         self::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(
             ctx.extensions(),
         )
@@ -3233,11 +3269,11 @@ where
     /// `OpenMlsGroup::load`. Retained only as the baseline the
     /// read-amplification benchmark measures the context-read path against.
     #[cfg(test)]
-    pub(crate) fn mutable_metadata_via_full_load(
+    pub(crate) async fn mutable_metadata_via_full_load(
         &self,
     ) -> Result<GroupMutableMetadata, GroupError> {
         use self::app_data::component_source::ComponentSourceError;
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             self::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 &mls_group,
             )
@@ -3250,10 +3286,11 @@ where
                 ),
             })
         })
+        .await
     }
 
-    pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        let ctx = self.load_group_context()?;
+    pub async fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
+        let ctx = self.load_group_context().await?;
         let permissions: GroupMutablePermissions = ctx
             .extensions()
             .try_into()
@@ -3282,12 +3319,12 @@ where
     /// what binding consumers used to see. Other `ComponentSourceError`
     /// variants (TLS codec, set/map apply failures) surface as
     /// `MetadataPermissionsError::ComponentSource(other)`.
-    fn read_single_component<C>(&self) -> Result<Option<C::Value>, GroupError>
+    async fn read_single_component<C>(&self) -> Result<Option<C::Value>, GroupError>
     where
         C: xmtp_mls_common::app_data::typed::Component,
     {
         use self::app_data::component_source::ComponentSourceError;
-        let ctx = self.load_group_context()?;
+        let ctx = self.load_group_context().await?;
         let facade = self::app_data::typed_facade::MlsGroupAppData::new(ctx.extensions());
         facade.get::<C>().map_err(|e| match e {
             ComponentSourceError::GroupMutableMetadata(inner) => {
@@ -3303,9 +3340,12 @@ where
     ///
     /// Returns `Some(MessageDisappearingSettings)` if the group exists and has valid settings,
     /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
-    pub fn disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>, GroupError> {
+    pub async fn disappearing_settings(
+        &self,
+    ) -> Result<Option<MessageDisappearingSettings>, GroupError> {
         let conn = self.context.db();
-        let stored_group: Option<StoredGroup> = conn.fetch(&self.group_id)?;
+        let stored_group: Option<StoredGroup> =
+            Fetch::<StoredGroup>::fetch(&conn, &self.group_id).await?;
 
         let settings = stored_group.and_then(|group| {
             let from_ns = group.message_disappear_from_ns?;
@@ -3318,8 +3358,8 @@ where
     }
 
     /// Find all the duplicate dms for this group
-    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, ClientError> {
-        let duplicates = self.context.db().other_dms(&self.group_id)?;
+    pub async fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, ClientError> {
+        let duplicates = self.context.db().other_dms(&self.group_id).await?;
 
         let mls_groups = duplicates
             .into_iter()
@@ -3340,7 +3380,7 @@ where
     ///
     /// See the `test_validate_dm_group` test function for more details.
     #[cfg(test)]
-    pub fn create_test_dm_group(
+    pub async fn create_test_dm_group(
         context: Context,
         dm_target_inbox_id: InboxId,
         custom_protected_metadata: Option<Extension>,
@@ -3377,7 +3417,8 @@ where
         )?;
 
         let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)
+                .await?;
         let group_id: GroupId = mls_group.group_id().try_into()?;
         let stored_group = StoredGroup::builder()
             .id(group_id)
@@ -3393,7 +3434,7 @@ where
             ))
             .build()?;
 
-        stored_group.store(&context.db())?;
+        stored_group.store(&context.db()).await?;
         Ok(Self::new_from_arc(
             context,
             group_id,
@@ -3824,12 +3865,13 @@ pub(crate) fn build_group_config(
         .build())
 }
 
-pub fn filter_inbox_ids_needing_updates<'a>(
+pub async fn filter_inbox_ids_needing_updates<'a>(
     conn: &impl DbQuery,
     filters: &[(&'a str, i64)],
 ) -> Result<Vec<&'a str>, xmtp_db::ConnectionError> {
-    let existing_sequence_ids =
-        conn.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
+    let existing_sequence_ids = conn
+        .get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())
+        .await?;
 
     let needs_update = filters
         .iter()

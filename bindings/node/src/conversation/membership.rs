@@ -135,43 +135,43 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn membership_state(&self) -> Result<GroupMembershipState> {
+  pub async fn membership_state(&self) -> Result<GroupMembershipState> {
     let group = self.create_mls_group();
-    let state = group.membership_state().map_err(ErrorWrapper::from)?;
+    let state = group.membership_state().await.map_err(ErrorWrapper::from)?;
     Ok(state.into())
   }
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn list_admins(&self) -> Result<Vec<String>> {
+  pub async fn list_admins(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
-    let admin_list = group.admin_list().map_err(ErrorWrapper::from)?;
+    let admin_list = group.admin_list().await.map_err(ErrorWrapper::from)?;
 
     Ok(admin_list)
   }
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn list_super_admins(&self) -> Result<Vec<String>> {
+  pub async fn list_super_admins(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
-    let super_admin_list = group.super_admin_list().map_err(ErrorWrapper::from)?;
+    let super_admin_list = group.super_admin_list().await.map_err(ErrorWrapper::from)?;
 
     Ok(super_admin_list)
   }
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn is_admin(&self, inbox_id: String) -> Result<bool> {
-    let admin_list = self.list_admins()?;
+  pub async fn is_admin(&self, inbox_id: String) -> Result<bool> {
+    let admin_list = self.list_admins().await?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
-    let super_admin_list = self.list_super_admins()?;
+  pub async fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
+    let super_admin_list = self.list_super_admins().await?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 
@@ -242,10 +242,10 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn group_permissions(&self) -> Result<GroupPermissions> {
+  pub async fn group_permissions(&self) -> Result<GroupPermissions> {
     let group = self.create_mls_group();
 
-    let permissions = group.permissions().map_err(ErrorWrapper::from)?;
+    let permissions = group.permissions().await.map_err(ErrorWrapper::from)?;
 
     Ok(GroupPermissions::new(permissions))
   }
@@ -301,10 +301,15 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn added_by_inbox_id(&self) -> Result<String> {
+  pub async fn added_by_inbox_id(&self) -> Result<String> {
     let group = self.create_mls_group();
 
-    Ok(group.added_by_inbox_id().map_err(ErrorWrapper::from)?)
+    Ok(
+      group
+        .added_by_inbox_id()
+        .await
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]

@@ -29,7 +29,10 @@ where
             .iter()
             .map(|gid| TopicKind::GroupMessagesV1.create(gid))
             .collect::<Vec<_>>();
-        let cursors = self.cursor_store.latest_for_topics(&mut topics.iter())?;
+        let cursors = self
+            .cursor_store
+            .latest_for_topics(&mut topics.iter())
+            .await?;
 
         let mut filters = vec![];
         for topic in &topics {
@@ -85,7 +88,10 @@ where
             .iter()
             .map(|id| TopicKind::WelcomeMessagesV1.create(id))
             .collect::<Vec<_>>();
-        let cursors = self.cursor_store.latest_for_topics(&mut topics.iter())?;
+        let cursors = self
+            .cursor_store
+            .latest_for_topics(&mut topics.iter())
+            .await?;
 
         let mut filters = vec![];
         for topic in &topics {

@@ -88,7 +88,7 @@ impl Sync {
         let summary = client.sync_all_welcomes_and_groups(None).await?;
         stats.skipped_groups = summary.num_eligible.saturating_sub(summary.num_synced);
 
-        let all = client.find_groups(Default::default())?;
+        let all = client.find_groups(Default::default()).await?;
         let (groups, dms): (Vec<_>, Vec<_>) = all.into_iter().partition(|g| g.dm_id.is_none());
 
         for dm in dms {
@@ -178,13 +178,15 @@ impl Sync {
             // Application only — MembershipChange commits fan out
             // per-member at backend-dependent times. Recording them
             // makes NoMissingMessages racy across peers.
-            let msgs = db.get_group_messages(
-                &gid,
-                &MsgQueryArgs::builder()
-                    .kind(GroupMessageKind::Application)
-                    .build()
-                    .expect("MsgQueryArgs builder"),
-            )?;
+            let msgs = db
+                .get_group_messages(
+                    &gid,
+                    &MsgQueryArgs::builder()
+                        .kind(GroupMessageKind::Application)
+                        .build()
+                        .expect("MsgQueryArgs builder"),
+                )
+                .await?;
 
             for m in msgs {
                 let message_id: [u8; 32] =

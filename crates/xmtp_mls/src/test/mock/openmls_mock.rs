@@ -37,21 +37,26 @@ pub struct BarebonesMlsClient<P: OpenMlsProvider> {
     client: Client<P>,
 }
 
+// `key_package`/`add_member`/`join_group` transit this crate's async
+// `NewKeyPackage::build` (async on both tracks), so they are `async fn`;
+// `create_mls_group` only calls openmls test-framework methods (blocking on the
+// sync track) and stays synchronous.
+#[allow(async_fn_in_trait)]
 pub trait OpenMlsTestExt {
     /// Builds a fresh KeyPackage and stores its reference in the local db
-    fn key_package(&self) -> Result<KeyPackage, ClientError<SqlKeyStoreError>>;
+    async fn key_package(&self) -> Result<KeyPackage, ClientError<SqlKeyStoreError>>;
 
     /// Create a group in mls memory
     fn create_mls_group(&self, members: &[&str]) -> Result<GroupId, ClientError<SqlKeyStoreError>>;
 
     /// Adds an anonymous member to [GroupId]
     /// Returns KP of that member and the welcome
-    fn add_member(&self, group_id: &GroupId) -> (KeyPackage, Welcome);
+    async fn add_member(&self, group_id: &GroupId) -> (KeyPackage, Welcome);
 
     /// Join an anonymous group
     /// Returns our key package used to join the group, and a welcome
     /// to join the group.
-    fn join_group(&self) -> (KeyPackage, MlsMessageOut);
+    async fn join_group(&self) -> (KeyPackage, MlsMessageOut);
 }
 
 /// create an owned anonymous client
@@ -139,7 +144,7 @@ fn generate_group_config(
 }
 
 impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
-    fn key_package(&self) -> Result<KeyPackage, ClientError<SqlKeyStoreError>> {
+    async fn key_package(&self) -> Result<KeyPackage, ClientError<SqlKeyStoreError>> {
         let cred = self.client.credentials.get(&CIPHERSUITE).unwrap();
         let cred = &cred.credential;
         Ok(XmtpKeyPackage::builder()
@@ -147,6 +152,7 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
             .credential(cred.clone())
             .installation_keys(self.installation_key.clone())
             .build(&self.client.provider, false)
+            .await
             .unwrap()
             .key_package)
     }
@@ -156,9 +162,9 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
         self.client.create_group(config, CIPHERSUITE)
     }
 
-    fn add_member(&self, group_id: &GroupId) -> (KeyPackage, Welcome) {
+    async fn add_member(&self, group_id: &GroupId) -> (KeyPackage, Welcome) {
         let new_member = gen_client(&xmtp_common::rand_string::<4>());
-        let kp = new_member.key_package().unwrap();
+        let kp = new_member.key_package().await.unwrap();
         let (_, welcome, _) = self
             .client
             .add_members(ActionType::Commit, group_id, std::slice::from_ref(&kp))
@@ -166,7 +172,7 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
         (kp, welcome.unwrap())
     }
 
-    fn join_group(&self) -> (KeyPackage, MlsMessageOut) {
+    async fn join_group(&self) -> (KeyPackage, MlsMessageOut) {
         let anon = gen_client(&format!("anon-{}", xmtp_common::rand_string::<4>()));
         let inbox_id = String::from_utf8_lossy(&self.client.identity);
         let group_id = anon.create_mls_group(&[&inbox_id]).unwrap();
@@ -174,7 +180,7 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
             "created anon mock mls group {}",
             hex::encode(group_id.as_slice())
         );
-        let kp = self.key_package().unwrap();
+        let kp = self.key_package().await.unwrap();
 
         let mut groups = anon.client.groups.write().unwrap();
         let mls_group = groups.get_mut(&group_id).unwrap();

@@ -28,8 +28,9 @@ fn message_debug(env: &XmtpEnvelope) -> String {
     )
 }
 
-fn db_message_debug(db: impl QueryGroupMessage, id: &GroupId) -> String {
+async fn db_message_debug(db: impl QueryGroupMessage, id: &GroupId) -> String {
     db.get_group_messages(id, &Default::default())
+        .await
         .unwrap()
         .into_iter()
         .enumerate()
@@ -86,7 +87,7 @@ async fn messages_have_dependencies() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     let group_id = alix_group.group_id;
     alix_group.invite(&bo).await?;
     let messages = get_messages(&alix.context, &group_id).await;
@@ -156,9 +157,9 @@ async fn messages_dependencies_out_of_order_invites() {
     let messages = get_messages(&alix.context, &group_id).await;
     println!("{}", message_debug(&messages));
     println!("\n====ALIX====");
-    println!("{}", db_message_debug(alix.db(), &group_id));
+    println!("{}", db_message_debug(alix.db(), &group_id).await);
     println!("\n====CARO====");
-    println!("{}", db_message_debug(caro.db(), &group_id));
+    println!("{}", db_message_debug(caro.db(), &group_id).await);
     println!("\n====BO====");
-    println!("{}", db_message_debug(bo.db(), &group_id));
+    println!("{}", db_message_debug(bo.db(), &group_id).await);
 }

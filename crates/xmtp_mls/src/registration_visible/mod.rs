@@ -3,7 +3,7 @@ use xmtp_api::XmtpApi;
 use xmtp_api_d14n::d14n::QueryEnvelopes;
 use xmtp_api_d14n::protocol::traits::Envelope;
 use xmtp_api_d14n::protocol::traits::XmtpQuery;
-use xmtp_db::{identity::StoredIdentity, prelude::*};
+use xmtp_db::identity::StoredIdentity;
 use xmtp_proto::api::{Client, Query};
 use xmtp_proto::types::{Cursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
@@ -131,9 +131,11 @@ where
         }
     }
 
-    fn load_registration_cursor(&self) -> Result<Option<Cursor>, ClientError> {
+    async fn load_registration_cursor(&self) -> Result<Option<Cursor>, ClientError> {
         let stored_identity: Option<StoredIdentity> =
-            self.context.db().fetch(&()).map_err(ClientError::Storage)?;
+            xmtp_db::Fetch::<StoredIdentity>::fetch(&self.context.db(), &())
+                .await
+                .map_err(ClientError::Storage)?;
 
         Ok(stored_identity.and_then(|si| {
             match (
@@ -251,13 +253,14 @@ where
             .context
             .api()
             .is_d14n()
+            .await
             .map_err(|e| ClientError::Api(xmtp_api::dyn_err(e)))?;
 
         if !is_d14n {
             return Ok(());
         }
 
-        let Some(cursor) = self.load_registration_cursor()? else {
+        let Some(cursor) = self.load_registration_cursor().await? else {
             tracing::warn!(
                 "d14n client has no registration cursor (likely registered before migration); \
                  skipping node visibility check"

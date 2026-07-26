@@ -37,10 +37,10 @@ async fn router_delivers_live_messages() {
     tester!(alix);
     tester!(bo);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     bo_group.sync().await?;
 
     let transport = transport_for(bo.context.api().api_client.clone());
@@ -66,10 +66,10 @@ async fn router_catches_up_from_durable_cursor() {
     tester!(alix);
     tester!(bo);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     bo_group.sync().await?; // advances bo's durable cursor to "now"
 
     // History lands while bo is not streaming.
@@ -105,10 +105,10 @@ async fn resubscribe_does_not_redeliver() {
     tester!(alix);
     tester!(bo);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     bo_group.sync().await?;
 
     let transport = transport_for(bo.context.api().api_client.clone());
@@ -159,7 +159,7 @@ async fn sibling_conversation_streams_both_receive_a_welcome() {
         .stream_conversations(None, false, None, DEFAULT_STREAM_DEPTH)
         .await?;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
 
     for (name, stream) in [("first", &mut first), ("second", &mut second)] {

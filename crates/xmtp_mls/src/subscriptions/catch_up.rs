@@ -345,7 +345,10 @@ where
             include_sync_groups: true,
             ..Default::default()
         };
-        let pre_groups = db.find_groups(query()).map_err(SubscribeError::from)?;
+        let pre_groups = db
+            .find_groups(&query())
+            .await
+            .map_err(SubscribeError::from)?;
         let pre_ids: HashSet<GroupId> = pre_groups.iter().map(|g| g.id).collect();
         let group_ids: Vec<GroupId> = pre_ids.iter().copied().collect();
         let mut cursors = db
@@ -353,9 +356,11 @@ where
                 &group_ids,
                 &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
             )
+            .await
             .map_err(SubscribeError::from)?;
         let pre_stored: HashSet<Cursor> = db
             .messages_newer_than(&cursors)
+            .await
             .map_err(SubscribeError::from)?
             .into_iter()
             .map(|(_, cursor)| cursor)
@@ -366,7 +371,10 @@ where
             .await
             .map_err(|e| CatchUpError::from(SubscribeError::from(Box::new(e))))?;
 
-        let post_groups = db.find_groups(query()).map_err(SubscribeError::from)?;
+        let post_groups = db
+            .find_groups(&query())
+            .await
+            .map_err(SubscribeError::from)?;
         let mut summary = CatchUpSummary::default();
         let mut sync_ids: HashSet<GroupId> = HashSet::new();
         for group in &post_groups {
@@ -384,6 +392,7 @@ where
         }
         summary.messages = db
             .messages_newer_than(&cursors)
+            .await
             .map_err(SubscribeError::from)?
             .into_iter()
             .filter(|(group_id, cursor)| {
@@ -410,16 +419,17 @@ where
         // shows up in the query result AND above the floor, and the tracked
         // set absorbs the overlap; the reverse order would leave it in
         // neither.
-        let welcome_floor = welcome_seed(&db, installation)?;
-        let known = known_welcomes_above(&db, welcome_floor)?;
+        let welcome_floor = welcome_seed(&db, installation).await?;
+        let known = known_welcomes_above(&db, welcome_floor).await?;
         let groups = db
-            .find_groups(GroupQueryArgs {
+            .find_groups(&GroupQueryArgs {
                 include_duplicate_dms: true,
                 // Sync groups are caught up too — their replayed traffic
                 // nudges the device-sync worker, like the streams do.
                 include_sync_groups: true,
                 ..Default::default()
             })
+            .await
             .map_err(SubscribeError::from)?;
         let mut sync_groups: HashSet<GroupId> = groups
             .iter()
@@ -427,7 +437,7 @@ where
             .map(|g| g.id)
             .collect();
         let group_ids: Vec<GroupId> = groups.into_iter().map(|g| g.id).collect();
-        let seeds = seed_groups(&db, &group_ids)?;
+        let seeds = seed_groups(&db, &group_ids).await?;
 
         let mut tracked: HashSet<Topic> = seeds.floors.keys().cloned().collect();
         let mut subs = seeds.subs();
@@ -537,7 +547,7 @@ where
                                 if !matches!(group.conversation_type, ConversationType::Sync) {
                                     summary.conversations += 1;
                                 }
-                                let gseeds = seed_groups(&db, &[group.group_id])?;
+                                let gseeds = seed_groups(&db, &[group.group_id]).await?;
                                 let adds = gseeds.subs();
                                 seen.extend(gseeds.seen);
                                 tracked.insert(topic);
@@ -675,16 +685,17 @@ mod tests {
         tester!(alix);
         tester!(bo);
 
-        let group = bo.create_group(None, None)?;
+        let group = bo.create_group(None, None).await?;
         group.invite(&alix).await?;
         group.send_msg(b"while you were out").await;
         group.send_msg(b"still out").await;
 
         let summary = alix.catch_up_bidi(None).await?;
 
-        let alix_group = alix.group(&group.group_id)?;
+        let alix_group = alix.group(&group.group_id).await?;
         let bodies: Vec<Vec<u8>> = alix_group
-            .find_messages(&MsgQueryArgs::default())?
+            .find_messages(&MsgQueryArgs::default())
+            .await?
             .into_iter()
             .map(|m| m.decrypted_message_bytes)
             .collect();
@@ -705,19 +716,23 @@ mod tests {
         tester!(alix);
         tester!(bo);
 
-        let group = alix.create_group(None, None)?;
+        let group = alix.create_group(None, None).await?;
         group.invite(&bo).await?;
         bo.sync_welcomes().await?;
-        let bo_group = bo.group(&group.group_id)?;
+        let bo_group = bo.group(&group.group_id).await?;
         bo_group.sync().await?; // durable cursor at "now"
 
         group.send_msg(b"missed one").await;
         group.send_msg(b"missed two").await;
 
         let first = bo.catch_up_bidi(None).await?;
-        let count_after_first = bo_group.find_messages(&MsgQueryArgs::default())?.len();
+        let count_after_first = bo_group
+            .find_messages(&MsgQueryArgs::default())
+            .await?
+            .len();
         let bodies: Vec<Vec<u8>> = bo_group
-            .find_messages(&MsgQueryArgs::default())?
+            .find_messages(&MsgQueryArgs::default())
+            .await?
             .into_iter()
             .map(|m| m.decrypted_message_bytes)
             .collect();
@@ -733,7 +748,10 @@ mod tests {
         // The honesty proof for the counter: the replay of already-stored
         // history persists nothing, so the summary must say so.
         let second = bo.catch_up_bidi(None).await?;
-        let count_after_second = bo_group.find_messages(&MsgQueryArgs::default())?.len();
+        let count_after_second = bo_group
+            .find_messages(&MsgQueryArgs::default())
+            .await?
+            .len();
         assert_eq!(count_after_first, count_after_second);
         assert_eq!(
             second,
@@ -770,7 +788,7 @@ mod tests {
         tester!(alix);
         tester!(bo);
 
-        let group = alix.create_group(None, None)?;
+        let group = alix.create_group(None, None).await?;
         group.invite(&bo).await?;
         group.send_msg(b"legacy one").await;
         group.send_msg(b"legacy two").await;

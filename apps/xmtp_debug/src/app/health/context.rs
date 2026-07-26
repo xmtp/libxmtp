@@ -471,7 +471,7 @@ impl HealthContext {
     /// Pick an active adder for a membership change; prefer super-admin so
     /// `AddSuper` is also issuable, else any active member (under
     /// `--strict-versioning` the creator may live in another partition).
-    pub fn pick_super_admin(
+    pub async fn pick_super_admin(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<xmtp_mls::groups::MlsGroup<crate::MlsContext>>> {
@@ -482,14 +482,25 @@ impl HealthContext {
             let Ok(group) = client.group(group_id) else {
                 continue;
             };
-            if !group.is_active().unwrap_or(false) {
+            if !group.is_active().await.unwrap_or(false) {
                 continue;
             }
             candidates.push((client, group));
         }
-        Ok(candidates
-            .iter()
-            .find(|(c, g)| g.is_super_admin(c.inbox_id().to_string()).unwrap_or(false))
+        // `.await` inside `.find` isn't possible, so prefer a super-admin via an
+        // explicit loop, falling back to the first candidate.
+        let mut chosen = None;
+        for pair in candidates.iter() {
+            let (c, g) = pair;
+            if g.is_super_admin(c.inbox_id().to_string())
+                .await
+                .unwrap_or(false)
+            {
+                chosen = Some(pair);
+                break;
+            }
+        }
+        Ok(chosen
             .or_else(|| candidates.first())
             .map(|(_, g)| g.clone()))
     }

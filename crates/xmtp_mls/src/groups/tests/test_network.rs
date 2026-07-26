@@ -23,11 +23,15 @@ async fn test_bad_network() {
         assert!(result.is_err());
 
         // The group should still be created, even though the add members request didn't go through.
-        let g = alix.find_groups(GroupQueryArgs::default())?.pop().unwrap();
+        let g = alix
+            .find_groups(GroupQueryArgs::default())
+            .await?
+            .pop()
+            .unwrap();
 
         // Bo should not have received the welcome for the group.
         bo.sync_welcomes().await?;
-        assert!(bo.group(&g.group_id).is_err());
+        assert!(bo.group(&g.group_id).await.is_err());
 
         // Turn alix's connection back on.
         alix.for_each_proxy(async |p| p.enable().await.unwrap())
@@ -37,7 +41,7 @@ async fn test_bad_network() {
 
         // Bo should get the welcome for the group.
         bo.sync_welcomes().await?;
-        assert!(bo.group(&g.group_id).is_ok());
+        assert!(bo.group(&g.group_id).await.is_ok());
     })
     .await;
 }

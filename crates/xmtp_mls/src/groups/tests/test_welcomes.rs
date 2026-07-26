@@ -35,24 +35,29 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
-        group.group_id,
-        &[EntityKind::CommitMessage],
-        None,
-    )?;
+    let alix2_refresh_state = alix2
+        .context
+        .db()
+        .latest_cursor_for_id(
+            group.group_id.as_slice(),
+            &[EntityKind::CommitMessage],
+            None,
+        )
+        .await?;
 
     assert_eq!(alix2_refresh_state.len(), 1);
     assert!(*alix2_refresh_state.values().last().unwrap() > 0);
 }
 
-#[track_caller]
-fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
+async fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     let msg = db
         .get_group_messages(group_id, &Default::default())
+        .await
         .unwrap();
     let msg = msg.last().unwrap();
     let cursor = db
         .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
+        .await
         .unwrap()
         .values()
         .next()
@@ -67,6 +72,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
 
     let other_msg = db2
         .get_group_messages(group_id, &Default::default())
+        .await
         .unwrap();
     let other_msg = other_msg.last().unwrap();
     assert_eq!(
@@ -76,6 +82,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     );
     let other_cursor = db2
         .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
+        .await
         .unwrap()
         .values()
         .next()
@@ -100,36 +107,39 @@ async fn test_inviting_members_results_in_consistent_state() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let group_id = &alix_group.group_id;
-    assert_cursors(&alix.db(), &alix.db(), group_id);
+    assert_cursors(&alix.db(), &alix.db(), group_id).await;
 
     let bo_group = bo.sync_welcomes().await?.pop()?;
-    assert_cursors(&alix.db(), &bo.db(), group_id);
+    assert_cursors(&alix.db(), &bo.db(), group_id).await;
 
     alix_group.add_members(&[caro.inbox_id()]).await?;
 
     let caro_group = caro.sync_welcomes().await?.pop()?;
     alix_group.sync().await?;
-    assert_cursors(&caro.db(), &caro.db(), group_id);
-    assert_cursors(&caro.db(), &alix.db(), group_id);
+    assert_cursors(&caro.db(), &caro.db(), group_id).await;
+    assert_cursors(&caro.db(), &alix.db(), group_id).await;
 
     // ensure all groups have the latest
     bo_group.sync().await?;
     alix_group.sync().await?;
     caro_group.sync().await?;
-    assert_cursors(&caro.db(), &caro.db(), group_id);
-    assert_cursors(&caro.db(), &bo.db(), group_id);
-    assert_cursors(&caro.db(), &alix.db(), group_id);
+    assert_cursors(&caro.db(), &caro.db(), group_id).await;
+    assert_cursors(&caro.db(), &bo.db(), group_id).await;
+    assert_cursors(&caro.db(), &alix.db(), group_id).await;
 
     // alix has the membership commit
     let alix_commit = alix
         .db()
-        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[CommitMessage])
+        .await?;
     let bo_commit = bo
         .db()
-        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[CommitMessage])
+        .await?;
     let caro_commit = caro
         .db()
-        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[CommitMessage])
+        .await?;
     assert_eq!(bo_commit, caro_commit);
     assert_eq!(alix_commit, bo_commit);
 }
@@ -174,7 +184,8 @@ async fn test_spoofed_inbox_id() {
         PolicySet::default(),
         GroupMetadataOptions::default(),
         None,
-    )?;
+    )
+    .await?;
 
     // Now we send a welcome from this group. To disable validation on Alix's side (as Alix is malicious),
     // we reach into some internals.
@@ -190,10 +201,14 @@ async fn test_spoofed_inbox_id() {
                     .await?
                     .unwrap();
             let post_commit_action = PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
+                publish_intent_data
+                    .post_commit_data()
+                    .await
+                    .unwrap()
+                    .as_slice(),
             )?;
             let PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
+            let staged_commit = publish_intent_data.staged_commit().await.unwrap();
             openmls_group.merge_staged_commit(
                 &XmtpOpenMlsProviderRef::new(context.mls_storage()),
                 decode_staged_commit(staged_commit.as_slice())?,
@@ -213,7 +228,7 @@ async fn test_spoofed_inbox_id() {
         tracing::error!("We should reject a welcome with spoofed credentials, test failed");
 
         let bo_group = &groups[0];
-        let added_by_inbox_id = bo_group.added_by_inbox_id()?;
+        let added_by_inbox_id = bo_group.added_by_inbox_id().await?;
         // Bo thinks they were added by spoofed_inbox_id
         tracing::error!(
             "Bo thinks they were added by inbox id: {}",
@@ -228,7 +243,7 @@ async fn test_spoofed_inbox_id() {
             )
             .await?;
         bo_group.sync().await?;
-        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).await?;
         tracing::error!(
             "Bo received a message from {}",
             bo_msgs.first().unwrap().sender_inbox_id

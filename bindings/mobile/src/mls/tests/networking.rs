@@ -156,7 +156,8 @@ async fn ffi_api_stats_exposed_correctly() {
 
     let _ = client
         .conversations()
-        .list(FfiListConversationsOptions::default());
+        .list(FfiListConversationsOptions::default())
+        .await;
 
     let api_stats = client.api_statistics();
     tracing::info!(

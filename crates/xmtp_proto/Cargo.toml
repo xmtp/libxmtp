@@ -47,6 +47,8 @@ xmtp-workspace-hack.workspace = true
 # modules on `cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))`,
 # so native builds always compile server stubs that `use tonic::codegen::*`.
 tonic = { workspace = true, features = ["channel", "codegen"] }
+# Async storage track only; see the `sqlx` feature below.
+sqlx = { workspace = true, optional = true, features = ["postgres"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-test.workspace = true
@@ -78,6 +80,9 @@ tonic = { workspace = true, features = ["codegen"] }
 [features]
 default = []
 diesel = ["dep:diesel"]
+# Postgres codecs for the id newtypes, for libxmtp's async storage track.
+# Native only -- sqlx cannot target wasm32-unknown-unknown.
+sqlx = ["dep:sqlx"]
 dev = ["xmtp_configuration/dev"]
 test-utils = [
   "xmtp_common/test-utils",

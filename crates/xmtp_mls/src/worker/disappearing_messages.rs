@@ -149,7 +149,8 @@ where
                 .context
                 .db()
                 .min_expire_at_ns()
-                .map_err(|e| DisappearingMessagesCleanerError::Storage(e.into()))?;
+                .map_err(|e| DisappearingMessagesCleanerError::Storage(e.into()))
+                .await?;
             // A real expiry drives a precise deadline (no jitter — we don't want
             // to delay actual deletions). Only the idle/fallback wake is jittered,
             // to de-synchronize a fleet of clients booted together.
@@ -178,7 +179,8 @@ where
         // Propagated to the supervisor, which is the sole logger for worker errors.
         let deleted_messages = db
             .delete_expired_messages()
-            .map_err(|e| DisappearingMessagesCleanerError::DeleteExpired(e.into()))?;
+            .map_err(|e| DisappearingMessagesCleanerError::DeleteExpired(e.into()))
+            .await?;
 
         if !deleted_messages.is_empty() {
             tracing::info!(

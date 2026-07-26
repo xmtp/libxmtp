@@ -4,9 +4,12 @@ mod sqlcipher_connection;
 use crate::StorageError;
 use crate::database::instrumentation::TestInstrumentation;
 /// Native SQLite connection using SqlCipher
+#[cfg(feature = "sync")]
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use arc_swap::ArcSwapOption;
+#[cfg(feature = "sync")]
 use diesel::sqlite::SqliteConnection;
+#[cfg(feature = "sync")]
 use diesel::{
     Connection,
     connection::SimpleConnection,
@@ -374,6 +377,10 @@ impl NativeDb {
     }
 }
 
+/// `XmtpDb::DbQuery` is bound by `crate::DbQuery`, which `DbConnection` only
+/// satisfies on the sync track. The diesel database itself still compiles on the
+/// async track; only its role as *the* store is sync-track-only.
+#[cfg(feature = "sync")]
 impl XmtpDb for NativeDb {
     type Connection =
         Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>;
@@ -409,6 +416,7 @@ pub struct EphemeralDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
 }
 
+#[cfg(feature = "sync")]
 impl std::fmt::Debug for EphemeralDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -419,6 +427,7 @@ impl std::fmt::Debug for EphemeralDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl EphemeralDbConnection {
     pub fn new() -> Result<Self, PlatformStorageError> {
         let mut c = SqliteConnection::establish(":memory:")?;
@@ -443,6 +452,7 @@ impl EphemeralDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for EphemeralDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -482,6 +492,7 @@ pub struct SingleDbConnection {
     customizer: Box<dyn XmtpConnection>,
 }
 
+#[cfg(feature = "sync")]
 impl std::fmt::Debug for SingleDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Use `try_lock`: the mutex is non-reentrant, so formatting `{:?}` from
@@ -501,6 +512,7 @@ impl std::fmt::Debug for SingleDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl SingleDbConnection {
     fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
         let StorageOption::Persistent(path) = customizer.options() else {
@@ -565,6 +577,7 @@ impl SingleDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for SingleDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -598,6 +611,7 @@ pub struct NativeDbConnection {
     min_pool_size: u32,
 }
 
+#[cfg(feature = "sync")]
 impl std::fmt::Debug for NativeDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -609,6 +623,7 @@ impl std::fmt::Debug for NativeDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl NativeDbConnection {
     fn new(
         customizer: Box<dyn XmtpConnection>,
@@ -647,6 +662,7 @@ impl NativeDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for NativeDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -912,7 +928,7 @@ mod tests {
             let provider = SqlKeyStore::new(db.conn());
 
             provider
-                .transaction(|conn| {
+                .transaction(async |conn| {
                     // `conn` is `&mut SqliteConnection`; `key_store()` (from
                     // `TransactionalKeyStore`) gives a transaction-scoped provider.
                     // `identity` is a singleton table, so only the outer write
@@ -928,7 +944,7 @@ mod tests {
 
                     // Nested write inside a SQLite savepoint, re-deriving the
                     // key store from the savepoint's `&mut SqliteConnection`.
-                    storage.savepoint(|sp_conn| {
+                    storage.savepoint(async |sp_conn| {
                         let inner = sp_conn.key_store();
                         RefreshState {
                             entity_id: rand_vec::<24>(),

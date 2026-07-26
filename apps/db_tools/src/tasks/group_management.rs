@@ -5,7 +5,7 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
 };
 
-pub fn enable_groups<C>(conn: &DbConnection<C>, group_ids: &[&[u8]]) -> Result<()>
+pub async fn enable_groups<C>(conn: &DbConnection<C>, group_ids: &[&[u8]]) -> Result<()>
 where
     C: ConnectionExt,
 {
@@ -15,13 +15,14 @@ where
             entity: hex::encode(group_id),
             entity_type: ConsentType::ConversationId,
             state: ConsentState::Allowed,
-        })?;
+        })
+        .await?;
     }
 
     Ok(())
 }
 
-pub fn disable_groups<C>(conn: &DbConnection<C>, group_ids: &[&[u8]]) -> Result<()>
+pub async fn disable_groups<C>(conn: &DbConnection<C>, group_ids: &[&[u8]]) -> Result<()>
 where
     C: ConnectionExt,
 {
@@ -31,7 +32,8 @@ where
             entity: hex::encode(group_id),
             entity_type: ConsentType::ConversationId,
             state: ConsentState::Denied,
-        })?;
+        })
+        .await?;
     }
 
     Ok(())
@@ -48,15 +50,15 @@ mod tests {
     async fn test_disable_groups() {
         tester!(alix);
 
-        let g = alix.create_group(None, None)?;
-        disable_groups(&alix.db(), &[g.group_id.as_slice()])?;
+        let g = alix.create_group(None, None).await?;
+        disable_groups(&alix.db(), &[g.group_id.as_slice()]).await?;
 
         let g = alix.group(&g.group_id)?;
-        assert_eq!(g.consent_state()?, ConsentState::Denied);
+        assert_eq!(g.consent_state().await?, ConsentState::Denied);
 
-        enable_groups(&alix.db(), &[g.group_id.as_slice()])?;
+        enable_groups(&alix.db(), &[g.group_id.as_slice()]).await?;
 
         let g = alix.group(&g.group_id)?;
-        assert_eq!(g.consent_state()?, ConsentState::Allowed);
+        assert_eq!(g.consent_state().await?, ConsentState::Allowed);
     }
 }

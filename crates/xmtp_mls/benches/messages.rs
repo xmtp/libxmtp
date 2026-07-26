@@ -263,7 +263,8 @@ fn bench_find_messages(c: &mut Criterion) {
                     b.iter(|| {
                         runtime.block_on(
                             async {
-                                let messages = setup.group.find_messages(&query_args).unwrap();
+                                let messages =
+                                    setup.group.find_messages(&query_args).await.unwrap();
 
                                 if let Some(expected) = expected_count {
                                     assert_eq!(
@@ -356,7 +357,7 @@ fn bench_find_messages_v2(c: &mut Criterion) {
                     b.iter(|| {
                         runtime.block_on(
                             async {
-                                let messages = setup.group.find_messages_v2(&query_args).unwrap();
+                                let messages = setup.group.find_messages_v2(&query_args).await.unwrap();
 
                                 if let Some(expected) = expected_count {
                                     assert_eq!(

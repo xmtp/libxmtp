@@ -39,7 +39,7 @@ impl CreateGroupOptions {
 impl Conversations {
   #[napi]
   #[xmtp_common::err_span]
-  pub fn create_group_optimistic(
+  pub async fn create_group_optimistic(
     &self,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
@@ -85,6 +85,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(group.into())
@@ -97,7 +98,7 @@ impl Conversations {
     account_identities: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let convo = self.create_group_optimistic(options)?;
+    let convo = self.create_group_optimistic(options).await?;
 
     if !account_identities.is_empty() {
       convo.add_members_by_identity(account_identities).await?;
@@ -115,7 +116,7 @@ impl Conversations {
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let convo = self.create_group_optimistic(options)?;
+    let convo = self.create_group_optimistic(options).await?;
 
     if !inbox_ids.is_empty() {
       convo.add_members(inbox_ids).await?;

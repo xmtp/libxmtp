@@ -8,17 +8,18 @@ pub trait MlsGroupReload {
     fn reload<S: XmtpMlsStorageProvider>(
         &mut self,
         provider: &S,
-    ) -> Result<(), GroupMessageProcessingError>;
+    ) -> impl std::future::Future<Output = Result<(), GroupMessageProcessingError>>
+    + xmtp_common::MaybeSend;
 }
 
 impl MlsGroupReload for OpenMlsGroup {
-    fn reload<S: XmtpMlsStorageProvider>(
+    async fn reload<S: XmtpMlsStorageProvider>(
         &mut self,
         provider: &S,
     ) -> Result<(), GroupMessageProcessingError> {
-        *self = OpenMlsGroup::load(provider, self.group_id())?.ok_or(StorageError::NotFound(
-            NotFound::MlsGroup(GroupId::try_from(self.group_id())?),
-        ))?;
+        *self = maybe_await!(OpenMlsGroup::load(provider, self.group_id()))?.ok_or(
+            StorageError::NotFound(NotFound::MlsGroup(GroupId::try_from(self.group_id())?)),
+        )?;
         Ok(())
     }
 }

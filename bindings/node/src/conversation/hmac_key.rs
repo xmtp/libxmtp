@@ -7,16 +7,20 @@ use std::collections::HashMap;
 impl Conversation {
   #[napi]
   #[xmtp_common::err_span]
-  pub fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
+  pub async fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let group = self.create_mls_group();
 
-    let dms = group.find_duplicate_dms().map_err(ErrorWrapper::from)?;
+    let dms = group
+      .find_duplicate_dms()
+      .await
+      .map_err(ErrorWrapper::from)?;
 
     let mut hmac_map = HashMap::new();
     for conversation in dms {
       let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
+        .await
         .map_err(ErrorWrapper::from)?
         .into_iter()
         .map(Into::into)
@@ -26,6 +30,7 @@ impl Conversation {
 
     let keys = group
       .hmac_keys(-1..=1)
+      .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(Into::into)

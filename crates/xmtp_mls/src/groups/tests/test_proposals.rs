@@ -39,7 +39,7 @@ async fn test_all_members_support_proposals_consistency(#[case] additional_membe
     let members_to_add = &inboxes[..additional_members];
 
     let alix_group = if members_to_add.is_empty() {
-        alix.create_group(None, None).unwrap()
+        alix.create_group(None, None).await.unwrap()
     } else {
         alix.create_group_with_members(members_to_add, None, None)
             .await
@@ -110,6 +110,7 @@ async fn test_proposal_intent_serialization(
             intent_bytes,
             false,
         ))
+        .await
         .unwrap();
 
     assert_eq!(intent.kind, IntentKind::ProposeMemberUpdate);
@@ -136,7 +137,7 @@ async fn test_proposals_enabled_default_false() {
         .await?;
 
     assert!(
-        !alix_group.is_proposals_enabled()?,
+        !alix_group.is_proposals_enabled().await?,
         "Proposals should not be enabled by default"
     );
 }
@@ -175,20 +176,21 @@ async fn test_e2e_propose_add_member_flow() {
     alix_group
         .enable_proposals(EnableProposalsOptions::test_default())
         .await?;
-    assert!(alix_group.is_proposals_enabled()?);
+    assert!(alix_group.is_proposals_enabled().await?);
     bo_group.sync().await?;
 
     // 2. Alix proposes to add caro
     let intent_data =
         ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?;
     let alix_db = alix_group.context.db();
-    let propose_intent =
-        alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let propose_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             alix_group.group_id,
             intent_data,
             false,
-        ))?;
+        ))
+        .await?;
 
     alix_group
         .sync_until_intent_resolved(propose_intent.id)
@@ -210,12 +212,14 @@ async fn test_e2e_propose_add_member_flow() {
 
     // 4. Bo commits the pending proposals
     let bo_db = bo_group.context.db();
-    let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        bo_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            bo_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
 
     bo_group
         .sync_until_intent_resolved(commit_intent.id)
@@ -286,13 +290,14 @@ async fn test_e2e_propose_remove_member_flow() {
     let intent_data =
         ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()]).try_into()?;
     let alix_db = alix_group.context.db();
-    let propose_intent =
-        alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let propose_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             alix_group.group_id,
             intent_data,
             false,
-        ))?;
+        ))
+        .await?;
 
     alix_group
         .sync_until_intent_resolved(propose_intent.id)
@@ -303,12 +308,14 @@ async fn test_e2e_propose_remove_member_flow() {
 
     // 4. Bo commits the pending proposals
     let bo_db = bo_group.context.db();
-    let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        bo_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            bo_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
 
     bo_group
         .sync_until_intent_resolved(commit_intent.id)
@@ -357,12 +364,14 @@ async fn test_commit_with_no_pending_proposals() {
 
     // Try to commit with no pending proposals
     let db = alix_group.context.db();
-    let commit_intent = db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        alix_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            alix_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
 
     // This should complete without error
     let result = alix_group
@@ -432,6 +441,7 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
             intent_bytes,
             false,
         ))
+        .await
         .unwrap();
 
     // Execute - the system should handle this gracefully
@@ -473,7 +483,7 @@ async fn test_message_auto_commits_pending_proposals() {
         .await?;
 
     bo_group.sync().await?;
-    let messages = bo_group.find_messages(&Default::default())?;
+    let messages = bo_group.find_messages(&Default::default()).await?;
     let has_message = messages
         .iter()
         .any(|m| m.decrypted_message_bytes == b"Before proposal");
@@ -487,12 +497,15 @@ async fn test_message_auto_commits_pending_proposals() {
 
     // Alix proposes to add caro
     let db = alix_group.context.db();
-    let propose_intent = db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_intent = db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
 
     alix_group
         .sync_until_intent_resolved(propose_intent.id)
@@ -584,23 +597,29 @@ async fn test_multiple_add_proposals_before_commit() {
 
     // Alix proposes to add caro
     let alix_db = alix_group.context.db();
-    let propose_caro = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_caro = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_caro.id)
         .await?;
 
     // Alix proposes to add dave
-    let propose_dave = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_dave = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_dave.id)
         .await?;
@@ -619,12 +638,14 @@ async fn test_multiple_add_proposals_before_commit() {
 
     // Bo commits all pending proposals
     let bo_db = bo_group.context.db();
-    let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        bo_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            bo_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -689,25 +710,29 @@ async fn test_mixed_add_remove_proposals_before_commit() {
 
     // Alix proposes to add dave
     let alix_db = alix_group.context.db();
-    let propose_add = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_add = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_add.id)
         .await?;
 
     // Alix proposes to remove caro
-    let propose_remove =
-        alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let propose_remove = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             alix_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()])
                 .try_into()?,
             false,
-        ))?;
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_remove.id)
         .await?;
@@ -725,12 +750,14 @@ async fn test_mixed_add_remove_proposals_before_commit() {
 
     // Bo commits all proposals
     let bo_db = bo_group.context.db();
-    let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        bo_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            bo_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -742,10 +769,10 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     let dave_groups = dave.sync_welcomes().await?;
     tracing::info!("Dave received {} welcomes", dave_groups.len());
     assert!(dave_groups.len() == 1);
-    assert!(dave_groups.first().unwrap().is_active().unwrap());
+    assert!(dave_groups.first().unwrap().is_active().await.unwrap());
 
     caro_group.sync().await?;
-    assert!(!caro_group.is_active().unwrap());
+    assert!(!caro_group.is_active().await.unwrap());
 }
 
 // =============================================================================
@@ -773,12 +800,14 @@ async fn test_propose_group_context_extensions_intent() {
 
     // Queue the intent
     let db = alix_group.context.db();
-    let intent = db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        alix_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let intent = db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            alix_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
 
     assert_eq!(intent.kind, IntentKind::ProposeGroupContextExtensions);
 
@@ -822,14 +851,15 @@ async fn test_proposer_can_commit_own_proposal() {
 
     // Alix proposes to add caro
     let alix_db = alix_group.context.db();
-    let propose_intent =
-        alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let propose_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             alix_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
                 .try_into()?,
             false,
-        ))?;
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -858,12 +888,14 @@ async fn test_proposer_can_commit_own_proposal() {
     assert!(alix_has_pending, "Alix should have pending proposals");
 
     // Alix commits their own proposal (this should now work!)
-    let commit_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        alix_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            alix_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
 
     // Note: sync_until_intent_resolved may return an error for post-commit actions
     // (like NoWelcomesToSend), but the actual commit validation succeeded.
@@ -935,12 +967,15 @@ async fn test_concurrent_proposals_from_different_members() {
 
     // Alix proposes to add dave
     let alix_db = alix_group.context.db();
-    let alix_propose = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let alix_propose = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(alix_propose.id)
         .await?;
@@ -950,12 +985,15 @@ async fn test_concurrent_proposals_from_different_members() {
 
     // Bo also proposes to add eve
     let bo_db = bo_group.context.db();
-    let bo_propose = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        bo_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let bo_propose = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            bo_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     bo_group.sync_until_intent_resolved(bo_propose.id).await?;
 
     // Caro syncs to receive both proposals
@@ -972,12 +1010,14 @@ async fn test_concurrent_proposals_from_different_members() {
 
     // Caro commits all pending proposals (Caro didn't propose, so this should work)
     let caro_db = caro_group.context.db();
-    let commit_intent = caro_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        caro_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = caro_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            caro_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
     caro_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -1011,7 +1051,7 @@ async fn test_enable_proposals_concurrent_callers_converge() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -1100,7 +1140,7 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
 
     // Alix creates an admin-only group (only admins can add members)
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
 
     // Alix adds Bo as a regular member (not admin)
@@ -1134,12 +1174,15 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
     // Bo (non-admin) attempts to propose adding Caro
     // This proposal should be created locally but rejected when Alix receives it
     let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        bo_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            bo_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
 
     // Bo publishes the proposal
     bo_group
@@ -1187,7 +1230,7 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
 
     // Alix creates an admin-only group
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
 
     // Alix adds Bo (so there's someone to receive the proposal)
@@ -1205,14 +1248,15 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
 
     // Alix (admin) proposes to add Caro
     let alix_db = alix_group.context.db();
-    let propose_intent =
-        alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let propose_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             alix_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
                 .try_into()?,
             false,
-        ))?;
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -1394,7 +1438,7 @@ async fn test_enable_proposals_rejects_min_version_above_own() {
 
     tester!(alix);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     let result = alix_group
         .enable_proposals(EnableProposalsOptions {
             force: true,
@@ -1423,7 +1467,7 @@ async fn test_update_group_min_version_rejects_downgrade() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -1462,7 +1506,7 @@ async fn test_enable_proposals_idempotent_with_forward_min_version() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -1492,7 +1536,7 @@ async fn test_update_group_min_version_rejects_malformed_input() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -1523,7 +1567,7 @@ async fn test_update_group_min_version_rejects_above_own() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -1630,7 +1674,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 
     // Alix creates an admin-only group (only admins can add/remove members)
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
 
     // Alix adds Bo and Caro as regular members
@@ -1669,23 +1713,29 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 
     // Alix (admin) proposes adding Dave
     let alix_db = alix_group.context.db();
-    let propose_dave = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_dave = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_dave.id)
         .await?;
 
     // Alix (admin) proposes adding Eve
-    let propose_eve = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_eve = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(propose_eve.id)
         .await?;
@@ -1708,12 +1758,14 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     // This tests that add permissions are checked against the proposer (Alix, admin),
     // not the committer (Bo, non-admin)
     let bo_db = bo_group.context.db();
-    let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        bo_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            bo_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -1753,7 +1805,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 
     // Bo syncs to receive the metadata update
     bo_group.sync().await?;
-    let bo_group_name = bo_group.group_name()?;
+    let bo_group_name = bo_group.group_name().await?;
     assert_eq!(
         bo_group_name, "New Admin Group Name",
         "Bo should see the updated group name"
@@ -1799,22 +1851,28 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
 
     // Bo (non-admin) proposes adding Dave
     let bo_db = bo_group.context.db();
-    let bo_propose = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        bo_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let bo_propose = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            bo_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![dave.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     bo_group.sync_until_intent_resolved(bo_propose.id).await?;
 
     // Caro (non-admin) proposes adding Eve
     let caro_db = caro_group.context.db();
-    let caro_propose = caro_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        caro_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let caro_propose = caro_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            caro_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![eve.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     caro_group
         .sync_until_intent_resolved(caro_propose.id)
         .await?;
@@ -1838,12 +1896,14 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
     //   committer = Alix (from path update leaf node)
     //   proposers = [Bo, Caro] (from proposal senders)
     let alix_db = alix_group.context.db();
-    let commit_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        alix_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            alix_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -1876,14 +1936,14 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
         .await?;
 
     bo_group.sync().await?;
-    let bo_name = bo_group.group_name()?;
+    let bo_name = bo_group.group_name().await?;
     assert_eq!(
         bo_name, "Updated by Admin",
         "Group name should be updated by admin"
     );
 
     caro_group.sync().await?;
-    let caro_name = caro_group.group_name()?;
+    let caro_name = caro_group.group_name().await?;
     assert_eq!(
         caro_name, "Updated by Admin",
         "Group name should be updated for all members"
@@ -1907,7 +1967,7 @@ async fn test_remove_proposal_validation_in_admin_group() {
 
     // Alix creates an admin-only group and adds Bo and Caro
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
@@ -1929,14 +1989,15 @@ async fn test_remove_proposal_validation_in_admin_group() {
 
     // Scenario A: Bo (non-admin) proposes removing Caro → should be rejected by Alix
     let bo_db = bo_group.context.db();
-    let remove_caro_intent =
-        bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let remove_caro_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             bo_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()])
                 .try_into()?,
             false,
-        ))?;
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(remove_caro_intent.id)
         .await?;
@@ -1955,14 +2016,15 @@ async fn test_remove_proposal_validation_in_admin_group() {
     );
 
     // Scenario B: Bo (non-admin) proposes removing Alix (super admin) → should be rejected
-    let remove_alix_intent =
-        bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+    let remove_alix_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
             IntentKind::ProposeMemberUpdate,
             bo_group.group_id,
             ProposeMemberUpdateIntentData::new(vec![], vec![alix.inbox_id().to_string()])
                 .try_into()?,
             false,
-        ))?;
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(remove_alix_intent.id)
         .await?;
@@ -1998,7 +2060,7 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
 
     // Alix creates an admin-only group and adds Bo and Caro
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
@@ -2021,12 +2083,15 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
 
     // Alix (admin) proposes removing Caro
     let alix_db = alix_group.context.db();
-    let remove_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        alix_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()]).try_into()?,
-        false,
-    ))?;
+    let remove_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            alix_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![], vec![caro.inbox_id().to_string()])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(remove_intent.id)
         .await?;
@@ -2046,12 +2111,14 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
 
     // Bo (non-admin) commits the pending proposals
     let bo_db = bo_group.context.db();
-    let commit_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        bo_group.group_id,
-        CommitPendingProposalsIntentData::new().into(),
-        false,
-    ))?;
+    let commit_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            bo_group.group_id,
+            CommitPendingProposalsIntentData::new().into(),
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -2074,7 +2141,7 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
 
     // Verify Caro's group is inactive
     assert!(
-        !caro_group.is_active()?,
+        !caro_group.is_active().await?,
         "Caro's group should be inactive after removal"
     );
 }
@@ -2096,7 +2163,7 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
 
     // Alix creates an admin-only group and adds Bo
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -2128,12 +2195,14 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
     let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
     let intent_bytes: Vec<u8> = intent_data.into();
     let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            bo_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2164,12 +2233,14 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
 
     let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
     let intent_bytes: Vec<u8> = intent_data.into();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            bo_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2188,7 +2259,7 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
     );
 
     // Verify group name is unchanged
-    let name = alix_group.group_name()?;
+    let name = alix_group.group_name().await?;
     assert_ne!(name, "hacked", "Group name should not have changed");
 }
 
@@ -2212,7 +2283,7 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
 
     // Alix creates an admin-only group and adds Bo and Caro
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
@@ -2245,12 +2316,14 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
     let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
     let intent_bytes: Vec<u8> = intent_data.into();
     let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            bo_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2284,12 +2357,14 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
 
     let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
     let intent_bytes: Vec<u8> = intent_data.into();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            bo_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2332,12 +2407,14 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
 
     let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
     let intent_bytes: Vec<u8> = intent_data.into();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            bo_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2374,7 +2451,7 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
 
     // Alix creates an admin-only group and adds Bo
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
+    let alix_group = alix.create_group(policy_set, None).await?;
     alix_group.sync().await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
@@ -2406,12 +2483,14 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
     let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
     let intent_bytes: Vec<u8> = intent_data.into();
     let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeGroupContextExtensions,
+            bo_group.group_id,
+            intent_bytes,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2578,12 +2657,15 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
 
     // Bo proposes to add Caro
     let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeMemberUpdate,
-        bo_group.group_id,
-        ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![]).try_into()?,
-        false,
-    ))?;
+    let propose_intent = bo_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::ProposeMemberUpdate,
+            bo_group.group_id,
+            ProposeMemberUpdateIntentData::new(vec![caro.inbox_id().to_string()], vec![])
+                .try_into()?,
+            false,
+        ))
+        .await?;
     bo_group
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
@@ -2601,12 +2683,14 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
 
     // Alix commits all pending proposals — should batch GCE + commit in one operation
     let alix_db = alix_group.context.db();
-    let commit_intent = alix_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::CommitPendingProposals,
-        alix_group.group_id,
-        CommitPendingProposalsIntentData::default().into(),
-        false,
-    ))?;
+    let commit_intent = alix_db
+        .insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::CommitPendingProposals,
+            alix_group.group_id,
+            CommitPendingProposalsIntentData::default().into(),
+            false,
+        ))
+        .await?;
     alix_group
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
@@ -2827,7 +2911,7 @@ async fn test_app_data_dictionary_capability_and_required() {
 
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -2897,7 +2981,7 @@ async fn test_app_data_update_advertised_but_not_required() {
     use openmls::messages::proposals::ProposalType;
 
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     alix_group
         .load_mls_group_with_lock_async(async |mls_group| {
@@ -3054,12 +3138,12 @@ async fn test_update_group_name_via_app_data_update() {
 
     bo_group.sync().await?;
     assert_eq!(
-        bo_group.group_name()?,
+        bo_group.group_name().await?,
         "AppData Group Name",
         "Bo should see the new group name written through the AppData path"
     );
     assert_eq!(
-        alix_group.group_name()?,
+        alix_group.group_name().await?,
         "AppData Group Name",
         "Alix should see her own update reflected through the read accessor"
     );
@@ -3067,7 +3151,7 @@ async fn test_update_group_name_via_app_data_update() {
     // The capability-gated `mutable_metadata()` accessor should also surface
     // the new value (it backs `group_name()`, but we exercise it directly to
     // pin the merge-into-GMM path).
-    let bo_meta = bo_group.mutable_metadata()?;
+    let bo_meta = bo_group.mutable_metadata().await?;
     assert_eq!(
         bo_meta
             .attributes
@@ -3103,7 +3187,7 @@ async fn test_update_group_description_via_app_data_update() {
 
     bo_group.sync().await?;
     assert_eq!(
-        bo_group.group_description()?,
+        bo_group.group_description().await?,
         "AppData Description",
         "Bo should see the new group description through the AppData path"
     );
@@ -3153,7 +3237,7 @@ async fn test_disappearing_settings_survive_bootstrap() {
         .send_message(b"before-bootstrap", SendMessageOpts::default())
         .await?;
     bo_group.sync().await?;
-    let bo_pre_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+    let bo_pre_msgs = bo_group.find_messages(&MsgQueryArgs::default()).await?;
     let pre_msg = bo_pre_msgs
         .iter()
         .find(|m| m.decrypted_message_bytes == b"before-bootstrap")
@@ -3187,7 +3271,7 @@ async fn test_disappearing_settings_survive_bootstrap() {
         .send_message(b"after-bootstrap", SendMessageOpts::default())
         .await?;
     bo_group.sync().await?;
-    let bo_post_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+    let bo_post_msgs = bo_group.find_messages(&MsgQueryArgs::default()).await?;
     let post_msg = bo_post_msgs
         .iter()
         .find(|m| m.decrypted_message_bytes == b"after-bootstrap")
@@ -3249,7 +3333,7 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
 
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -3260,7 +3344,7 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
     assert!(
-        bo_group.paused_for_version()?.is_none(),
+        bo_group.paused_for_version().await?.is_none(),
         "Bo should not be paused before alix calls enable_proposals"
     );
 
@@ -3283,7 +3367,7 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
     // is never applied locally.
     bo_group.sync().await?;
 
-    let paused = bo_group.paused_for_version()?;
+    let paused = bo_group.paused_for_version().await?;
     assert_eq!(
         paused.as_deref(),
         Some(alix_pkg_version.as_str()),
@@ -3370,8 +3454,8 @@ async fn test_update_group_name_uses_legacy_path_when_proposals_disabled() {
         .await?;
     bo_group.sync().await?;
 
-    assert_eq!(bo_group.group_name()?, "Legacy Path Name");
-    assert_eq!(alix_group.group_name()?, "Legacy Path Name");
+    assert_eq!(bo_group.group_name().await?, "Legacy Path Name");
+    assert_eq!(alix_group.group_name().await?, "Legacy Path Name");
 }
 
 // `test_update_group_name_uses_legacy_path_when_registry_is_empty`
@@ -3449,7 +3533,7 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     bo_group.sync().await?;
 
     // Capture the pre-update group name so we can assert it didn't change.
-    let original = alix_group.group_name()?;
+    let original = alix_group.group_name().await?;
 
     // Attempt the update. The validator should reject the AppDataUpdate
     // proposal because GROUP_NAME's update_policy is now `Deny`.
@@ -3479,7 +3563,7 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     // Group name unchanged because the rejected commit never made
     // it past validation.
     assert_eq!(
-        alix_group.group_name()?,
+        alix_group.group_name().await?,
         original,
         "group name should be unchanged after the rejected update"
     );
@@ -3520,7 +3604,7 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
     };
 
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     let alice = hex::encode([0x01u8; 32]);
     let bob = hex::encode([0x02u8; 32]);
@@ -3620,8 +3704,8 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
     // per peer catches consensus drift (one peer sees the update,
     // the other doesn't).
     for (label, meta) in [
-        ("alix", alix_group.mutable_metadata()?),
-        ("bo", bo_group.mutable_metadata()?),
+        ("alix", alix_group.mutable_metadata().await?),
+        ("bo", bo_group.mutable_metadata().await?),
     ] {
         assert!(
             meta.admin_list.contains(&bo.inbox_id().to_string()),
@@ -3667,8 +3751,8 @@ async fn test_admin_list_remove_via_app_data_path_after_migration() {
     bo_group.sync().await?;
 
     for (label, meta) in [
-        ("alix", alix_group.mutable_metadata()?),
-        ("bo", bo_group.mutable_metadata()?),
+        ("alix", alix_group.mutable_metadata().await?),
+        ("bo", bo_group.mutable_metadata().await?),
     ] {
         assert!(
             !meta.admin_list.contains(&bo.inbox_id().to_string()),
@@ -3712,8 +3796,8 @@ async fn test_super_admin_list_add_via_app_data_path_after_migration() {
     // group, so the weaker check passes even if AddSuper routed to
     // the wrong list with a different inbox.
     for (label, meta) in [
-        ("alix", alix_group.mutable_metadata()?),
-        ("bo", bo_group.mutable_metadata()?),
+        ("alix", alix_group.mutable_metadata().await?),
+        ("bo", bo_group.mutable_metadata().await?),
     ] {
         assert!(
             meta.super_admin_list.contains(&bo.inbox_id().to_string()),
@@ -3827,13 +3911,13 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
         .await?;
     bo_group.sync().await?;
 
-    let alix_meta = alix_group.mutable_metadata()?;
+    let alix_meta = alix_group.mutable_metadata().await?;
     assert!(
         alix_meta.admin_list.contains(&bo.inbox_id().to_string()),
         "legacy GCE admin-list update broke, admin_list={:?}",
         alix_meta.admin_list,
     );
-    let bo_meta = bo_group.mutable_metadata()?;
+    let bo_meta = bo_group.mutable_metadata().await?;
     assert!(
         bo_meta.admin_list.contains(&bo.inbox_id().to_string()),
         "bo should see himself as admin via legacy GMM, admin_list={:?}",
@@ -3903,7 +3987,7 @@ async fn test_downgraded_client_pauses_at_bootstrap_seeding_higher_floor() {
         .await?;
     register_client(&bo, &bo_wallet).await;
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -3919,7 +4003,7 @@ async fn test_downgraded_client_pauses_at_bootstrap_seeding_higher_floor() {
     alix_group.update_group_min_version_to_match_self().await?;
     bo_group.sync().await?;
     assert!(
-        bo_group.paused_for_version()?.is_none(),
+        bo_group.paused_for_version().await?.is_none(),
         "bo meets the legacy floor pre-downgrade and must not be paused"
     );
 
@@ -3945,11 +4029,11 @@ async fn test_downgraded_client_pauses_at_bootstrap_seeding_higher_floor() {
         .await?;
 
     // The bootstrap is the first commit the downgraded bo processes.
-    let bo_group = bo_downgraded.group(&bo_group_id)?;
+    let bo_group = bo_downgraded.group(&bo_group_id).await?;
     let _ = bo_group.sync().await;
 
     assert_eq!(
-        bo_group.paused_for_version()?.as_deref(),
+        bo_group.paused_for_version().await?.as_deref(),
         Some(bumped.as_str()),
         "a downgraded receiver must pause AT the bootstrap seeding a floor above \
          its version, deferring it for post-upgrade reprocessing"
@@ -4008,7 +4092,7 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
     // pre-migration min-version bump pauses him via legacy GMM — not
     // the subject of this test.
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -4050,7 +4134,7 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
         .find(|g| g.group_id == alix_group.group_id)
         .expect("carol should receive a welcome for alix_group");
 
-    let paused = carol_group.paused_for_version()?;
+    let paused = carol_group.paused_for_version().await?;
     assert_eq!(
         paused.as_deref(),
         Some(alix_pkg_version.as_str()),
@@ -4098,7 +4182,7 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
 
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -4126,7 +4210,7 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
             .await?;
         assert!(migrated, "{label} must be migrated post-enable_proposals");
         assert!(
-            group.paused_for_version()?.is_none(),
+            group.paused_for_version().await?.is_none(),
             "{label} must not be paused after migration (test_default floor is 0.0.0)"
         );
     }
@@ -4142,7 +4226,7 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         .await?;
 
     bo_group.sync().await?;
-    let paused = bo_group.paused_for_version()?;
+    let paused = bo_group.paused_for_version().await?;
     assert_eq!(
         paused.as_deref(),
         Some(alix_pkg_version.as_str()),
@@ -4215,7 +4299,7 @@ async fn test_downgraded_client_pauses_on_migrated_group_with_higher_floor() {
         .await?;
     register_client(&bo, &bo_wallet).await;
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;
@@ -4237,7 +4321,7 @@ async fn test_downgraded_client_pauses_on_migrated_group_with_higher_floor() {
     alix_group.update_group_min_version(&bumped).await?;
     bo_group.sync().await?;
     assert!(
-        bo_group.paused_for_version()?.is_none(),
+        bo_group.paused_for_version().await?.is_none(),
         "bo meets the floor pre-downgrade and must not be paused"
     );
 
@@ -4261,13 +4345,13 @@ async fn test_downgraded_client_pauses_on_migrated_group_with_higher_floor() {
         .build()
         .await?;
 
-    let bo_group = bo_downgraded.group(&bo_group_id)?;
+    let bo_group = bo_downgraded.group(&bo_group_id).await?;
     // The sync may surface the pause as a per-message outcome; the
     // assertion below is the contract, not the sync result.
     let _ = bo_group.sync().await;
 
     assert_eq!(
-        bo_group.paused_for_version()?.as_deref(),
+        bo_group.paused_for_version().await?.as_deref(),
         Some(bumped.as_str()),
         "a downgraded client below the committed floor must pause the group \
          (deferring all commits for post-upgrade reprocessing), never surface \
@@ -4292,7 +4376,7 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
 
     tester!(alix);
     let alix_pkg = alix.version_info().pkg_version().to_string();
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     let group_id_typed = &alix_group.group_id;
 
     // No paused groups initially → sweep is a no-op.
@@ -4307,14 +4391,15 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
     // floor it can't yet satisfy).
     alix.context
         .db()
-        .set_group_paused(group_id_typed, "999.0.0")?;
+        .set_group_paused(group_id_typed, "999.0.0")
+        .await?;
     assert_eq!(
         alix.unstick_paused_groups().await?,
         0,
         "current pkg_version below floor → sweep must NOT unstick"
     );
     assert_eq!(
-        alix_group.paused_for_version()?.as_deref(),
+        alix_group.paused_for_version().await?.as_deref(),
         Some("999.0.0"),
         "pause flag must still be set"
     );
@@ -4323,14 +4408,15 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
     // clears the flag.
     alix.context
         .db()
-        .set_group_paused(group_id_typed, &alix_pkg)?;
+        .set_group_paused(group_id_typed, &alix_pkg)
+        .await?;
     assert_eq!(
         alix.unstick_paused_groups().await?,
         1,
         "current pkg_version == floor → sweep must unstick exactly one group"
     );
     assert!(
-        alix_group.paused_for_version()?.is_none(),
+        alix_group.paused_for_version().await?.is_none(),
         "pause flag must be cleared after the sweep"
     );
 
@@ -4345,7 +4431,8 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
     // poison the sweep for everything else.
     alix.context
         .db()
-        .set_group_paused(group_id_typed, "not-a-version")?;
+        .set_group_paused(group_id_typed, "not-a-version")
+        .await?;
     let result = alix.unstick_paused_groups().await;
     assert!(
         result.is_ok(),
@@ -4357,7 +4444,7 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
         "unparseable rows are skipped, not unstuck"
     );
     assert_eq!(
-        alix_group.paused_for_version()?.as_deref(),
+        alix_group.paused_for_version().await?.as_deref(),
         Some("not-a-version"),
         "unparseable pause row must be preserved verbatim"
     );
@@ -4378,7 +4465,7 @@ async fn test_enable_proposals_no_wire_commit_on_already_migrated() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await?;

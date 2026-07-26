@@ -10,6 +10,14 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Storage-track selection, forwarded to xmtp_db (which drives the global
+# maybe-async/is_sync switch + the openmls track). Default is `sync` so every
+# existing consumer is unchanged; `async` is for the sqlx/Postgres track.
+default = ["sync"]
+sync = ["xmtp_db/sync"]
+async = ["xmtp_db/async"]
+
 [dependencies]
 bon.workspace = true
 hex.workspace = true
@@ -26,7 +34,11 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
-xmtp_db.workspace = true
+# Direct path dep (not `workspace = true`) so we can turn default features off:
+# cargo forbids a member overriding a workspace dep's `default-features`. This
+# is the experiment's async-track plumbing; a shipping version would instead set
+# `default-features = false` at the workspace root and have every consumer pick a track.
+xmtp_db = { path = "../xmtp_db", default-features = false }
 xmtp_id.workspace = true
 xmtp_proto.workspace = true
 

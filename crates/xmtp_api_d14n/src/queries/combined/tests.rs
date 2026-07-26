@@ -125,7 +125,7 @@ fn regex_matches_streaming_error() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn choose_client_returns_d14n_when_already_migrated() {
     let store = InMemoryCursorStore::new();
-    store.set_has_migrated(true)?;
+    store.set_has_migrated(true).await?;
 
     let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
 
@@ -140,7 +140,7 @@ async fn choose_client_returns_v3_before_cutover() {
     let store = InMemoryCursorStore::new();
     // cutover far in the future
     let far_future = xmtp_common::time::now_ns() + CUTOVER_REFRESH_TIME * 10;
-    store.set_cutover_ns(far_future)?;
+    store.set_cutover_ns(far_future).await?;
 
     // The first call triggers `always_check_once`, which calls refresh_cutover.
     // Mock the v3_grpc request to return a far-future cutover.
@@ -169,7 +169,7 @@ async fn choose_client_returns_d14n_after_cutover() {
     assert_eq!(chosen_ptr as *const (), expected_ptr as *const ());
 
     // The store should now be marked as migrated
-    assert!(store.has_migrated()?);
+    assert!(store.has_migrated().await?);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -178,8 +178,8 @@ async fn choose_client_refreshes_after_timeout() {
     let far_future = xmtp_common::time::now_ns() + CUTOVER_REFRESH_TIME * 10;
     // Set a stale last_checked so the refresh timeout has elapsed
     let stale_time = xmtp_common::time::now_ns() - CUTOVER_REFRESH_TIME - 1;
-    store.set_last_checked_ns(stale_time)?;
-    store.set_cutover_ns(far_future)?;
+    store.set_last_checked_ns(stale_time).await?;
+    store.set_cutover_ns(far_future).await?;
 
     let v3 = mock_v3_with_cutover(far_future as u64);
 
@@ -193,7 +193,7 @@ async fn choose_client_refreshes_after_timeout() {
     assert_eq!(chosen_ptr as *const (), expected_ptr as *const ());
 
     // Verify refresh was called by checking last_checked_ns was updated
-    let last_checked = store.get_last_checked_ns()?;
+    let last_checked = store.get_last_checked_ns().await?;
     assert!(last_checked > stale_time);
 }
 
@@ -206,9 +206,9 @@ async fn refresh_cutover_updates_store() {
 
     let cutover = client.refresh_cutover().await?;
     assert_eq!(cutover, 12345);
-    assert_eq!(store.get_cutover_ns()?, 12345);
+    assert_eq!(store.get_cutover_ns().await?, 12345);
 
-    let last_checked = store.get_last_checked_ns()?;
+    let last_checked = store.get_last_checked_ns().await?;
     assert!(last_checked > 0);
 }
 
@@ -282,22 +282,22 @@ async fn write_with_refresh_does_not_retry_on_other_error() {
 async fn is_d14n_returns_false_before_migration() {
     let store = InMemoryCursorStore::new();
     let far_future = xmtp_common::time::now_ns() + CUTOVER_REFRESH_TIME * 10;
-    store.set_cutover_ns(far_future)?;
+    store.set_cutover_ns(far_future).await?;
 
     let v3 = mock_v3_with_cutover(far_future as u64);
     let client = build_test_client(v3, TestNetworkClient::new(), store);
 
-    assert!(!client.is_d14n()?);
+    assert!(!client.is_d14n().await?);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn is_d14n_returns_true_after_migration() {
     let store = InMemoryCursorStore::new();
-    store.set_has_migrated(true)?;
+    store.set_has_migrated(true).await?;
 
     let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
 
-    assert!(client.is_d14n()?);
+    assert!(client.is_d14n().await?);
 }
 
 /// Commit-log (fork detection) must stay on the retained centralized v3 service
@@ -310,7 +310,7 @@ async fn commit_log_stays_on_v3_after_migration() {
     use xmtp_proto::mls_v1::{BatchPublishCommitLogRequest, BatchQueryCommitLogRequest};
 
     let store = InMemoryCursorStore::new();
-    store.set_has_migrated(true)?;
+    store.set_has_migrated(true).await?;
 
     // v3 mock counts every request and answers with an empty (default-decoding)
     // body; d14n mock is left bare so any commit-log call routed to it panics.

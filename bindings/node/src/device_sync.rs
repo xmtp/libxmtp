@@ -209,11 +209,15 @@ impl DeviceSync {
   /// this function to see recently uploaded archives.
   #[napi]
   #[xmtp_common::err_span]
-  pub fn list_available_archives(&self, days_cutoff: i64) -> Result<Vec<AvailableArchiveInfo>> {
+  pub async fn list_available_archives(
+    &self,
+    days_cutoff: i64,
+  ) -> Result<Vec<AvailableArchiveInfo>> {
     let available = self
       .inner_client
       .device_sync_client()
       .list_available_archives(days_cutoff)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(available.into_iter().map(Into::into).collect())

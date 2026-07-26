@@ -149,13 +149,14 @@ impl Conversations {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn get_conversation_by_id(&self, group_id: String) -> Result<Conversation> {
+  pub async fn get_conversation_by_id(&self, group_id: String) -> Result<Conversation> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
     let group_id = xmtp_proto::types::GroupId::try_from(group_id).map_err(ErrorWrapper::from)?;
 
     let group = self
       .inner_client
       .stitched_group(&group_id)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(group.into())
@@ -205,10 +206,14 @@ impl Conversations {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
+  pub async fn list(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
       .list_conversations(opts.unwrap_or_default().into())
+      .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {

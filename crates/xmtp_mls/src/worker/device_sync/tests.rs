@@ -45,8 +45,8 @@ async fn basic_sync() {
         .await?;
 
     // Ensure the DM is present on the second device.
-    let alix2_dm = alix2.group(&dm.group_id)?;
-    let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
+    let alix2_dm = alix2.group(&dm.group_id).await?;
+    let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default()).await?;
     assert_eq!(alix2_dm_msgs.len(), 2);
     assert!(
         alix2_dm_msgs
@@ -98,7 +98,7 @@ async fn test_sync_request() {
         .await?;
 
     let dm = alix3.find_or_create_dm(bo.inbox_id(), None).await?;
-    let msgs = dm.find_messages(&MsgQueryArgs::default())?;
+    let msgs = dm.find_messages(&MsgQueryArgs::default()).await?;
 
     // Make sure all of the messages are on alix3's client
     for msg in &[&m1, &m2, &m3] {
@@ -110,13 +110,18 @@ async fn test_sync_request() {
     }
 
     // Check the group's messages and it's consent too.
-    let g3 = alix3.group(&g1.group_id)?;
-    assert_eq!(g3.consent_state()?, ConsentState::Allowed);
-    assert!(g1.find_messages(&Default::default())?.iter().any(|m| {
-        m.decrypted_message_bytes
-            .windows(gm3.len())
-            .any(|m| m == gm3.as_bytes())
-    }));
+    let g3 = alix3.group(&g1.group_id).await?;
+    assert_eq!(g3.consent_state().await?, ConsentState::Allowed);
+    assert!(
+        g1.find_messages(&Default::default())
+            .await?
+            .iter()
+            .any(|m| {
+                m.decrypted_message_bytes
+                    .windows(gm3.len())
+                    .any(|m| m == gm3.as_bytes())
+            })
+    );
 }
 
 #[cfg_attr(target_arch = "wasm32", ignore)]
@@ -247,7 +252,7 @@ async fn test_hmac_and_consent_preference_sync() {
         .register_interest(SyncMetric::HmacReceived, 1)
         .wait()
         .await?;
-    let alix1_keys = dm.hmac_keys(-1..=1)?;
+    let alix1_keys = dm.hmac_keys(-1..=1).await?;
 
     alix2
         .worker()
@@ -255,15 +260,15 @@ async fn test_hmac_and_consent_preference_sync() {
         .wait()
         .await?;
 
-    let alix2_dm = alix2.group(&dm.group_id)?;
-    let alix2_keys = alix2_dm.hmac_keys(-1..=1)?;
+    let alix2_dm = alix2.group(&dm.group_id).await?;
+    let alix2_keys = alix2_dm.hmac_keys(-1..=1).await?;
 
     assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
-    assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
+    assert_eq!(dm.consent_state().await?, alix2_dm.consent_state().await?);
 
     // Stream consent
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
-    dm.update_consent_state(ConsentState::Denied)?;
+    dm.update_consent_state(ConsentState::Denied).await?;
     alix1
         .worker()
         .register_interest(SyncMetric::ConsentSent, 1)
@@ -277,16 +282,16 @@ async fn test_hmac_and_consent_preference_sync() {
         .wait()
         .await?;
 
-    let alix2_dm = alix2.group(&dm.group_id)?;
-    assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
+    let alix2_dm = alix2.group(&dm.group_id).await?;
+    assert_eq!(alix2_dm.consent_state().await?, ConsentState::Denied);
 
     // Now alix1 receives a group from bo, alix1 consents. Alix2 should see the group as consented as well.
     let bo_group = bo
         .create_group_with_members(&[alix1.inbox_id()], None, None)
         .await?;
     alix1.sync_welcomes().await?;
-    let alix1_group = alix1.group(&bo_group.group_id)?;
-    assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
+    let alix1_group = alix1.group(&bo_group.group_id).await?;
+    assert_eq!(alix1_group.consent_state().await?, ConsentState::Unknown);
 
     // Wait for alix1 to publish the consent update to the sync group before
     // alix2 syncs. `register_interest(ConsentReceived).wait()` only waits
@@ -294,7 +299,9 @@ async fn test_hmac_and_consent_preference_sync() {
     // one-shot `sync_all_welcomes_and_groups` below is the only chance to pull
     // this consent.
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
-    alix1_group.update_consent_state(ConsentState::Allowed)?;
+    alix1_group
+        .update_consent_state(ConsentState::Allowed)
+        .await?;
     alix1
         .worker()
         .register_interest(SyncMetric::ConsentSent, 1)
@@ -308,8 +315,8 @@ async fn test_hmac_and_consent_preference_sync() {
         .register_interest(SyncMetric::ConsentReceived, 2)
         .wait()
         .await?;
-    let alix2_group = alix2.group(&bo_group.group_id)?;
-    assert_eq!(alix2_group.consent_state()?, ConsentState::Allowed);
+    let alix2_group = alix2.group(&bo_group.group_id).await?;
+    assert_eq!(alix2_group.consent_state().await?, ConsentState::Allowed);
 }
 
 #[rstest::rstest]
@@ -343,12 +350,16 @@ async fn test_only_added_to_correct_groups() {
     let bo_dm = bo.find_or_create_dm(alix1.inbox_id(), None).await?;
 
     alix1.sync_welcomes().await?;
-    let alix_bo_group_denied = alix1.group(&bo_group_denied.group_id)?;
-    let alix_bo_group_unknown = alix1.group(&bo_group_unknown.group_id)?;
-    let alix_bo_dm = alix1.group(&bo_dm.group_id)?;
+    let alix_bo_group_denied = alix1.group(&bo_group_denied.group_id).await?;
+    let alix_bo_group_unknown = alix1.group(&bo_group_unknown.group_id).await?;
+    let alix_bo_dm = alix1.group(&bo_dm.group_id).await?;
 
-    alix_bo_dm.update_consent_state(ConsentState::Allowed)?;
-    alix_bo_group_denied.update_consent_state(ConsentState::Denied)?;
+    alix_bo_dm
+        .update_consent_state(ConsentState::Allowed)
+        .await?;
+    alix_bo_group_denied
+        .update_consent_state(ConsentState::Denied)
+        .await?;
 
     let new_group = alix1
         .create_group_with_members(&[bo.inbox_id()], None, None)
@@ -371,9 +382,9 @@ async fn test_only_added_to_correct_groups() {
     // unknown-consent group, and the consented DM.
     xmtp_common::wait_for_some(|| async {
         let _ = alix2.sync_welcomes().await;
-        (alix2.group(&new_group.group_id).is_ok()
-            && alix2.group(&alix_bo_group_unknown.group_id).is_ok()
-            && alix2.group(&alix_bo_dm.group_id).is_ok())
+        (alix2.group(&new_group.group_id).await.is_ok()
+            && alix2.group(&alix_bo_group_unknown.group_id).await.is_ok()
+            && alix2.group(&alix_bo_dm.group_id).await.is_ok())
         .then_some(())
     })
     .await
@@ -382,11 +393,11 @@ async fn test_only_added_to_correct_groups() {
     // The negatives are meaningful once the positive set has converged: the
     // filtered-out groups never get an AddMissingInstallations task at all.
     // Not added to old stale group
-    let alix2_old_group = alix2.group(&old_group.group_id);
+    let alix2_old_group = alix2.group(&old_group.group_id).await;
     assert!(alix2_old_group.is_err());
 
     // Not added to denied group from Bo
-    let alix2_bo_group_denied = alix2.group(&alix_bo_group_denied.group_id);
+    let alix2_bo_group_denied = alix2.group(&alix_bo_group_denied.group_id).await;
     assert!(alix2_bo_group_denied.is_err());
 }
 
@@ -402,10 +413,12 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    let groups = alix1.find_groups(GroupQueryArgs {
-        include_sync_groups: true,
-        ..Default::default()
-    })?;
+    let groups = alix1
+        .find_groups(GroupQueryArgs {
+            include_sync_groups: true,
+            ..Default::default()
+        })
+        .await?;
     for group in groups {
         group.maybe_update_installations(None).await?;
     }
@@ -458,7 +471,7 @@ async fn test_manual_sync_flow() {
         .wait()
         .await?;
 
-    assert!(alix2.group(&dm.group_id).is_err());
+    assert!(alix2.group(&dm.group_id).await.is_err());
 
     alix2
         .device_sync_client()
@@ -467,7 +480,10 @@ async fn test_manual_sync_flow() {
         .sync()
         .await?;
 
-    let available_archives = alix2.device_sync_client().list_available_archives(7)?;
+    let available_archives = alix2
+        .device_sync_client()
+        .list_available_archives(7)
+        .await?;
     assert_eq!(available_archives.len(), 2);
     assert_eq!(available_archives[0].pin, "234");
 
@@ -481,7 +497,7 @@ async fn test_manual_sync_flow() {
         .wait()
         .await?;
 
-    assert!(alix2.group(&dm.group_id).is_ok());
+    assert!(alix2.group(&dm.group_id).await.is_ok());
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
@@ -508,8 +524,8 @@ async fn test_incremental_consent() {
         .wait()
         .await?;
 
-    let dm2 = alix2.group(&dm.group_id)?;
-    assert_eq!(dm2.consent_state()?, ConsentState::Allowed);
+    let dm2 = alix2.group(&dm.group_id).await?;
+    assert_eq!(dm2.consent_state().await?, ConsentState::Allowed);
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
@@ -534,7 +550,7 @@ async fn test_task_runner_adds_new_installation_to_groups() {
     // the whole chain is async.
     xmtp_common::wait_for_some(|| async {
         let _ = alix2.sync_welcomes().await;
-        alix2.group(&group.group_id).ok().map(|_| ())
+        alix2.group(&group.group_id).await.ok().map(|_| ())
     })
     .await
     .expect("alix2 must receive the group via the TaskRunner membership add");
@@ -562,7 +578,7 @@ async fn test_sync_group_creation_leaves_no_reconcile_task() {
     // version duplicated the reconcile (and its identity fetch) on every
     // sync-group creation, breaking the pinned network-call-count tests on
     // mobile bindings.
-    let has_task = alix.context.db().get_tasks()?.iter().any(|t| {
+    let has_task = alix.context.db().get_tasks().await?.iter().any(|t| {
         matches!(
             TaskProto::decode(t.data.as_slice())
                 .ok()
@@ -596,11 +612,12 @@ async fn test_welcome_schedules_add_installation_tasks() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let count_add_tasks = || -> Vec<Vec<u8>> {
+    let count_add_tasks = async || -> Vec<Vec<u8>> {
         alix1
             .context
             .db()
             .get_tasks()
+            .await
             .unwrap()
             .iter()
             .filter_map(|t| match TaskProto::decode(t.data.as_slice()).ok()?.task {
@@ -613,10 +630,11 @@ async fn test_welcome_schedules_add_installation_tasks() {
     // Call the schedule path directly (unit level — no live sync worker needed).
     let scheduled = alix1
         .device_sync_client()
-        .schedule_add_installations_to_groups()?;
+        .schedule_add_installations_to_groups()
+        .await?;
     assert!(scheduled >= 1);
 
-    let add_tasks = count_add_tasks();
+    let add_tasks = count_add_tasks().await;
     assert!(
         add_tasks.iter().any(|gid| gid == &group.group_id.to_vec()),
         "expected an AddMissingInstallations task for the conversation group"
@@ -625,8 +643,9 @@ async fn test_welcome_schedules_add_installation_tasks() {
     // Re-scheduling dedups on payload hash: row count stays put.
     alix1
         .device_sync_client()
-        .schedule_add_installations_to_groups()?;
-    let after = count_add_tasks();
+        .schedule_add_installations_to_groups()
+        .await?;
+    let after = count_add_tasks().await;
     assert_eq!(
         add_tasks.len(),
         after.len(),

@@ -472,7 +472,7 @@ where
         depth: usize,
     ) -> std::result::Result<RouterStream<StoredGroupMessage>, RouterError> {
         let db = self.context.db();
-        let seeds = seed_groups(&db, &group_ids)?;
+        let seeds = seed_groups(&db, &group_ids).await?;
 
         let lease = self
             .transport
@@ -520,10 +520,10 @@ where
         // the floor — the tracked-topics guard absorbs that overlap. The
         // reverse order would leave it in neither: not yet a group when
         // queried, already below the floor when leased.
-        let welcome_floor = welcome_seed(&db, installation)?;
-        let known = known_welcomes_above(&db, welcome_floor)?;
+        let welcome_floor = welcome_seed(&db, installation).await?;
+        let known = known_welcomes_above(&db, welcome_floor).await?;
         let groups = db
-            .find_groups(GroupQueryArgs {
+            .find_groups(&GroupQueryArgs {
                 conversation_type,
                 consent_states: consent_states.clone(),
                 include_duplicate_dms: true,
@@ -535,6 +535,7 @@ where
                     .unwrap_or(true),
                 ..Default::default()
             })
+            .await
             .map_err(SubscribeError::from)?;
         let sync_groups: HashSet<GroupId> = groups
             .iter()
@@ -542,7 +543,7 @@ where
             .map(|g| g.id)
             .collect();
         let group_ids: Vec<GroupId> = groups.into_iter().map(|g| g.id).collect();
-        let seeds = seed_groups(&db, &group_ids)?;
+        let seeds = seed_groups(&db, &group_ids).await?;
 
         // One lease for the subscribe-time set. The welcome topic rides in
         // it, so even an account with no conversations holds a live lease —
@@ -603,12 +604,12 @@ where
         // Wire resume point: the durable welcome cursor — every welcome
         // *processed* (stored, ignored, or filtered) advances it, so nothing
         // already handled is replayed.
-        let seed = welcome_seed(&db, installation)?;
+        let seed = welcome_seed(&db, installation).await?;
         // Classification input for the pipeline: the welcome ids that became
         // groups. Per-stream — each stream's dedup is its own, so one
         // stream's delivery never suppresses another's (they may hold
         // different filters).
-        let known = known_welcomes_above(&db, seed)?;
+        let known = known_welcomes_above(&db, seed).await?;
 
         let topic = Topic::new_welcome_message(installation);
         let lease = self
@@ -692,15 +693,17 @@ impl GroupSeeds {
 }
 
 /// Seed `group_ids` from their durable cursors (see [`GroupSeeds`]).
-pub(crate) fn seed_groups(
+pub(crate) async fn seed_groups(
     db: &(impl QueryRefreshState + QueryGroupMessage),
     group_ids: &[GroupId],
 ) -> Result<GroupSeeds> {
-    let seeds = db.get_last_cursor_for_ids(
-        group_ids,
-        &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-    )?;
-    let stored = db.messages_newer_than(&seeds)?;
+    let seeds = db
+        .get_last_cursor_for_ids(
+            group_ids,
+            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+        )
+        .await?;
+    let stored = db.messages_newer_than(&seeds).await?;
     let mut floors = HashMap::with_capacity(group_ids.len());
     for group_id in group_ids {
         let floor = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
@@ -714,12 +717,13 @@ pub(crate) fn seed_groups(
 
 /// The durable welcome cursor: this installation's wire resume point for its
 /// welcome topic.
-pub(crate) fn welcome_seed(
+pub(crate) async fn welcome_seed(
     db: &impl QueryRefreshState,
     installation: InstallationId,
 ) -> Result<SequenceId> {
     Ok(db
-        .get_last_cursor_for_ids(&[installation], &[EntityKind::Welcome])?
+        .get_last_cursor_for_ids(&[installation], &[EntityKind::Welcome])
+        .await?
         .get(installation.as_slice())
         .cloned()
         .unwrap_or_default()
@@ -731,12 +735,13 @@ pub(crate) fn welcome_seed(
 /// at-or-below the durable cursor means already processed, group or not —
 /// so the known set only needs the above-floor overlap (welcomes processed
 /// since the last cursor advance).
-pub(crate) fn known_welcomes_above(
+pub(crate) async fn known_welcomes_above(
     db: &impl QueryGroup,
     floor: SequenceId,
 ) -> Result<HashSet<Cursor>> {
     Ok(db
-        .group_cursors()?
+        .group_cursors()
+        .await?
         .into_iter()
         .filter(|cursor| cursor.sequence_id > floor)
         .collect())
@@ -1232,14 +1237,21 @@ where
     /// end.
     async fn reconcile(&mut self, kill: &mut oneshot::Receiver<()>) -> bool {
         let groups = match self.reflex.as_ref() {
-            Some(reflex) => reflex.intake.context.db().find_groups(GroupQueryArgs {
-                conversation_type: reflex.intake.conversation_type,
-                consent_states: reflex.intake.consent_states.clone(),
-                include_duplicate_dms: true,
-                // Growth never adds sync groups; the subscribe-time
-                // interception set is untouched by a lag.
-                ..Default::default()
-            }),
+            Some(reflex) => {
+                reflex
+                    .intake
+                    .context
+                    .db()
+                    .find_groups(&GroupQueryArgs {
+                        conversation_type: reflex.intake.conversation_type,
+                        consent_states: reflex.intake.consent_states.clone(),
+                        include_duplicate_dms: true,
+                        // Growth never adds sync groups; the subscribe-time
+                        // interception set is untouched by a lag.
+                        ..Default::default()
+                    })
+                    .await
+            }
             None => return true,
         };
         let groups = match groups {
@@ -1317,7 +1329,7 @@ where
             // Static streams never grow; nothing routes here without a reflex.
             return AddGroup::Tracked;
         };
-        let seeds = match seed_groups(&reflex.intake.context.db(), &[group_id]) {
+        let seeds = match seed_groups(&reflex.intake.context.db(), &[group_id]).await {
             Ok(seeds) => seeds,
             Err(e) => {
                 // Seeding is local DB work; surface and skip this group (its

@@ -78,7 +78,7 @@ pub(crate) fn is_deletion_valid(
 }
 
 #[xmtp_common::mls_span]
-pub fn enrich_messages(
+pub async fn enrich_messages(
     conn: impl DbQuery,
     group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,
@@ -90,7 +90,7 @@ pub fn enrich_messages(
         .filter_map(|m| m.reference_id.as_deref())
         .collect();
 
-    let mut relations = get_relations(conn, group_id, &initial_message_ids, &reference_ids)?;
+    let mut relations = get_relations(conn, group_id, &initial_message_ids, &reference_ids).await?;
 
     let messages: Vec<DecodedMessage> = messages
         .into_iter()
@@ -181,7 +181,7 @@ pub fn enrich_messages(
     Ok(messages)
 }
 
-fn get_relations(
+async fn get_relations(
     conn: impl DbQuery,
     group_id: &GroupId,
     message_ids: &[&[u8]],
@@ -206,17 +206,20 @@ fn get_relations(
         .build()
         .unwrap_or_default();
 
-    let reactions = conn.get_inbound_relations(group_id, message_ids, reactions_relations_query)?;
-    let referenced_messages = conn.get_outbound_relations(group_id, reference_ids)?;
-    let reply_counts =
-        conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
+    let reactions = conn
+        .get_inbound_relations(group_id, message_ids, reactions_relations_query)
+        .await?;
+    let referenced_messages = conn.get_outbound_relations(group_id, reference_ids).await?;
+    let reply_counts = conn
+        .get_inbound_relation_counts(group_id, message_ids, replies_count_query)
+        .await?;
 
     // Get deletions for all messages AND referenced messages in a single batch query.
     // This ensures that if a reply references a deleted message, we can properly show
     // the deletion state in the reply chain.
     let mut all_ids: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
     all_ids.extend(reference_ids.iter().map(|id| id.to_vec()));
-    let deletions = conn.get_deletions_for_messages(all_ids)?;
+    let deletions = conn.get_deletions_for_messages(all_ids).await?;
 
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),

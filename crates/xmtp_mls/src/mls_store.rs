@@ -132,14 +132,15 @@ where
     /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
-    pub fn find_groups(
+    pub async fn find_groups(
         &self,
         args: GroupQueryArgs,
     ) -> Result<Vec<MlsGroup<Context>>, MlsStoreError> {
         Ok(self
             .context
             .db()
-            .find_groups(args)?
+            .find_groups(&args)
+            .await?
             .into_iter()
             .map(|stored_group| {
                 MlsGroup::new(
@@ -157,9 +158,10 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, MlsStoreError> {
+    pub async fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, MlsStoreError> {
         let conn = self.context.db();
-        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
+        let stored_group: Option<StoredGroup> =
+            Fetch::<StoredGroup>::fetch(&conn, group_id).await?;
         stored_group
             .map(|g| {
                 MlsGroup::new(

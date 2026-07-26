@@ -284,7 +284,7 @@ where
             .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?);
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors().await?);
 
         let stream = multiplexed(subscription, events);
 
@@ -441,7 +441,7 @@ mod test {
             .await
             .unwrap();
         for _ in 0..group_size {
-            let alix_bo_group = alix.create_group(None, None).unwrap();
+            let alix_bo_group = alix.create_group(None, None).await.unwrap();
             groups.push(alix_bo_group.group_id);
             alix_bo_group.add_members(&[bo.inbox_id()]).await.unwrap();
         }
@@ -495,7 +495,7 @@ mod test {
             .await
             .unwrap();
 
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
         group.add_members(&[bo.inbox_id()]).await.unwrap();
 
         let group = stream.next().await.unwrap();
@@ -542,7 +542,7 @@ mod test {
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
         group.add_members(&[bo.inbox_id()]).await.unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
@@ -564,16 +564,16 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.create_group(None, None).unwrap();
+        alix.create_group(None, None).await.unwrap();
         let _self_group = stream.next().await.unwrap();
 
-        let group = bo.create_group(None, None).unwrap();
+        let group = bo.create_group(None, None).await.unwrap();
         group.add_members(&[alix.inbox_id()]).await.unwrap();
         let _bo_group = stream.next().await.unwrap();
 
         // Verify syncing welcomes while streaming causes no issues
         alix.sync_welcomes().await.unwrap();
-        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
+        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).await.unwrap();
         assert_eq!(2, find_groups_results.len());
     }
 

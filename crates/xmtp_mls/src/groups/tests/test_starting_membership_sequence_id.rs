@@ -10,10 +10,10 @@ use crate::tester;
 async fn metadata_update_on_freshly_created_group_succeeds() {
     tester!(alix);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.update_group_name("hello".to_string()).await?;
 
-    assert_eq!(group.group_name()?, "hello");
+    assert_eq!(group.group_name().await?, "hello");
 }
 
 /// The commit has no GCE proposal. `get_latest_group_membership` then reads
@@ -22,7 +22,7 @@ async fn metadata_update_on_freshly_created_group_succeeds() {
 async fn key_update_on_freshly_created_group_succeeds() {
     tester!(alix);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
     group.key_update().await?;
 }

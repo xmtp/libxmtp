@@ -41,7 +41,7 @@ pub async fn setup_groups_with_messages(
 
     // Create all groups and send one message to each (using optimistic send)
     for i in 0..total_groups {
-        let group = client.create_group(None, None).unwrap();
+        let group = client.create_group(None, None).await.unwrap();
 
         // Send a message to the group using optimistic send with proper EncodedContent
         let content = TestContentGenerator::text_content(&format!("Test message {}", i));
@@ -50,6 +50,7 @@ pub async fn setup_groups_with_messages(
                 content.encode_to_vec().as_slice(),
                 SendMessageOpts::default(),
             )
+            .await
             .unwrap();
 
         // Keep track of the first `target_groups` groups as our targets
@@ -172,13 +173,14 @@ pub async fn setup_group_with_messages(
     let bar = ProgressBar::new(total_messages as u64).with_style(style.unwrap());
     bar.set_message("Creating group and sending messages");
 
-    let group = client.create_group(None, None).unwrap();
+    let group = client.create_group(None, None).await.unwrap();
 
     // Send messages using optimistic send with proper EncodedContent
     for i in 0..total_messages {
         let content = TestContentGenerator::text_content(&format!("Test message {}", i));
         group
             .send_message_optimistic(&content.encode_to_vec(), SendMessageOpts::default())
+            .await
             .unwrap();
         bar.inc(1);
     }
@@ -193,6 +195,7 @@ pub async fn setup_group_with_messages(
             direction: Some(SortDirection::Ascending),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     // Get latest timestamp (descending order, limit 1)
@@ -202,6 +205,7 @@ pub async fn setup_group_with_messages(
             direction: Some(SortDirection::Descending),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     let earliest_message_timestamp = earliest_messages.first().map(|m| m.sent_at_ns).unwrap_or(0);

@@ -186,7 +186,7 @@ where
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    if let Ok(Some(group)) = self.load_from_store(welcome.cursor) {
+                    if let Ok(Some(group)) = self.load_from_store(welcome.cursor).await {
                         return self
                             .filter(ProcessWelcomeResult::New {
                                 group,
@@ -212,7 +212,7 @@ where
             }
             Group(ref id) => {
                 tracing::debug!("stream got existing group, pulling from db.");
-                let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
+                let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id).await?;
 
                 ProcessWelcomeResult::NewStored {
                     group,
@@ -257,7 +257,7 @@ where
         // Filter out duplicate DMs if not included
         if !self.include_duplicate_dms
             && metadata.conversation_type == ConversationType::Dm
-            && self.context.db().has_duplicate_dm(&group.group_id)?
+            && self.context.db().has_duplicate_dm(&group.group_id).await?
         {
             tracing::debug!("Duplicate DM group detected. Skipping stream.");
             return Ok(false);
@@ -270,7 +270,7 @@ where
 
         // Check consent state filter
         let consent_state_match = if let Some(ref consent_states) = self.consent_states {
-            consent_states.contains(&group.consent_state()?)
+            consent_states.contains(&group.consent_state().await?)
         } else {
             true
         };
@@ -385,15 +385,15 @@ where
             _,
         ))) = res
         {
-            self.load_from_store(id)
+            self.load_from_store(id).await
         } else {
             Err(res.expect_err("Checked for Ok value").into())
         }
     }
 
     /// Load a group from disk by its welcome_id
-    fn load_from_store(&self, cursor: Cursor) -> Result<Option<MlsGroup<Context>>> {
-        let maybe_group = self.context.db().find_group_by_sequence_id(cursor)?;
+    async fn load_from_store(&self, cursor: Cursor) -> Result<Option<MlsGroup<Context>>> {
+        let maybe_group = self.context.db().find_group_by_sequence_id(cursor).await?;
         let Some(group) = maybe_group else {
             tracing::warn!(
                 welcome_id = %cursor,

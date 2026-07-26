@@ -1,19 +1,17 @@
 use std::collections::HashMap;
 
-use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
-};
+#[cfg(feature = "sync")]
+use diesel::{deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer};
 use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
-use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
-use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
+#[cfg(feature = "sync")]
+use super::{ConnectionExt, db_connection::DbConnection, schema::refresh_state};
+use crate::StorageError;
+#[cfg(feature = "sync")]
+use crate::{StoreOrIgnore, impl_store_or_ignore};
 
+#[cfg(feature = "sync")]
 allow_columns_to_appear_in_same_group_by_clause!(
     super::schema::identity_updates::originator_id,
     super::schema::identity_updates::sequence_id,
@@ -22,8 +20,9 @@ allow_columns_to_appear_in_same_group_by_clause!(
 );
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum EntityKind {
     Welcome = 1,
     ApplicationMessage = 2,       // Application messages (originator 10)
@@ -69,37 +68,25 @@ impl std::fmt::Display for EntityKind {
     }
 }
 
-impl ToSql<Integer, Sqlite> for EntityKind
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
+crate::impl_sql_int_enum!(EntityKind {
+    Welcome = 1,
+    ApplicationMessage = 2,
+    CommitLogUpload = 3,
+    CommitLogDownload = 4,
+    CommitLogForkCheckLocal = 5,
+    CommitLogForkCheckRemote = 6,
+    CommitMessage = 7,
+});
 
-impl FromSql<Integer, Sqlite> for EntityKind
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(EntityKind::Welcome),
-            2 => Ok(EntityKind::ApplicationMessage),
-            3 => Ok(EntityKind::CommitLogUpload),
-            4 => Ok(EntityKind::CommitLogDownload),
-            5 => Ok(EntityKind::CommitLogForkCheckLocal),
-            6 => Ok(EntityKind::CommitLogForkCheckRemote),
-            7 => Ok(EntityKind::CommitMessage),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
-
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
-#[diesel(table_name = refresh_state)]
-#[diesel(primary_key(entity_id, entity_kind, originator_id))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = refresh_state))]
+#[cfg_attr(
+    feature = "sync",
+    diesel(primary_key(entity_id, entity_kind, originator_id))
+)]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "refresh_state")]
 pub struct RefreshState {
     pub entity_id: Vec<u8>,
     pub entity_kind: EntityKind,
@@ -107,6 +94,7 @@ pub struct RefreshState {
     pub originator_id: i32,
 }
 
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(RefreshState, refresh_state);
 
 /// Helper function to convert rows of (entity_id, originator_id, sequence_id) into a HashMap
@@ -128,116 +116,152 @@ fn rows_to_global_cursor_map(
     map
 }
 
+/// Anything that can be viewed as an entity id's bytes.
+///
+/// One trait rather than the `AsRef<[u8]> + MaybeSync` pair it stands for, so
+/// the bound stays a *single* non-auto trait: `#[mockall::concretize]` turns the
+/// generic into a `dyn`, and `dyn A + B` is illegal when both are non-auto.
+pub trait EntityIdBytes: AsRef<[u8]> + xmtp_common::MaybeSync {}
+impl<T: AsRef<[u8]> + xmtp_common::MaybeSync + ?Sized> EntityIdBytes for T {}
+
+/// `entity_id` is deliberately bytes rather than a typed id: the accompanying
+/// [`EntityKind`] is what decides which id it is. `Welcome` keys by installation
+/// id, `ApplicationMessage`/`CommitMessage` by group id, and the cursor store
+/// passes a raw topic identifier that can be either. This is the one place in
+/// the `Query*` traits where an untyped id is load-bearing rather than sloppy.
 pub trait QueryRefreshState {
-    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+    fn get_refresh_state(
         &self,
-        entity_id: EntityId,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
-    ) -> Result<Option<RefreshState>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Option<RefreshState>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    fn get_last_cursor_for_originators(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_ids: &[u32],
-    ) -> Result<Vec<Cursor>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Vec<Cursor>, StorageError>> + xmtp_common::MaybeSend;
 
-    fn get_last_cursor_for_originator<Id: AsRef<[u8]>>(
+    /// RPITIT with an explicit `MaybeSend` rather than `async fn`: a provided
+    /// `async fn` in a trait carries no `Send` bound on its future, so every
+    /// caller that spawns one would fail to prove the future `Send`.
+    fn get_last_cursor_for_originator(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
-    ) -> Result<Cursor, StorageError> {
-        // get_last_cursor guaranteed to return entry for id
-        self.get_last_cursor_for_originators(id, entity_kind, &[originator_id])
-            .map(|c| c[0])
+    ) -> impl std::future::Future<Output = Result<Cursor, StorageError>> + xmtp_common::MaybeSend
+    where
+        Self: xmtp_common::MaybeSync,
+    {
+        async move {
+            // get_last_cursor guaranteed to return entry for id
+            self.get_last_cursor_for_originators(id, entity_kind, &[originator_id])
+                .await
+                .map(|c| c[0])
+        }
     }
 
-    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    /// Generic over the element type on purpose, and the only `Query*` method
+    /// that still is. Callers hold `&[GroupId]`, `&[InstallationId]` or
+    /// `&[Vec<u8>]` depending on the `EntityKind`; a concrete `&[&[u8]]` would
+    /// force each of them to allocate a `Vec<&[u8]>` purely to make the call.
+    fn get_last_cursor_for_ids<Id: EntityIdBytes>(
         &self,
         ids: &[Id],
         entities: &[EntityKind],
-    ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    fn update_cursor<Id: AsRef<[u8]>>(
+    fn update_cursor(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: Cursor,
-    ) -> Result<bool, StorageError>;
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
 
-    fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    fn latest_cursor_for_id(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
-    ) -> Result<GlobalCursor, StorageError>;
+    ) -> impl std::future::Future<Output = Result<GlobalCursor, StorageError>> + xmtp_common::MaybeSend;
 
     fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
-    ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
-impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
-    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+impl<T: QueryRefreshState + xmtp_common::MaybeSync> QueryRefreshState for &T {
+    async fn get_refresh_state(
         &self,
-        entity_id: EntityId,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         originator: u32,
     ) -> Result<Option<RefreshState>, StorageError> {
-        (**self).get_refresh_state(entity_id, entity_kind, originator)
+        (**self)
+            .get_refresh_state(entity_id, entity_kind, originator)
+            .await
     }
 
-    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
         &self,
         ids: &[Id],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
-        (**self).get_last_cursor_for_ids(ids, entities)
+        (**self).get_last_cursor_for_ids(ids, entities).await
     }
 
-    fn update_cursor<Id: AsRef<[u8]>>(
+    async fn update_cursor(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError> {
-        (**self).update_cursor(entity_id, entity_kind, cursor)
+        (**self).update_cursor(entity_id, entity_kind, cursor).await
     }
 
-    fn get_remote_log_cursors(
+    async fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
-        (**self).get_remote_log_cursors(conversation_ids)
+        (**self).get_remote_log_cursors(conversation_ids).await
     }
 
-    fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originators(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
-        (**self).get_last_cursor_for_originators(id, entity_kind, originator_ids)
+        (**self)
+            .get_last_cursor_for_originators(id, entity_kind, originator_ids)
+            .await
     }
 
-    fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    async fn latest_cursor_for_id(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
-        (**self).latest_cursor_for_id(entity_id, entities, originators)
+        (**self)
+            .latest_cursor_for_id(entity_id, entities, originators)
+            .await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+    async fn get_refresh_state(
         &self,
-        entity_id: EntityId,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
     ) -> Result<Option<RefreshState>, StorageError> {
@@ -245,7 +269,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
         let res = self.raw_query(|conn| {
             dsl::refresh_state
-                .find((entity_id.as_ref(), entity_kind, originator_id as i32))
+                .find((entity_id, entity_kind, originator_id as i32))
                 .first(conn)
                 .optional()
         })?;
@@ -253,15 +277,15 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originators(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
         use super::schema::refresh_state::dsl;
 
-        let id_ref = id.as_ref();
+        let id_ref = id;
 
         let originator_ids_i32: Vec<i32> = originator_ids.iter().map(|o| *o as i32).collect();
         let found_states: Vec<RefreshState> = self.raw_query(|conn| {
@@ -290,7 +314,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
         // Insert missing states
         for missing_state in &missing_states {
-            missing_state.store_or_ignore(self)?;
+            missing_state.store_or_ignore(self).await?;
         }
 
         // Build result vector maintaining input order
@@ -306,7 +330,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
         &self,
         ids: &[Id],
         entities: &[EntityKind],
@@ -354,10 +378,10 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(map)
     }
 
-    #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(&entity_id)))]
-    fn update_cursor<Id: AsRef<[u8]>>(
+    #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(entity_id)))]
+    async fn update_cursor(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError> {
@@ -366,7 +390,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         use diesel::query_dsl::methods::FilterDsl;
 
         let state = RefreshState {
-            entity_id: entity_id.as_ref().to_vec(),
+            entity_id: entity_id.to_vec(),
             entity_kind,
             sequence_id: cursor.sequence_id as i64,
             originator_id: cursor.originator_id as i32,
@@ -384,7 +408,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_remote_log_cursors(
+    async fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
@@ -396,6 +420,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                     EntityKind::CommitLogDownload,
                     Originators::REMOTE_COMMIT_LOG,
                 )
+                .await
                 .unwrap_or_default();
             cursor_map.insert(conversation_id.to_vec(), cursor);
         }
@@ -403,16 +428,16 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    async fn latest_cursor_for_id(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
         use super::schema::refresh_state::dsl;
         use diesel::dsl::max;
 
-        let entity_ref = entity_id.as_ref();
+        let entity_ref = entity_id;
 
         let cursor_map = self.raw_query(|conn| {
             let base_query = dsl::refresh_state
@@ -446,58 +471,362 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+    use sqlx::Row;
+
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
+    fn state(row: &sqlx::postgres::PgRow) -> Result<RefreshState, crate::ConnectionError> {
+        use sqlx::FromRow;
+        Ok(RefreshState::from_row(row)?)
+    }
+
+    fn kinds_as_i32(entities: &[EntityKind]) -> Vec<i32> {
+        entities.iter().map(|k| *k as i32).collect()
+    }
+
+    impl QueryRefreshState for PgDb {
+        async fn get_refresh_state(
+            &self,
+            entity_id: &[u8],
+            entity_kind: EntityKind,
+            originator_id: u32,
+        ) -> Result<Option<RefreshState>, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM refresh_state \
+                 WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = $3",
+                RefreshState::select_columns()
+            ))
+            .bind(entity_id)
+            .bind(entity_kind)
+            .bind(originator_id as i32)
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(row.as_ref().map(state).transpose()?)
+        }
+
+        /// Reads the cursor for each originator, seeding a zero row for any that
+        /// has none, and returns one cursor per requested originator **in the
+        /// order asked for**. Callers index the result positionally.
+        async fn get_last_cursor_for_originators(
+            &self,
+            id: &[u8],
+            entity_kind: EntityKind,
+            originator_ids: &[u32],
+        ) -> Result<Vec<Cursor>, StorageError> {
+            let id_ref = id;
+            let wanted: Vec<i32> = originator_ids.iter().map(|o| *o as i32).collect();
+
+            // Read-then-seed across two statements, so they share a transaction.
+            self.atomic(async |db| {
+                let found: Vec<RefreshState> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(&format!("SELECT {} FROM refresh_state \
+                         WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = ANY($3)", RefreshState::select_columns()))
+                    .bind(id_ref)
+                    .bind(entity_kind)
+                    .bind(&wanted)
+                    .fetch_all(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                    rows.iter()
+                        .map(state)
+                        .collect::<Result<_, crate::ConnectionError>>()?
+                };
+
+                let state_map: HashMap<u32, &RefreshState> = found
+                    .iter()
+                    .map(|s| (s.originator_id as u32, s))
+                    .collect();
+
+                // Seed the originators with no row yet, in one statement rather
+                // than one per missing originator.
+                let missing: Vec<i32> = originator_ids
+                    .iter()
+                    .filter(|o| !state_map.contains_key(o))
+                    .map(|o| *o as i32)
+                    .collect();
+                if !missing.is_empty() {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id) \
+                         SELECT $1, $2, 0, o FROM UNNEST($3::int4[]) AS o \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(id_ref)
+                    .bind(entity_kind)
+                    .bind(&missing)
+                    .execute(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                }
+
+                Ok(originator_ids
+                    .iter()
+                    .map(|o| match state_map.get(o) {
+                        Some(s) => Cursor::new(s.sequence_id as u64, s.originator_id as u32),
+                        None => Cursor::new(0, *o),
+                    })
+                    .collect())
+            })
+            .await
+        }
+
+        /// Unlike the sync track this issues a single query: SQLite's 999-bind
+        /// ceiling forces that impl to chunk the id list, but Postgres takes the
+        /// whole set as one array parameter.
+        async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
+            &self,
+            ids: &[Id],
+            entities: &[EntityKind],
+        ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
+            if ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let id_refs: Vec<&[u8]> = ids.iter().map(|id| id.as_ref()).collect();
+
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(
+                "SELECT entity_id, originator_id, MAX(sequence_id) FROM refresh_state \
+                 WHERE entity_kind = ANY($1) AND entity_id = ANY($2) \
+                 GROUP BY entity_id, originator_id",
+            )
+            .bind(kinds_as_i32(entities))
+            .bind(&id_refs)
+            .fetch_all(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+
+            let rows: Vec<(Vec<u8>, i32, Option<i64>)> = rows
+                .iter()
+                .map(|r| {
+                    Ok((
+                        r.try_get(0)?,
+                        r.try_get(1)?,
+                        r.try_get::<Option<i64>, _>(2)?,
+                    ))
+                })
+                .collect::<Result<_, crate::ConnectionError>>()?;
+            Ok(rows_to_global_cursor_map(rows))
+        }
+
+        /// Advances the cursor, never rewinds it. The `WHERE` on the `DO UPDATE`
+        /// is what makes that atomic: a stale writer's row is rejected by the
+        /// database rather than by a read-then-compare that could race.
+        /// `false` means the stored cursor was already at or past this one.
+        async fn update_cursor(
+            &self,
+            entity_id: &[u8],
+            entity_kind: EntityKind,
+            cursor: Cursor,
+        ) -> Result<bool, StorageError> {
+            let mut c = self.conn().await?;
+            let updated = sqlx::query(
+                "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id) \
+                 VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT (entity_id, entity_kind, originator_id) DO UPDATE \
+                 SET sequence_id = excluded.sequence_id \
+                 WHERE refresh_state.sequence_id < excluded.sequence_id",
+            )
+            .bind(entity_id)
+            .bind(entity_kind)
+            .bind(cursor.sequence_id as i64)
+            .bind(cursor.originator_id as i32)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+            Ok(updated >= 1)
+        }
+
+        /// One round trip for the whole batch. The sync track loops
+        /// `get_last_cursor_for_originator` per conversation, which would be 2N
+        /// network calls here; conversations with no row still come back as a
+        /// zero cursor, and are seeded in the same pass.
+        ///
+        /// Errors propagate rather than collapsing to a default cursor as the
+        /// sync path's `unwrap_or_default()` does — a failed read must not be
+        /// indistinguishable from "no progress yet".
+        async fn get_remote_log_cursors(
+            &self,
+            conversation_ids: &[&[u8]],
+        ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
+            if conversation_ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let originator = Originators::REMOTE_COMMIT_LOG;
+
+            self.atomic(async |db| {
+                let found: HashMap<Vec<u8>, i64> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(
+                        "SELECT entity_id, sequence_id FROM refresh_state \
+                         WHERE entity_kind = $1 AND originator_id = $2 AND entity_id = ANY($3)",
+                    )
+                    .bind(EntityKind::CommitLogDownload)
+                    .bind(originator as i32)
+                    .bind(conversation_ids)
+                    .fetch_all(&mut *c)
+                    .await?;
+                    rows.iter()
+                        .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+                        .collect::<Result<_, crate::ConnectionError>>()?
+                };
+
+                let missing: Vec<&[u8]> = conversation_ids
+                    .iter()
+                    .filter(|id| !found.contains_key(**id))
+                    .copied()
+                    .collect();
+                if !missing.is_empty() {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id) \
+                         SELECT e, $1, 0, $2 FROM UNNEST($3::bytea[]) AS e \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(EntityKind::CommitLogDownload)
+                    .bind(originator as i32)
+                    .bind(&missing)
+                    .execute(&mut *c)
+                    .await?;
+                }
+
+                Ok(conversation_ids
+                    .iter()
+                    .map(|id| {
+                        let seq = found.get(*id).copied().unwrap_or(0);
+                        (id.to_vec(), Cursor::new(seq as u64, originator))
+                    })
+                    .collect())
+            })
+            .await
+        }
+
+        async fn latest_cursor_for_id(
+            &self,
+            entity_id: &[u8],
+            entities: &[EntityKind],
+            originators: Option<&[&OriginatorId]>,
+        ) -> Result<GlobalCursor, StorageError> {
+            // Each entity kind uses a dedicated originator, so grouping by
+            // originator and taking MAX is unambiguous.
+            let mut sql = String::from(
+                "SELECT originator_id, MAX(sequence_id) FROM refresh_state \
+                 WHERE entity_id = $1 AND entity_kind = ANY($2)",
+            );
+            if originators.is_some() {
+                sql.push_str(" AND originator_id = ANY($3)");
+            }
+            sql.push_str(" GROUP BY originator_id");
+
+            let mut query = sqlx::query(&sql)
+                .bind(entity_id)
+                .bind(kinds_as_i32(entities));
+            if let Some(oids) = originators {
+                let ids: Vec<i32> = oids.iter().map(|o| **o as i32).collect();
+                query = query.bind(ids);
+            }
+
+            let mut c = self.conn().await?;
+            let rows = query
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+
+            let pairs: Vec<(u32, Option<i64>)> = rows
+                .iter()
+                .map(|r| {
+                    Ok((
+                        r.try_get::<i32, _>(0)? as u32,
+                        r.try_get::<Option<i64>, _>(1)?,
+                    ))
+                })
+                .collect::<Result<_, crate::ConnectionError>>()?;
+
+            // A NULL MAX means the group had no non-null sequence_id; drop it
+            // rather than reporting a cursor of 0.
+            Ok(pairs
+                .into_iter()
+                .filter_map(|(orig, seq)| seq.map(|s| (orig, s as u64)))
+                .collect())
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// `get_last_cursor_for_ids` takes `&[&[u8]]`; these tests own their
+    /// ids as `Vec<Vec<u8>>` and keep using them for assertions afterwards.
+    fn as_slices(ids: &[Vec<u8>]) -> Vec<&[u8]> {
+        ids.iter().map(|i| i.as_slice()).collect()
+    }
     use crate::StoreOrIgnore;
     use crate::test_utils::with_connection;
     use rstest::rstest;
 
     #[xmtp_common::test]
-    fn get_cursor_with_no_existing_state() {
-        with_connection(|conn| {
+    async fn get_cursor_with_no_existing_state() {
+        with_connection(async |conn| {
             let id = vec![1, 2, 3];
             let kind = EntityKind::ApplicationMessage;
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, kind, Originators::MLS_COMMITS)
+                .await
                 .unwrap();
             assert!(entry.is_none());
             assert_eq!(
                 conn.get_last_cursor_for_originator(&id, kind, Originators::MLS_COMMITS)
+                    .await
                     .unwrap(),
                 Cursor::mls_commits(0)
             );
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, kind, Originators::MLS_COMMITS)
+                .await
                 .unwrap();
             assert!(entry.is_some());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_cursor_with_no_existing_state_originator() {
-        with_connection(|conn| {
+    async fn get_cursor_with_no_existing_state_originator() {
+        with_connection(async |conn| {
             let id = vec![1, 2, 3];
             let kind = EntityKind::ApplicationMessage;
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, kind, Originators::MLS_COMMITS)
+                .await
                 .unwrap();
             assert!(entry.is_none());
             assert_eq!(
                 conn.get_last_cursor_for_originators(&id, kind, &[0])
+                    .await
                     .unwrap()[0],
                 Cursor::mls_commits(0)
             );
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, kind, Originators::MLS_COMMITS)
+                .await
                 .unwrap();
             assert!(entry.is_some());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_timestamp_with_existing_state() {
-        with_connection(|conn| {
+    async fn get_timestamp_with_existing_state() {
+        with_connection(async |conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
             let entry = RefreshState {
@@ -509,15 +838,17 @@ pub(crate) mod tests {
             entry.store_or_ignore(conn).unwrap();
             assert_eq!(
                 conn.get_last_cursor_for_originator(&id, entity_kind, Originators::MLS_COMMITS)
+                    .await
                     .unwrap(),
                 Cursor::mls_commits(123)
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn update_timestamp_when_bigger() {
-        with_connection(|conn| {
+    async fn update_timestamp_when_bigger() {
+        with_connection(async |conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::ApplicationMessage;
             let entry = RefreshState {
@@ -533,18 +864,21 @@ pub(crate) mod tests {
                     entity_kind,
                     Cursor::new(124, Originators::APPLICATION_MESSAGES)
                 )
+                .await
                 .unwrap()
             );
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&id, entity_kind, Originators::APPLICATION_MESSAGES)
+                .await
                 .unwrap();
             assert_eq!(entry.unwrap().sequence_id, 124);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn dont_update_timestamp_when_smaller() {
-        with_connection(|conn| {
+    async fn dont_update_timestamp_when_smaller() {
+        with_connection(async |conn| {
             let entity_id = vec![1, 2, 3];
             let entity_kind = EntityKind::Welcome;
 
@@ -562,18 +896,21 @@ pub(crate) mod tests {
                         entity_kind,
                         Cursor::new(122, Originators::APPLICATION_MESSAGES)
                     )
+                    .await
                     .unwrap()
             );
             let entry: Option<RefreshState> = conn
                 .get_refresh_state(&entity_id, entity_kind, Originators::APPLICATION_MESSAGES)
+                .await
                 .unwrap();
             assert_eq!(entry.unwrap().sequence_id, 123);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn allow_installation_and_welcome_same_id() {
-        with_connection(|conn| {
+    async fn allow_installation_and_welcome_same_id() {
+        with_connection(async |conn| {
             let entity_id = vec![1, 2, 3];
             let welcome_state = RefreshState {
                 entity_id: entity_id.clone(),
@@ -593,6 +930,7 @@ pub(crate) mod tests {
 
             let welcome_state_retrieved = conn
                 .get_refresh_state(&entity_id, EntityKind::Welcome, Originators::MLS_COMMITS)
+                .await
                 .unwrap()
                 .unwrap();
             assert_eq!(welcome_state_retrieved.sequence_id, 123);
@@ -603,14 +941,16 @@ pub(crate) mod tests {
                     EntityKind::ApplicationMessage,
                     Originators::MLS_COMMITS,
                 )
+                .await
                 .unwrap()
                 .unwrap();
             assert_eq!(group_state_retrieved.sequence_id, 456);
         })
+        .await
     }
 
     // Helper function to create and store a RefreshState
-    fn create_state<C: ConnectionExt>(
+    async fn create_state<C: ConnectionExt>(
         conn: &DbConnection<C>,
         entity_id: &[u8],
         entity_kind: EntityKind,
@@ -654,17 +994,18 @@ pub(crate) mod tests {
         #[case] request_originators: Vec<u32>,
         #[case] expected: Vec<(u32, u64)>,
     ) {
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let entity_id = vec![1, 1, 1];
             let entity_kind = EntityKind::CommitMessage;
             // Pre-populate states
             for (orig, seq) in pre_populate {
-                create_state(conn, &entity_id, entity_kind, orig, seq);
+                create_state(conn, &entity_id, entity_kind, orig, seq).await;
             }
 
             // Execute query
             let cursors = conn
                 .get_last_cursor_for_originators(&entity_id, entity_kind, &request_originators)
+                .await
                 .unwrap();
 
             // Verify results
@@ -678,10 +1019,12 @@ pub(crate) mod tests {
             for orig in &request_originators {
                 let state = conn
                     .get_refresh_state(&entity_id, entity_kind, *orig)
+                    .await
                     .unwrap();
                 assert!(state.is_some(), "Originator {} should be persisted", orig);
             }
         })
+        .await
     }
 
     #[rstest]
@@ -729,12 +1072,12 @@ pub(crate) mod tests {
         #[case] query_originators: Vec<u32>,
         #[case] expected: Vec<(u32, u64)>,
     ) {
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let entity_id = vec![99, 88, 77];
 
             // Pre-populate states
             for (kind, orig, seq) in pre_populate {
-                create_state(conn, &entity_id, kind, orig, seq);
+                create_state(conn, &entity_id, kind, orig, seq).await;
             }
 
             // Convert to OriginatorId references
@@ -746,6 +1089,7 @@ pub(crate) mod tests {
             // Execute query
             let cursor = conn
                 .latest_cursor_for_id(&entity_id, &query_entities, Some(&originator_refs))
+                .await
                 .unwrap();
 
             // Verify results
@@ -761,41 +1105,50 @@ pub(crate) mod tests {
                 );
             }
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_last_cursor_for_ids_empty() {
-        with_connection(|conn| {
+    async fn get_last_cursor_for_ids_empty() {
+        with_connection(async |conn| {
             let ids: Vec<Vec<u8>> = vec![];
             let entities = vec![EntityKind::ApplicationMessage];
-            let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
+            let result = conn
+                .get_last_cursor_for_ids(&as_slices(&ids), &entities)
+                .await
+                .unwrap();
             assert!(result.is_empty());
         })
+        .await
     }
 
     #[xmtp_common::test]
     async fn get_last_cursor_for_ids_single() {
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let id = vec![1, 2, 3];
             let entity_kind = EntityKind::ApplicationMessage;
 
             // Store a state with originator 10 and sequence_id 456
-            create_state(conn, &id, entity_kind, 10, 456);
+            create_state(conn, &id, entity_kind, 10, 456).await;
 
             // Query for it
             let ids = vec![id.clone()];
             let entities = vec![entity_kind];
-            let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
+            let result = conn
+                .get_last_cursor_for_ids(&as_slices(&ids), &entities)
+                .await
+                .unwrap();
 
             assert_eq!(result.len(), 1);
             let cursor = result.get(&id).expect("Should have cursor for id");
             assert_eq!(cursor.get(&10), 456);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_last_cursor_for_ids_multiple_mixed() {
-        with_connection(|conn| {
+    async fn get_last_cursor_for_ids_multiple_mixed() {
+        with_connection(async |conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
             // Create some ids with existing state
@@ -804,14 +1157,17 @@ pub(crate) mod tests {
             let id3 = vec![3, 0, 0];
             let id4 = vec![4, 0, 0]; // This one won't have state
 
-            create_state(conn, &id1, entity_kind, 10, 100);
-            create_state(conn, &id2, entity_kind, 10, 200);
-            create_state(conn, &id3, entity_kind, 10, 300);
+            create_state(conn, &id1, entity_kind, 10, 100).await;
+            create_state(conn, &id2, entity_kind, 10, 200).await;
+            create_state(conn, &id3, entity_kind, 10, 300).await;
 
             // Query for all ids including one without state
             let ids = vec![id1.clone(), id2.clone(), id3.clone(), id4.clone()];
             let entities = vec![entity_kind];
-            let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
+            let result = conn
+                .get_last_cursor_for_ids(&as_slices(&ids), &entities)
+                .await
+                .unwrap();
 
             // Should only return the ones with existing state
             assert_eq!(result.len(), 3);
@@ -820,48 +1176,56 @@ pub(crate) mod tests {
             assert_eq!(result.get(&id3).unwrap().get(&10), 300);
             assert!(!result.contains_key(&id4));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_last_cursor_for_ids_exactly_900() {
-        with_connection(|conn| {
+    async fn get_last_cursor_for_ids_exactly_900() {
+        with_connection(async |conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
             // Create exactly 900 ids
             let mut ids = Vec::new();
             for i in 0..900 {
                 let id = vec![(i / 256) as u8, (i % 256) as u8];
-                create_state(conn, &id, entity_kind, 10, i as i64);
+                create_state(conn, &id, entity_kind, 10, i as i64).await;
                 ids.push(id);
             }
 
             // Query for all 900 ids
             let entities = vec![entity_kind];
-            let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
+            let result = conn
+                .get_last_cursor_for_ids(&as_slices(&ids), &entities)
+                .await
+                .unwrap();
 
             assert_eq!(result.len(), 900);
             for (idx, id) in ids.iter().enumerate() {
                 assert_eq!(result.get(id).unwrap().get(&10), idx as u64);
             }
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_last_cursor_for_ids_over_900() {
-        with_connection(|conn| {
+    async fn get_last_cursor_for_ids_over_900() {
+        with_connection(async |conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
             // Create 1000 ids to test chunking
             let mut ids = Vec::new();
             for i in 0..1000 {
                 let id = vec![(i / 256) as u8, (i % 256) as u8, 0];
-                create_state(conn, &id, entity_kind, 10, i as i64);
+                create_state(conn, &id, entity_kind, 10, i as i64).await;
                 ids.push(id);
             }
 
             // Query for all 1000 ids (should use 2 chunks)
             let entities = vec![entity_kind];
-            let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
+            let result = conn
+                .get_last_cursor_for_ids(&as_slices(&ids), &entities)
+                .await
+                .unwrap();
 
             assert_eq!(result.len(), 1000);
             for (idx, id) in ids.iter().enumerate() {
@@ -873,24 +1237,28 @@ pub(crate) mod tests {
                 );
             }
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_last_cursor_for_ids_over_1800() {
-        with_connection(|conn| {
+    async fn get_last_cursor_for_ids_over_1800() {
+        with_connection(async |conn| {
             let entity_kind = EntityKind::ApplicationMessage;
 
             // Create 2000 ids to test multiple chunks
             let mut ids = Vec::new();
             for i in 0..2000 {
                 let id = vec![(i / 256) as u8, (i % 256) as u8, 1];
-                create_state(conn, &id, entity_kind, 10, i as i64);
+                create_state(conn, &id, entity_kind, 10, i as i64).await;
                 ids.push(id);
             }
 
             // Query for all 2000 ids (should use 3 chunks: 900, 900, 200)
             let entities = vec![entity_kind];
-            let result = conn.get_last_cursor_for_ids(&ids, &entities).unwrap();
+            let result = conn
+                .get_last_cursor_for_ids(&as_slices(&ids), &entities)
+                .await
+                .unwrap();
 
             assert_eq!(result.len(), 2000);
             for (idx, id) in ids.iter().enumerate() {
@@ -902,23 +1270,25 @@ pub(crate) mod tests {
                 );
             }
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_last_cursor_for_ids_different_entity_kinds() {
-        with_connection(|conn| {
+    async fn get_last_cursor_for_ids_different_entity_kinds() {
+        with_connection(async |conn| {
             let id1 = vec![1, 2, 3];
             let id2 = vec![4, 5, 6];
 
             // Store same ids with different entity kinds
-            create_state(conn, &id1, EntityKind::ApplicationMessage, 10, 100);
-            create_state(conn, &id1, EntityKind::Welcome, 10, 200);
-            create_state(conn, &id2, EntityKind::ApplicationMessage, 10, 300);
+            create_state(conn, &id1, EntityKind::ApplicationMessage, 10, 100).await;
+            create_state(conn, &id1, EntityKind::Welcome, 10, 200).await;
+            create_state(conn, &id2, EntityKind::ApplicationMessage, 10, 300).await;
 
             // Query for ApplicationMessage entity kind only
             let ids = vec![id1.clone(), id2.clone()];
             let result = conn
-                .get_last_cursor_for_ids(&ids, &[EntityKind::ApplicationMessage])
+                .get_last_cursor_for_ids(&as_slices(&ids), &[EntityKind::ApplicationMessage])
+                .await
                 .unwrap();
 
             assert_eq!(result.len(), 2);
@@ -927,12 +1297,14 @@ pub(crate) mod tests {
 
             // Query for Welcome entity kind only
             let result = conn
-                .get_last_cursor_for_ids(&ids, &[EntityKind::Welcome])
+                .get_last_cursor_for_ids(&as_slices(&ids), &[EntityKind::Welcome])
+                .await
                 .unwrap();
 
             assert_eq!(result.len(), 1);
             assert_eq!(result.get(&id1).unwrap().get(&10), 200);
             assert!(!result.contains_key(&id2));
         })
+        .await
     }
 }

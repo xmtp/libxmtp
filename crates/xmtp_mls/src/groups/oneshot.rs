@@ -42,7 +42,8 @@ impl Oneshot {
             PreconfiguredPolicies::default().to_policy_set(),
             GroupMetadataOptions::default(),
             Some(oneshot_message),
-        )?;
+        )
+        .await?;
 
         // Add the specified inbox IDs to the group
         if !inbox_ids.as_ref().is_empty() {
@@ -55,7 +56,7 @@ impl Oneshot {
         Ok(())
     }
 
-    pub fn process_message(
+    pub async fn process_message(
         provider: &impl MlsProviderExt,
         _sender_inbox_id: String,
         sender_installation_id: Vec<u8>,
@@ -67,13 +68,19 @@ impl Oneshot {
                     provider.key_store(),
                     &readd_request.group_id,
                     &sender_installation_id,
-                )? {
+                )
+                .await?
+                {
                     let group_id = GroupId::try_from(readd_request.group_id.as_slice())?;
-                    provider.key_store().db().update_requested_at_sequence_id(
-                        &group_id,
-                        &sender_installation_id,
-                        readd_request.latest_commit_sequence_id as i64,
-                    )?;
+                    provider
+                        .key_store()
+                        .db()
+                        .update_requested_at_sequence_id(
+                            &group_id,
+                            &sender_installation_id,
+                            readd_request.latest_commit_sequence_id as i64,
+                        )
+                        .await?;
                     tracing::info!(
                         group_id = readd_request.group_id.snippet(),
                         sender_installation_id = sender_installation_id.snippet(),
@@ -92,7 +99,7 @@ impl Oneshot {
         Ok(())
     }
 
-    pub fn process_welcome(
+    pub async fn process_welcome(
         provider: &impl MlsProviderExt,
         cursor: Cursor,
         sender_inbox_id: String,
@@ -101,7 +108,8 @@ impl Oneshot {
     ) -> Result<(), GroupError> {
         tracing::debug!("Processing oneshot welcome");
         if let Some(message) = metadata.oneshot_message {
-            Self::process_message(provider, sender_inbox_id, sender_installation_id, message)?;
+            Self::process_message(provider, sender_inbox_id, sender_installation_id, message)
+                .await?;
         } else {
             tracing::warn!(
                 "Oneshot group welcome {} does not have oneshot message",
@@ -111,14 +119,15 @@ impl Oneshot {
         Ok(())
     }
 
-    fn validate_readd_request(
+    async fn validate_readd_request(
         storage: &impl XmtpMlsStorageProvider,
         group_id: &Vec<u8>,
         sender_installation_id: &Vec<u8>,
     ) -> Result<bool, GroupError> {
         let Some(record) = storage
             .db()
-            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)?
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
+            .await?
         else {
             tracing::warn!(
                 group_id = group_id.snippet(),
@@ -134,10 +143,10 @@ impl Oneshot {
             return Ok(false);
         }
         // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
-        let Ok(Some(openmls_group)) = openmls::group::MlsGroup::load(
+        let Ok(Some(openmls_group)) = maybe_await!(openmls::group::MlsGroup::load(
             storage,
             &openmls::group::GroupId::from_slice(group_id.as_slice()),
-        ) else {
+        )) else {
             tracing::warn!(
                 group_id = group_id.snippet(),
                 "Unable to load OpenMLS group for readd request"
@@ -182,10 +191,16 @@ mod tests {
         let group_id_typed: GroupId = group_id;
         bo.sync_all_welcomes_and_groups(None).await.unwrap();
         caro.sync_all_welcomes_and_groups(None).await.unwrap();
-        let b_group = bo.group(&group_id).unwrap();
-        b_group.update_consent_state(ConsentState::Allowed).unwrap();
-        let c_group = caro.group(&group_id).unwrap();
-        c_group.update_consent_state(ConsentState::Allowed).unwrap();
+        let b_group = bo.group(&group_id).await.unwrap();
+        b_group
+            .update_consent_state(ConsentState::Allowed)
+            .await
+            .unwrap();
+        let c_group = caro.group(&group_id).await.unwrap();
+        c_group
+            .update_consent_state(ConsentState::Allowed)
+            .await
+            .unwrap();
         let latest_commit_sequence_id = 42;
 
         // Verify that Bo and Caro have no readd status for Alix initially
@@ -193,6 +208,7 @@ mod tests {
             .context
             .db()
             .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
+            .await
             .expect("Failed to query readd status");
         assert!(
             bo_initial_status.is_none(),
@@ -203,6 +219,7 @@ mod tests {
             .context
             .db()
             .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
+            .await
             .expect("Failed to query readd status");
         assert!(
             caro_initial_status.is_none(),
@@ -235,6 +252,7 @@ mod tests {
             .context
             .db()
             .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
+            .await
             .expect("Failed to query readd status")
             .expect("Bo should have readd status for Alix after syncing");
 
@@ -257,6 +275,7 @@ mod tests {
             .context
             .db()
             .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
+            .await
             .expect("Failed to query readd status")
             .expect("Caro should have readd status for Alix after syncing");
 
@@ -295,8 +314,8 @@ mod tests {
         bo.sync_welcomes().await.expect("Failed to sync welcomes");
 
         // Check that neither Alix nor Bo has any oneshot groups in find_groups
-        let alix_groups = alix.find_groups(Default::default()).unwrap();
-        let bo_groups = bo.find_groups(Default::default()).unwrap();
+        let alix_groups = alix.find_groups(Default::default()).await.unwrap();
+        let bo_groups = bo.find_groups(Default::default()).await.unwrap();
 
         // Oneshot groups should not appear in the regular groups list
         assert_eq!(alix_groups.len(), 0, "Alix should have no groups");

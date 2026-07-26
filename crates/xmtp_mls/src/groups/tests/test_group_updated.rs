@@ -13,11 +13,11 @@ fn decode_group_updated(encoded_bytes: &[u8]) -> GroupUpdated {
 }
 
 /// Get the first group for a client
-fn get_first_group<C>(client: &crate::Client<C>) -> MlsGroup<C>
+async fn get_first_group<C>(client: &crate::Client<C>) -> MlsGroup<C>
 where
     C: XmtpSharedContext,
 {
-    let groups = client.find_groups(Default::default()).unwrap();
+    let groups = client.find_groups(Default::default()).await.unwrap();
     groups
         .into_iter()
         .next()
@@ -36,24 +36,26 @@ where
 }
 
 /// Get and decode the last message from a group
-fn get_last_message<C>(group: &MlsGroup<C>) -> GroupUpdated
+async fn get_last_message<C>(group: &MlsGroup<C>) -> GroupUpdated
 where
     C: XmtpSharedContext,
 {
     let messages = group
         .find_messages(&MsgQueryArgs::default())
+        .await
         .expect("Failed to find messages");
     let last_msg = messages.last().expect("Should have at least one message");
     decode_group_updated(&last_msg.decrypted_message_bytes)
 }
 
 /// Get and decode the nth message from the end (0 = last, 1 = second to last, etc.)
-fn get_nth_message_from_end<C>(group: &MlsGroup<C>, n: usize) -> GroupUpdated
+async fn get_nth_message_from_end<C>(group: &MlsGroup<C>, n: usize) -> GroupUpdated
 where
     C: XmtpSharedContext,
 {
     let messages = group
         .find_messages(&MsgQueryArgs::default())
+        .await
         .expect("Failed to find messages");
     let msg = messages
         .iter()
@@ -64,12 +66,13 @@ where
 }
 
 /// Get the first message from a group
-fn get_first_message<C>(group: &MlsGroup<C>) -> GroupUpdated
+async fn get_first_message<C>(group: &MlsGroup<C>) -> GroupUpdated
 where
     C: XmtpSharedContext,
 {
     let messages = group
         .find_messages(&MsgQueryArgs::default())
+        .await
         .expect("Failed to find messages");
     let first_msg = messages.first().expect("Should have at least one message");
     decode_group_updated(&first_msg.decrypted_message_bytes)
@@ -158,11 +161,11 @@ fn assert_no_admin_changes(msg: &GroupUpdated) {
 }
 
 /// Assert that admin list contains specific inbox IDs and has expected count
-fn assert_admin_list_contains<C>(group: &MlsGroup<C>, expected_inbox_ids: &[&str])
+async fn assert_admin_list_contains<C>(group: &MlsGroup<C>, expected_inbox_ids: &[&str])
 where
     C: XmtpSharedContext,
 {
-    let admin_list = group.admin_list().expect("Failed to get admin list");
+    let admin_list = group.admin_list().await.expect("Failed to get admin list");
     assert_eq!(
         admin_list.len(),
         expected_inbox_ids.len(),
@@ -179,12 +182,13 @@ where
 }
 
 /// Assert that super admin list contains specific inbox IDs and has expected count
-fn assert_super_admin_list_contains<C>(group: &MlsGroup<C>, expected_inbox_ids: &[&str])
+async fn assert_super_admin_list_contains<C>(group: &MlsGroup<C>, expected_inbox_ids: &[&str])
 where
     C: XmtpSharedContext,
 {
     let super_admin_list = group
         .super_admin_list()
+        .await
         .expect("Failed to get super admin list");
     assert_eq!(
         super_admin_list.len(),
@@ -202,11 +206,11 @@ where
 }
 
 /// Assert that admin list does NOT contain a specific inbox ID
-fn assert_admin_list_excludes<C>(group: &MlsGroup<C>, excluded_inbox_id: &str)
+async fn assert_admin_list_excludes<C>(group: &MlsGroup<C>, excluded_inbox_id: &str)
 where
     C: XmtpSharedContext,
 {
-    let admin_list = group.admin_list().expect("Failed to get admin list");
+    let admin_list = group.admin_list().await.expect("Failed to get admin list");
     assert!(
         !admin_list.contains(&excluded_inbox_id.to_string()),
         "{} should not be in admin list",
@@ -215,12 +219,13 @@ where
 }
 
 /// Assert that super admin list does NOT contain a specific inbox ID
-fn assert_super_admin_list_excludes<C>(group: &MlsGroup<C>, excluded_inbox_id: &str)
+async fn assert_super_admin_list_excludes<C>(group: &MlsGroup<C>, excluded_inbox_id: &str)
 where
     C: XmtpSharedContext,
 {
     let super_admin_list = group
         .super_admin_list()
+        .await
         .expect("Failed to get super admin list");
     assert!(
         !super_admin_list.contains(&excluded_inbox_id.to_string()),
@@ -241,6 +246,7 @@ async fn test_group_updated_admin_changes() {
     // Alix creates a group and adds the other 4 members
     let alix_group = alix
         .create_group(None, Default::default())
+        .await
         .expect("Failed to create group");
 
     alix_group
@@ -259,13 +265,13 @@ async fn test_group_updated_admin_changes() {
     sync_client_welcomes(&devon).await;
     sync_client_welcomes(&erin).await;
 
-    let bola_group = get_first_group(&bola);
-    let caro_group = get_first_group(&caro);
-    let devon_group = get_first_group(&devon);
-    let erin_group = get_first_group(&erin);
+    let bola_group = get_first_group(&bola).await;
+    let caro_group = get_first_group(&caro).await;
+    let devon_group = get_first_group(&devon).await;
+    let erin_group = get_first_group(&erin).await;
 
     // Verify welcome messages have empty admin fields but correct member fields
-    let welcome_msg = get_first_message(&bola_group);
+    let welcome_msg = get_first_message(&bola_group).await;
     assert_eq!(
         welcome_msg.added_inboxes.len(),
         1,
@@ -287,11 +293,11 @@ async fn test_group_updated_admin_changes() {
     bola_group.sync().await.expect("Failed to sync");
 
     // Verify admin and super admin lists
-    assert_admin_list_contains(&bola_group, &[bola.inbox_id()]);
-    assert_super_admin_list_contains(&bola_group, &[alix.inbox_id()]);
+    assert_admin_list_contains(&bola_group, &[bola.inbox_id()]).await;
+    assert_super_admin_list_contains(&bola_group, &[alix.inbox_id()]).await;
 
     // Verify the message
-    let last_msg = get_last_message(&bola_group);
+    let last_msg = get_last_message(&bola_group).await;
     assert_admin_changes(&last_msg, 1, 0, Some(bola.inbox_id()), None);
     assert_super_admin_changes(&last_msg, 0, 0, None, None);
 
@@ -304,11 +310,11 @@ async fn test_group_updated_admin_changes() {
     caro_group.sync().await.expect("Failed to sync");
 
     // Verify admin and super admin lists
-    assert_super_admin_list_contains(&caro_group, &[alix.inbox_id(), caro.inbox_id()]);
-    assert_admin_list_contains(&caro_group, &[bola.inbox_id()]);
+    assert_super_admin_list_contains(&caro_group, &[alix.inbox_id(), caro.inbox_id()]).await;
+    assert_admin_list_contains(&caro_group, &[bola.inbox_id()]).await;
 
     // Verify the message
-    let last_msg = get_last_message(&caro_group);
+    let last_msg = get_last_message(&caro_group).await;
     assert_super_admin_changes(&last_msg, 1, 0, Some(caro.inbox_id()), None);
     assert_admin_changes(&last_msg, 0, 0, None, None);
 
@@ -327,18 +333,19 @@ async fn test_group_updated_admin_changes() {
     erin_group.sync().await.expect("Failed to sync");
 
     // Verify admin and super admin lists
-    assert_admin_list_contains(&devon_group, &[bola.inbox_id(), devon.inbox_id()]);
+    assert_admin_list_contains(&devon_group, &[bola.inbox_id(), devon.inbox_id()]).await;
     assert_super_admin_list_contains(
         &erin_group,
         &[alix.inbox_id(), caro.inbox_id(), erin.inbox_id()],
-    );
+    )
+    .await;
 
     // Verify Devon's admin addition (second to last message)
-    let devon_msg = get_nth_message_from_end(&devon_group, 1);
+    let devon_msg = get_nth_message_from_end(&devon_group, 1).await;
     assert_admin_changes(&devon_msg, 1, 0, Some(devon.inbox_id()), None);
 
     // Verify Erin's super admin addition (last message)
-    let erin_msg = get_last_message(&erin_group);
+    let erin_msg = get_last_message(&erin_group).await;
     assert_super_admin_changes(&erin_msg, 1, 0, Some(erin.inbox_id()), None);
 
     // Test 4: Remove Bola as admin
@@ -350,11 +357,11 @@ async fn test_group_updated_admin_changes() {
     bola_group.sync().await.expect("Failed to sync");
 
     // Verify admin list no longer contains Bola
-    assert_admin_list_excludes(&bola_group, bola.inbox_id());
-    assert_admin_list_contains(&bola_group, &[devon.inbox_id()]);
+    assert_admin_list_excludes(&bola_group, bola.inbox_id()).await;
+    assert_admin_list_contains(&bola_group, &[devon.inbox_id()]).await;
 
     // Verify the message
-    let last_msg = get_last_message(&bola_group);
+    let last_msg = get_last_message(&bola_group).await;
     assert_admin_changes(&last_msg, 0, 1, None, Some(bola.inbox_id()));
     assert_super_admin_changes(&last_msg, 0, 0, None, None);
 
@@ -370,18 +377,18 @@ async fn test_group_updated_admin_changes() {
     caro_group.sync().await.expect("Failed to sync");
 
     // Verify super admin list no longer contains Caro
-    assert_super_admin_list_excludes(&caro_group, caro.inbox_id());
-    assert_super_admin_list_contains(&caro_group, &[alix.inbox_id(), erin.inbox_id()]);
-    assert_admin_list_contains(&caro_group, &[devon.inbox_id()]);
+    assert_super_admin_list_excludes(&caro_group, caro.inbox_id()).await;
+    assert_super_admin_list_contains(&caro_group, &[alix.inbox_id(), erin.inbox_id()]).await;
+    assert_admin_list_contains(&caro_group, &[devon.inbox_id()]).await;
 
     // Verify the message
-    let last_msg = get_last_message(&caro_group);
+    let last_msg = get_last_message(&caro_group).await;
     assert_super_admin_changes(&last_msg, 0, 1, None, Some(caro.inbox_id()));
     assert_admin_changes(&last_msg, 0, 0, None, None);
 
     // Test 6: Verify that messages with only member changes (no admin changes) have empty admin fields
     // Add a new member to trigger a member-only change
-    let alix_group2 = alix.create_group(None, Default::default()).unwrap();
+    let alix_group2 = alix.create_group(None, Default::default()).await.unwrap();
     alix_group2
         .add_members(&[bola.inbox_id().to_string()])
         .await
@@ -389,18 +396,18 @@ async fn test_group_updated_admin_changes() {
 
     sync_client_welcomes(&bola).await;
 
-    let bola_groups2 = bola.find_groups(Default::default()).unwrap();
+    let bola_groups2 = bola.find_groups(Default::default()).await.unwrap();
     let new_group = bola_groups2
         .iter()
         .find(|g| g.group_id != bola_group.group_id)
         .expect("Should find new group");
 
     // Verify admin and super admin lists for new group
-    assert_admin_list_contains(new_group, &[]);
-    assert_super_admin_list_contains(new_group, &[alix.inbox_id()]);
+    assert_admin_list_contains(new_group, &[]).await;
+    assert_super_admin_list_contains(new_group, &[alix.inbox_id()]).await;
 
     // Verify the welcome message has no admin changes
-    let member_only_msg = get_first_message(new_group);
+    let member_only_msg = get_first_message(new_group).await;
     assert_eq!(
         member_only_msg.added_inboxes.len(),
         1,

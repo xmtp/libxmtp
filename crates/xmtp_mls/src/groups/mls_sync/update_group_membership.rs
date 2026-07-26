@@ -164,7 +164,7 @@ pub(crate) async fn apply_update_group_membership_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
@@ -326,19 +326,20 @@ async fn compute_publish_data_for_group_membership_update(
     key_packages_to_add: Vec<KeyPackage>,
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     new_extensions: Extensions<GroupContext>,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
 ) -> Result<PublishIntentData, GroupError> {
     // Use savepoint pattern to create commit without persisting state
     let ((commit, maybe_welcome_message, _), staged_commit, group_epoch) =
-        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
-            group.update_group_membership(
+        generate_commit_with_rollback(context.mls_storage(), openmls_group, async |group, provider| {
+            maybe_await!(group.update_group_membership(
                 provider,
                 &signer,
                 &key_packages_to_add,
                 &leaf_nodes_to_remove,
                 new_extensions,
-            )
-        })?;
+            ))
+        })
+        .await?;
 
     let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
 
@@ -382,7 +383,7 @@ async fn compute_publish_data_for_proposal_based_update(
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     new_extensions: Extensions<GroupContext>,
     app_data_membership_payload: Option<Vec<u8>>,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
 ) -> Result<PublishIntentData, GroupError> {
     let is_migrated_path = app_data_membership_payload.is_some();
     // Only used on the legacy path. On the migrated path the
@@ -398,22 +399,21 @@ async fn compute_publish_data_for_proposal_based_update(
     let new_extensions_for_filter = new_extensions.clone();
 
     let ((proposal_payloads, bundle), staged_commit, group_epoch) =
-        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
+        generate_commit_with_rollback(context.mls_storage(), openmls_group, async |group, provider| {
             let mut proposal_payloads: Vec<Vec<u8>> = Vec::new();
 
             // 1. Create Add proposals
             for kp in &key_packages_to_add {
-                let (msg, _) = group
-                    .propose_add_member(provider, &signer, kp)
+                let (msg, _) = maybe_await!(group.propose_add_member(provider, &signer, kp))
                     .map_err(GroupError::ProposeAddMember)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
             // 2. Create Remove proposals
             for &leaf_index in &leaf_nodes_to_remove {
-                let (msg, _) = group
-                    .propose_remove_member(provider, &signer, leaf_index)
-                    .map_err(GroupError::ProposeRemoveMember)?;
+                let (msg, _) =
+                    maybe_await!(group.propose_remove_member(provider, &signer, leaf_index))
+                        .map_err(GroupError::ProposeRemoveMember)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
@@ -421,21 +421,23 @@ async fn compute_publish_data_for_proposal_based_update(
             //     Receivers walk the proposal alongside the Add/Remove proposals
             //     and apply the dict update via `accumulate_app_data_updates`.
             if let Some(payload) = &app_data_membership_payload {
-                let (msg, _) = group
-                    .propose_app_data_update(
-                        provider,
-                        &signer,
-                        ComponentId::GROUP_MEMBERSHIP.as_u16(),
-                        AppDataUpdateOperation::Update(payload.clone().into()),
-                    )
-                    .map_err(GroupError::Proposal)?;
+                let (msg, _) = maybe_await!(group.propose_app_data_update(
+                    provider,
+                    &signer,
+                    ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                    AppDataUpdateOperation::Update(payload.clone().into()),
+                ))
+                .map_err(GroupError::Proposal)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             // 3b. Legacy: GCE proposal updating GROUP_MEMBERSHIP_EXTENSION_ID
             //     (only when the membership actually changed).
             } else if extensions_changed {
-                let (msg, _) = group
-                    .propose_group_context_extensions(provider, new_extensions.clone(), &signer)
-                    .map_err(GroupError::Proposal)?;
+                let (msg, _) = maybe_await!(group.propose_group_context_extensions(
+                    provider,
+                    new_extensions.clone(),
+                    &signer
+                ))
+                .map_err(GroupError::Proposal)?;
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
@@ -455,15 +457,15 @@ async fn compute_publish_data_for_proposal_based_update(
             } else {
                 None
             };
-            let mut stage = group
+            let mut stage = maybe_await!(group
                 .commit_builder()
                 .consume_proposal_store(true)
-                .load_psks(provider.storage())
-                .map_err(CommitToPendingProposalsError::from)?;
+                .load_psks(provider.storage()))
+            .map_err(CommitToPendingProposalsError::from)?;
             if let Some(Some(updates)) = app_data_updates {
                 stage.with_app_data_dictionary_updates(Some(updates));
             }
-            let bundle = stage
+            let built = stage
                 .build(provider.rand(), provider.crypto(), &signer, |qp| {
                     match qp.proposal() {
                         // Always filter GCEs against expected membership.
@@ -482,12 +484,13 @@ async fn compute_publish_data_for_proposal_based_update(
                         _ => true,
                     }
                 })
-                .map_err(CommitToPendingProposalsError::from)?
-                .stage_commit(provider)
+                .map_err(CommitToPendingProposalsError::from)?;
+            let bundle = maybe_await!(built.stage_commit(provider))
                 .map_err(CommitToPendingProposalsError::from)?;
 
             Ok::<_, GroupError>((proposal_payloads, bundle))
-        })?;
+        })
+        .await?;
 
     let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
     let (commit, maybe_welcome_message, _) = bundle.into_messages();
@@ -520,7 +523,7 @@ pub(crate) async fn apply_readd_installations_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: ReaddInstallationsIntentData,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let readded_installations: HashSet<Vec<u8>> =
         intent_data.readded_installations.into_iter().collect();

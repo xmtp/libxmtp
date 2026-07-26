@@ -12,8 +12,8 @@ where
 {
     type Error = T::Error;
 
-    fn is_d14n(&self) -> Result<bool, Self::Error> {
-        <T as XmtpQuery>::is_d14n(&**self)
+    async fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <T as XmtpQuery>::is_d14n(&**self).await
     }
 
     /// Query every [`Topic`] at [`GlobalCursor`]
@@ -39,8 +39,8 @@ where
 {
     type Error = T::Error;
 
-    fn is_d14n(&self) -> Result<bool, Self::Error> {
-        <T as XmtpQuery>::is_d14n(&**self)
+    async fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <T as XmtpQuery>::is_d14n(&**self).await
     }
 
     /// Query every [`Topic`] at [`GlobalCursor`]

@@ -35,7 +35,8 @@ async fn publish_update_with_publish_time_failure(
 
     let intent = QueueIntent::update_group_membership()
         .data(intent_data)
-        .queue(alix_group)?;
+        .queue(alix_group)
+        .await?;
     alix_group.sync_until_intent_resolved(intent.id).await?;
 
     Ok(())
@@ -110,7 +111,7 @@ async fn joiner_accepts_welcome_with_publish_time_failed_installation() {
         1,
         "caro's welcome must not be rejected as InvalidGroupMembership"
     );
-    assert_eq!(caro.find_groups(GroupQueryArgs::default())?.len(), 1);
+    assert_eq!(caro.find_groups(GroupQueryArgs::default()).await?.len(), 1);
 
     set_test_mode_upload_malformed_keypackage(false, None);
 }

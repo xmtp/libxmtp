@@ -49,7 +49,7 @@ where
 
         // Sync to pull down the message
         other.sync().await?;
-        let mut other_msgs = other.find_messages(&MsgQueryArgs::default())?;
+        let mut other_msgs = other.find_messages(&MsgQueryArgs::default()).await?;
         if msg.as_bytes() != other_msgs.pop().unwrap().decrypted_message_bytes {
             return Err(TestError::Generic(
                 "Sent message was not received.".to_string(),
@@ -81,7 +81,8 @@ where
             .find_messages(&MsgQueryArgs {
                 kind: Some(GroupMessageKind::Application),
                 ..Default::default()
-            })?
+            })
+            .await?
             .pop();
         Ok(last.map(|m| m.decrypted_message_bytes))
     }

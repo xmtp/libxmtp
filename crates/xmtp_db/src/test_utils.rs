@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+#[cfg(feature = "sync")]
 use crate::{DbConnection, EncryptedMessageStore};
 mod impls;
 mod mls_memory_storage;
@@ -13,20 +14,26 @@ pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
 #[allow(async_fn_in_trait)]
 pub trait XmtpTestDb {
     /// Create a validated, ephemeral database, running the migrations
-    async fn create_ephemeral_store() -> EncryptedMessageStore<crate::DefaultDatabase>;
+    fn create_ephemeral_store()
+    -> impl std::future::Future<Output = EncryptedMessageStore<crate::DefaultDatabase>>
+    + xmtp_common::MaybeSend;
 
-    async fn create_ephemeral_store_from_snapshot(
+    fn create_ephemeral_store_from_snapshot(
         snapshot: &[u8],
-        path: Option<impl AsRef<Path>>,
-    ) -> EncryptedMessageStore<crate::DefaultDatabase>;
+        path: Option<&Path>,
+    ) -> impl std::future::Future<Output = EncryptedMessageStore<crate::DefaultDatabase>>
+    + xmtp_common::MaybeSend;
 
     /// Create a validated, persistent database running the migrations
-    async fn create_persistent_store(
+    fn create_persistent_store(
         path: Option<String>,
-    ) -> EncryptedMessageStore<crate::DefaultDatabase>;
+    ) -> impl std::future::Future<Output = EncryptedMessageStore<crate::DefaultDatabase>>
+    + xmtp_common::MaybeSend;
     /// Create an empty database
     /// does no validation and does not run migrations.
-    async fn create_database(path: Option<String>) -> crate::DefaultDatabase;
+    fn create_database(
+        path: Option<String>,
+    ) -> impl std::future::Future<Output = crate::DefaultDatabase> + xmtp_common::MaybeSend;
 }
 
 impl<Db> EncryptedMessageStore<Db> {
@@ -75,7 +82,7 @@ mod wasm {
 
         async fn create_ephemeral_store_from_snapshot(
             snapshot: &[u8],
-            _path: Option<impl AsRef<Path>>,
+            _path: Option<&Path>,
         ) -> EncryptedMessageStore<crate::DefaultDatabase> {
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
@@ -108,22 +115,26 @@ mod wasm {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub fn with_connection<F, R>(fun: F) -> R
+    ///
+    /// Async because the `Query*` traits are, but still lends the connection by
+    /// reference -- unlike [`with_connection_async`], which hands it over by
+    /// value. Keeping the borrow is what lets test bodies stay as they were.
+    pub async fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(
+        F: AsyncFnOnce(
             &crate::DbConnection<
                 Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>,
             >,
         ) -> R,
     {
-        // ephemeral db connections do not use async so should resolve immediately
+        // Was `now_or_never` only because this harness used to be sync; an
+        // ephemeral store resolves immediately either way.
         let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
-            .now_or_never()
-            .unwrap()
+            .await
             .unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
-        fun(&DbConnection::new(conn))
+        fun(&DbConnection::new(conn)).await
     }
 
     /// Test harness that loads an Ephemeral store.
@@ -184,9 +195,8 @@ mod native {
         }
         async fn create_ephemeral_store_from_snapshot(
             mut snapshot: &[u8],
-            path: Option<impl AsRef<Path>>,
+            path: Option<&Path>,
         ) -> crate::DefaultStore {
-            let path = path.as_ref();
             let mut buffer;
 
             let mut i = 0;
@@ -210,7 +220,6 @@ mod native {
                 }
 
                 if let Some(path) = path {
-                    let path = path.as_ref();
                     // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
                     {
                         let mut conn =
@@ -256,9 +265,13 @@ mod native {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub fn with_connection<F, R>(fun: F) -> R
+    ///
+    /// Async because the `Query*` traits are, but still lends the connection by
+    /// reference -- unlike [`with_connection_async`], which hands it over by
+    /// value. Keeping the borrow is what lets test bodies stay as they were.
+    pub async fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(
+        F: AsyncFnOnce(
             &crate::DbConnection<
                 Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>,
             >,
@@ -267,7 +280,7 @@ mod native {
         let db = NativeDb::builder().ephemeral().build_unencrypted().unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
-        fun(&DbConnection::new(conn))
+        fun(&DbConnection::new(conn)).await
     }
 
     /// Test harness that loads an Ephemeral store.

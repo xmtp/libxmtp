@@ -1,7 +1,12 @@
+use crate::StorageError;
+#[cfg(feature = "sync")]
 use crate::encrypted_store::schema::identity;
+#[cfg(feature = "sync")]
 use crate::schema::identity::dsl;
-use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
+#[cfg(feature = "sync")]
+use crate::{ConnectionExt, DbConnection, impl_fetch, impl_store};
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
@@ -9,8 +14,11 @@ use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 
 /// Identity of this installation
 /// There can only be one.
-#[derive(Insertable, Queryable, Debug, Clone, Builder, Serialize, Deserialize)]
-#[diesel(table_name = identity)]
+#[derive(Debug, Clone, Builder, Serialize, Deserialize)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = identity))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "identity")]
 #[builder(setter(into), build_fn(error = "crate::StorageError"))]
 pub struct StoredIdentity {
     pub inbox_id: String,
@@ -25,8 +33,61 @@ pub struct StoredIdentity {
     pub registration_cursor_sequence_id: Option<i64>,
 }
 
+#[cfg(feature = "sync")]
 impl_fetch!(StoredIdentity, identity);
+#[cfg(feature = "sync")]
 impl_store!(StoredIdentity, identity);
+
+/// sqlx backend -- Postgres only. Mirrors the diesel `impl_store!`/`impl_fetch!`
+/// above: a plain insert (the identity table holds a single row) and a
+/// first-row read. `rowid` is DB-assigned, so it is omitted from the insert.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_store_impl {
+    use super::*;
+    use crate::pg::PgModel;
+
+    impl<C: crate::PgConnectionProvider> crate::Store<C> for StoredIdentity {
+        type Output = ();
+        async fn store(&self, into: &C) -> Result<(), StorageError> {
+            let mut c = into.pg_conn().await?;
+            sqlx::query(
+                "INSERT INTO identity \
+                 (inbox_id, installation_keys, credential_bytes, next_key_package_rotation_ns, \
+                  registration_cursor_originator_id, registration_cursor_sequence_id) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(&self.inbox_id)
+            .bind(&self.installation_keys)
+            .bind(&self.credential_bytes)
+            .bind(self.next_key_package_rotation_ns)
+            .bind(self.registration_cursor_originator_id)
+            .bind(self.registration_cursor_sequence_id)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::Fetch<StoredIdentity> for C {
+        type Key = ();
+        async fn fetch(&self, _key: &Self::Key) -> Result<Option<StoredIdentity>, StorageError> {
+            use sqlx::FromRow;
+            let mut c = self.pg_conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM identity LIMIT 1",
+                StoredIdentity::select_columns()
+            ))
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            row.as_ref()
+                .map(|r| StoredIdentity::from_row(r).map_err(crate::ConnectionError::from))
+                .transpose()
+                .map_err(Into::into)
+        }
+    }
+}
 
 impl StoredIdentity {
     pub fn builder() -> StoredIdentityBuilder {
@@ -46,7 +107,9 @@ impl StoredIdentity {
     }
 }
 pub trait QueryIdentity {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+    fn queue_key_package_rotation(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
     /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
     /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
     /// value — one transaction, so neither write can land without the other.
@@ -57,52 +120,61 @@ pub trait QueryIdentity {
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
     fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
-    ) -> Result<(), StorageError>;
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
+    fn is_identity_needs_rotation(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
     /// The identity's absolute rotation deadline (`next_key_package_rotation_ns`).
     /// `None` if NULL or if no identity row exists yet (indistinguishable to callers;
     /// treat as "no scheduled deadline").
-    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
+    fn next_key_package_rotation_ns(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<i64>, StorageError>> + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryIdentity for &T
 where
-    T: QueryIdentity,
+    T: QueryIdentity + xmtp_common::MaybeSync,
 {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
-        (**self).queue_key_package_rotation()
+    async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+        (**self).queue_key_package_rotation().await
     }
 
-    fn queue_key_rotation_with_nudge(
+    async fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
     ) -> Result<(), StorageError> {
-        (**self).queue_key_rotation_with_nudge(rotation_task_hash, rotation_seed)
+        (**self)
+            .queue_key_rotation_with_nudge(rotation_task_hash, rotation_seed)
+            .await
     }
 
-    fn reset_key_package_rotation_queue(
+    async fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError> {
-        (**self).reset_key_package_rotation_queue(rotation_interval_ns)
+        (**self)
+            .reset_key_package_rotation_queue(rotation_interval_ns)
+            .await
     }
 
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
-        (**self).is_identity_needs_rotation()
+    async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+        (**self).is_identity_needs_rotation().await
     }
 
-    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
-        (**self).next_key_package_rotation_ns()
+    async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).next_key_package_rotation_ns().await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+    async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
             // NULL (migrated DBs) counts as unscheduled: initialize it here so the
@@ -122,7 +194,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         Ok(())
     }
 
-    fn queue_key_rotation_with_nudge(
+    async fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
@@ -185,7 +257,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         Ok(())
     }
 
-    fn reset_key_package_rotation_queue(
+    async fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError> {
@@ -206,7 +278,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         Ok(())
     }
 
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+    async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         use crate::schema::identity::dsl;
 
         let next_rotation_opt: Option<Option<i64>> = self.raw_query(|conn| {
@@ -225,7 +297,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         })
     }
 
-    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+    async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
         use crate::schema::identity::dsl;
         // Use optional() so an empty table (pre-registration) returns Ok(None).
         let v: Option<Option<i64>> = self.raw_query(|conn| {
@@ -235,6 +307,151 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
                 .optional()
         })?;
         Ok(v.flatten())
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use crate::tasks::NewTask;
+
+    /// The body of `queue_key_rotation_with_nudge`, factored out so it can run
+    /// either inside a transaction this method opens or inside one the caller
+    /// already holds.
+    async fn nudge(
+        db: &PgDb,
+        rotation_task_hash: &crate::tasks::TaskDataHash,
+        rotation_seed: NewTask,
+    ) -> Result<(), StorageError> {
+        use sqlx::Row;
+        use xmtp_proto::xmtp::mls::database::{PullInDeadline, Task as TaskProto, task::Task};
+
+        let mut c = db.conn().await?;
+        let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+
+        sqlx::query(
+            "UPDATE identity SET next_key_package_rotation_ns = $1 \
+             WHERE next_key_package_rotation_ns > $1 OR next_key_package_rotation_ns IS NULL",
+        )
+        .bind(rotate_at_ns)
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        // Read back inside the tx: the column is stable between rotations, so
+        // repeat calls produce byte-identical pull-ins that coalesce.
+        let row = sqlx::query("SELECT next_key_package_rotation_ns FROM identity LIMIT 1")
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+
+        // Pre-registration (no identity row): match the diesel path's
+        // zero-rows-matched no-op instead of erroring; nothing to rotate yet.
+        let Some(row) = row else {
+            return Ok(());
+        };
+        let deadline: Option<i64> = row.try_get(0).map_err(crate::ConnectionError::from)?;
+
+        // Ensure the pull-in's target exists (no-op when already seeded): a
+        // client whose startup seeding never ran must not enqueue a
+        // dropped-on-miss nudge.
+        crate::tasks::pg::insert_or_ignore(&mut c, &rotation_seed).await?;
+
+        let pull_in = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .expires_at_ns(crate::tasks::NEVER_EXPIRES)
+            .max_attempts(i32::MAX)
+            .build(TaskProto {
+                task: Some(Task::PullInDeadline(PullInDeadline {
+                    target_data_hash: rotation_task_hash.to_vec(),
+                    not_later_than_ns: deadline.unwrap_or(rotate_at_ns),
+                })),
+            })?;
+        crate::tasks::pg::insert_or_ignore(&mut c, &pull_in).await?;
+        Ok(())
+    }
+
+    impl QueryIdentity for PgDb {
+        async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+            let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+            let mut c = self.conn().await?;
+            // NULL (migrated DBs) counts as unscheduled: initialize it here so
+            // the debounce applies and nudge payloads stay stable (coalescing).
+            sqlx::query(
+                "UPDATE identity SET next_key_package_rotation_ns = $1 \
+                 WHERE next_key_package_rotation_ns > $1 OR next_key_package_rotation_ns IS NULL",
+            )
+            .bind(rotate_at_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn queue_key_rotation_with_nudge(
+            &self,
+            rotation_task_hash: &crate::tasks::TaskDataHash,
+            rotation_seed: NewTask,
+        ) -> Result<(), StorageError> {
+            // The column update and both task inserts must land together.
+            self.atomic(async |db| nudge(db, rotation_task_hash, rotation_seed).await)
+                .await
+        }
+
+        async fn reset_key_package_rotation_queue(
+            &self,
+            rotation_interval_ns: i64,
+        ) -> Result<(), StorageError> {
+            let now = now_ns();
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "UPDATE identity SET next_key_package_rotation_ns = $1 \
+                 WHERE next_key_package_rotation_ns IS NULL \
+                    OR next_key_package_rotation_ns <= $2",
+            )
+            .bind(now + rotation_interval_ns)
+            .bind(now)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+            Ok(match self.rotation_column().await? {
+                // No identity row (pre-registration): nothing to rotate yet.
+                None => false,
+                // NULL column on an existing row: rotation is due now.
+                Some(None) => true,
+                Some(Some(rotate_at)) => now_ns() >= rotate_at,
+            })
+        }
+
+        async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+            Ok(self.rotation_column().await?.flatten())
+        }
+    }
+
+    impl PgDb {
+        /// `next_key_package_rotation_ns` as stored: the outer `Option` is "does
+        /// an identity row exist", the inner one is the nullable column. Callers
+        /// that collapse the two lose the pre-registration case.
+        async fn rotation_column(&self) -> Result<Option<Option<i64>>, StorageError> {
+            use sqlx::Row;
+            let mut c = self.conn().await?;
+            let row = sqlx::query("SELECT next_key_package_rotation_ns FROM identity LIMIT 1")
+                .fetch_optional(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            row.map(|r| r.try_get(0))
+                .transpose()
+                .map_err(crate::ConnectionError::from)
+                .map_err(Into::into)
+        }
     }
 }
 
@@ -261,67 +478,77 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn queue_with_nudge_is_noop_before_registration() {
+    async fn queue_with_nudge_is_noop_before_registration() {
         use crate::prelude::{QueryIdentity, QueryTasks};
         use crate::test_utils::with_connection;
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // Empty identity table (pre-registration): must be a no-op like the
             // old column-only path, not a NotFound error. The seed must NOT be
             // inserted either — pre-registration means zero writes.
             let hash = crate::tasks::TaskDataHash::try_from([0x11u8; 32].as_slice()).unwrap();
             conn.queue_key_rotation_with_nudge(&hash, test_rotation_seed())
+                .await
                 .unwrap();
             assert!(
-                conn.get_tasks().unwrap().is_empty(),
+                conn.get_tasks().await.unwrap().is_empty(),
                 "no pull-in without an identity row"
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn queue_with_nudge_selfheals_missing_seed() {
+    async fn queue_with_nudge_selfheals_missing_seed() {
         use crate::prelude::{QueryIdentity, QueryTasks};
         use crate::test_utils::with_connection;
-        with_connection(|conn| {
+        with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
             let seed = test_rotation_seed();
             let hash = crate::tasks::TaskDataHash::try_from(seed.data_hash.as_slice()).unwrap();
-            conn.queue_key_rotation_with_nudge(&hash, seed).unwrap();
-            let tasks = conn.get_tasks().unwrap();
+            conn.queue_key_rotation_with_nudge(&hash, seed)
+                .await
+                .unwrap();
+            let tasks = conn.get_tasks().await.unwrap();
             assert!(
                 tasks.iter().any(|t| t.data_hash == hash.as_ref()),
                 "nudge must insert the missing rotation seed (pull-in target)"
             );
             assert_eq!(tasks.len(), 2, "seed + pull-in");
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn queue_initializes_null_rotation_column() {
+    async fn queue_initializes_null_rotation_column() {
         use crate::prelude::QueryIdentity;
         use crate::test_utils::with_connection;
         use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
-        with_connection(|conn| {
+        with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
 
             // Migrated DBs have NULL here; queueing must initialize it (5s
             // debounce) rather than skip the row.
-            conn.queue_key_package_rotation().unwrap();
+            conn.queue_key_package_rotation().await.unwrap();
             let v = conn
                 .next_key_package_rotation_ns()
+                .await
                 .unwrap()
                 .expect("NULL column must be initialized");
             let now = xmtp_common::time::now_ns();
             assert!(v > now && v <= now + KEY_PACKAGE_QUEUE_INTERVAL_NS);
 
             // Lower-only: a later queue call never raises the deadline.
-            conn.queue_key_package_rotation().unwrap();
-            assert_eq!(conn.next_key_package_rotation_ns().unwrap().unwrap(), v);
+            conn.queue_key_package_rotation().await.unwrap();
+            assert_eq!(
+                conn.next_key_package_rotation_ns().await.unwrap().unwrap(),
+                v
+            );
         })
+        .await
     }
 
     #[xmtp_common::test]

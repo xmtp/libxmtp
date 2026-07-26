@@ -1,6 +1,10 @@
 use super::*;
+#[cfg(feature = "sync")]
 use openmls::group::MlsGroup;
-use xmtp_db::group::{GroupQueryArgs, StoredGroup};
+use xmtp_db::group::StoredGroup;
+#[cfg(feature = "sync")]
+use xmtp_db::group::GroupQueryArgs;
+#[cfg(feature = "sync")]
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::{GroupMetadata, extract_group_metadata},
@@ -25,6 +29,18 @@ impl BackupRecordProvider for GroupSave {
         Self: Sized,
         D: DbQuery + 'static,
     {
+        // Group backup loads each group's MLS state through a synchronous openmls
+        // provider (`SqlKeyStore`). The async/sqlx track has no synchronous
+        // provider, and herald runs no device-sync backups, so group backup is a
+        // no-op there. TODO(async-backup): async MLS load + a track-agnostic
+        // `mls_storage()` if server-side group backup is ever needed.
+        #[cfg(not(feature = "sync"))]
+        {
+            let _ = &state;
+            Ok(Vec::new())
+        }
+        #[cfg(feature = "sync")]
+        {
         let mut args = GroupQueryArgs::default();
 
         if let Some(start_ns) = state.opts.start_ns {
@@ -37,7 +53,7 @@ impl BackupRecordProvider for GroupSave {
         args.limit = Some(Self::BATCH_SIZE);
 
         let cursor = state.cursor.load(Ordering::SeqCst);
-        let batch = state.db.find_groups_by_id_paged(args, cursor)?;
+        let batch = state.db.find_groups_by_id_paged(&args, cursor).await?;
         let storage = SqlKeyStore::new(&state.db);
         let records = batch
             .into_iter()
@@ -127,6 +143,7 @@ impl BackupRecordProvider for GroupSave {
             .collect();
 
         Ok(records)
+        }
     }
 }
 

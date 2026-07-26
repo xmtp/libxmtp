@@ -78,7 +78,7 @@ async fn setup_sync_conversations_bench(
 
     // Create all groups and add other_client as a member
     for i in 0..total_groups {
-        let group = client.create_group(None, None).unwrap();
+        let group = client.create_group(None, None).await.unwrap();
 
         // Add other_client to the group
         group.add_members(&[other_client.inbox_id()]).await.unwrap();
@@ -117,6 +117,7 @@ async fn setup_sync_conversations_bench(
     {
         let other_group = other_client
             .find_groups(Default::default())
+            .await
             .unwrap()
             .into_iter()
             .find(|g| g.group_id == *other_group_id)

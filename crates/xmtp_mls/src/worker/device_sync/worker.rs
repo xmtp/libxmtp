@@ -149,7 +149,7 @@ where
                         skipped,
                         "sync worker receiver lagged; re-scheduling installation reconciliation"
                     );
-                    self.client.schedule_add_installations_to_groups()?;
+                    self.client.schedule_add_installations_to_groups().await?;
                     self.evt_new_sync_group_msg(true).await?;
                     continue;
                 }
@@ -223,7 +223,7 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if conn.primary_sync_group()?.is_none() {
+            if conn.primary_sync_group().await?.is_none() {
                 log_event!(
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
@@ -253,7 +253,7 @@ where
         // A new sync group from a welcome indicates a new installation.
         // Schedule durable per-group reconciliation on the TaskRunner —
         // a one-shot inline add here is lost forever if it fails once.
-        self.client.schedule_add_installations_to_groups()?;
+        self.client.schedule_add_installations_to_groups().await?;
 
         self.metrics
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
@@ -265,7 +265,12 @@ where
     }
 
     async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
-        let unprocessed_messages = self.client.context.db().unprocessed_sync_group_messages()?;
+        let unprocessed_messages = self
+            .client
+            .context
+            .db()
+            .unprocessed_sync_group_messages()
+            .await?;
 
         if !is_tick || !unprocessed_messages.is_empty() {
             tracing::info!("Processing {} messages.", unprocessed_messages.len());
@@ -342,11 +347,13 @@ where
                 );
                 self.context
                     .db()
-                    .increment_device_sync_msg_attempt(&msg.id, MAX_ATTEMPTS)?;
+                    .increment_device_sync_msg_attempt(&msg.id, MAX_ATTEMPTS)
+                    .await?;
             } else {
                 self.context
                     .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                    .mark_device_sync_msg_as_processed(&msg.id)
+                    .await?;
             }
         }
 
@@ -394,7 +401,8 @@ where
                 // Mark this message as processed immediately.
                 self.context
                     .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                    .mark_device_sync_msg_as_processed(&msg.id)
+                    .await?;
 
                 handle.increment_metric(SyncMetric::PayloadTaskScheduled);
             }
@@ -426,7 +434,7 @@ where
                     self.context.installation_id()
                 );
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = store_preference_updates(updates.clone(), &conn, handle)?;
+                let updated = store_preference_updates(updates.clone(), &conn, handle).await?;
                 if !updated.is_empty() {
                     let _ = self
                         .context
@@ -574,7 +582,7 @@ where
         reply: &DeviceSyncReplyProto,
     ) -> Result<bool, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;
-        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
+        let messages = sync_group.find_messages(&MsgQueryArgs::default()).await?;
 
         for (msg, content) in messages.iter_with_content() {
             if let ContentProto::Request(DeviceSyncRequestProto { pin, .. }) = content
@@ -592,7 +600,11 @@ where
         let mut offset = 0;
         let mut messages = vec![];
         loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
+            messages = self
+                .context
+                .db()
+                .sync_group_messages_paged(offset, 100)
+                .await?;
             if messages.is_empty() {
                 break;
             }
@@ -612,7 +624,7 @@ where
         Err(DeviceSyncError::MissingPayload(pin.is_some()))
     }
 
-    pub fn list_available_archives(
+    pub async fn list_available_archives(
         &self,
         days_cutoff: i64,
     ) -> Result<Vec<AvailableArchive>, DeviceSyncError> {
@@ -622,7 +634,11 @@ where
         let cutoff = now_ns() - days_cutoff * NS_IN_DAY;
 
         'outer: loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
+            messages = self
+                .context
+                .db()
+                .sync_group_messages_paged(offset, 100)
+                .await?;
 
             if messages.is_empty() {
                 break;

@@ -41,7 +41,7 @@ async fn welcomed_group_joins_the_live_stream() {
     );
     handle.wait_for_ready().await;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     group.send_msg(b"through the reflex").await;
 
@@ -71,7 +71,7 @@ async fn self_created_group_streams_its_messages() {
     );
     handle.wait_for_ready().await;
 
-    let group = bo.create_group(None, None)?;
+    let group = bo.create_group(None, None).await?;
     group.send_msg(b"own group, own stream").await;
 
     let delivered = tokio::time::timeout(WAIT, rx.recv())
@@ -100,7 +100,7 @@ async fn self_created_conversation_surfaces_on_the_stream() {
     );
     handle.wait_for_ready().await;
 
-    let group = bo.create_group(None, None)?;
+    let group = bo.create_group(None, None).await?;
 
     let conversation = tokio::time::timeout(WAIT, rx.recv())
         .await
@@ -115,10 +115,10 @@ async fn callback_stream_delivers_live_messages() {
     tester!(alix);
     tester!(bo);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     bo_group.sync().await?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -159,7 +159,7 @@ async fn callback_stream_surfaces_new_conversations() {
     );
     handle.wait_for_ready().await;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
 
     let conversation = tokio::time::timeout(WAIT, rx.recv())
@@ -177,14 +177,14 @@ async fn sibling_clients_share_the_process_transport() {
     tester!(bo);
     tester!(caro);
 
-    let bo_group = alix.create_group(None, None)?;
+    let bo_group = alix.create_group(None, None).await?;
     bo_group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    bo.group(&bo_group.group_id)?.sync().await?;
-    let caro_group = alix.create_group(None, None)?;
+    bo.group(&bo_group.group_id).await?.sync().await?;
+    let caro_group = alix.create_group(None, None).await?;
     caro_group.invite(&caro).await?;
     caro.sync_welcomes().await?;
-    caro.group(&caro_group.group_id)?.sync().await?;
+    caro.group(&caro_group.group_id).await?.sync().await?;
 
     let (bo_tx, mut bo_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut bo_handle = Client::stream_all_messages_with_callback_bidi(
@@ -231,18 +231,18 @@ async fn single_conversation_callback_is_scoped_to_its_group() {
     tester!(alix);
     tester!(bo);
 
-    let streamed = alix.create_group(None, None)?;
+    let streamed = alix.create_group(None, None).await?;
     streamed.invite(&bo).await?;
-    let other = alix.create_group(None, None)?;
+    let other = alix.create_group(None, None).await?;
     other.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    bo.group(&streamed.group_id)?.sync().await?;
-    bo.group(&other.group_id)?.sync().await?;
+    bo.group(&streamed.group_id).await?.sync().await?;
+    bo.group(&other.group_id).await?.sync().await?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = stream_conversation_messages_with_callback_bidi(
         bo.client.context.clone(),
-        bo.group(&streamed.group_id)?.group_id,
+        bo.group(&streamed.group_id).await?.group_id,
         move |message| {
             let _ = tx.send(message);
         },
@@ -271,10 +271,10 @@ async fn suspend_resume_replays_what_was_missed() {
     tester!(alix);
     tester!(bo);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    bo.group(&group.group_id)?.sync().await?;
+    bo.group(&group.group_id).await?.sync().await?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_bidi(
@@ -325,10 +325,10 @@ async fn suspend_before_the_first_stream_parks_the_wire() {
 
     tester!(alix);
     tester!(bo);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    bo.group(&group.group_id)?.sync().await?;
+    bo.group(&group.group_id).await?.sync().await?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_bidi(
@@ -388,11 +388,17 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
 
     // The device-sync worker creates the sync group in the background.
     let sync_group = xmtp_common::wait_for_some(|| async {
-        alix.client.context.db().primary_sync_group().ok().flatten()
+        alix.client
+            .context
+            .db()
+            .primary_sync_group()
+            .await
+            .ok()
+            .flatten()
     })
     .await
     .expect("the sync worker creates a sync group");
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_bidi(
@@ -409,7 +415,7 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
 
     // Into the sync group first — a leak would arrive ahead of the normal
     // message below.
-    alix.group(&sync_group.id)?
+    alix.group(&sync_group.id).await?
         .send_msg(b"internal sync payload")
         .await;
     group.send_msg(b"a normal message").await;
@@ -568,10 +574,10 @@ async fn latched_dispatch_delivers_via_legacy() {
         "the latch must keep bidi inactive for this destination"
     );
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    bo.group(&group.group_id)?.sync().await?;
+    bo.group(&group.group_id).await?.sync().await?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_dispatch(

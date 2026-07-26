@@ -1,5 +1,33 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
+// Async-track only: naming an async closure's `CallOnceFuture` to bound it `Send`
+// for `generate_commit_with_rollback`'s operation closure needs these unstable
+// features (built with a nightly / `RUSTC_BOOTSTRAP=1` toolchain). The stable sync
+// track never enables them (its `generate_commit_with_rollback` omits that bound).
+#![cfg_attr(
+    all(feature = "async", not(feature = "sync")),
+    feature(async_fn_traits, unboxed_closures)
+)]
+
+/// `expr.await` on the async (Postgres) track, `expr` on the sync (SQLite) track.
+///
+/// openmls is compiled maybe_async: a given method is `async fn` on the async
+/// track and blocking on the sync track. This crate's own functions are `async fn`
+/// on both tracks, so a call to such an openmls method must be awaited on async and
+/// used directly on sync. This wraps that single difference so a shared call site
+/// stays single-source. (openmls-async ⟺ this crate's `async` feature without `sync`.)
+macro_rules! maybe_await {
+    ($e:expr) => {{
+        #[cfg(all(feature = "async", not(feature = "sync")))]
+        {
+            $e.await
+        }
+        #[cfg(feature = "sync")]
+        {
+            $e
+        }
+    }};
+}
 
 pub mod builder;
 pub mod client;
@@ -27,7 +55,6 @@ pub mod test;
 mod tests;
 mod traits;
 
-use crate::groups::GroupError;
 pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -78,23 +105,6 @@ impl GroupCommitLock {
         MlsGroupGuard {
             _permit: lock.lock_owned().await,
         }
-    }
-
-    /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(&self, group_id: GroupId) -> Result<MlsGroupGuard, GroupError> {
-        let lock = {
-            let mut locks = self.locks.lock();
-            locks
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(TokioMutex::new(())))
-                .clone()
-        };
-
-        // Synchronously acquire the permit
-        let permit = lock
-            .try_lock_owned()
-            .map_err(|_| GroupError::LockUnavailable)?;
-        Ok(MlsGroupGuard { _permit: permit })
     }
 }
 /// A guard that releases the semaphore when dropped

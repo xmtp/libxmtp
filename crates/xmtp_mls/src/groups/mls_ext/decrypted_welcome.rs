@@ -37,7 +37,7 @@ impl DecryptedWelcome {
     ///
     /// This function will find the appropriate private key for the algorithm from the database and use it
     /// to decrypt. It will error if the private key cannot be found or decryption fails
-    fn welcome_from_proto_v1(
+    async fn welcome_from_proto_v1(
         provider: &impl XmtpMlsStorageProvider,
         welcome: &WelcomeMessage,
         welcome_v1: &WelcomeMessageV1,
@@ -52,7 +52,7 @@ impl DecryptedWelcome {
         tracing::debug!(id = %welcome.cursor, "Trying to decrypt welcome");
         let wrapper_ciphersuite = WrapperAlgorithm::try_from(*wrapper_algorithm)?;
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
-        let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
+        let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite).await?;
 
         let (welcome_bytes, welcome_metadata_bytes) = unwrap_payload_hpke(
             data,
@@ -130,9 +130,11 @@ impl DecryptedWelcome {
         use xmtp_common::r#const::{NS_IN_DAY, NS_IN_HOUR, NS_IN_MIN};
         let mls_storage = context.mls_storage();
         let (welcome, welcome_metadata) = match &welcome.variant {
-            WelcomeMessageType::V1(v1) => Self::welcome_from_proto_v1(mls_storage, welcome, v1)?,
+            WelcomeMessageType::V1(v1) => {
+                Self::welcome_from_proto_v1(mls_storage, welcome, v1).await?
+            }
             WelcomeMessageType::WelcomePointer(w) => {
-                let welcome_pointer = decrypt_welcome_pointer(mls_storage, w)?;
+                let welcome_pointer = decrypt_welcome_pointer(mls_storage, w).await?;
                 let maybe_welcome =
                     Self::welcome_from_decrypted_welcome_pointer(&welcome_pointer, context).await?;
                 match maybe_welcome {
@@ -185,7 +187,11 @@ impl DecryptedWelcome {
         let join_config = build_group_join_config();
 
         let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-        let builder = StagedWelcome::build_from_welcome(&provider, &join_config, welcome.clone())?;
+        let builder = maybe_await!(StagedWelcome::build_from_welcome(
+            &provider,
+            &join_config,
+            welcome.clone()
+        ))?;
         let processed_welcome = builder.processed_welcome();
 
         let psks = processed_welcome.psks();
@@ -193,10 +199,10 @@ impl DecryptedWelcome {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = builder
+        let staged_welcome = maybe_await!(builder
             .replace_old_group()
             .skip_lifetime_validation()
-            .build()?;
+            .build())?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
@@ -227,14 +233,15 @@ pub(super) fn find_key_package_hash_ref(
 /// For Curve25519 keys, we can just get the private key from the key package bundle
 /// For Post Quantum keys, we use look up the KEY_PACKAGE_WRAPPER_PRIVATE_KEY which is keyed
 /// by the hash reference of the key package.
-pub(super) fn find_private_key(
+pub(super) async fn find_private_key(
     provider: &impl XmtpMlsStorageProvider,
     hash_ref: &KeyPackageRef,
     wrapper_ciphersuite: &WrapperAlgorithm,
 ) -> Result<Vec<u8>, GroupError> {
     match wrapper_ciphersuite {
         WrapperAlgorithm::Curve25519 => {
-            let key_package: Option<KeyPackageBundle> = provider.key_package(hash_ref)?;
+            let key_package: Option<KeyPackageBundle> =
+                maybe_await!(provider.key_package(hash_ref))?;
             Ok(key_package
                 .map(|kp| kp.init_private_key().to_vec())
                 .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)
@@ -277,14 +284,14 @@ fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata
     Ok(metadata)
 }
 
-pub(crate) fn decrypt_welcome_pointer(
+pub(crate) async fn decrypt_welcome_pointer(
     provider: &impl XmtpMlsStorageProvider,
     welcome_pointer: &WelcomePointer,
 ) -> Result<DecryptedWelcomePointer, GroupError> {
     tracing::debug!("Trying to decrypt welcome pointer");
     let hash_ref = find_key_package_hash_ref(provider, &welcome_pointer.hpke_public_key)?;
     let wrapper_algorithm = WrapperAlgorithm::try_from(welcome_pointer.wrapper_algorithm)?;
-    let private_key = find_private_key(provider, &hash_ref, &wrapper_algorithm)?;
+    let private_key = find_private_key(provider, &hash_ref, &wrapper_algorithm).await?;
 
     let welcome_bytes = unwrap_payload_hpke(
         &welcome_pointer.welcome_pointer,

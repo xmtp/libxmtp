@@ -3,48 +3,48 @@ use anyhow::Result;
 use tracing::info;
 use xmtp_db::{ConnectionExt, DbConnection, migrations::QueryMigrations};
 
-pub fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub async fn rollback(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     confirm_destructive()?;
-    rollback_confirmed(conn, target)
+    rollback_confirmed(conn, target).await
 }
 
-pub fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub async fn rollback_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let db = DbConnection::new(conn);
-    let reverted = db.rollback_to_version(target)?;
+    let reverted = db.rollback_to_version(target).await?;
     for version in &reverted {
         info!("Reverted {version}");
     }
     Ok(())
 }
 
-pub fn run_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub async fn run_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     confirm_destructive()?;
-    run_migration_confirmed(conn, target)
+    run_migration_confirmed(conn, target).await
 }
 
-pub fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub async fn run_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let db = DbConnection::new(conn);
     info!("Running migration for {target}...");
-    db.run_migration(target)?;
+    db.run_migration(target).await?;
     Ok(())
 }
 
-pub fn revert_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub async fn revert_migration(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     confirm_destructive()?;
-    revert_migration_confirmed(conn, target)
+    revert_migration_confirmed(conn, target).await
 }
 
-pub fn revert_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
+pub async fn revert_migration_confirmed(conn: &impl ConnectionExt, target: &str) -> Result<()> {
     let db = DbConnection::new(conn);
     info!("Reverting migration {target}...");
-    db.revert_migration(target)?;
+    db.revert_migration(target).await?;
     Ok(())
 }
 
 #[allow(dead_code)] // Used in tests
-pub fn applied_migrations(conn: &impl ConnectionExt) -> Result<Vec<String>> {
+pub async fn applied_migrations(conn: &impl ConnectionExt) -> Result<Vec<String>> {
     let db = DbConnection::new(conn);
-    Ok(db.applied_migrations()?)
+    Ok(db.applied_migrations().await?)
 }
 
 #[cfg(test)]
@@ -87,20 +87,20 @@ mod tests {
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
 
         let bo_dm = bo.group(&dm.group_id)?;
-        let bo_msgs = bo_dm.find_messages(&Default::default())?;
+        let bo_msgs = bo_dm.find_messages(&Default::default()).await?;
         assert_eq!(bo_msgs.len(), 2);
 
         // Get a migration from the middle of the list to rollback to
         let conn = alix.db();
         let db = xmtp_db::DbConnection::new(&conn);
-        let mut available = db.available_migrations()?;
+        let mut available = db.available_migrations().await?;
         available.sort_by(|a, b| b.cmp(a));
         let rollback_target = &available[available.len() / 2];
 
         // Go back and forth a couple times
         for _ in 0..2 {
-            rollback_confirmed(&alix.db(), rollback_target)?;
-            db.run_pending_migrations()?;
+            rollback_confirmed(&alix.db(), rollback_target).await?;
+            db.run_pending_migrations().await?;
         }
 
         // Verify messaging still works after migrations
@@ -111,7 +111,7 @@ mod tests {
     async fn test_applied_migrations_returns_versions() {
         tester!(alix);
 
-        let applied = applied_migrations(&alix.db())?;
+        let applied = applied_migrations(&alix.db()).await?;
 
         // Should have migrations applied (the tester applies all migrations)
         assert!(!applied.is_empty());
@@ -138,7 +138,7 @@ mod tests {
         let rollback_to = "2025-10-07-180046_create_tasks";
 
         // First rollback to before the target migration (rollback_to is kept, target is reverted)
-        rollback_confirmed(&alix.db(), rollback_to)?;
+        rollback_confirmed(&alix.db(), rollback_to).await?;
 
         // Helper to check if column exists using raw SQL
         fn check_column_exists(conn: &impl xmtp_db::ConnectionExt) -> anyhow::Result<bool> {
@@ -157,7 +157,7 @@ mod tests {
         );
 
         // Run the specific migration (runs SQL directly, doesn't update tracking table)
-        run_migration_confirmed(&alix.db(), target_migration)?;
+        run_migration_confirmed(&alix.db(), target_migration).await?;
 
         // Verify the column now exists
         assert!(
@@ -166,7 +166,7 @@ mod tests {
         );
 
         // Revert the specific migration (runs SQL directly)
-        revert_migration_confirmed(&alix.db(), target_migration)?;
+        revert_migration_confirmed(&alix.db(), target_migration).await?;
 
         // Verify the column is removed
         assert!(
@@ -175,7 +175,10 @@ mod tests {
         );
 
         // Run pending migrations to restore full state
-        xmtp_db::DbConnection::new(&alix.db()).run_pending_migrations()?;
+        let restore_conn = alix.db();
+        xmtp_db::DbConnection::new(&restore_conn)
+            .run_pending_migrations()
+            .await?;
     }
 
     /// Extract numeric version from migration name for proper ordering.
@@ -195,7 +198,7 @@ mod tests {
 
         // Get migrations sorted by numeric version descending (newest first)
         // This matches how the rollback function compares versions
-        let mut available = db.available_migrations()?;
+        let mut available = db.available_migrations().await?;
         available.sort_by_key(|m| std::cmp::Reverse(migration_numeric_version(m)));
 
         assert!(
@@ -209,7 +212,7 @@ mod tests {
         let mid_old = &available[6]; // Just before rollback target
         let oldest = available.last().unwrap();
 
-        let applied_before = db.applied_migrations()?;
+        let applied_before = db.applied_migrations().await?;
 
         // All should be applied initially
         for name in [newest, mid_recent, mid_old, oldest] {
@@ -221,9 +224,9 @@ mod tests {
         }
 
         // Rollback - mid_recent and newer become pending
-        rollback_confirmed(&alix.db(), mid_recent)?;
+        rollback_confirmed(&alix.db(), mid_recent).await?;
 
-        let applied_after = db.applied_migrations()?;
+        let applied_after = db.applied_migrations().await?;
 
         // Migrations before rollback point should still be applied
         assert_eq!(
@@ -245,9 +248,9 @@ mod tests {
         );
 
         // Restore full state
-        db.run_pending_migrations()?;
+        db.run_pending_migrations().await?;
 
-        let applied_restored = db.applied_migrations()?;
+        let applied_restored = db.applied_migrations().await?;
 
         // All migrations should be applied again
         assert_eq!(

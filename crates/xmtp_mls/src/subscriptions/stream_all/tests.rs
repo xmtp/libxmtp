@@ -23,7 +23,7 @@ async fn test_stream_all_messages_changing_group_list() {
     let caro_wallet = generate_local_wallet();
     let caro = ClientBuilder::new_test_client_vanilla(&caro_wallet).await;
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     tracing::info!("Created alix group {}", hex::encode(alix_group.group_id));
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
@@ -52,7 +52,7 @@ async fn test_stream_all_messages_changing_group_list() {
         .unwrap();
     assert_msg!(stream, "third");
 
-    let alix_group_2 = alix.create_group(None, None).unwrap();
+    let alix_group_2 = alix.create_group(None, None).await.unwrap();
     alix_group_2.add_members(&[caro.inbox_id()]).await.unwrap();
 
     alix_group
@@ -76,10 +76,10 @@ async fn test_stream_all_messages_unchanging_group_list() {
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
-    let bo_group = bo.create_group(None, None).unwrap();
+    let bo_group = bo.create_group(None, None).await.unwrap();
     bo_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
@@ -116,7 +116,7 @@ async fn test_dm_stream_all_messages() {
     tester!(alix, with_name: "alix");
     tester!(bo, with_name: "bo");
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await.unwrap();
@@ -198,7 +198,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
     let eve = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
     let bo = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     alix_group
         .add_members(&[caro.inbox_id(), bo.inbox_id()])
         .await
@@ -227,7 +227,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
     xmtp_common::spawn(None, async move {
         let caro = &caro_id;
         for i in 0..15 {
-            let new_group = eve.create_group(None, None).unwrap();
+            let new_group = eve.create_group(None, None).await.unwrap();
             new_group.add_members(&[caro]).await.unwrap();
             let msg = format!("EVE spam {i} from new group");
             new_group
@@ -295,7 +295,7 @@ async fn test_stream_all_messages_detached_group_changes() {
     xmtp_common::spawn(None, async move {
         let caro = &caro_id;
         for i in 0..5 {
-            let new_group = hale.create_group(None, None).unwrap();
+            let new_group = hale.create_group(None, None).await.unwrap();
             new_group.add_members(&[caro]).await.unwrap();
             tracing::info!(
                 "\n\n HALE SENDING {i} to group {}\n\n",
@@ -350,30 +350,32 @@ async fn test_stream_all_messages_filters_by_consent_state(
     tester!(receiver, with_name: "receiver");
 
     // Create group with Allowed consent
-    let allowed_group = sender.create_group(None, None).unwrap();
+    let allowed_group = sender.create_group(None, None).await.unwrap();
     allowed_group
         .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
 
     // Create group with Denied consent
-    let denied_group = sender.create_group(None, None).unwrap();
+    let denied_group = sender.create_group(None, None).await.unwrap();
     denied_group
         .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
     denied_group
         .update_consent_state(ConsentState::Denied)
+        .await
         .unwrap();
 
     // Create group with Unknown consent
-    let unknown_group = sender.create_group(None, None).unwrap();
+    let unknown_group = sender.create_group(None, None).await.unwrap();
     unknown_group
         .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
     unknown_group
         .update_consent_state(ConsentState::Unknown)
+        .await
         .unwrap();
 
     sender.sync_welcomes().await.unwrap();
@@ -412,7 +414,7 @@ async fn stream_messages_keeps_track_of_cursor() {
     tester!(bo, with_name: "bo");
     tester!(eve, with_name: "eve");
     tester!(alice, with_name: "alice");
-    let alice_group = alice.create_group(None, None).unwrap();
+    let alice_group = alice.create_group(None, None).await.unwrap();
 
     alice_group
         .add_members(&[bo.inbox_id(), eve.inbox_id()])
@@ -489,7 +491,7 @@ async fn test_stream_all_messages_filters_conversations_created_after_init() {
     futures::pin_mut!(stream);
 
     // Create new group that will arrive via conversation stream
-    let new_group = sender.create_group(None, None).unwrap();
+    let new_group = sender.create_group(None, None).await.unwrap();
     new_group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
     new_group
@@ -535,7 +537,7 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
     assert_msg!(stream, "msg in dm");
 
     // Create new group that will arrive via conversation stream
-    let new_group = sender.create_group(None, None).unwrap();
+    let new_group = sender.create_group(None, None).await.unwrap();
     new_group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
     // Send message in group - should NOT appear in stream
@@ -560,7 +562,7 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
     tester!(receiver, with_name: "receiver");
 
     // Step 1: Sender invites receiver to a group
-    let group = sender.create_group(None, None).unwrap();
+    let group = sender.create_group(None, None).await.unwrap();
     group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
     {
@@ -640,10 +642,10 @@ async fn test_stream_all_concurrent_writes() {
     bo.sync_welcomes().await.unwrap();
 
     // Get group references for each client
-    let bo_group = bo.group(&alix_group.group_id).unwrap();
-    let bo_group_2 = bo.group(&caro_group_2.group_id).unwrap();
-    let caro_group = caro.group(&alix_group.group_id).unwrap();
-    let alix_group_2 = alix.group(&caro_group_2.group_id).unwrap();
+    let bo_group = bo.group(&alix_group.group_id).await.unwrap();
+    let bo_group_2 = bo.group(&caro_group_2.group_id).await.unwrap();
+    let caro_group = caro.group(&alix_group.group_id).await.unwrap();
+    let alix_group_2 = alix.group(&caro_group_2.group_id).await.unwrap();
 
     // Track all sent messages
     let sent_messages = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
@@ -783,7 +785,11 @@ async fn test_stream_all_concurrent_writes() {
     for (name, group) in groups {
         group.sync().await.unwrap();
         assert_eq!(
-            group.find_messages(&MsgQueryArgs::default()).unwrap().len(),
+            group
+                .find_messages(&MsgQueryArgs::default())
+                .await
+                .unwrap()
+                .len(),
             each_group_message_count,
             "{}'s group should have {} messages (40 messages + 1 membership change)",
             name,
@@ -859,7 +865,9 @@ async fn test_new_group_does_not_duplicate_messages() {
     // Create 250 groups with both accounts and send one message to each
     let mut initial_groups = Vec::with_capacity(50);
     for i in 0..50 {
-        let group = alix.create_group(Default::default(), Default::default())?;
+        let group = alix
+            .create_group(Default::default(), Default::default())
+            .await?;
         group.add_members(&[bo.inbox_id()]).await?;
         group
             .send_message(
@@ -876,7 +884,9 @@ async fn test_new_group_does_not_duplicate_messages() {
     let stats = stream.stats();
 
     // Create a new group to trigger a reconnect
-    let _ = alix.create_group(Default::default(), Default::default())?;
+    let _ = alix
+        .create_group(Default::default(), Default::default())
+        .await?;
 
     xmtp_common::spawn(
         None,

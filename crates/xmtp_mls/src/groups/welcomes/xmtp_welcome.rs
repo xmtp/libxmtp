@@ -95,7 +95,7 @@ impl<C> CommitResult<C> {
 impl<'a, C, V> XmtpWelcomeBuilder<'a, C, V>
 where
     C: XmtpSharedContext,
-    V: ValidateGroupMembership,
+    V: ValidateGroupMembership + xmtp_common::MaybeSync,
 {
     // Named explicitly (derived `mls.process` is too generic) and without `err`:
     // duplicate welcomes exit as Err(WelcomeAlreadyProcessed), an expected
@@ -104,7 +104,7 @@ where
     pub async fn process(self) -> Result<Option<MlsGroup<C>>, GroupError> {
         let mut this = self.build()?;
         let db = this.context.db();
-        if let Some(group) = this.check_if_processed(&db)? {
+        if let Some(group) = this.check_if_processed(&db).await? {
             return Ok(Some(group));
         }
 
@@ -114,7 +114,7 @@ where
                     "detected non-retryable error {e}, incrementing welcome cursor [{}]",
                     this.welcome.cursor
                 );
-                this.update_cursor(&db)?;
+                this.update_cursor(&db).await?;
                 return Err(e);
             }
             Err(e) => {
@@ -127,7 +127,9 @@ where
             .events
             .take()
             .expect("builder is built with events as Some");
-        let commit_result = this.commit_or_fail_forever(decrypted_welcome, &mut events)?;
+        let commit_result = this
+            .commit_or_fail_forever(decrypted_welcome, &mut events)
+            .await?;
         commit_result.into_result()
     }
 }
@@ -135,46 +137,53 @@ where
 impl<'a, C, V> XmtpWelcome<'a, C, V>
 where
     C: XmtpSharedContext,
-    V: ValidateGroupMembership,
-    <C::MlsStorage as XmtpMlsStorageProvider>::Connection: xmtp_db::ConnectionExt,
+    // `MaybeSync` so `&XmtpWelcome` can be captured by the (Send) savepoint
+    // closure in `commit_or_fail_forever` and run in spawned tasks.
+    V: ValidateGroupMembership + xmtp_common::MaybeSync,
 {
     /// Get the last cursor in the database for welcomes
-    fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
-        let last = db.get_last_cursor_for_originator(
-            self.context.installation_id(),
-            EntityKind::Welcome,
-            self.welcome.originator_id(),
-        )?;
+    async fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
+        let last = db
+            .get_last_cursor_for_originator(
+                self.context.installation_id().as_slice(),
+                EntityKind::Welcome,
+                self.welcome.originator_id(),
+            )
+            .await?;
         Ok(last.sequence_id as i64)
     }
 
     /// Update the cursor in the database
     /// returns true if the cursor was updated, otherwise false.
-    fn update_cursor(&self, db: &impl DbQuery) -> Result<bool, StorageError> {
+    async fn update_cursor(&self, db: &impl DbQuery) -> Result<bool, StorageError> {
         db.update_cursor(
-            self.context.installation_id(),
+            self.context.installation_id().as_slice(),
             EntityKind::Welcome,
             self.welcome.cursor,
         )
+        .await
     }
 
     /// Increment cursor only if the error is not retryable
     /// Check if the welcome has already been processed
     /// if the cursor of this welcome is less than the one we have in our local database,
     /// we can safely return the local cached group as if we had processed it.
-    fn check_if_processed(&self, db: &impl DbQuery) -> Result<Option<MlsGroup<C>>, GroupError> {
+    async fn check_if_processed(
+        &self,
+        db: &impl DbQuery,
+    ) -> Result<Option<MlsGroup<C>>, GroupError> {
         if self.welcome.resuming() {
             return Ok(None);
         }
         let context = &self.context;
 
         // Check if this welcome was already processed. Return the existing group if so.
-        if self.last_sequence_id(db)? >= self.welcome.sequence_id() as i64 {
+        if self.last_sequence_id(db).await? >= self.welcome.sequence_id() as i64 {
             tracing::debug!(
                 welcome_id = %self.welcome.cursor,
                 "Welcome id is less than cursor, fetching from DB"
             );
-            let maybe_group = db.find_group_by_sequence_id(self.welcome.cursor)?;
+            let maybe_group = db.find_group_by_sequence_id(self.welcome.cursor).await?;
             let Some(group) = maybe_group else {
                 tracing::warn!(
                     welcome_id = %self.welcome.cursor,
@@ -213,13 +222,13 @@ where
         let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
         // try to load the group this welcome represents
         // defensive to avoid race conditions & duplicates
-        if db.find_group(&group_id)?.is_some() {
+        if db.find_group(&group_id).await?.is_some() {
             // Fetch the original MLS group, rather than the one from the welcome
-            let result = MlsGroup::new_cached(self.context.clone(), &group_id);
-            if let Ok((group, _)) = result {
+            let result = MlsGroup::new_cached(self.context.clone(), &group_id).await;
+            if let Ok((group, _)) = &result {
                 // Check the group epoch as well, because we may not have synced the latest is_active state
                 // TODO(rich): Design a better way to detect if incoming welcomes are valid
-                if group.is_active()?
+                if group.is_active().await?
                     && staged_welcome
                         .public_group()
                         .group_context()
@@ -237,7 +246,7 @@ where
             } else {
                 tracing::error!(
                     "Error fetching group while validating welcome: {:?}",
-                    result.err()
+                    result.as_ref().err()
                 );
             }
         }
@@ -249,7 +258,7 @@ where
     /// increments the cursor. Otherwise state must remain as if no transaction occurred.
     /// Returns an error if group failed to commit.
     /// Once transaction succeeds, sends device sync messages
-    fn commit_or_fail_forever(
+    async fn commit_or_fail_forever(
         &self,
         decrypted_welcome: DecryptedWelcome,
         events: &mut DeferredEvents,
@@ -258,13 +267,16 @@ where
         let commit_result = self
             .context
             .mls_storage()
-            .transaction(|conn| {
+            .transaction(async |conn| {
                 let storage = conn.key_store();
                 // Savepoint transaction
-                let result = storage.savepoint(|conn| {
-                    self.commit(conn, events, decrypted_welcome)
-                        .map(Continue)
-                });
+                let result = storage
+                    .savepoint(async |conn| {
+                        self.commit(conn, events, decrypted_welcome)
+                            .await
+                            .map(Continue)
+                    })
+                    .await;
                 let db = storage.db();
                 // if we got an error
                 // and the error is not retryable
@@ -273,7 +285,7 @@ where
                 match result {
                     Err(err) if !err.is_retryable() && self.cursor_increment => {
                         tracing::warn!("welcome with cursor_id={} failed with a non-retryable error because of {err}, incrementing cursor", self.welcome.cursor);
-                        self.update_cursor(&db)?;
+                        self.update_cursor(&db).await?;
                         // return ok to commit the transaction
                         Ok(Continue(CommitResult::FailedForever(err)))
                     }
@@ -287,6 +299,7 @@ where
                     }
                 }
             })
+            .await
             .map(TransactionOutcome::into_continued)?;
         events.send_all(&self.context);
         Ok(commit_result)
@@ -295,7 +308,7 @@ where
     /// The welcome was validated and we haven't processed yet.
     /// Can be committed
     /// Requires a transaction
-    fn commit(
+    async fn commit(
         &self,
         tx: &mut impl TransactionalKeyStore,
         events: &mut DeferredEvents,
@@ -321,7 +334,7 @@ where
 
         tracing::debug!("calling update cursor for welcome {}", welcome.cursor);
         let requires_processing =
-            welcome.resuming() || welcome.sequence_id() > self.last_sequence_id(&db)? as u64;
+            welcome.resuming() || welcome.sequence_id() > self.last_sequence_id(&db).await? as u64;
         if !requires_processing {
             // Expected, non-retryable condition: a welcome we've already processed
             // (duplicate delivery / resume past our cursor). Logging at error! here
@@ -336,10 +349,11 @@ where
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
             db.update_cursor(
-                context.installation_id(),
+                context.installation_id().as_slice(),
                 EntityKind::Welcome,
                 welcome.cursor,
-            )?;
+            )
+            .await?;
         }
         let metadata =
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
@@ -351,13 +365,14 @@ where
                 added_by_inbox_id,
                 added_by_installation_id,
                 metadata,
-            )?;
+            )
+            .await?;
             return Ok(None);
         }
 
         // Extract group_id before consuming staged_welcome
         let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
-        let existing_group = db.find_group(&group_id)?;
+        let existing_group = db.find_group(&group_id).await?;
 
         // Check if this is a re-add scenario:
         // - Self-removal (PendingRemove): user left voluntarily, then gets re-added
@@ -377,7 +392,8 @@ where
             staged_welcome,
             &added_by_inbox_id,
             &added_by_installation_id,
-        )?;
+        )
+        .await?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
         // Capability-aware: on migrated groups the legacy GMM
@@ -521,14 +537,15 @@ where
                 group_id = %existing.id,
                 "Updating existing group membership state from PENDING_REMOVE to ALLOWED"
             );
-            db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
+            db.update_group_membership(&existing.id, GroupMembershipState::Allowed)
+                .await?;
         }
 
         // Insert or replace the group in the database.
         // For existing groups, this only updates the sequence_id (not membership_state).
-        let stored_group = db.insert_or_replace_group(to_store)?;
+        let stored_group = db.insert_or_replace_group(to_store).await?;
 
-        StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
+        StoredConsentRecord::stitch_dm_consent(&db, &stored_group).await?;
 
         // Create a GroupUpdated payload
         let current_inbox_id = context.inbox_id().to_string();
@@ -595,7 +612,7 @@ where
             idempotency_key: added_idempotency_key,
         };
 
-        added_msg.store_or_ignore(&db)?;
+        added_msg.store_or_ignore(&db).await?;
 
         tracing::debug!("created GroupUpdated message for welcome, inbox_id={current_inbox_id}");
 
@@ -609,7 +626,9 @@ where
 
         // If this group is created by us - auto-consent to it.
         if context.inbox_id() == metadata.creator_inbox_id {
-            group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
+            group
+                .quietly_update_consent_state(ConsentState::Allowed, &db)
+                .await?;
         } else if is_readd_after_leaving {
             // If user is being re-added after leaving, reset consent to Unknown
             // This requires the user to explicitly accept being added back
@@ -617,22 +636,26 @@ where
                 group_id = %group.group_id,
                 "Resetting consent state to Unknown for re-added user"
             );
-            group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
+            group
+                .quietly_update_consent_state(ConsentState::Unknown, &db)
+                .await?;
         }
 
         db.update_cursor(
-            group.group_id,
+            group.group_id.as_slice(),
             EntityKind::CommitMessage,
             //TODO:d14n this must change before D14n-only
             //Originator must be included in welcome
             Cursor::mls_commits(cursor as u64),
-        )?;
+        )
+        .await?;
         MlsGroup::<C>::mark_readd_requests_as_responded(
             &storage,
             &group.group_id,
             &HashSet::from([context.installation_id().to_vec()]),
             cursor,
-        )?;
+        )
+        .await?;
 
         tracing::debug!(
             inbox_id = %current_inbox_id,

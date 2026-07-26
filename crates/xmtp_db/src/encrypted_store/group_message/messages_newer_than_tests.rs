@@ -34,11 +34,11 @@ fn generate_message_with_cursor(
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_basic() {
+async fn test_messages_newer_than_basic() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
 
@@ -60,7 +60,7 @@ fn test_messages_newer_than_basic() {
         cursors_by_group.insert(group.id.to_vec(), cursor);
 
         // Should return messages newer than cursor
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 2);
         assert!(
@@ -74,14 +74,15 @@ fn test_messages_newer_than_basic() {
                 .any(|(g, c)| *g == group.id && c.originator_id == 2 && c.sequence_id == 25)
         );
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_new_originator() {
+async fn test_messages_newer_than_new_originator() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
 
@@ -101,7 +102,7 @@ fn test_messages_newer_than_new_originator() {
         cursors_by_group.insert(group.id.to_vec(), cursor);
 
         // Should return all messages from originator 2 (new originator)
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 2);
         assert!(
@@ -115,14 +116,15 @@ fn test_messages_newer_than_new_originator() {
                 .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 10)
         );
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_multiple_groups() {
+async fn test_messages_newer_than_multiple_groups() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group1 = generate_group(None);
         let group2 = generate_group(None);
         group1.store(conn).unwrap();
@@ -148,7 +150,7 @@ fn test_messages_newer_than_multiple_groups() {
         cursors_by_group.insert(group1.id.to_vec(), cursor1);
         cursors_by_group.insert(group2.id.to_vec(), cursor2);
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 2);
         // Each cursor is attributed to the group it came from.
@@ -163,14 +165,15 @@ fn test_messages_newer_than_multiple_groups() {
                 .any(|(g, c)| *g == group2.id && c.sequence_id == 15)
         );
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_batching() {
+async fn test_messages_newer_than_batching() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         // Create more than 100 groups to test batching
         let mut groups = Vec::new();
         for _ in 0..150 {
@@ -194,19 +197,20 @@ fn test_messages_newer_than_batching() {
             cursors_by_group.insert(group.id.to_vec(), cursor);
         }
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         // Should get all 150 messages
         assert_eq!(newer.len(), 150);
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_empty_cursor() {
+async fn test_messages_newer_than_empty_cursor() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
 
@@ -222,18 +226,19 @@ fn test_messages_newer_than_empty_cursor() {
         let mut cursors_by_group = HashMap::new();
         cursors_by_group.insert(group.id.to_vec(), cursor);
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 3);
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_no_new_messages() {
+async fn test_messages_newer_than_no_new_messages() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
 
@@ -251,18 +256,19 @@ fn test_messages_newer_than_no_new_messages() {
         let mut cursors_by_group = HashMap::new();
         cursors_by_group.insert(group.id.to_vec(), cursor);
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 0);
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_mixed_originators() {
+async fn test_messages_newer_than_mixed_originators() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
 
@@ -286,7 +292,7 @@ fn test_messages_newer_than_mixed_originators() {
         let mut cursors_by_group = HashMap::new();
         cursors_by_group.insert(group.id.to_vec(), cursor);
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 4);
         // From originator 1: seq 10 (newer than 5)
@@ -313,14 +319,15 @@ fn test_messages_newer_than_mixed_originators() {
                 .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 4)
         );
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_empty_groups() {
+async fn test_messages_newer_than_empty_groups() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
 
@@ -329,18 +336,19 @@ fn test_messages_newer_than_empty_groups() {
         let mut cursors_by_group = HashMap::new();
         cursors_by_group.insert(group.id.to_vec(), cursor);
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         assert_eq!(newer.len(), 0);
     })
+    .await
 }
 
 #[xmtp_common::test]
-fn test_messages_newer_than_per_group_cursors() {
+async fn test_messages_newer_than_per_group_cursors() {
     use std::collections::HashMap;
     use xmtp_proto::types::GlobalCursor;
 
-    with_connection(|conn| {
+    with_connection(async |conn| {
         let group1 = generate_group(None);
         let group2 = generate_group(None);
         group1.store(conn).unwrap();
@@ -369,7 +377,7 @@ fn test_messages_newer_than_per_group_cursors() {
         cursors_by_group.insert(group1.id.to_vec(), cursor1);
         cursors_by_group.insert(group2.id.to_vec(), cursor2);
 
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
+        let newer = conn.messages_newer_than(&cursors_by_group).await.unwrap();
 
         // Should only get messages newer than each group's specific cursor
         assert_eq!(newer.len(), 2);
@@ -394,4 +402,5 @@ fn test_messages_newer_than_per_group_cursors() {
         // Should NOT include group 1's message with sequence_id 50 (< 100)
         assert!(!newer.iter().any(|(_, c)| c.sequence_id == 50));
     })
+    .await
 }

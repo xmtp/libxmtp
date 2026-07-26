@@ -11,16 +11,16 @@ where
     Context: XmtpSharedContext,
 {
     #[xmtp_common::mls_span]
-    pub fn find_messages_v2(
+    pub async fn find_messages_v2(
         &self,
         query: &MsgQueryArgs,
     ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
-        self.find_messages_v2_with_conn(query, conn)
+        self.find_messages_v2_with_conn(query, conn).await
     }
 
     #[xmtp_common::mls_span]
-    pub fn find_messages_v2_with_conn<C>(
+    pub async fn find_messages_v2_with_conn<C>(
         &self,
         query: &MsgQueryArgs,
         conn: C,
@@ -28,12 +28,14 @@ where
     where
         C: QueryGroupMessage + DbQuery,
     {
-        let initial_messages = conn.get_group_messages(
-            &self.group_id,
-            &filter_out_hidden_message_types_from_query(query),
-        )?;
+        let initial_messages = conn
+            .get_group_messages(
+                &self.group_id,
+                &filter_out_hidden_message_types_from_query(query),
+            )
+            .await?;
 
-        enrich_messages(conn, &self.group_id, initial_messages)
+        enrich_messages(conn, &self.group_id, initial_messages).await
     }
 }
 
@@ -84,7 +86,7 @@ mod tests {
 
     async fn setup_test_group() -> (MlsGroup<impl XmtpSharedContext>, impl XmtpSharedContext) {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None, Default::default()).unwrap();
+        let group = client.create_group(None, Default::default()).await.unwrap();
 
         (group, client.context.clone())
     }
@@ -244,7 +246,7 @@ mod tests {
             .unwrap_or_else(|| panic!("Message with id {:?} not found", id))
     }
 
-    fn create_and_store_message<S>(
+    async fn create_and_store_message<S>(
         conn: &S,
         group_id: &GroupId,
         message_id: Vec<u8>,
@@ -262,7 +264,7 @@ mod tests {
             now_ns() + timestamp_offset,
             sender.to_string(),
         );
-        msg.store(conn).unwrap();
+        msg.store(conn).await.unwrap();
         message_id
     }
 
@@ -281,7 +283,7 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store a GroupUpdated message
         create_and_store_message(
@@ -291,10 +293,13 @@ mod tests {
             TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
             1000,
             "sender2",
-        );
+        ).await;
 
         // Query with default args - should return both messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 2);
 
         // Query excluding Text messages - should only return the GroupUpdated message
@@ -302,7 +307,7 @@ mod tests {
             exclude_content_types: Some(vec![DbContentType::Text]),
             ..Default::default()
         };
-        let messages = group.find_messages_v2(&query).unwrap();
+        let messages = group.find_messages_v2(&query).await.unwrap();
 
         assert_message_count(&messages, 1);
         if let MessageBody::GroupUpdated(_) = &messages[0].content {
@@ -328,7 +333,7 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        );
+        ).await;
 
         create_and_store_message(
             &conn,
@@ -337,10 +342,13 @@ mod tests {
             TestContentGenerator::text_content("Another message"),
             1000,
             "sender2",
-        );
+        ).await;
 
         // Query and verify
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 2);
         assert_text_content(&messages[0], "Hello World");
         assert_text_content(&messages[1], "Another message");
@@ -363,7 +371,7 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store reactions to the message
         create_and_store_message(
@@ -373,7 +381,7 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
             1000,
             "reactor1",
-        );
+        ).await;
 
         create_and_store_message(
             &conn,
@@ -382,10 +390,13 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "❤️", ReactionAction::Added),
             2000,
             "reactor2",
-        );
+        ).await;
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // Should have 1 message (reactions are attached to the message, not returned separately)
         assert_message_count(&messages, 1);
@@ -412,7 +423,7 @@ mod tests {
             TestContentGenerator::text_content("Original message"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store a reply to the message
         let reply_id = create_and_store_message(
@@ -426,10 +437,13 @@ mod tests {
             ),
             1000,
             "replier1",
-        );
+        ).await;
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         assert_message_count(&messages, 2);
 
@@ -461,10 +475,13 @@ mod tests {
             ),
             0,
             "replier1",
-        );
+        ).await;
 
         // Query messages - should still return the reply but with None in_reply_to
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 1);
 
         assert_reply_has_no_reference(&messages[0]);
@@ -491,10 +508,13 @@ mod tests {
             ),
             0,
             "replier1",
-        );
+        ).await;
 
         // Query messages - should still return the reply but with None in_reply_to
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 1);
         assert_reply_has_no_reference(&messages[0]);
 
@@ -516,7 +536,7 @@ mod tests {
             TestContentGenerator::text_content("Valid message"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store a message with invalid/malformed content (use Text type to avoid filtering)
         create_and_store_message(
@@ -526,7 +546,7 @@ mod tests {
             TestContentGenerator::malformed_content_with_type(TextCodec::content_type()),
             1000,
             "sender2",
-        );
+        ).await;
 
         // Store a message with unknown content type
         create_and_store_message(
@@ -536,10 +556,13 @@ mod tests {
             TestContentGenerator::invalid_content(),
             2000,
             "sender3",
-        );
+        ).await;
 
         // Query messages - malformed content still creates a message
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // We should get all 3 messages even though some have malformed content
         assert_message_count(&messages, 3);
@@ -572,7 +595,7 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store a valid reaction
         create_and_store_message(
@@ -582,7 +605,7 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
             1000,
             "reactor1",
-        );
+        ).await;
 
         // Store an invalid reaction (malformed content)
         let reaction_type = xmtp_content_types::reaction::ReactionCodec::content_type();
@@ -595,10 +618,13 @@ mod tests {
             Some(reaction_type),
             Some(msg_id.clone()),
         );
-        invalid_reaction.store(&conn).unwrap();
+        invalid_reaction.store(&conn).await.unwrap();
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // Should have 1 message total
         assert_message_count(&messages, 1);
@@ -624,7 +650,7 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store a reaction (should be hidden)
         let msg_id_hex = vec![1].encode_hex();
@@ -635,7 +661,7 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
             1000,
             "reactor1",
-        );
+        ).await;
 
         // Store a read receipt (should be hidden)
         create_and_store_message(
@@ -645,7 +671,7 @@ mod tests {
             TestContentGenerator::read_receipt_content(),
             2000,
             "reader1",
-        );
+        ).await;
 
         // Store a delete message (should be hidden)
         create_and_store_message(
@@ -655,7 +681,7 @@ mod tests {
             TestContentGenerator::delete_message_content(&msg_id_hex),
             3000,
             "deleter1",
-        );
+        ).await;
 
         // Store another text message
         create_and_store_message(
@@ -665,11 +691,14 @@ mod tests {
             TestContentGenerator::text_content("Second message"),
             4000,
             "sender2",
-        );
+        ).await;
 
         // Query messages - should only return the 2 text messages
         // Reactions, ReadReceipt, and DeleteMessage should be filtered out
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // We expect only 2 messages (the text messages)
         // Reaction is attached to message 1, ReadReceipt and DeleteMessage are filtered
@@ -697,7 +726,7 @@ mod tests {
             TestContentGenerator::text_content("Original message"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Store first reply (reply to original)
         let msg2_id = vec![2];
@@ -713,7 +742,7 @@ mod tests {
             ),
             1000,
             "replier1",
-        );
+        ).await;
 
         // Store second reply (reply to first reply)
         let msg3_id = vec![3];
@@ -728,10 +757,13 @@ mod tests {
             ),
             2000,
             "replier2",
-        );
+        ).await;
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         assert_message_count(&messages, 3);
 
@@ -792,7 +824,7 @@ mod tests {
             TestContentGenerator::text_content("Original message"),
             0,
             "sender1",
-        );
+        ).await;
 
         // Create a custom/unknown content type
         let custom_content_type = ContentTypeId {
@@ -814,10 +846,13 @@ mod tests {
             ),
             1000,
             "replier1",
-        );
+        ).await;
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 2);
 
         // Find the reply message

@@ -290,7 +290,7 @@ async fn test_get_hmac_keys() {
         .await
         .unwrap();
 
-    let hmac_keys = alix_group.get_hmac_keys().unwrap();
+    let hmac_keys = alix_group.get_hmac_keys().await.unwrap();
 
     let keys = hmac_keys.get(&alix_group.id()).unwrap();
 

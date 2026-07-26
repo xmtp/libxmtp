@@ -106,7 +106,16 @@ where
             .topic_cursor(self.topic_cursor.clone())
             .store(&self.cursor_store)
             .build()?;
-        ordering.order_offline().map_err(OrderedStreamError::from)?;
+        // `poll_next` is sync, but it already has the context, so drive the
+        // ordering future by hand rather than awaiting it.
+        let ordered = {
+            let mut fut = ordering.order_offline();
+            match fut.as_mut().poll(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(res) => res,
+            }
+        };
+        ordered.map_err(OrderedStreamError::from)?;
         let (envelopes, mut new_cursor) = ordering.into_parts();
         let this = self.as_mut().project();
         std::mem::swap(this.topic_cursor, &mut new_cursor);

@@ -1,0 +1,28 @@
+[package]
+name = "openmls_pg_storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "An OpenMLS storage provider backed by sqlx + PostgreSQL."
+
+[dependencies]
+openmls_traits = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+futures-core = "0.3"
+# `lock::Mutex` (a runtime-agnostic async mutex whose guard is `Send`) is used to
+# hold the borrowed `&mut PgConnection` across `.await` under `&self` trait
+# methods, so the futures stay `Send`. `RefCell`/`RefMut` are `!Sync`/`!Send` and
+# would make them non-Send. `std` gates that `Mutex` (workspace pins only `io`).
+futures-util = { workspace = true, features = ["std"] }
+# Postgres only, deliberately: sqlx-sqlite pins libsqlite3-sys ^0.30 which
+# collides with the diesel (sync) track's ^0.35, so SQLite must never enter the
+# graph. The `macros` feature (needed for `sqlx::migrate!`) transitively pulls
+# sqlx-sqlite, so it stays off: migrations are embedded with `include_str!` and
+# applied by a hand-rolled runner instead. Matches the workspace's
+# `runtime-tokio` (no TLS feature needed to compile).
+sqlx = { workspace = true, default-features = false, features = [
+  "postgres",
+  "runtime-tokio",
+] }

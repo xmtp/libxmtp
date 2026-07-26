@@ -151,7 +151,9 @@ impl Test {
 
         // Step 2: user1 creates a group chat and adds user2
         info!("creating group and adding receiver");
-        let group = client1.create_group(Default::default(), Default::default())?;
+        let group = client1
+            .create_group(Default::default(), Default::default())
+            .await?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
         let group_id = hex::encode(group.group_id);
         info!(group_id, "group created");
@@ -302,7 +304,9 @@ impl Test {
 
         // Step 2: user1 creates a group chat and adds user2
         info!("creating group and adding receiver");
-        let group = client1.create_group(Default::default(), Default::default())?;
+        let group = client1
+            .create_group(Default::default(), Default::default())
+            .await?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
         let group_id = hex::encode(group.group_id);
         info!(group_id, "group created");
@@ -355,7 +359,7 @@ impl Test {
 
         let sync_start = Instant::now();
         receiver_group.sync().await?;
-        let messages = receiver_group.find_messages(&Default::default())?;
+        let messages = receiver_group.find_messages(&Default::default()).await?;
         let sync_duration = sync_start.elapsed().as_millis();
 
         info!(
@@ -570,7 +574,9 @@ impl Test {
 
         // Step 3: Sender creates group, adds receiver
         info!("creating group and adding receiver");
-        let group = client1.create_group(Default::default(), Default::default())?;
+        let group = client1
+            .create_group(Default::default(), Default::default())
+            .await?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
         let group_id = group.group_id;
         let group_id_hex = hex::encode(group_id);
@@ -607,7 +613,7 @@ impl Test {
         );
 
         // Extract V3 cursor data for our application messages
-        let v3_messages = group.find_messages(&Default::default())?;
+        let v3_messages = group.find_messages(&Default::default()).await?;
         let v3_cursors: Vec<(u32, u64)> = v3_messages
             .iter()
             .filter(|m| m.kind == GroupMessageKind::Application)
@@ -887,7 +893,9 @@ impl Test {
         ];
 
         // Step 2: Create a group (just ourselves — sufficient for migration)
-        let group = client.create_group(Default::default(), Default::default())?;
+        let group = client
+            .create_group(Default::default(), Default::default())
+            .await?;
         let group_id = group.group_id;
         let group_id_hex = hex::encode(group_id);
         info!(group_id = group_id_hex, "group created on V3");
@@ -937,7 +945,7 @@ impl Test {
 
         // After send_message + sync, the SDK has the V3 cursor for our message.
         // Extract it so we can match the exact (originator_id, sequence_id) on V4.
-        let v3_messages = group.find_messages(&Default::default())?;
+        let v3_messages = group.find_messages(&Default::default()).await?;
         let our_msg = v3_messages.iter().rev().find(|m| {
             String::from_utf8_lossy(&m.decrypted_message_bytes).contains("__MIGRATION_MONITOR__")
         });
@@ -1098,7 +1106,9 @@ impl Test {
 
         // Step 2: Sender creates group, adds receiver
         info!("creating group and adding receiver");
-        let group = client1.create_group(Default::default(), Default::default())?;
+        let group = client1
+            .create_group(Default::default(), Default::default())
+            .await?;
         group.add_members(std::slice::from_ref(&inbox_id2)).await?;
         let group_id = group.group_id;
         let group_id_hex = hex::encode(group_id);

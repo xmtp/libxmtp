@@ -19,21 +19,21 @@ async fn test_self_removal_with_pending_state() {
 
     // Bo syncs and gets the group
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // Verify Bo's membership state is Pending when first invited
-    let bo_state_initial = bo_group.membership_state().unwrap();
+    let bo_state_initial = bo_group.membership_state().await.unwrap();
     assert_eq!(bo_state_initial, FfiGroupMembershipState::Pending);
 
     // Verify Alix's membership state is Allowed (creator)
-    let alix_state = alix_group.membership_state().unwrap();
+    let alix_state = alix_group.membership_state().await.unwrap();
     assert_eq!(alix_state, FfiGroupMembershipState::Allowed);
 
     // Bo leaves the group
     bo_group.leave_group().await.unwrap();
 
     // Verify Bo's membership state is PendingRemove after requesting to leave
-    let bo_state_after_leave = bo_group.membership_state().unwrap();
+    let bo_state_after_leave = bo_group.membership_state().await.unwrap();
     assert_eq!(bo_state_after_leave, FfiGroupMembershipState::PendingRemove);
 
     // Alix syncs to process the leave request (enqueues the self-remove task and
@@ -50,7 +50,7 @@ async fn test_self_removal_with_pending_state() {
         // until it lands rather than relying on a single fixed wait.
         alix_group.sync().await.ok();
         bo_group.sync().await.ok();
-        if !bo_group.is_active().unwrap() {
+        if !bo_group.is_active().await.unwrap() {
             removed = true;
             break;
         }
@@ -63,7 +63,7 @@ async fn test_self_removal_with_pending_state() {
     );
 
     // Verify Alix's membership state remains Allowed
-    let alix_state_final = alix_group.membership_state().unwrap();
+    let alix_state_final = alix_group.membership_state().await.unwrap();
     assert_eq!(alix_state_final, FfiGroupMembershipState::Allowed);
 
     // Verify only Alix remains in the group
@@ -89,10 +89,10 @@ async fn test_membership_state_after_readd() {
 
     // Bo syncs and gets the group
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // Verify Bo's initial membership state is Pending
-    let bo_state_initial = bo_group.membership_state().unwrap();
+    let bo_state_initial = bo_group.membership_state().await.unwrap();
     assert_eq!(
         bo_state_initial,
         FfiGroupMembershipState::Pending,
@@ -103,7 +103,7 @@ async fn test_membership_state_after_readd() {
     bo_group.leave_group().await.unwrap();
 
     // Verify Bo's membership state is PendingRemove after requesting to leave
-    let bo_state_after_leave = bo_group.membership_state().unwrap();
+    let bo_state_after_leave = bo_group.membership_state().await.unwrap();
     assert_eq!(
         bo_state_after_leave,
         FfiGroupMembershipState::PendingRemove,
@@ -122,7 +122,7 @@ async fn test_membership_state_after_readd() {
         // until it lands rather than relying on a single fixed wait.
         alix_group.sync().await.ok();
         bo_group.sync().await.ok();
-        if !bo_group.is_active().unwrap() {
+        if !bo_group.is_active().await.unwrap() {
             removed = true;
             break;
         }
@@ -144,10 +144,10 @@ async fn test_membership_state_after_readd() {
     bo.conversations().sync().await.unwrap();
 
     // Bo should have the group again (same ID)
-    let bo_group_after_readd = bo.conversation(alix_group.id()).unwrap();
+    let bo_group_after_readd = bo.conversation(alix_group.id()).await.unwrap();
 
     // CRITICAL: Verify Bo's membership state is Allowed (not PendingRemove)
-    let bo_state_after_readd = bo_group_after_readd.membership_state().unwrap();
+    let bo_state_after_readd = bo_group_after_readd.membership_state().await.unwrap();
     assert_eq!(
         bo_state_after_readd,
         FfiGroupMembershipState::Allowed,
@@ -156,12 +156,12 @@ async fn test_membership_state_after_readd() {
 
     // Verify the group is active again
     assert!(
-        bo_group_after_readd.is_active().unwrap(),
+        bo_group_after_readd.is_active().await.unwrap(),
         "Bo's group should be active after re-add"
     );
 
     // Verify consent state is Unknown (user needs to accept)
-    let bo_consent_after_readd = bo_group_after_readd.consent_state().unwrap();
+    let bo_consent_after_readd = bo_group_after_readd.consent_state().await.unwrap();
     assert_eq!(
         bo_consent_after_readd,
         FfiConsentState::Unknown,
@@ -170,8 +170,8 @@ async fn test_membership_state_after_readd() {
 
     // Verify the group shows up correctly in UX logic
     // This mimics the Android logic: isActive() && membershipState() != PENDING_REMOVE
-    let is_active_and_not_pending_removal = bo_group_after_readd.is_active().unwrap()
-        && bo_group_after_readd.membership_state().unwrap()
+    let is_active_and_not_pending_removal = bo_group_after_readd.is_active().await.unwrap()
+        && bo_group_after_readd.membership_state().await.unwrap()
             != FfiGroupMembershipState::PendingRemove;
     assert!(
         is_active_and_not_pending_removal,
@@ -227,7 +227,7 @@ async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
 
     // Bo syncs and gets the group.
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // The creator is a super admin, and a super admin cannot leave. Hand super
     // admin to Bo, then drop Alix's own super admin, so the creator is allowed to
@@ -243,7 +243,7 @@ async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
     // Alix (now a regular member) leaves the group.
     alix_group.leave_group().await.unwrap();
     assert_eq!(
-        alix_group.membership_state().unwrap(),
+        alix_group.membership_state().await.unwrap(),
         FfiGroupMembershipState::PendingRemove
     );
 
@@ -255,7 +255,7 @@ async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         bo_group.sync().await.ok();
         alix_group.sync().await.ok();
-        if !alix_group.is_active().unwrap() {
+        if !alix_group.is_active().await.unwrap() {
             removed = true;
             break;
         }
@@ -288,6 +288,7 @@ async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
         .context
         .db()
         .group_cursors()
+        .await
         .expect("welcome-stream startup (group_cursors) must not abort after creator re-add");
     assert_eq!(
         cursors.len(),
@@ -321,7 +322,7 @@ async fn test_leave_request_message_is_visible() {
 
     // Bo syncs and gets the group
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // Get initial message count
     let initial_messages = alix_group
@@ -390,6 +391,7 @@ async fn test_leave_request_message_is_visible() {
 
     let enriched_messages = alix_group
         .find_enriched_messages(FfiListMessagesOptions::default())
+        .await
         .unwrap();
 
     println!("Enriched message count: {}", enriched_messages.len());

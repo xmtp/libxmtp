@@ -60,9 +60,9 @@ impl<A, S> ClientBuilder<A, S> {
     /// selection is covered by the migration unit tests; it can't be driven
     /// locally because the test node-go does not serve `FetchD14nCutover`, so
     /// `choose_client`'s first-call refresh would error before it could pick v3.
-    pub fn local_migration(self) -> ClientBuilder<MigrationTestClient, S> {
+    pub async fn local_migration(self) -> ClientBuilder<MigrationTestClient, S> {
         let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        s.set_has_migrated(true).unwrap();
+        s.set_has_migrated(true).await.unwrap();
         let a = LocalOnlyMigrationClientCreator::with_cursor_store(s);
         let api_client = a.build().unwrap();
         self.api_client(api_client)

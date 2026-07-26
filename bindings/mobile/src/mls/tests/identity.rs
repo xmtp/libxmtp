@@ -530,6 +530,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let a_dm_messages = client_a
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap()[0]
         .conversation
         .find_messages(FfiListMessagesOptions::default())
@@ -538,6 +539,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let b_dm_messages = client_b
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap()[0]
         .conversation
         .find_messages(FfiListMessagesOptions::default())
@@ -546,6 +548,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let bo_dm_messages = bo
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap()[0]
         .conversation
         .find_messages(FfiListMessagesOptions::default())

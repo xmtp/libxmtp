@@ -17,16 +17,17 @@ use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::En
 use xmtp_proto::types::{Cursor, GlobalCursor, GroupId};
 
 #[cfg_attr(test, mockall::automock)]
+#[xmtp_common::async_trait]
 pub trait GroupDatabase {
     /// Get the last cursor for a message
-    fn last_cursor(&self, group_id: &GroupId) -> Result<GlobalCursor, StorageError>;
+    async fn last_cursor(&self, group_id: &GroupId) -> Result<GlobalCursor, StorageError>;
     /// get a message from the database
     // not needless, required by mockall
     #[allow(clippy::needless_lifetimes)]
-    fn msg<'a>(
-        &self,
+    async fn msg<'a>(
+        &'a self,
         id: Option<&'a MessageIdentifier>,
-        msg: &xmtp_proto::types::GroupMessage,
+        msg: &'a xmtp_proto::types::GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, StorageError>;
 }
 
@@ -43,32 +44,42 @@ impl<Context> GroupDb<Context> {
 const MESSAGE_ENTITIES: [EntityKind; 2] =
     [EntityKind::ApplicationMessage, EntityKind::CommitMessage];
 
+#[xmtp_common::async_trait]
 impl<Context> GroupDatabase for GroupDb<Context>
 where
     Context: XmtpSharedContext,
 {
-    fn last_cursor(&self, group_id: &GroupId) -> Result<GlobalCursor, StorageError> {
+    async fn last_cursor(&self, group_id: &GroupId) -> Result<GlobalCursor, StorageError> {
         let mut maps = self
             .0
             .db()
-            .get_last_cursor_for_ids(&[group_id.as_slice()], &MESSAGE_ENTITIES)?;
+            .get_last_cursor_for_ids(&[group_id], &MESSAGE_ENTITIES)
+            .await?;
         Ok(maps.remove(group_id.as_slice()).unwrap_or_default())
     }
 
-    fn msg(
-        &self,
-        id: Option<&MessageIdentifier>,
-        msg: &xmtp_proto::types::GroupMessage,
+    async fn msg<'a>(
+        &'a self,
+        id: Option<&'a MessageIdentifier>,
+        msg: &'a xmtp_proto::types::GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
         let conn = self.0.db();
-        id.and_then(|m| {
+        let internal_id = id.and_then(|m| {
             if m.group_id != msg.group_id {
                 return None;
             }
             m.internal_id.clone()
-        })
-        .map(|id| conn.get_group_message(id))
-        .unwrap_or_else(|| conn.get_group_message_by_timestamp(msg.group_id, msg.timestamp()))
+        });
+        // A `match` rather than `map(..).unwrap_or_else(..)`: the two arms are
+        // distinct futures now, so there is no single type for the combinators
+        // to hand back.
+        match internal_id.as_ref() {
+            Some(id) => conn.get_group_message(id).await,
+            None => {
+                conn.get_group_message_by_timestamp(&msg.group_id, msg.timestamp())
+                    .await
+            }
+        }
         .map_err(StorageError::from)
     }
 }
@@ -102,7 +113,7 @@ where
         &self,
         msg: &xmtp_proto::types::GroupMessage,
     ) -> Result<MessageIdentifier, SubscribeError> {
-        let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id)?;
+        let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id).await?;
         let epoch = group.epoch().await?;
         tracing::debug!(
             "client@[{}] about to process streamed message @cursor=[{}] for group @epoch=[{}]",
@@ -191,13 +202,13 @@ where
     /// fallback, `process` would advance `next_message` to
     /// `ProcessSummary::last_errored`, which can sit after a successful cursor and
     /// cause the stream to silently drop the valid message in between.
-    fn lookup_stored_from_sync(
+    async fn lookup_stored_from_sync(
         &self,
         summary: &SyncSummary,
         msg: &xmtp_proto::types::GroupMessage,
     ) -> Result<Option<(StoredGroupMessage, Cursor)>, SubscribeError> {
         let primary_id = summary.new_message_by_id(msg.cursor);
-        if let Some(stored) = self.group_db.msg(primary_id, msg)? {
+        if let Some(stored) = self.group_db.msg(primary_id, msg).await? {
             let delivered = primary_id.map(|id| id.cursor).unwrap_or(msg.cursor);
             return Ok(Some((stored, delivered)));
         }
@@ -213,7 +224,7 @@ where
         candidates.sort_by_key(|m| m.cursor);
 
         for id in candidates {
-            if let Some(stored) = self.group_db.msg(Some(id), msg)? {
+            if let Some(stored) = self.group_db.msg(Some(id), msg).await? {
                 return Ok(Some((stored, id.cursor)));
             }
         }
@@ -255,14 +266,16 @@ where
         self,
         msg: xmtp_proto::types::GroupMessage,
     ) -> Result<ProcessedMessage, SubscribeError> {
-        let summary = if self.needs_to_sync(&msg)? {
+        let summary = if self.needs_to_sync(&msg).await? {
             self.process_or_recover(&msg).await
         } else {
             // if we dont need to sync, the message should be in the database
             SyncSummary::single(MessageIdentifierBuilder::from(&msg).build()?)
         };
 
-        if let Some((new_msg, delivered_cursor)) = self.lookup_stored_from_sync(&summary, &msg)? {
+        if let Some((new_msg, delivered_cursor)) =
+            self.lookup_stored_from_sync(&summary, &msg).await?
+        {
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: delivered_cursor,
@@ -343,8 +356,11 @@ where
     ///
     /// # Errors
     /// Returns an error if the database query for the last cursor fails.
-    fn needs_to_sync(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<bool, SubscribeError> {
-        let clock = self.group_db.last_cursor(&msg.group_id)?;
+    async fn needs_to_sync(
+        &self,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<bool, SubscribeError> {
+        let clock = self.group_db.last_cursor(&msg.group_id).await?;
         if !clock.has_seen(&msg.cursor) {
             tracing::debug!(
                 "stream requires sync; last_synced@[{}], this message @[{}]",

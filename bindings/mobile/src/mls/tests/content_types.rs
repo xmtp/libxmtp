@@ -30,7 +30,7 @@ async fn test_can_send_and_receive_reaction() {
 
     // Have Bo sync to get the conversation and message
     bo.conversations().sync().await.unwrap();
-    let bo_conversation = bo.conversation(alix_conversation.id()).unwrap();
+    let bo_conversation = bo.conversation(alix_conversation.id()).await.unwrap();
     bo_conversation.sync().await.unwrap();
 
     // Get the message to react to
@@ -80,6 +80,7 @@ async fn test_can_send_and_receive_reaction() {
     // Test find_messages_with_reactions query
     let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
         .find_messages_with_reactions(FfiListMessagesOptions::default())
+        .await
         .unwrap();
     assert_eq!(messages_with_reactions.len(), 2);
     let message_with_reactions = &messages_with_reactions[1];
@@ -340,7 +341,7 @@ async fn test_find_enriched_messages_with_reactions() {
 
     // Bo accepts the invitation
     bo.client.conversations().sync().await.unwrap();
-    let bo_group = bo.client.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.client.conversation(alix_group.id()).await.unwrap();
 
     // Send a few initial messages using proper text encoding
     let text1 = TextCodec::encode("Message 1".to_string()).unwrap();
@@ -377,6 +378,7 @@ async fn test_find_enriched_messages_with_reactions() {
     // Get messages to react to
     let all_messages = bo_group
         .find_enriched_messages(FfiListMessagesOptions::default())
+        .await
         .unwrap();
 
     // Filter for just text messages to react to
@@ -444,6 +446,7 @@ async fn test_find_enriched_messages_with_reactions() {
     // Test find_enriched_messages returns all messages including reactions
     let all_messages = alix_group
         .find_enriched_messages(FfiListMessagesOptions::default())
+        .await
         .unwrap();
 
     // Should have 1 membership change + 3 text messages
@@ -482,7 +485,11 @@ async fn test_find_enriched_messages_with_replies() {
 
     // Bo finds the DM
     bo.client.conversations().sync().await.unwrap();
-    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+    let bo_dm = bo
+        .client
+        .dm_conversation(alix.client.inbox_id())
+        .await
+        .unwrap();
 
     // Send initial messages using proper text encoding
     let text1 = TextCodec::encode("Hello!".to_string()).unwrap();
@@ -519,6 +526,7 @@ async fn test_find_enriched_messages_with_replies() {
     // Get messages to reply to
     let messages = alix_dm
         .find_enriched_messages(FfiListMessagesOptions::default())
+        .await
         .unwrap();
     // 3 messages sent + group membership change
     assert_eq!(messages.len(), 4);
@@ -552,6 +560,7 @@ async fn test_find_enriched_messages_with_replies() {
     alix_dm.sync().await.unwrap();
     let updated_messages = alix_dm
         .find_enriched_messages(FfiListMessagesOptions::default())
+        .await
         .unwrap();
 
     // Find the first reply message

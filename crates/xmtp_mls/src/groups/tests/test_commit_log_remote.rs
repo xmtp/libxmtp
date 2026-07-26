@@ -63,8 +63,8 @@ async fn test_commit_log_signer_on_group_creation() {
 
     let a = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let a_metadata = a.mutable_metadata()?;
-    let b_metadata = b.mutable_metadata()?;
+    let a_metadata = a.mutable_metadata().await?;
+    let b_metadata = b.mutable_metadata().await?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
     let b_commit_log_signer = b_metadata.commit_log_signer();
 
@@ -83,8 +83,8 @@ async fn test_commit_log_signer_on_group_creation() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let a_metadata = a.mutable_metadata()?;
-    let b_metadata = b.mutable_metadata()?;
+    let a_metadata = a.mutable_metadata().await?;
+    let b_metadata = b.mutable_metadata().await?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
     let b_commit_log_signer = b_metadata.commit_log_signer();
 
@@ -121,10 +121,11 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
             ..Default::default()
         },
         None,
-    )?;
-    let b = bo.group(&a.group_id)?;
-    let a_metadata = a.mutable_metadata()?;
-    let b_metadata = b.mutable_metadata()?;
+    )
+    .await?;
+    let b = bo.group(&a.group_id).await?;
+    let a_metadata = a.mutable_metadata().await?;
+    let b_metadata = b.mutable_metadata().await?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
     let b_commit_log_signer = b_metadata.commit_log_signer();
     assert_ne!(
@@ -133,7 +134,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     );
 
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let b_metadata = b.mutable_metadata()?;
+    let b_metadata = b.mutable_metadata().await?;
     let b_commit_log_signer = b_metadata.commit_log_signer();
     assert_eq!(
         a_commit_log_signer.as_ref().unwrap().as_slice(),
@@ -249,11 +250,14 @@ async fn test_should_publish_commit_log() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
 
-    let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
+    let binding = bo
+        .list_conversations(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let bo_group = binding.first().unwrap();
     assert_eq!(bo_group.group.group_id, alix_group.group_id);
 
@@ -262,6 +266,7 @@ async fn test_should_publish_commit_log() {
             should_publish_commit_log: Some(true),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     let bo_should_publish_commit_log_groups = bo
@@ -269,6 +274,7 @@ async fn test_should_publish_commit_log() {
             should_publish_commit_log: Some(true),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     assert_eq!(alix_should_publish_commit_log_groups.len(), 1);
@@ -283,11 +289,14 @@ async fn test_publish_commit_log_to_remote() {
     tester!(bo);
 
     // Alix creates a group with Bo
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
 
-    let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
+    let binding = bo
+        .list_conversations(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let bo_group = binding.first().unwrap();
     assert_eq!(bo_group.group.group_id, alix_group.group_id);
 
@@ -296,6 +305,7 @@ async fn test_publish_commit_log_to_remote() {
         .context
         .db()
         .get_group_logs(&alix_group.group_id)
+        .await
         .unwrap();
     assert_eq!(commit_log_entries.len(), 2);
 
@@ -304,10 +314,11 @@ async fn test_publish_commit_log_to_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            alix_group.group_id,
+            alix_group.group_id.as_slice(),
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
+        .await
         .unwrap();
     assert_eq!(published_commit_log_cursor, Cursor::commit_log(0));
 
@@ -322,10 +333,11 @@ async fn test_publish_commit_log_to_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            alix_group.group_id,
+            alix_group.group_id.as_slice(),
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
+        .await
         .unwrap();
     tracing::info!("{}", published_commit_log_cursor);
     assert!(published_commit_log_cursor > Cursor::commit_log(0));
@@ -367,7 +379,7 @@ async fn test_download_commit_log_from_remote() {
     tester!(bo, with_commit_log_worker: false);
 
     // Alix creates a group with Bo (1 commit)
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     // Alix updates the group name (2 commits)
@@ -383,7 +395,7 @@ async fn test_download_commit_log_from_remote() {
         .unwrap();
 
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
@@ -406,10 +418,11 @@ async fn test_download_commit_log_from_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            alix_group.group_id,
+            alix_group.group_id.as_slice(),
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
+        .await
         .unwrap();
     assert_eq!(alix_group_1_cursor, Cursor::commit_log(0));
 
@@ -466,10 +479,11 @@ async fn test_download_commit_log_from_remote() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            alix_group.group_id,
+            alix_group.group_id.as_slice(),
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
             Originators::REMOTE_COMMIT_LOG,
         )
+        .await
         .unwrap();
 
     let alix_group1_publish_result_upload_cursor =
@@ -955,7 +969,7 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
         .send_message("Hello from alix".as_bytes(), SendMessageOpts::default())
         .await?;
     bo_dm.sync().await?;
-    let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
+    let messages = bo_dm.find_messages(&MsgQueryArgs::default()).await?;
     // Should see 2 messages:
     // 1. System "group_updated" message (from UpdateGroupMembership commit)
     // 2. The actual "Hello from alix" application message
@@ -977,7 +991,7 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
         .send_message("Hello from bo".as_bytes(), SendMessageOpts::default())
         .await?;
     alix_dm.sync().await?;
-    let messages = alix_dm.find_messages(&MsgQueryArgs::default())?;
+    let messages = alix_dm.find_messages(&MsgQueryArgs::default()).await?;
     // Should now have 3 messages: group_updated, "Hello from alix", "Hello from bo"
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[2].decrypted_message_bytes, b"Hello from bo");
@@ -991,8 +1005,12 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     let alix_conn = &alix.context.db();
     let bo_conn = &bo.context.db();
 
-    let alix_conversation_keys = alix_conn.get_conversation_ids_for_remote_log_publish()?;
-    let bo_conversation_keys = bo_conn.get_conversation_ids_for_remote_log_publish()?;
+    let alix_conversation_keys = alix_conn
+        .get_conversation_ids_for_remote_log_publish()
+        .await?;
+    let bo_conversation_keys = bo_conn
+        .get_conversation_ids_for_remote_log_publish()
+        .await?;
 
     // Find the DM conversation key for each party
     let alix_dm_key = alix_conversation_keys
@@ -1005,10 +1023,12 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
         .expect("Bo should have DM key");
 
     // Get the signing keys that would be used for publishing
-    let alix_signing_key = get_or_create_signing_key(&alix.context, alix_dm_key)?
+    let alix_signing_key = get_or_create_signing_key(&alix.context, alix_dm_key)
+        .await?
         .expect("Alix should have signing key");
-    let bo_signing_key =
-        get_or_create_signing_key(&bo.context, bo_dm_key)?.expect("Bo should have signing key");
+    let bo_signing_key = get_or_create_signing_key(&bo.context, bo_dm_key)
+        .await?
+        .expect("Bo should have signing key");
 
     // Derive public keys from the private keys
     let alix_public_key = xmtp_cryptography::signature::to_public_key(&alix_signing_key)?;
@@ -1035,8 +1055,8 @@ async fn test_consecutive_entries_verification_happy_case() {
     // Sync messages to bo
     bo_dm.sync().await?;
     // Only consented DM's are checked in the commit log
-    bo_dm.update_consent_state(ConsentState::Allowed)?;
-    let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
+    bo_dm.update_consent_state(ConsentState::Allowed).await?;
+    let messages = bo_dm.find_messages(&MsgQueryArgs::default()).await?;
     // Should see 1 messages: group_updated
     assert_eq!(messages.len(), 1);
 
@@ -1103,7 +1123,7 @@ async fn test_consecutive_entries_verification_happy_case() {
 
     // Sync to alix
     alix_dm.sync().await?;
-    let messages = alix_dm.find_messages(&MsgQueryArgs::default())?;
+    let messages = alix_dm.find_messages(&MsgQueryArgs::default()).await?;
     // Should now have 2 messages: group_updated + 1 actual messages
     assert_eq!(messages.len(), 2);
 
@@ -1302,16 +1322,19 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // Get initial commit log signer for all parties
     let initial_alix_signer = alix_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let initial_bo_signer = bo_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let initial_charlie_signer = charlie_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1340,6 +1363,7 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // Alix should see the new signer immediately
     let alix_updated_signer = alix_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1353,11 +1377,13 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // Bo and charlie shouldn't see the change yet (before sync)
     let bo_pre_sync_signer = bo_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let charlie_pre_sync_signer = charlie_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1380,16 +1406,19 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // After sync, everyone should see the new signer
     let final_alix_signer = alix_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let final_bo_signer = bo_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let final_charlie_signer = charlie_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1417,7 +1446,10 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     tester!(alix);
     tester!(bo);
 
-    let group = alix.create_group(Some(PolicySet::default()), None).unwrap();
+    let group = alix
+        .create_group(Some(PolicySet::default()), None)
+        .await
+        .unwrap();
 
     // Add bo to the group
     group.add_members(&[bo.inbox_id()]).await.unwrap();
@@ -1427,9 +1459,9 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     let bo_group = &bo_groups[0];
 
     // Get the initial signing key from alix's perspective
-    let alix_initial_metadata = group.mutable_metadata().unwrap();
+    let alix_initial_metadata = group.mutable_metadata().await.unwrap();
     let initial_signer = alix_initial_metadata.commit_log_signer().unwrap();
-    let bo_initial_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_initial_metadata = bo_group.mutable_metadata().await.unwrap();
     let bo_initial_signer = bo_initial_metadata.commit_log_signer().unwrap();
 
     // Verify both parties have the same signing key initially
@@ -1449,11 +1481,11 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     println!("✓ Updated group name and synced to all parties");
 
     // Verify the signing key is preserved on alix's side
-    let alix_updated_metadata = group.mutable_metadata().unwrap();
+    let alix_updated_metadata = group.mutable_metadata().await.unwrap();
     let alix_updated_signer = alix_updated_metadata.commit_log_signer().unwrap();
 
     // Verify the signing key is preserved on bo's side
-    let bo_updated_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_updated_metadata = bo_group.mutable_metadata().await.unwrap();
     let bo_updated_signer = bo_updated_metadata.commit_log_signer().unwrap();
 
     // Verify the group name was actually updated
@@ -1489,7 +1521,10 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Create a group - this will have a commit log signer in mutable metadata by default
     // We'll simulate a legacy group by having alix use a different key
-    let group = alix.create_group(Some(PolicySet::default()), None).unwrap();
+    let group = alix
+        .create_group(Some(PolicySet::default()), None)
+        .await
+        .unwrap();
 
     // Add bo and charlie to the group
     group
@@ -1547,7 +1582,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ Alix saved remote commit logs and processed them");
 
     // Verify alix now has the new signing key in mutable metadata
-    let alix_metadata_after = group.mutable_metadata().unwrap();
+    let alix_metadata_after = group.mutable_metadata().await.unwrap();
     let alix_signer_after = alix_metadata_after.commit_log_signer();
 
     assert!(
@@ -1568,10 +1603,10 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ Bo and Charlie synced to get metadata updates");
 
     // Verify bo and charlie now have the signing key in their mutable metadata
-    let bo_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_metadata = bo_group.mutable_metadata().await.unwrap();
     let bo_signer = bo_metadata.commit_log_signer();
 
-    let charlie_metadata = charlie_group.mutable_metadata().unwrap();
+    let charlie_metadata = charlie_group.mutable_metadata().await.unwrap();
     let charlie_signer = charlie_metadata.commit_log_signer();
 
     assert!(
@@ -1593,7 +1628,12 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ All participants now have the new signing key in mutable metadata");
 
     // Additional verification: the consensus key should be set in the database
-    let stored_group = alix.context.db().find_group(&group.group_id)?.unwrap();
+    let stored_group = alix
+        .context
+        .db()
+        .find_group(&group.group_id)
+        .await?
+        .unwrap();
     assert_eq!(
         stored_group.commit_log_public_key,
         Some(new_public_key.clone())

@@ -1,5 +1,9 @@
-use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_log::dsl};
+use super::remote_commit_log::CommitResult;
+#[cfg(feature = "sync")]
+use super::{DbConnection, schema::local_commit_log::dsl};
+#[cfg(feature = "sync")]
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
+#[cfg(feature = "sync")]
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
@@ -38,8 +42,9 @@ impl std::fmt::Display for CommitType {
     }
 }
 
-#[derive(Insertable, Debug, Clone)]
-#[diesel(table_name = local_commit_log)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
 pub struct NewLocalCommitLog {
     pub group_id: GroupId,
     pub commit_sequence_id: i64,
@@ -53,9 +58,12 @@ pub struct NewLocalCommitLog {
     pub commit_type: Option<String>,
 }
 
-#[derive(Queryable, Clone)]
-#[diesel(table_name = local_commit_log)]
-#[diesel(primary_key(id))]
+#[derive(Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "local_commit_log")]
 pub struct LocalCommitLog {
     pub rowid: i32,
     pub group_id: GroupId,
@@ -105,6 +113,7 @@ impl From<CommitResult> for i32 {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_store!(NewLocalCommitLog, local_commit_log);
 
 impl std::fmt::Debug for LocalCommitLog {
@@ -136,7 +145,8 @@ pub trait QueryLocalCommitLog {
     fn get_group_logs(
         &self,
         group_id: &GroupId,
-    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<LocalCommitLog>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     // Local commit log entries are returned sorted in ascending order of `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
@@ -145,17 +155,20 @@ pub trait QueryLocalCommitLog {
         group_id: &GroupId,
         after_cursor: i64,
         order_by: LocalCommitLogOrder,
-    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<LocalCommitLog>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     fn get_latest_log_for_group(
         &self,
         group_id: &GroupId,
-    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<LocalCommitLog>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     fn get_local_commit_log_cursor(
         &self,
         group_id: &GroupId,
-    ) -> Result<Option<i32>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<i32>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Rowid of the most recent chain-start entry for this group, if any.
     /// Chain-start entries have `commit_sequence_id == 0` (Welcome /
@@ -164,53 +177,57 @@ pub trait QueryLocalCommitLog {
     fn get_latest_chain_start_rowid(
         &self,
         group_id: &GroupId,
-    ) -> Result<Option<i32>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<i32>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryLocalCommitLog for &T
 where
-    T: QueryLocalCommitLog,
+    T: QueryLocalCommitLog + xmtp_common::MaybeSync,
 {
-    fn get_group_logs(
+    async fn get_group_logs(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_group_logs(group_id)
+        (**self).get_group_logs(group_id).await
     }
 
-    fn get_local_commit_log_after_cursor(
+    async fn get_local_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
         order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_local_commit_log_after_cursor(group_id, after_cursor, order_by)
+        (**self)
+            .get_local_commit_log_after_cursor(group_id, after_cursor, order_by)
+            .await
     }
 
-    fn get_latest_log_for_group(
+    async fn get_latest_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_latest_log_for_group(group_id)
+        (**self).get_latest_log_for_group(group_id).await
     }
 
-    fn get_local_commit_log_cursor(
+    async fn get_local_commit_log_cursor(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
-        (**self).get_local_commit_log_cursor(group_id)
+        (**self).get_local_commit_log_cursor(group_id).await
     }
 
-    fn get_latest_chain_start_rowid(
+    async fn get_latest_chain_start_rowid(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
-        (**self).get_latest_chain_start_rowid(group_id)
+        (**self).get_latest_chain_start_rowid(group_id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
-    fn get_group_logs(
+    async fn get_group_logs(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
@@ -224,7 +241,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
 
     // Local commit log entries are sorted by `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-    fn get_local_commit_log_after_cursor(
+    async fn get_local_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
@@ -249,7 +266,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         })
     }
 
-    fn get_latest_log_for_group(
+    async fn get_latest_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
@@ -263,7 +280,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         })
     }
 
-    fn get_local_commit_log_cursor(
+    async fn get_local_commit_log_cursor(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
@@ -276,7 +293,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         self.raw_query(|conn| query.first::<i32>(conn).optional())
     }
 
-    fn get_latest_chain_start_rowid(
+    async fn get_latest_chain_start_rowid(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
@@ -288,5 +305,148 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
             .limit(1);
 
         self.raw_query(|conn| query.first::<i32>(conn).optional())
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+    use sqlx::Row;
+
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
+    fn log(row: &sqlx::postgres::PgRow) -> Result<LocalCommitLog, crate::ConnectionError> {
+        use sqlx::FromRow;
+        Ok(LocalCommitLog::from_row(row)?)
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::Store<C> for NewLocalCommitLog {
+        type Output = ();
+        async fn store(&self, into: &C) -> Result<(), crate::StorageError> {
+            let mut c = into.pg_conn().await?;
+            sqlx::query(
+                "INSERT INTO local_commit_log \
+                 (group_id, commit_sequence_id, last_epoch_authenticator, commit_result, \
+                  applied_epoch_number, applied_epoch_authenticator, error_message, \
+                  sender_inbox_id, sender_installation_id, commit_type) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            )
+            .bind(&self.group_id)
+            .bind(self.commit_sequence_id)
+            .bind(&self.last_epoch_authenticator)
+            .bind(self.commit_result)
+            .bind(self.applied_epoch_number)
+            .bind(&self.applied_epoch_authenticator)
+            .bind(&self.error_message)
+            .bind(&self.sender_inbox_id)
+            .bind(&self.sender_installation_id)
+            .bind(&self.commit_type)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+    }
+
+    impl QueryLocalCommitLog for PgDb {
+        async fn get_group_logs(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {} FROM local_commit_log WHERE group_id = $1 ORDER BY rowid ASC",
+                LocalCommitLog::select_columns()
+            ))
+            .bind(group_id)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(log).collect()
+        }
+
+        /// Entries with `commit_sequence_id = 0` are chain starts and are never
+        /// published to the remote commit log, so they are excluded here.
+        async fn get_local_commit_log_after_cursor(
+            &self,
+            group_id: &GroupId,
+            after_cursor: i64,
+            order: LocalCommitLogOrder,
+        ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+            // The cursor is populated from an i32 rowid, so this is unreachable
+            // in practice; the sync track reports it as a query-builder error,
+            // which has no equivalent here.
+            if after_cursor > i32::MAX as i64 {
+                return Err(crate::ConnectionError::InvalidQuery(
+                    "Cursor value exceeds i32::MAX".into(),
+                ));
+            }
+            let after_cursor = after_cursor as i32;
+
+            let sql = format!(
+                "SELECT {} FROM local_commit_log \
+                 WHERE group_id = $1 AND rowid > $2 AND commit_sequence_id <> 0 ORDER BY rowid {}",
+                LocalCommitLog::select_columns(),
+                match order {
+                    LocalCommitLogOrder::AscendingByRowid => "ASC",
+                    LocalCommitLogOrder::DescendingByRowid => "DESC",
+                }
+            );
+
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&sql)
+                .bind(group_id)
+                .bind(after_cursor)
+                .fetch_all(&mut *c)
+                .await?;
+            rows.iter().map(log).collect()
+        }
+
+        async fn get_latest_log_for_group(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM local_commit_log WHERE group_id = $1 \
+                 ORDER BY rowid DESC LIMIT 1",
+                LocalCommitLog::select_columns()
+            ))
+            .bind(group_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(log).transpose()
+        }
+
+        async fn get_local_commit_log_cursor(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<i32>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(
+                "SELECT rowid FROM local_commit_log WHERE group_id = $1 ORDER BY rowid DESC LIMIT 1",
+            )
+            .bind(group_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.map(|r| r.try_get(0)).transpose().map_err(Into::into)
+        }
+
+        async fn get_latest_chain_start_rowid(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<i32>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(
+                "SELECT rowid FROM local_commit_log \
+                 WHERE group_id = $1 AND commit_sequence_id = 0 ORDER BY rowid DESC LIMIT 1",
+            )
+            .bind(group_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.map(|r| r.try_get(0)).transpose().map_err(Into::into)
+        }
     }
 }

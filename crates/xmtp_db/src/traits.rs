@@ -1,3 +1,4 @@
+#[cfg(feature = "sync")]
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
@@ -11,7 +12,9 @@ use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
 /// this must only be used within transactions.
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
+// The trait is track-agnostic; the automock's `Store` names the sync-only
+// `MockSqlKeyStore`, so mock generation stays gated to the sync track.
+#[cfg_attr(all(feature = "sync", any(feature = "test-utils", test)), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
 pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where
@@ -20,22 +23,35 @@ pub trait TransactionalKeyStore {
     fn key_store<'a>(&'a mut self) -> Self::Store<'a>;
 }
 
+// `Store`/`StoreOrIgnore`/`Fetch` use the same hand-written AFIT shape as the
+// `Query*` traits (def returns `impl Future + MaybeSend`, impls are `async fn`):
+// the sync (diesel) impls have a synchronous body and so return a ready future,
+// while the async (sqlx/PgDb) impls genuinely await. Callers `.await` on both.
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
     type Output;
-    fn store(&self, into: &StorageConnection) -> Result<Self::Output, StorageError>;
+    fn store(
+        &self,
+        into: &StorageConnection,
+    ) -> impl std::future::Future<Output = Result<Self::Output, StorageError>> + MaybeSend;
 }
 
 /// Inserts a model to the underlying data store, silent no-op on unique constraint violations
 pub trait StoreOrIgnore<StorageConnection> {
     type Output;
-    fn store_or_ignore(&self, into: &StorageConnection) -> Result<Self::Output, StorageError>;
+    fn store_or_ignore(
+        &self,
+        into: &StorageConnection,
+    ) -> impl std::future::Future<Output = Result<Self::Output, StorageError>> + MaybeSend;
 }
 
 /// Fetches a model from the underlying data store, returning None if it does not exist
 pub trait Fetch<Model> {
     type Key;
-    fn fetch(&self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
+    fn fetch(
+        &self,
+        key: &Self::Key,
+    ) -> impl std::future::Future<Output = Result<Option<Model>, StorageError>> + MaybeSend;
 }
 
 /// Fetches all instances of `Model` from the data store.
@@ -60,15 +76,68 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
+#[cfg(feature = "sync")]
 pub trait IntoConnection {
     type Connection: ConnectionExt;
     fn into_connection(self) -> Self::Connection;
 }
 
+/// The parts of `DbQuery` that only one storage track can provide.
+///
+/// `ReadOnly` (`PRAGMA query_only`), `Pragmas` (`busy_timeout`, `cipher_log_level`)
+/// and `ConnectionExt` (`raw_query` over a `&mut SqliteConnection`) are all
+/// SQLite-shaped, so they are supertraits of `DbQuery` on the sync track only.
+/// On the async track this collapses to an empty blanket-implemented trait,
+/// which keeps the `DbQuery` list below single-copy instead of cfg-forking it.
+#[cfg(feature = "sync")]
+pub trait BackendSpecific: ReadOnly + Pragmas + crate::ConnectionExt {}
+#[cfg(feature = "sync")]
+impl<T: ?Sized> BackendSpecific for T where T: ReadOnly + Pragmas + crate::ConnectionExt {}
+
+/// The async track's analog of `ConnectionExt`: hands out a pooled (or
+/// transaction-pinned) `PgConn` to run sqlx against.
+///
+/// It is a supertrait of `DbQuery` (via `BackendSpecific`), so the generic
+/// `Store`/`Fetch`/`StoreOrIgnore` impls — written for any
+/// `C: PgConnectionProvider` — are reachable through a `&impl DbQuery`, exactly
+/// as the sync macros reach theirs through `C: ConnectionExt`. Without this the
+/// impls would be concrete on `PgDb` and invisible to generic call sites, whose
+/// connection is the opaque `<Ctx::Db as XmtpDb>::DbQuery` associated type.
+#[cfg(all(feature = "async", not(feature = "sync")))]
+pub trait PgConnectionProvider: MaybeSend + MaybeSync {
+    fn pg_conn(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::pg::PgConn<'_>, crate::ConnectionError>>
+    + MaybeSend;
+}
+
+// Mirror the `Query*` impls, which cover both `PgDb` and `&PgDb`: a reference to
+// a provider is itself a provider. Keeps `&PgDb: DbQuery` well-formed.
+#[cfg(all(feature = "async", not(feature = "sync")))]
+impl<T: PgConnectionProvider> PgConnectionProvider for &T {
+    fn pg_conn(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::pg::PgConn<'_>, crate::ConnectionError>>
+    + MaybeSend {
+        (**self).pg_conn()
+    }
+}
+
+#[cfg(all(feature = "async", not(feature = "sync")))]
+pub trait BackendSpecific: PgConnectionProvider {}
+#[cfg(all(feature = "async", not(feature = "sync")))]
+impl<T: ?Sized> BackendSpecific for T where T: PgConnectionProvider {}
+
+// Degenerate build (neither track's feature): keep `DbQuery` well-formed.
+#[cfg(all(not(feature = "sync"), not(feature = "async")))]
+pub trait BackendSpecific {}
+#[cfg(all(not(feature = "sync"), not(feature = "async")))]
+impl<T: ?Sized> BackendSpecific for T {}
+
 pub trait DbQuery:
     MaybeSend
     + MaybeSync
-    + ReadOnly
+    + BackendSpecific
     + QueryConsentRecord
     + QueryConversationList
     + QueryDms
@@ -92,15 +161,14 @@ pub trait DbQuery:
     + QueryIcebox
     + QueryMessageDeletion
     + QueryMigrationCutover
-    + Pragmas
-    + crate::ConnectionExt
+    + QueryUserPreferences
 {
 }
 
 impl<T: ?Sized> DbQuery for T where
     T: MaybeSend
         + MaybeSync
-        + ReadOnly
+        + BackendSpecific
         + QueryConsentRecord
         + QueryConversationList
         + QueryDms
@@ -124,8 +192,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryIcebox
         + QueryMessageDeletion
         + QueryMigrationCutover
-        + Pragmas
-        + crate::ConnectionExt
+        + QueryUserPreferences
 {
 }
 

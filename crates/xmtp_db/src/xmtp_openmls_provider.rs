@@ -1,7 +1,8 @@
+#[cfg(feature = "sync")]
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
+use crate::SqlKeyStoreError;
 use crate::TransactionalKeyStore;
-use crate::sql_key_store::SqlKeyStoreError;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
@@ -41,6 +42,45 @@ impl<T> TransactionOutcome<T> {
     }
 }
 
+/// Async-track helper bundling "an async closure over `&mut TxQ` whose returned
+/// future is `Send`" into one method-friendly trait bound.
+///
+/// The async `transaction`/`savepoint` impls await the closure's future *inside*
+/// their own `Send` future, so that future must be `Send`. Naming it to bound it
+/// (`<F as AsyncFnOnce<_>>::CallOnceFuture: Send`) needs nightly (`async_fn_traits`,
+/// `unboxed_closures`), AND a *concrete* impl cannot carry a
+/// `for<'a> …::CallOnceFuture: Send` predicate on a **method** without tripping
+/// E0276 (a projection under the `for<'a>` binder is not normalized). So the HRTB
+/// lives here, on a blanket impl over a **generic** closure `F`, where it
+/// normalizes cleanly; the provider method then bounds only
+/// `F: TxFn<Self::TxQuery, T, E>` — a plain bound a concrete impl can satisfy.
+#[cfg(all(feature = "async", not(feature = "sync")))]
+pub trait TxFn<TxQ, T, E>: MaybeSend {
+    fn run(
+        self,
+        tx: &mut TxQ,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend;
+}
+
+#[cfg(all(feature = "async", not(feature = "sync")))]
+impl<TxQ, T, E, F> TxFn<TxQ, T, E> for F
+where
+    F: MaybeSend
+        + for<'a> AsyncFnOnce<
+            (&'a mut TxQ,),
+            Output = Result<TransactionOutcome<T>, E>,
+            CallOnceFuture: MaybeSend,
+        >,
+{
+    fn run(
+        self,
+        tx: &mut TxQ,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend {
+        self(tx)
+    }
+}
+
+
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
 /// This storage provider is likewise implemented on both &T and T references,
@@ -51,9 +91,16 @@ pub trait XmtpMlsStorageProvider:
     MaybeSend + MaybeSync + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
 {
     /// An Opaque Database connection type. Can be anything.
+    // On the sync track the connection is a diesel `ConnectionExt`; on the async
+    // track (sqlx/Postgres) there is no `ConnectionExt`, so the bound is dropped.
+    #[cfg(feature = "sync")]
     type Connection: ConnectionExt;
+    #[cfg(not(feature = "sync"))]
+    type Connection;
 
-    type TxQuery: TransactionalKeyStore;
+    // `MaybeSend` so a `&mut TxQuery` can be captured by the (Send) boxed
+    // transaction/savepoint closure future for spawned stream/worker tasks.
+    type TxQuery: TransactionalKeyStore + MaybeSend;
 
     type DbQuery<'a>: crate::DbQuery
     where
@@ -66,10 +113,47 @@ pub trait XmtpMlsStorageProvider:
     /// The closure returns `Ok(TransactionOutcome::Continue(v))` to persist or
     /// `Ok(TransactionOutcome::Rollback)` to roll back without an error.
     /// Returning `Err(e)` also rolls back and propagates `e` as a real error.
-    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    // The sync track rolls back via diesel's `RollbackTransaction` sentinel, so
+    // the caller's error must be `From<diesel::result::Error>`. The async track
+    // drives a real sqlx transaction and needs no such bound.
+    // `async fn` on both tracks: the async (sqlx) impl genuinely awaits; the sync
+    // (SQLite) impl has a synchronous body under this async signature, returning a
+    // ready future. Callers `.await` on both tracks — consistent with the `Query*`
+    // traits, and no thread-hopping bridge on the async side.
+    // Returns `impl Future + MaybeSend` rather than being a bare `async fn`:
+    // async-fn-in-trait does NOT imply the returned future is `Send`, and these
+    // futures flow into spawned stream/worker tasks that require `Send`. This is
+    // the same shape the `Query*`/`Store`/`Fetch` traits use.
+    #[cfg(feature = "sync")]
+    fn transaction<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        T: MaybeSend,
+        // Boxed closure (not `AsyncFnOnce`) so its returned future can be named
+        // and bounded `Send` on stable Rust: the async track awaits it inside the
+        // (Send) transaction future. `AsyncFnOnce::CallOnceFuture` is unnameable
+        // on stable, so callers pass `|conn| Box::pin(async move { .. })`.
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E> + MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+    #[cfg(not(feature = "sync"))]
+    fn transaction<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend
+    where
+        T: MaybeSend,
+        // `f`'s returned future is awaited inside this (Send) future, so it must
+        // be Send. That HRTB `CallOnceFuture: Send` bound lives on `TxFn`'s
+        // blanket impl (over a generic closure); here the method carries only the
+        // plain `TxFn` bound, which a concrete impl can satisfy without E0276.
+        // The `AsyncFnOnce` sugar pins the closure's `conn` param to
+        // `Self::TxQuery` so callers' `async |conn| …` infer it (the bare `TxFn`
+        // bound alone leaves `conn` ambiguous); `TxFn` provides the Send `run()`.
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>
+            + TxFn<Self::TxQuery, T, E>,
+        E: From<crate::ConnectionError> + std::error::Error + MaybeSend;
 
     /// Start a savepoint within a transaction.
     ///
@@ -78,13 +162,42 @@ pub trait XmtpMlsStorageProvider:
     // otherwise we run into sqlite race conditions b/c this does not
     // use BEGIN IMMEDIATE.
     // we can ensure this by checking sqlite transaction depth.
-    fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    #[cfg(feature = "sync")]
+    fn savepoint<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        T: MaybeSend,
+        // Boxed closure (not `AsyncFnOnce`) so its returned future can be named
+        // and bounded `Send` on stable Rust: the async track awaits it inside the
+        // (Send) transaction future. `AsyncFnOnce::CallOnceFuture` is unnameable
+        // on stable, so callers pass `|conn| Box::pin(async move { .. })`.
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E> + MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+    #[cfg(not(feature = "sync"))]
+    fn savepoint<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend
+    where
+        T: MaybeSend,
+        // Same as `transaction`: the plain `TxFn` bound; the `CallOnceFuture: Send`
+        // HRTB lives on `TxFn`'s blanket impl.
+        // The `AsyncFnOnce` sugar pins the closure's `conn` param to
+        // `Self::TxQuery` so callers' `async |conn| …` infer it (the bare `TxFn`
+        // bound alone leaves `conn` ambiguous); `TxFn` provides the Send `run()`.
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>
+            + TxFn<Self::TxQuery, T, E>,
+        E: From<crate::ConnectionError> + std::error::Error + MaybeSend;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 
+    // Generic byte KV accessors. Kept synchronous on both tracks: the sync
+    // (SQLite) impl is naturally sync, and the async (Postgres) impl has no
+    // generic KV table so it only returns `UnsupportedMethod` -- there is
+    // nothing to await either way. Keeping them sync also spares every leaf
+    // caller (commit-log key, key-package references, ...) an async cascade.
     fn read<V: Entity<CURRENT_VERSION>>(
         &self,
         label: &[u8],

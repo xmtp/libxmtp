@@ -1,15 +1,20 @@
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::tasks};
 use crate::StorageError;
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use prost::Message;
 use xmtp_common::{NS_IN_DAY, NS_IN_SEC, time::now_ns};
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
-#[derive(Queryable, Identifiable, Debug, Clone)]
-#[diesel(table_name = tasks)]
-#[diesel(primary_key(id))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
+#[cfg_attr(feature = "sync", diesel(table_name = tasks))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "tasks")]
 pub struct Task {
     pub id: i32,
     pub originating_message_sequence_id: i64,
@@ -27,8 +32,9 @@ pub struct Task {
     pub data: Vec<u8>,
 }
 
-#[derive(Insertable, Debug, PartialEq, Clone, Builder)]
-#[diesel(table_name = tasks)]
+#[derive(Debug, PartialEq, Clone, Builder)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = tasks))]
 #[builder(build_fn(skip))]
 pub struct NewTask {
     pub originating_message_sequence_id: i64,
@@ -136,11 +142,17 @@ pub fn data_hash_for(task: &TaskProto) -> TaskDataHash {
 pub const NEVER_EXPIRES: i64 = i64::MAX;
 
 pub trait QueryTasks {
-    fn create_task(&self, task: NewTask) -> Result<Task, StorageError>;
+    fn create_task(
+        &self,
+        task: NewTask,
+    ) -> impl std::future::Future<Output = Result<Task, StorageError>> + xmtp_common::MaybeSend;
 
     /// Idempotent enqueue: a payload-identical duplicate is a no-op (the existing
     /// row wins; OR IGNORE swallows any constraint hit, not just data_hash UNIQUE).
-    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError>;
+    fn create_or_ignore_task(
+        &self,
+        task: NewTask,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     /// Lower a task's `next_attempt_at_ns` to `MIN(current, at_ns)` — never raises.
     /// Returns whether a row matched; a missing target is a no-op (`false`).
@@ -149,11 +161,15 @@ pub trait QueryTasks {
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
-    ) -> Result<bool, StorageError>;
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
 
-    fn get_tasks(&self) -> Result<Vec<Task>, StorageError>;
+    fn get_tasks(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<Task>, StorageError>> + xmtp_common::MaybeSend;
 
-    fn get_next_task(&self) -> Result<Option<Task>, StorageError>;
+    fn get_next_task(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<Task>, StorageError>> + xmtp_common::MaybeSend;
 
     /// Ensure exactly one live `ProcessPendingSelfRemove` task exists for
     /// `group_id`. Clears only dead rows (expired / attempts-exhausted) then
@@ -164,7 +180,7 @@ pub trait QueryTasks {
         &self,
         group_id: &GroupId,
         task: NewTask,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     fn update_task(
         &self,
@@ -172,61 +188,71 @@ pub trait QueryTasks {
         attempts: i32,
         last_attempted_at_ns: i64,
         next_attempt_at_ns: i64,
-    ) -> Result<Task, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Task, StorageError>> + xmtp_common::MaybeSend;
 
-    fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
+    fn delete_task(
+        &self,
+        id: i32,
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
 }
 
-impl<T: QueryTasks> QueryTasks for &'_ T {
-    fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
-        (**self).create_task(task)
+impl<T: QueryTasks + xmtp_common::MaybeSync> QueryTasks for &T {
+    async fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
+        (**self).create_task(task).await
     }
 
-    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
-        (**self).create_or_ignore_task(task)
+    async fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
+        (**self).create_or_ignore_task(task).await
     }
 
-    fn pull_in_task_deadline(
+    async fn pull_in_task_deadline(
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
     ) -> Result<bool, StorageError> {
-        (**self).pull_in_task_deadline(target_data_hash, at_ns)
+        (**self)
+            .pull_in_task_deadline(target_data_hash, at_ns)
+            .await
     }
 
-    fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
-        (**self).get_tasks()
+    async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
+        (**self).get_tasks().await
     }
 
-    fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
-        (**self).get_next_task()
+    async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
+        (**self).get_next_task().await
     }
 
-    fn upsert_pending_self_remove_task(
+    async fn upsert_pending_self_remove_task(
         &self,
         group_id: &GroupId,
         task: NewTask,
     ) -> Result<(), StorageError> {
-        (**self).upsert_pending_self_remove_task(group_id, task)
+        (**self)
+            .upsert_pending_self_remove_task(group_id, task)
+            .await
     }
 
-    fn update_task(
+    async fn update_task(
         &self,
         id: i32,
         attempts: i32,
         last_attempted_at_ns: i64,
         next_attempt_at_ns: i64,
     ) -> Result<Task, StorageError> {
-        (**self).update_task(id, attempts, last_attempted_at_ns, next_attempt_at_ns)
+        (**self)
+            .update_task(id, attempts, last_attempted_at_ns, next_attempt_at_ns)
+            .await
     }
 
-    fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
-        (**self).delete_task(id)
+    async fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
+        (**self).delete_task(id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
-    fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
+    async fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
         self.raw_query(|conn| {
             diesel::insert_into(tasks::table)
                 .values(task)
@@ -235,7 +261,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
+    async fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
         // A single INSERT OR IGNORE is atomic; no explicit transaction needed.
         self.raw_query(|conn| {
             diesel::insert_or_ignore_into(tasks::table)
@@ -245,7 +271,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         Ok(())
     }
 
-    fn pull_in_task_deadline(
+    async fn pull_in_task_deadline(
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
@@ -264,12 +290,12 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         Ok(matched > 0)
     }
 
-    fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
+    async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
         self.raw_query(|conn| tasks::table.load::<Task>(conn))
             .map_err(Into::into)
     }
 
-    fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
+    async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
         self.raw_query(|conn| {
             tasks::table
                 .order(tasks::next_attempt_at_ns)
@@ -279,7 +305,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn upsert_pending_self_remove_task(
+    async fn upsert_pending_self_remove_task(
         &self,
         group_id: &GroupId,
         task: NewTask,
@@ -323,7 +349,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn update_task(
+    async fn update_task(
         &self,
         id: i32,
         attempts: i32,
@@ -342,11 +368,232 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
+    async fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
         let num_deleted = self.raw_query(|conn| {
             diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)
         })?;
         Ok(num_deleted == 1)
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+pub(crate) mod pg {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+    use sqlx::Row;
+
+    /// Insert columns, in the order [`bind_new`] binds them.
+    const INSERT_COLUMNS: &str = "originating_message_sequence_id, \
+         originating_message_originator_id, created_at_ns, expires_at_ns, attempts, max_attempts, \
+         last_attempted_at_ns, backoff_scaling_factor, max_backoff_duration_ns, \
+         initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data";
+    const INSERT_PLACEHOLDERS: &str = "$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13";
+
+    fn bind_new<'q>(
+        q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+        t: &'q NewTask,
+    ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+        q.bind(t.originating_message_sequence_id)
+            .bind(t.originating_message_originator_id)
+            .bind(t.created_at_ns)
+            .bind(t.expires_at_ns)
+            .bind(t.attempts)
+            .bind(t.max_attempts)
+            .bind(t.last_attempted_at_ns)
+            .bind(t.backoff_scaling_factor)
+            .bind(t.max_backoff_duration_ns)
+            .bind(t.initial_backoff_duration_ns)
+            .bind(t.next_attempt_at_ns)
+            .bind(&t.data_hash)
+            .bind(&t.data)
+    }
+
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
+    fn task(row: &sqlx::postgres::PgRow) -> Result<Task, crate::ConnectionError> {
+        use sqlx::FromRow;
+        Ok(Task::from_row(row)?)
+    }
+
+    /// `INSERT OR IGNORE` for a task. Shared with `QueryIdentity`'s rotation
+    /// nudge, which enqueues through the same table.
+    ///
+    /// `data_hash` carries the table's UNIQUE constraint, so a payload-identical
+    /// duplicate is a no-op — that is what makes repeated enqueues coalesce.
+    pub(crate) async fn insert_or_ignore(
+        conn: &mut sqlx::PgConnection,
+        t: &NewTask,
+    ) -> Result<(), crate::ConnectionError> {
+        let sql = format!(
+            "INSERT INTO tasks ({INSERT_COLUMNS}) VALUES ({INSERT_PLACEHOLDERS}) \
+             ON CONFLICT DO NOTHING"
+        );
+        bind_new(sqlx::query(&sql), t).execute(conn).await?;
+        Ok(())
+    }
+
+    impl QueryTasks for PgDb {
+        async fn create_task(&self, t: NewTask) -> Result<Task, StorageError> {
+            let sql = format!(
+                "INSERT INTO tasks ({INSERT_COLUMNS}) VALUES ({INSERT_PLACEHOLDERS}) \
+                 RETURNING {}",
+                Task::select_columns()
+            );
+            let mut c = self.conn().await?;
+            let row = bind_new(sqlx::query(&sql), &t)
+                .fetch_one(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(task(&row)?)
+        }
+
+        async fn create_or_ignore_task(&self, t: NewTask) -> Result<(), StorageError> {
+            // A single INSERT ... ON CONFLICT DO NOTHING is atomic on its own.
+            let mut c = self.conn().await?;
+            insert_or_ignore(&mut c, &t).await?;
+            Ok(())
+        }
+
+        /// Postgres has no two-argument scalar `MIN`; `LEAST` is the equivalent.
+        /// (SQLite overloads `MIN` for both the aggregate and the scalar form,
+        /// which is what the diesel impl relies on.)
+        async fn pull_in_task_deadline(
+            &self,
+            target_data_hash: &TaskDataHash,
+            at_ns: i64,
+        ) -> Result<bool, StorageError> {
+            let mut c = self.conn().await?;
+            let matched = sqlx::query(
+                "UPDATE tasks SET next_attempt_at_ns = LEAST(next_attempt_at_ns, $1) \
+                 WHERE data_hash = $2",
+            )
+            .bind(at_ns)
+            .bind(target_data_hash.as_ref())
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+            Ok(matched > 0)
+        }
+
+        async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!("SELECT {} FROM tasks", Task::select_columns()))
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(rows
+                .iter()
+                .map(task)
+                .collect::<Result<_, crate::ConnectionError>>()?)
+        }
+
+        async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM tasks ORDER BY next_attempt_at_ns LIMIT 1",
+                Task::select_columns()
+            ))
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(row.as_ref().map(task).transpose()?)
+        }
+
+        async fn upsert_pending_self_remove_task(
+            &self,
+            group_id: &GroupId,
+            t: NewTask,
+        ) -> Result<(), StorageError> {
+            let now = now_ns();
+            self.atomic(async |db| {
+                // Clear only DEAD rows for this group (expired or attempts
+                // exhausted), then insert-or-ignore. A LIVE row is left alone:
+                // deleting it would reset the TaskRunner's backoff, resurrecting
+                // an intentionally-delayed task, and could race the worker into
+                // calling update_task on a now-deleted id. The new task carries
+                // the same data (group_id only), so the unique data_hash
+                // constraint dedups it against any live row; clearing dead rows
+                // first frees that hash so a fresh retry can take over.
+                //
+                // The self-remove match is decided in Rust because it depends on
+                // decoding the task protobuf, which SQL cannot inspect.
+                let dead: Vec<i32> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(
+                        "SELECT id, attempts, max_attempts, expires_at_ns, data FROM tasks \
+                         WHERE expires_at_ns < $1 OR attempts >= max_attempts",
+                    )
+                    .bind(now)
+                    .fetch_all(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+
+                    rows.iter()
+                        .filter_map(|row| {
+                            let id: i32 = row.try_get(0).ok()?;
+                            let data: Vec<u8> = row.try_get(4).ok()?;
+                            let is_self_remove = matches!(
+                                TaskProto::decode(data.as_slice()).ok().and_then(|t| t.task),
+                                Some(TaskKind::ProcessPendingSelfRemove(p))
+                                    if p.group_id == group_id.as_slice()
+                            );
+                            is_self_remove.then_some(id)
+                        })
+                        .collect()
+                };
+
+                let mut c = db.conn().await?;
+                if !dead.is_empty() {
+                    sqlx::query("DELETE FROM tasks WHERE id = ANY($1)")
+                        .bind(&dead)
+                        .execute(&mut *c)
+                        .await
+                        .map_err(crate::ConnectionError::from)?;
+                }
+                insert_or_ignore(&mut c, &t).await?;
+                Ok(())
+            })
+            .await
+        }
+
+        /// Errors when `id` does not exist, matching the diesel impl's
+        /// `get_result()` — the TaskRunner treats a vanished task as a bug.
+        async fn update_task(
+            &self,
+            id: i32,
+            attempts: i32,
+            last_attempted_at_ns: i64,
+            next_attempt_at_ns: i64,
+        ) -> Result<Task, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "UPDATE tasks SET attempts = $1, last_attempted_at_ns = $2, \
+                 next_attempt_at_ns = $3 WHERE id = $4 RETURNING {}",
+                Task::select_columns()
+            ))
+            .bind(attempts)
+            .bind(last_attempted_at_ns)
+            .bind(next_attempt_at_ns)
+            .bind(id)
+            .fetch_one(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(task(&row)?)
+        }
+
+        async fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
+            let mut c = self.conn().await?;
+            let deleted = sqlx::query("DELETE FROM tasks WHERE id = $1")
+                .bind(id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?
+                .rows_affected();
+            Ok(deleted == 1)
+        }
     }
 }
 
@@ -356,29 +603,32 @@ pub(crate) mod tests {
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
-    fn get_tasks_returns_empty_list_initially() {
-        with_connection(|conn| {
-            let tasks = conn.get_tasks().unwrap();
+    async fn get_tasks_returns_empty_list_initially() {
+        with_connection(async |conn| {
+            let tasks = conn.get_tasks().await.unwrap();
             assert!(tasks.is_empty());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn update_task_returns_error_when_not_found() {
-        with_connection(|conn| {
+    async fn update_task_returns_error_when_not_found() {
+        with_connection(async |conn| {
             // Try to update a task that doesn't exist
             let result = conn.update_task(999, 5, 1000, 2000);
             // The update should fail when the task doesn't exist
-            assert!(result.is_err());
+            assert!(result.await.is_err());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn delete_task_returns_false_when_not_found() {
-        with_connection(|conn| {
-            let deleted = conn.delete_task(999).unwrap();
+    async fn delete_task_returns_false_when_not_found() {
+        with_connection(async |conn| {
+            let deleted = conn.delete_task(999).await.unwrap();
             assert!(!deleted);
         })
+        .await
     }
 
     // Generate a random task data for testing to ensure that the hashes are unique
@@ -401,8 +651,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn all_task_operations_work_together() {
-        with_connection(|conn| {
+    async fn all_task_operations_work_together() {
+        with_connection(async |conn| {
             let now = xmtp_common::time::now_ns();
 
             // 1. Create first task (should be next to run)
@@ -438,12 +688,12 @@ pub(crate) mod tests {
                 .unwrap();
 
             // 3. Verify no tasks initially
-            assert!(conn.get_next_task().unwrap().is_none());
-            assert!(conn.get_tasks().unwrap().is_empty());
+            assert!(conn.get_next_task().await.unwrap().is_none());
+            assert!(conn.get_tasks().await.unwrap().is_empty());
 
             // 4. Create both tasks
-            let created_task1 = conn.create_task(task1).unwrap();
-            let created_task2 = conn.create_task(task2).unwrap();
+            let created_task1 = conn.create_task(task1).await.unwrap();
+            let created_task2 = conn.create_task(task2).await.unwrap();
 
             let task1_id = created_task1.id;
             let task2_id = created_task2.id;
@@ -452,11 +702,11 @@ pub(crate) mod tests {
             assert_ne!(task1_id, task2_id);
 
             // 5. Verify both tasks appear in get_tasks
-            let all_tasks = conn.get_tasks().unwrap();
+            let all_tasks = conn.get_tasks().await.unwrap();
             assert_eq!(all_tasks.len(), 2);
 
             // 6. Verify get_next_task returns the task with earlier next_attempt_at_ns (task2)
-            let next_task = conn.get_next_task().unwrap();
+            let next_task = conn.get_next_task().await.unwrap();
             assert!(next_task.is_some());
             let next_task = next_task.unwrap();
             assert_eq!(next_task.id, task2_id);
@@ -470,6 +720,7 @@ pub(crate) mod tests {
                     now + 2000, // last_attempted_at_ns
                     now + 200,  // next_attempt_at_ns - now earliest
                 )
+                .await
                 .unwrap();
 
             // Verify the update
@@ -478,14 +729,14 @@ pub(crate) mod tests {
             assert_eq!(updated_task1.next_attempt_at_ns, now + 200);
 
             // 8. Verify get_next_task now returns task1 (earliest next_attempt_at_ns)
-            let next_task = conn.get_next_task().unwrap();
+            let next_task = conn.get_next_task().await.unwrap();
             assert!(next_task.is_some());
             let next_task = next_task.unwrap();
             assert_eq!(next_task.id, task1_id);
             assert_eq!(next_task.next_attempt_at_ns, now + 200);
 
             // 9. Verify both tasks appear in get_tasks with correct data
-            let all_tasks_after_update = conn.get_tasks().unwrap();
+            let all_tasks_after_update = conn.get_tasks().await.unwrap();
             assert_eq!(all_tasks_after_update.len(), 2);
 
             // Find each task by ID
@@ -504,33 +755,34 @@ pub(crate) mod tests {
             assert_eq!(task2_in_list.next_attempt_at_ns, now + 500);
 
             // 10. Delete task1
-            let deleted = conn.delete_task(task1_id).unwrap();
+            let deleted = conn.delete_task(task1_id).await.unwrap();
             assert!(deleted);
 
             // 11. Verify get_next_task now returns task2
-            let next_task = conn.get_next_task().unwrap();
+            let next_task = conn.get_next_task().await.unwrap();
             assert!(next_task.is_some());
             let next_task = next_task.unwrap();
             assert_eq!(next_task.id, task2_id);
 
             // 12. Verify only task2 remains in get_tasks
-            let remaining_tasks = conn.get_tasks().unwrap();
+            let remaining_tasks = conn.get_tasks().await.unwrap();
             assert_eq!(remaining_tasks.len(), 1);
             assert_eq!(remaining_tasks[0].id, task2_id);
 
             // 13. Delete task2
-            let deleted = conn.delete_task(task2_id).unwrap();
+            let deleted = conn.delete_task(task2_id).await.unwrap();
             assert!(deleted);
 
             // 14. Verify no tasks remain
-            let all_tasks_after_delete = conn.get_tasks().unwrap();
+            let all_tasks_after_delete = conn.get_tasks().await.unwrap();
             assert!(all_tasks_after_delete.is_empty());
-            assert!(conn.get_next_task().unwrap().is_none());
+            assert!(conn.get_next_task().await.unwrap().is_none());
 
             // 15. Verify delete returns false for non-existent task
-            let deleted_again = conn.delete_task(task1_id).unwrap();
+            let deleted_again = conn.delete_task(task1_id).await.unwrap();
             assert!(!deleted_again);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -604,8 +856,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn create_or_ignore_task_is_idempotent() {
-        with_connection(|conn| {
+    async fn create_or_ignore_task_is_idempotent() {
+        with_connection(async |conn| {
             let proto = gen_task_data();
             let mk = || {
                 NewTask::builder()
@@ -614,17 +866,18 @@ pub(crate) mod tests {
                     .build(proto.clone())
                     .unwrap()
             };
-            conn.create_or_ignore_task(mk()).unwrap();
+            conn.create_or_ignore_task(mk()).await.unwrap();
             // Second byte-identical insert must be a silent no-op, NOT a
             // unique-constraint error (plain create_task would error here).
-            conn.create_or_ignore_task(mk()).unwrap();
-            assert_eq!(conn.get_tasks().unwrap().len(), 1);
+            conn.create_or_ignore_task(mk()).await.unwrap();
+            assert_eq!(conn.get_tasks().await.unwrap().len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn pull_in_lowers_deadline() {
-        with_connection(|conn| {
+    async fn pull_in_lowers_deadline() {
+        with_connection(async |conn| {
             let proto = gen_task_data();
             let now = now_ns();
             let task = NewTask::builder()
@@ -633,35 +886,52 @@ pub(crate) mod tests {
                 .next_attempt_at_ns(now + NS_IN_DAY)
                 .build(proto.clone())
                 .unwrap();
-            conn.create_or_ignore_task(task).unwrap();
+            conn.create_or_ignore_task(task).await.unwrap();
             let hash = data_hash_for(&proto);
 
             // Lowers a far-out deadline.
-            assert!(conn.pull_in_task_deadline(&hash, now + 5).unwrap());
+            assert!(conn.pull_in_task_deadline(&hash, now + 5).await.unwrap());
             assert_eq!(
-                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                conn.get_next_task()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .next_attempt_at_ns,
                 now + 5
             );
 
             // Never raises (MIN): a later ceiling keeps the row but not the value.
-            assert!(conn.pull_in_task_deadline(&hash, now + NS_IN_DAY).unwrap());
+            assert!(
+                conn.pull_in_task_deadline(&hash, now + NS_IN_DAY)
+                    .await
+                    .unwrap()
+            );
             assert_eq!(
-                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                conn.get_next_task()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .next_attempt_at_ns,
                 now + 5
             );
 
             // Missing target: no-op reported as false, no error.
             let absent = TaskDataHash::try_from([0xAAu8; 32].as_slice()).unwrap();
-            assert!(!conn.pull_in_task_deadline(&absent, now).unwrap());
+            assert!(!conn.pull_in_task_deadline(&absent, now).await.unwrap());
             assert_eq!(
-                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                conn.get_next_task()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .next_attempt_at_ns,
                 now + 5
             );
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn upsert_pending_self_remove_dedups_per_group() {
+    async fn upsert_pending_self_remove_dedups_per_group() {
         use xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove;
         let build = |gid: &GroupId| {
             let proto = TaskProto {
@@ -677,20 +947,24 @@ pub(crate) mod tests {
                 .build(proto)
                 .unwrap()
         };
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // First upsert inserts; a second for the same group dedups, not piles up.
-            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))?;
-            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))?;
-            assert_eq!(conn.get_tasks()?.len(), 1);
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))
+                .await?;
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))
+                .await?;
+            assert_eq!(conn.get_tasks().await?.len(), 1);
 
             // A different group gets its own task.
-            conn.upsert_pending_self_remove_task(&GroupId::TWO, build(&GroupId::TWO))?;
-            assert_eq!(conn.get_tasks()?.len(), 2);
+            conn.upsert_pending_self_remove_task(&GroupId::TWO, build(&GroupId::TWO))
+                .await?;
+            assert_eq!(conn.get_tasks().await?.len(), 2);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn upsert_preserves_live_task_but_replaces_dead_one() {
+    async fn upsert_preserves_live_task_but_replaces_dead_one() {
         use xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove;
         let proto = |gid: &GroupId| TaskProto {
             task: Some(TaskKind::ProcessPendingSelfRemove(
@@ -699,7 +973,7 @@ pub(crate) mod tests {
                 },
             )),
         };
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // A live task that has already retried twice and backed off.
             let now = now_ns();
             let live = NewTask::builder()
@@ -708,7 +982,7 @@ pub(crate) mod tests {
                 .attempts(2)
                 .next_attempt_at_ns(now + NS_IN_DAY)
                 .build(proto(&GroupId::ONE))?;
-            conn.create_task(live)?;
+            conn.create_task(live).await?;
 
             // Re-upsert must NOT reset its backoff: the live row is left in place.
             conn.upsert_pending_self_remove_task(&GroupId::ONE, {
@@ -717,8 +991,8 @@ pub(crate) mod tests {
                     .originating_message_originator_id(0)
                     .next_attempt_at_ns(now)
                     .build(proto(&GroupId::ONE))?
-            })?;
-            let tasks = conn.get_tasks()?;
+            }).await?;
+            let tasks = conn.get_tasks().await?;
             assert_eq!(tasks.len(), 1);
             assert_eq!(tasks[0].attempts, 2);
             assert_eq!(tasks[0].next_attempt_at_ns, now + NS_IN_DAY);
@@ -730,16 +1004,16 @@ pub(crate) mod tests {
                 .attempts(20)
                 .max_attempts(20)
                 .build(proto(&GroupId::TWO))?;
-            conn.create_task(dead)?;
+            conn.create_task(dead).await?;
             conn.upsert_pending_self_remove_task(&GroupId::TWO, {
                 NewTask::builder()
                     .originating_message_sequence_id(0)
                     .originating_message_originator_id(0)
                     .attempts(0)
                     .build(proto(&GroupId::TWO))?
-            })?;
+            }).await?;
             let two: Vec<_> = conn
-                .get_tasks()?
+                .get_tasks().await?
                 .into_iter()
                 .filter(|t| {
                     matches!(
@@ -750,6 +1024,6 @@ pub(crate) mod tests {
                 .collect();
             assert_eq!(two.len(), 1);
             assert_eq!(two[0].attempts, 0);
-        })
+        }).await
     }
 }

@@ -52,23 +52,41 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
         self.db_query.as_ref()
     }
 
+    // Matches the `SqlKeyStore` sync impl shape: a bare `fn` returning
+    // `impl Future + MaybeSend` (not a blocking `fn -> Result`), so the future is
+    // `Send` for spawned tasks. The body is synchronous (drives `f` to completion
+    // against the locked mock store) wrapped in a ready `async move`.
     #[tracing::instrument(level = "trace", skip_all)]
-    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    fn transaction<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + xmtp_common::MaybeSend
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        T: xmtp_common::MaybeSend,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>
+            + xmtp_common::MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
-        let mut store = self.mock_mls.lock();
-        f(&mut store)
+        async move {
+            let mut store = self.mock_mls.lock();
+            super::transactions::drive_to_completion(f(&mut store))
+        }
     }
 
-    fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    fn savepoint<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + xmtp_common::MaybeSend
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        T: xmtp_common::MaybeSend,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>
+            + xmtp_common::MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
-        let mut store = self.mock_mls.lock();
-        f(&mut store)
+        async move {
+            let mut store = self.mock_mls.lock();
+            super::transactions::drive_to_completion(f(&mut store))
+        }
     }
 
     #[tracing::instrument(level = "trace", skip(self))]

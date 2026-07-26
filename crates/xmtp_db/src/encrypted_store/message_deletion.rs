@@ -1,25 +1,24 @@
+#[cfg(feature = "sync")]
 use super::ConnectionExt;
+#[cfg(feature = "sync")]
 use crate::schema::message_deletions::dsl;
+#[cfg(feature = "sync")]
 use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::types::GroupId;
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = message_deletions)]
-#[diesel(primary_key(id))]
+#[cfg_attr(feature = "sync", diesel(table_name = message_deletions))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 /// Represents a deletion record for a message in a group conversation
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "message_deletions")]
 pub struct StoredMessageDeletion {
     /// The ID of the DeleteMessage in the group_messages table
     pub id: Vec<u8>,
@@ -35,7 +34,9 @@ pub struct StoredMessageDeletion {
     pub deleted_at_ns: i64,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(StoredMessageDeletion, message_deletions);
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(StoredMessageDeletion, message_deletions);
 
 /// Trait for querying message deletions
@@ -44,69 +45,83 @@ pub trait QueryMessageDeletion {
     fn get_message_deletion(
         &self,
         id: &[u8],
-    ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get deletion record for a specific deleted message
     fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
-    ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get all deletions for a list of message IDs
     fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get all deletions in a group
     fn get_group_deletions(
         &self,
         group_id: &GroupId,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Check if a message has been deleted
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+    fn is_message_deleted(
+        &self,
+        message_id: &[u8],
+    ) -> impl std::future::Future<Output = Result<bool, crate::ConnectionError>> + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryMessageDeletion for &T
 where
-    T: QueryMessageDeletion,
+    T: QueryMessageDeletion + xmtp_common::MaybeSync,
 {
-    fn get_message_deletion(
+    async fn get_message_deletion(
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_message_deletion(id)
+        (**self).get_message_deletion(id).await
     }
 
-    fn get_deletion_by_deleted_message_id(
+    async fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_deletion_by_deleted_message_id(deleted_message_id)
+        (**self)
+            .get_deletion_by_deleted_message_id(deleted_message_id)
+            .await
     }
 
-    fn get_deletions_for_messages(
+    async fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_deletions_for_messages(message_ids)
+        (**self).get_deletions_for_messages(message_ids).await
     }
 
-    fn get_group_deletions(
+    async fn get_group_deletions(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_group_deletions(group_id)
+        (**self).get_group_deletions(group_id).await
     }
 
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        (**self).is_message_deleted(message_id)
+    async fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        (**self).is_message_deleted(message_id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
-    fn get_message_deletion(
+    async fn get_message_deletion(
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
@@ -118,7 +133,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_deletion_by_deleted_message_id(
+    async fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
@@ -130,7 +145,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_deletions_for_messages(
+    async fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
@@ -145,7 +160,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_group_deletions(
+    async fn get_group_deletions(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
@@ -156,13 +171,156 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+    async fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
         self.raw_query(|conn| {
             diesel::dsl::select(diesel::dsl::exists(
                 dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),
             ))
             .get_result::<bool>(conn)
         })
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+    use sqlx::Row;
+
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
+    fn deletion(
+        row: &sqlx::postgres::PgRow,
+    ) -> Result<StoredMessageDeletion, crate::ConnectionError> {
+        use sqlx::FromRow;
+        Ok(StoredMessageDeletion::from_row(row)?)
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::Store<C> for StoredMessageDeletion {
+        type Output = ();
+        async fn store(&self, into: &C) -> Result<(), crate::StorageError> {
+            let mut c = into.pg_conn().await?;
+            sqlx::query(
+                "INSERT INTO message_deletions \
+                 (id, group_id, deleted_message_id, deleted_by_inbox_id, \
+                  is_super_admin_deletion, deleted_at_ns) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(&self.id)
+            .bind(&self.group_id)
+            .bind(&self.deleted_message_id)
+            .bind(&self.deleted_by_inbox_id)
+            .bind(self.is_super_admin_deletion)
+            .bind(self.deleted_at_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::StoreOrIgnore<C> for StoredMessageDeletion {
+        type Output = ();
+        async fn store_or_ignore(&self, into: &C) -> Result<(), crate::StorageError> {
+            let mut c = into.pg_conn().await?;
+            sqlx::query(
+                "INSERT INTO message_deletions \
+                 (id, group_id, deleted_message_id, deleted_by_inbox_id, \
+                  is_super_admin_deletion, deleted_at_ns) \
+                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+            )
+            .bind(&self.id)
+            .bind(&self.group_id)
+            .bind(&self.deleted_message_id)
+            .bind(&self.deleted_by_inbox_id)
+            .bind(self.is_super_admin_deletion)
+            .bind(self.deleted_at_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+    }
+
+    impl QueryMessageDeletion for PgDb {
+        async fn get_message_deletion(
+            &self,
+            id: &[u8],
+        ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM message_deletions WHERE id = $1",
+                StoredMessageDeletion::select_columns()
+            ))
+            .bind(id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(deletion).transpose()
+        }
+
+        async fn get_deletion_by_deleted_message_id(
+            &self,
+            deleted_message_id: &[u8],
+        ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM message_deletions WHERE deleted_message_id = $1",
+                StoredMessageDeletion::select_columns()
+            ))
+            .bind(deleted_message_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(deletion).transpose()
+        }
+
+        async fn get_deletions_for_messages(
+            &self,
+            message_ids: Vec<Vec<u8>>,
+        ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
+            if message_ids.is_empty() {
+                return Ok(vec![]);
+            }
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {} FROM message_deletions WHERE deleted_message_id = ANY($1)",
+                StoredMessageDeletion::select_columns()
+            ))
+            .bind(&message_ids)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(deletion).collect()
+        }
+
+        async fn get_group_deletions(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {} FROM message_deletions WHERE group_id = $1",
+                StoredMessageDeletion::select_columns()
+            ))
+            .bind(group_id)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(deletion).collect()
+        }
+
+        async fn is_message_deleted(
+            &self,
+            message_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(
+                "SELECT EXISTS(SELECT 1 FROM message_deletions WHERE deleted_message_id = $1)",
+            )
+            .bind(message_id)
+            .fetch_one(&mut *c)
+            .await?;
+            Ok(row.try_get(0)?)
+        }
     }
 }
 
@@ -233,8 +391,8 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_store_and_get_deletion() {
-        with_connection(|conn| {
+    async fn test_store_and_get_deletion() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
@@ -255,20 +413,21 @@ mod tests {
             deletion.store(conn)?;
 
             // Test get by ID
-            let retrieved = conn.get_message_deletion(&delete_message_id)?;
+            let retrieved = conn.get_message_deletion(&delete_message_id).await?;
             assert!(retrieved.is_some());
             assert_eq!(retrieved.unwrap().deleted_message_id, message_id);
 
             // Test get by deleted_message_id
-            let by_deleted_id = conn.get_deletion_by_deleted_message_id(&message_id)?;
+            let by_deleted_id = conn.get_deletion_by_deleted_message_id(&message_id).await?;
             assert!(by_deleted_id.is_some());
             assert_eq!(by_deleted_id.unwrap().id, delete_message_id);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_is_message_deleted() {
-        with_connection(|conn| {
+    async fn test_is_message_deleted() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
@@ -278,7 +437,7 @@ mod tests {
             create_test_message(conn, delete_message_id.clone(), group_id);
 
             // Initially not deleted
-            assert!(!conn.is_message_deleted(&message_id)?);
+            assert!(!conn.is_message_deleted(&message_id).await?);
 
             // Store deletion
             StoredMessageDeletion {
@@ -292,13 +451,14 @@ mod tests {
             .store(conn)?;
 
             // Now it's deleted
-            assert!(conn.is_message_deleted(&message_id)?);
+            assert!(conn.is_message_deleted(&message_id).await?);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_deletions_for_messages() {
-        with_connection(|conn| {
+    async fn test_get_deletions_for_messages() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let msg1 = vec![4, 5, 6];
             let msg2 = vec![7, 8, 9];
@@ -335,18 +495,20 @@ mod tests {
             .store(conn)?;
 
             // Query for all three messages
-            let deletions =
-                conn.get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
+            let deletions = conn
+                .get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])
+                .await?;
             assert_eq!(deletions.len(), 2);
 
             // msg3 should not be deleted
-            assert!(!conn.is_message_deleted(&msg3)?);
+            assert!(!conn.is_message_deleted(&msg3).await?);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_group_deletions() {
-        with_connection(|conn| {
+    async fn test_get_group_deletions() {
+        with_connection(async |conn| {
             let group1 = GroupId::ONE;
             let group2 = GroupId::TWO;
             let msg1 = vec![7, 8, 9];
@@ -382,14 +544,15 @@ mod tests {
             .store(conn)?;
 
             // Get deletions for group1
-            let group1_deletions = conn.get_group_deletions(&group1)?;
+            let group1_deletions = conn.get_group_deletions(&group1).await?;
             assert_eq!(group1_deletions.len(), 1);
             assert_eq!(group1_deletions[0].deleted_message_id, msg1);
 
             // Get deletions for group2
-            let group2_deletions = conn.get_group_deletions(&group2)?;
+            let group2_deletions = conn.get_group_deletions(&group2).await?;
             assert_eq!(group2_deletions.len(), 1);
             assert_eq!(group2_deletions[0].deleted_message_id, msg2);
         })
+        .await
     }
 }

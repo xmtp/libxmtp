@@ -1,5 +1,8 @@
+#[cfg(feature = "sync")]
 use diesel::connection::Instrumentation;
+#[cfg(feature = "sync")]
 use diesel::connection::InstrumentationEvent;
+#[cfg(feature = "sync")]
 use diesel::result::Error as DieselError;
 use std::fmt::Write;
 

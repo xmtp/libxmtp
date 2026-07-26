@@ -1,18 +1,15 @@
+#[cfg(feature = "sync")]
 use diesel::RunQueryDsl;
 
+#[cfg(feature = "sync")]
 use crate::{
     ConnectionExt, DbConnection, impl_store, schema::remote_commit_log,
     schema::remote_commit_log::dsl,
 };
+#[cfg(feature = "sync")]
 use diesel::{
-    Insertable, Queryable,
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
+    Insertable, Queryable, deserialize::FromSqlRow, expression::AsExpression, prelude::*,
     sql_types::Integer,
-    sqlite::Sqlite,
 };
 
 use serde::{Deserialize, Serialize};
@@ -20,8 +17,9 @@ use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 use xmtp_proto::types::GroupId;
-#[derive(Insertable, Debug, Clone)]
-#[diesel(table_name = remote_commit_log)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
 pub struct NewRemoteCommitLog {
     pub log_sequence_id: i64,
     pub group_id: GroupId,
@@ -31,11 +29,15 @@ pub struct NewRemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(NewRemoteCommitLog, remote_commit_log);
 
-#[derive(Insertable, Queryable, Clone)]
-#[diesel(table_name = remote_commit_log)]
-#[diesel(primary_key(rowid))]
+#[derive(Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
+#[cfg_attr(feature = "sync", diesel(primary_key(rowid)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "remote_commit_log")]
 pub struct RemoteCommitLog {
     pub rowid: i32,
     // The sequence ID of the log entry on the server
@@ -53,11 +55,13 @@ pub struct RemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(RemoteCommitLog, remote_commit_log);
 
 #[repr(i32)]
-#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum CommitResult {
     Unknown = 0,
     Success = 1,
@@ -95,31 +99,13 @@ impl std::fmt::Debug for RemoteCommitLog {
     }
 }
 
-impl ToSql<Integer, Sqlite> for CommitResult
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<Integer, Sqlite> for CommitResult
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            0 => Ok(Self::Unknown),
-            1 => Ok(Self::Success),
-            2 => Ok(Self::WrongEpoch),
-            3 => Ok(Self::Undecryptable),
-            4 => Ok(Self::Invalid),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(CommitResult {
+    Unknown = 0,
+    Success = 1,
+    WrongEpoch = 2,
+    Undecryptable = 3,
+    Invalid = 4,
+});
 
 impl From<ProtoCommitResult> for CommitResult {
     fn from(value: ProtoCommitResult) -> Self {
@@ -142,39 +128,44 @@ pub trait QueryRemoteCommitLog {
     fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
-    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<RemoteCommitLog>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     fn get_remote_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
-    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<RemoteCommitLog>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryRemoteCommitLog for &T
 where
-    T: QueryRemoteCommitLog,
+    T: QueryRemoteCommitLog + xmtp_common::MaybeSync,
 {
-    fn get_latest_remote_log_for_group(
+    async fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
-        (**self).get_latest_remote_log_for_group(group_id)
+        (**self).get_latest_remote_log_for_group(group_id).await
     }
 
-    fn get_remote_commit_log_after_cursor(
+    async fn get_remote_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
-        (**self).get_remote_commit_log_after_cursor(group_id, after_cursor, order_by)
+        (**self)
+            .get_remote_commit_log_after_cursor(group_id, after_cursor, order_by)
+            .await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
-    fn get_latest_remote_log_for_group(
+    async fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
@@ -188,7 +179,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         })
     }
 
-    fn get_remote_commit_log_after_cursor(
+    async fn get_remote_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
@@ -212,5 +203,98 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
             RemoteCommitLogOrder::AscendingByRowid => query.order_by(dsl::rowid.asc()).load(db),
             RemoteCommitLogOrder::DescendingByRowid => query.order_by(dsl::rowid.desc()).load(db),
         })
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
+    fn log(row: &sqlx::postgres::PgRow) -> Result<RemoteCommitLog, crate::ConnectionError> {
+        use sqlx::FromRow;
+        Ok(RemoteCommitLog::from_row(row)?)
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::Store<C> for NewRemoteCommitLog {
+        type Output = ();
+        async fn store(&self, into: &C) -> Result<(), crate::StorageError> {
+            let mut c = into.pg_conn().await?;
+            sqlx::query(
+                "INSERT INTO remote_commit_log \
+                 (log_sequence_id, group_id, commit_sequence_id, commit_result, \
+                  applied_epoch_number, applied_epoch_authenticator) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(self.log_sequence_id)
+            .bind(&self.group_id)
+            .bind(self.commit_sequence_id)
+            .bind(self.commit_result)
+            .bind(self.applied_epoch_number)
+            .bind(&self.applied_epoch_authenticator)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+    }
+
+    impl QueryRemoteCommitLog for PgDb {
+        async fn get_latest_remote_log_for_group(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM remote_commit_log WHERE group_id = $1 \
+                 ORDER BY log_sequence_id DESC LIMIT 1",
+                RemoteCommitLog::select_columns()
+            ))
+            .bind(group_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(log).transpose()
+        }
+
+        async fn get_remote_commit_log_after_cursor(
+            &self,
+            group_id: &GroupId,
+            after_cursor: i64,
+            order: RemoteCommitLogOrder,
+        ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+            // `rowid` is a 32-bit serial, so a cursor past i32::MAX cannot name a
+            // real row. The sync track reports this as a query-builder error;
+            // there is no diesel error type here, so it surfaces as InvalidQuery.
+            if after_cursor > i32::MAX as i64 {
+                return Err(crate::ConnectionError::InvalidQuery(
+                    "Cursor value exceeds i32::MAX".into(),
+                ));
+            }
+            let after_cursor = after_cursor as i32;
+
+            // The two orderings are separate literals rather than an interpolated
+            // direction: the sort key never comes from a caller-supplied string.
+            let sql = format!(
+                "SELECT {} FROM remote_commit_log \
+                 WHERE group_id = $1 AND rowid > $2 AND commit_sequence_id <> 0 ORDER BY rowid {}",
+                RemoteCommitLog::select_columns(),
+                match order {
+                    RemoteCommitLogOrder::AscendingByRowid => "ASC",
+                    RemoteCommitLogOrder::DescendingByRowid => "DESC",
+                }
+            );
+
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&sql)
+                .bind(group_id)
+                .bind(after_cursor)
+                .fetch_all(&mut *c)
+                .await?;
+            rows.iter().map(log).collect()
+        }
     }
 }

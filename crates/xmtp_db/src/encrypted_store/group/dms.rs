@@ -1,3 +1,4 @@
+#[cfg(feature = "sync")]
 use crate::ConnectionExt;
 
 use super::*;
@@ -6,39 +7,51 @@ use crate::ConnectionError;
 use xmtp_proto::types::GroupId;
 pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
-    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError>;
+    fn fetch_stitched(
+        &self,
+        key: &GroupId,
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroup>, ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
-    where
-        M: std::fmt::Display;
+    /// `members` is the canonical dm_id, i.e. `DmMembers::to_string()`.
+    fn find_active_dm_group(
+        &self,
+        members: &str,
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroup>, ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError>;
+    fn other_dms(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroup>, ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryDms for &T
 where
-    T: QueryDms,
+    T: QueryDms + xmtp_common::MaybeSync,
 {
-    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
-        (**self).fetch_stitched(key)
+    async fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
+        (**self).fetch_stitched(key).await
     }
 
-    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
-    where
-        M: std::fmt::Display,
-    {
-        (**self).find_active_dm_group(members)
+    async fn find_active_dm_group(
+        &self,
+        members: &str,
+    ) -> Result<Option<StoredGroup>, ConnectionError> {
+        (**self).find_active_dm_group(members).await
     }
 
-    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
-        (**self).other_dms(group_id)
+    async fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
+        (**self).other_dms(group_id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
-    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
+    async fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query(|conn| {
             groups::table
                 .filter(groups::id.eq(key))
@@ -65,12 +78,12 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
         })
     }
 
-    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
-    where
-        M: std::fmt::Display,
-    {
+    async fn find_active_dm_group(
+        &self,
+        members: &str,
+    ) -> Result<Option<StoredGroup>, ConnectionError> {
         let query = dsl::groups
-            .filter(dsl::dm_id.eq(Some(members.to_string())))
+            .filter(dsl::dm_id.eq(Some(members)))
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .order_by(dsl::last_message_ns.desc());
 
@@ -78,7 +91,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     }
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
+    async fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
@@ -127,8 +140,8 @@ pub(super) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_dm_stitching() {
-        with_connection(|conn| {
+    async fn test_dm_stitching() {
+        with_connection(async |conn| {
             StoredGroup::builder()
                 .id(GroupId::generate())
                 .created_at_ns(now_ns())
@@ -150,15 +163,16 @@ pub(super) mod tests {
                 .unwrap()
                 .store(conn)
                 .unwrap();
-            let all_groups = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            let all_groups = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
 
             assert_eq!(all_groups.len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_dm_deduplication() {
-        with_connection(|conn| {
+    async fn test_dm_deduplication() {
+        with_connection(async |conn| {
             let now = now_ns();
             let base_time = now - 1_000_000_000; // 1 second ago
 
@@ -227,10 +241,11 @@ pub(super) mod tests {
 
             // Test with include_duplicate_dms = false (default deduplication)
             let deduplicated_groups = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     include_duplicate_dms: false,
                     ..Default::default()
                 })
+                .await
                 .unwrap();
 
             // Should have 3 groups: latest DM, different DM, and regular group
@@ -260,14 +275,87 @@ pub(super) mod tests {
 
             // Test with include_duplicate_dms = true (no deduplication)
             let all_groups = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     include_duplicate_dms: true,
                     ..Default::default()
                 })
+                .await
                 .unwrap();
 
             // Should have all 5 groups
             assert_eq!(all_groups.len(), 5);
         })
+        .await
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+///
+/// `query_as` decodes straight into `StoredGroup` through the `FromRow` that
+/// `#[derive(PgModel)]` emits, so there is no row mapper here to fall out of
+/// step with the column list.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+
+    impl QueryDms for PgDb {
+        /// The group itself if it is not a DM; otherwise the most recently
+        /// active group sharing its `dm_id` -- that is the "stitched" DM.
+        ///
+        /// One statement rather than the sync path's two: the `dm_id` lookup is
+        /// a subquery, and `COALESCE(dm_id, encode(id,'hex'))` makes a non-DM
+        /// match only itself. `NULLS LAST` matters -- Postgres sorts NULLs first
+        /// on DESC, so a never-used DM would otherwise beat one with messages.
+        async fn fetch_stitched(
+            &self,
+            key: &GroupId,
+        ) -> Result<Option<StoredGroup>, ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups \
+                 WHERE COALESCE(dm_id, encode(id, 'hex')) = \
+                       (SELECT COALESCE(dm_id, encode(id, 'hex')) FROM groups WHERE id = $1) \
+                 ORDER BY last_message_ns DESC NULLS LAST LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(key)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        async fn find_active_dm_group(
+            &self,
+            members: &str,
+        ) -> Result<Option<StoredGroup>, ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE dm_id = $1 AND membership_state <> $2 \
+                 ORDER BY last_message_ns DESC NULLS LAST LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(members)
+                .bind(GroupMembershipState::Restored)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        /// Empty when the group is not a DM, matching the sync path: the
+        /// subquery yields NULL and `dm_id = NULL` matches nothing.
+        async fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups \
+                 WHERE dm_id = (SELECT dm_id FROM groups WHERE id = $1) AND id <> $1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(group_id)
+                .fetch_all(&mut *c)
+                .await?)
+        }
     }
 }

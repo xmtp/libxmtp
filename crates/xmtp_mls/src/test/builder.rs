@@ -425,7 +425,7 @@ async fn api_identity_happy_path() {
         .try_into()
         .unwrap();
 
-    stored.store(&store.conn()).unwrap();
+    stored.store(&store.conn()).await.unwrap();
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(
         dbg!(
@@ -460,7 +460,7 @@ async fn stored_identity_happy_path() {
         .try_into()
         .unwrap();
 
-    stored.store(&store.conn()).unwrap();
+    stored.store(&store.conn()).await.unwrap();
     let wrapper = ApiClientWrapper::new(mock_api, retry());
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(
@@ -493,7 +493,7 @@ async fn stored_identity_mismatch() {
         .try_into()
         .unwrap();
 
-    stored.store(&store.conn()).unwrap();
+    stored.store(&store.conn()).await.unwrap();
 
     let wrapper = ApiClientWrapper::new(mock_api, retry());
 

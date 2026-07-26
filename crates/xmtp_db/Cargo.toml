@@ -26,16 +26,19 @@ bincode.workspace = true
 bon.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
-diesel = { workspace = true, features = [
+# Sync track only. A server build must pull neither diesel nor -- more to the
+# point -- libsqlite3-sys below, which vendors SQLCipher and OpenSSL.
+diesel = { workspace = true, optional = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
   "serde_json",
 ] }
-diesel_migrations = { workspace = true, features = ["sqlite"] }
+diesel_migrations = { workspace = true, optional = true, features = ["sqlite"] }
 futures = { workspace = true, optional = true }
 hex.workspace = true
 itertools.workspace = true
+maybe-async.workspace = true
 mockall = { workspace = true, optional = true }
 openmls.workspace = true
 openmls_basic_credential.workspace = true
@@ -54,19 +57,38 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
-xmtp_proto = { workspace = true, features = ["diesel"] }
+# `PgModel` derive. A proc macro, so it costs nothing at runtime and pulls in no
+# storage driver; the items it emits are gated on `async` in the derive itself.
+xmtp_macro.workspace = true
+xmtp_proto.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-libsqlite3-sys = { version = "0.35", features = [
+# Postgres only, deliberately: sqlx-sqlite pins libsqlite3-sys ^0.30 while
+# diesel here needs ^0.35, and both set `links = "sqlite3"` — cargo permits only
+# one such package per graph. SQLite therefore stays exclusively on the diesel
+# (sync) track, which is also the only track wasm can use.
+sqlx = { workspace = true, optional = true, features = [
+  "postgres",
+  "runtime-tokio",
+] }
+# `tokio::sync::Mutex` pins one connection for the duration of a transaction.
+# It must be tokio's and not parking_lot's: the transaction closure is
+# caller-supplied and (once it is `maybe_async`) awaits arbitrary work between
+# lock acquisition and release, so a blocking guard would hold an OS thread
+# across unbounded network round-trips.
+# Also pulled in under `test-utils`, where it powers the task-local KV read
+# counter behind the metadata read-amplification test (already present
+# transitively via xmtp-workspace-hack, so it adds nothing to production builds).
+tokio = { workspace = true, optional = true }
+# Async-track only: the sqlx-Postgres OpenMLS crypto-store provider. Enabled by
+# the `async` feature; never in the graph on the sync/diesel track.
+openmls_pg_storage = { path = "../openmls_pg_storage", optional = true }
+libsqlite3-sys = { version = "0.35", optional = true, features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
-diesel = { workspace = true, features = ["r2d2"] }
+diesel = { workspace = true, optional = true, features = ["r2d2"] }
 dyn-clone.workspace = true
-# Only pulled in under `test-utils` — powers the task-local KV read counter used
-# by the metadata read-amplification test. Already present transitively via
-# xmtp-workspace-hack, so this adds nothing to production builds.
-tokio = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 sqlite-wasm-rs = { version = "0.5", default-features = false }
@@ -86,6 +108,14 @@ futures.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 xmtp_cryptography.workspace = true
+# Switches `test-utils` on for the test targets (needed by `tests/` and the
+# `db_init_latency` bench, which `cfg(test)` alone does not cover).
+#
+# Do NOT add `default-features = false` here to try to test the async track:
+# differing features make cargo build a *second instance* of xmtp_db, and both
+# instances then define `impl RetryableError<Mls> for diesel::result::Error` on a
+# shared upstream type, so every `retryable!` call becomes ambiguous (E0283).
+# Runtime-testing the sqlx impls needs a separate crate instead.
 xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -96,6 +126,25 @@ criterion = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [features]
+default = ["sync"]
+# Storage tracks. `sync` is diesel+SQLite and is the only option on wasm (sqlx
+# cannot target wasm32-unknown-unknown). `async` is sqlx and is what servers
+# use. maybe-async/is_sync is a global switch, so exactly one may be enabled.
+sync = [
+  "maybe-async/is_sync",
+  # openmls' traits ride the same global `is_sync` switch, so its track is
+  # selected here rather than on the workspace dependency -- otherwise the
+  # async-only build inherits `is_sync` and its Query* traits collapse to sync.
+  "openmls/sync",
+  "openmls_traits/sync",
+  "openmls_basic_credential/sync",
+  "openmls_rust_crypto/sync",
+  "dep:diesel",
+  "dep:diesel_migrations",
+  "dep:libsqlite3-sys",
+  "xmtp_proto/diesel",
+]
+async = ["dep:sqlx", "dep:tokio", "dep:openmls_pg_storage", "xmtp_proto/sqlx"]
 update-schema = ["dep:toml"]
 # Enables the latency-injecting SQLite VFS used by the disk-latency benchmarks.
 bench = []

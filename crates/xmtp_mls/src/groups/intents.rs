@@ -1297,7 +1297,10 @@ pub(crate) mod tests {
         let client_b = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
         // client A makes a group with client B, and then sends a message to client B.
-        let group_a = client_a.create_group(None, None).expect("create group");
+        let group_a = client_a
+            .create_group(None, None)
+            .await
+            .expect("create group");
         group_a.add_members(&[client_b.inbox_id()]).await.unwrap();
         group_a
             .send_message(b"First message from A", SendMessageOpts::default())
@@ -1326,7 +1329,7 @@ pub(crate) mod tests {
         for i in 0..payloads_a.len() {
             assert_eq!(payloads_a[i].payload_hash, payloads_b[i].payload_hash);
         }
-        verify_commit_updates_leaf_node(&group_a, &payloads_a[2]);
+        verify_commit_updates_leaf_node(&group_a, &payloads_a[2]).await;
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
@@ -1357,7 +1360,7 @@ pub(crate) mod tests {
         messages.group_messages().unwrap()
     }
 
-    fn verify_commit_updates_leaf_node(
+    async fn verify_commit_updates_leaf_node(
         group: &TestMlsGroup,
         message: &xmtp_proto::types::GroupMessage,
     ) {
@@ -1369,11 +1372,14 @@ pub(crate) mod tests {
 
         let storage = group.context.mls_storage();
         let decrypted_message = group
-            .load_mls_group_with_lock(storage, |mut mls_group| {
-                Ok(mls_group
-                    .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone())
-                    .unwrap())
+            .load_mls_group_with_lock_async(async |mut mls_group| {
+                Ok::<_, crate::groups::GroupError>(
+                    mls_group
+                        .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone())
+                        .unwrap(),
+                )
             })
+            .await
             .unwrap();
 
         let staged_commit = match decrypted_message.into_content() {

@@ -1,7 +1,30 @@
 use super::*;
+#[cfg(feature = "sync")]
 use crate::DbConnection;
 use crate::TransactionOutcome;
 use crate::TransactionOutcome::{Continue, Rollback};
+
+/// Resolve a transaction body that the sync track can only run synchronously.
+///
+/// The `Query*` traits are async on both tracks, but diesel drives a transaction
+/// through `&mut SqliteConnection` inside a closure that cannot be async. On the
+/// sync track that is reconcilable: those futures are await-free -- every body is
+/// a blocking diesel call -- so one poll always completes them. This is the single
+/// place that assumption is cashed in; keeping it here rather than at each call
+/// site means a body that ever does yield fails loudly in one known spot.
+pub(crate) fn drive_to_completion<F: std::future::Future>(fut: F) -> F::Output {
+    use std::task::{Context, Poll, Waker};
+    // Poll exactly once with a no-op waker (what `FutureExt::now_or_never` does).
+    // Done with std rather than the `futures` crate so this core path carries no
+    // dependency of its own — `futures` is otherwise only a test-utils dep here.
+    let mut fut = std::pin::pin!(fut);
+    match fut.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(output) => output,
+        Poll::Pending => {
+            panic!("a sync-track transaction body awaited something that yielded")
+        }
+    }
+}
 
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
@@ -22,6 +45,7 @@ impl<'a> MutableTransactionConnection<'a> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -42,6 +66,11 @@ impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
     }
 }
 
+/// `SqlKeyStore` is the diesel/SQLite openmls provider, so it can only satisfy
+/// `XmtpMlsStorageProvider` on the sync track — its `DbQuery<'a>` associated type
+/// names `DbConnection`, whose `Query*` impls only exist there. Servers use
+/// `openmls_sqlx_storage` instead.
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     type Connection = C;
 
@@ -56,12 +85,21 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         DbConnection::new(&self.conn)
     }
 
-    #[xmtp_common::db_span]
-    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    // NOTE(async): was `#[xmtp_common::db_span] async fn`; now a bare `fn`
+    // returning `impl Future + MaybeSend` so the future is `Send` for spawned
+    // stream/worker tasks (async-fn-in-trait doesn't imply Send). The body is
+    // synchronous (drives `f` to completion), wrapped in a ready `async move`.
+    // TODO(async): re-add db_span instrumentation inside the async block.
+    fn transaction<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + xmtp_common::MaybeSend
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        T: xmtp_common::MaybeSend,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E> + xmtp_common::MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
+        async move {
         let conn = &self.conn;
 
         // immediate transactions force SQLite to respect BUSY_TIMEOUT
@@ -86,14 +124,16 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         let mut rolled_back = false;
         let inner_result: Result<TransactionOutcome<T>, E> = conn
             .raw_query(|c| {
-                Ok(c.immediate_transaction(|sqlite_c| match f(sqlite_c) {
-                    Ok(Continue(v)) => Ok(Continue(v)),
-                    Ok(Rollback) => {
-                        rolled_back = true;
-                        Err(E::from(diesel::result::Error::RollbackTransaction))
-                    }
-                    Err(e) => Err(e),
-                }))
+                Ok(
+                    c.immediate_transaction(|sqlite_c| match drive_to_completion(f(sqlite_c)) {
+                        Ok(Continue(v)) => Ok(Continue(v)),
+                        Ok(Rollback) => {
+                            rolled_back = true;
+                            Err(E::from(diesel::result::Error::RollbackTransaction))
+                        }
+                        Err(e) => Err(e),
+                    }),
+                )
             })
             .map_err(E::from)?;
 
@@ -104,26 +144,34 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
             Err(_) if rolled_back => Ok(Rollback),
             Err(e) => Err(e),
         }
+        }
     }
 
     // Same Rollback-sentinel handling as `transaction`; see there for the rationale.
-    fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
+    fn savepoint<T, E, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + xmtp_common::MaybeSend
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        T: xmtp_common::MaybeSend,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E> + xmtp_common::MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
+        async move {
         let mut rolled_back = false;
         let inner_result: Result<TransactionOutcome<T>, E> = self
             .conn
             .raw_query(|c| {
-                Ok(c.transaction(|sqlite_c| match f(sqlite_c) {
-                    Ok(Continue(v)) => Ok(Continue(v)),
-                    Ok(Rollback) => {
-                        rolled_back = true;
-                        Err(E::from(diesel::result::Error::RollbackTransaction))
-                    }
-                    Err(e) => Err(e),
-                }))
+                Ok(
+                    c.transaction(|sqlite_c| match drive_to_completion(f(sqlite_c)) {
+                        Ok(Continue(v)) => Ok(Continue(v)),
+                        Ok(Rollback) => {
+                            rolled_back = true;
+                            Err(E::from(diesel::result::Error::RollbackTransaction))
+                        }
+                        Err(e) => Err(e),
+                    }),
+                )
             })
             .map_err(E::from)?;
 
@@ -131,6 +179,7 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
             Ok(outcome) => Ok(outcome),
             Err(_) if rolled_back => Ok(Rollback),
             Err(e) => Err(e),
+        }
         }
     }
 
@@ -210,7 +259,7 @@ mod tests {
             self.long_async_call().await;
 
             self.key_store
-                .transaction(|conn| {
+                .transaction(async |conn| {
                     let storage = conn.key_store();
                     storage
                         .db()
@@ -221,6 +270,7 @@ mod tests {
                             should_push: false,
                             state: IntentState::ToPublish,
                         })
+                        .await
                         .map(Continue)
                 })
                 .unwrap();

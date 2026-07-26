@@ -48,12 +48,12 @@ async fn test_app_data_callback_fires_for_remote_change() {
     tester!(alix);
     tester!(bo, change_callbacks: callbacks);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
     group.update_app_data("from alix".to_string(), None).await?;
 
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     bo_group.sync().await?;
 
     let recorded = recorder.recorded();
@@ -77,7 +77,7 @@ async fn test_app_data_callback_fires_for_local_change() {
     let (recorder, callbacks) = recording();
     tester!(alix, change_callbacks: callbacks);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.update_app_data("from alix".to_string(), None).await?;
 
     let recorded = recorder.recorded();
@@ -97,7 +97,7 @@ async fn test_app_data_callback_silent_for_unrelated_changes() {
     tester!(alix);
     tester!(bo, change_callbacks: callbacks);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
     group.update_group_name("renamed".to_string()).await?;
     group
@@ -105,7 +105,7 @@ async fn test_app_data_callback_silent_for_unrelated_changes() {
         .await?;
 
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     bo_group.sync().await?;
 
     assert!(
@@ -158,11 +158,11 @@ async fn test_callback_can_publish_back_into_the_same_group() {
     tester!(alix);
     tester!(bo, change_callbacks: callbacks);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&alix_group.group_id)?;
+    let bo_group = bo.group(&alix_group.group_id).await?;
     callback
         .group
         .set(bo_group.clone())
@@ -182,10 +182,10 @@ async fn test_callback_can_publish_back_into_the_same_group() {
         ["from alix + from bo".to_string()],
         "callback should have published its merge exactly once"
     );
-    assert_eq!(bo_group.app_data()?, "from alix + from bo");
+    assert_eq!(bo_group.app_data().await?, "from alix + from bo");
 
     alix_group.sync().await?;
-    assert_eq!(alix_group.app_data()?, "from alix + from bo");
+    assert_eq!(alix_group.app_data().await?, "from alix + from bo");
 }
 
 /// A published-but-unresolved local `update_app_data` is a blind absolute set:
@@ -203,14 +203,14 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
     tester!(alix, change_callbacks: callbacks);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     alix_group
         .update_app_data("start".to_string(), None)
         .await?;
 
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&alix_group.group_id)?;
+    let bo_group = bo.group(&alix_group.group_id).await?;
     bo_group.sync().await?;
 
     // Bo commits a change alix has not seen yet.
@@ -224,7 +224,7 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
         UpdateMetadataIntentData::new_update_app_data("from-alix".to_string(), None).into();
     QueueIntent::metadata_update()
         .data(intent_data)
-        .queue(&alix_group)?;
+        .queue(&alix_group).await?;
     alix_group.publish_intents().await?;
 
     // First sync applies bo's commit and bounces the losing intent back to
@@ -249,7 +249,7 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
         "expected the stale local intent to land last, got {values:?}"
     );
     assert_eq!(
-        alix_group.app_data()?,
+        alix_group.app_data().await?,
         "from-alix",
         "the frozen local intent overwrites the remote value"
     );
@@ -265,14 +265,14 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
     tester!(alix, change_callbacks: callbacks);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     alix_group
         .update_app_data("start".to_string(), None)
         .await?;
 
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&alix_group.group_id)?;
+    let bo_group = bo.group(&alix_group.group_id).await?;
     bo_group.sync().await?;
 
     bo_group
@@ -287,21 +287,22 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
     .into();
     let queued = QueueIntent::metadata_update()
         .data(intent_data)
-        .queue(&alix_group)?;
+        .queue(&alix_group).await?;
     alix_group.publish_intents().await?;
 
     alix_group.sync().await?;
     alix_group.sync().await?;
 
     assert_eq!(
-        alix_group.app_data()?,
+        alix_group.app_data().await?,
         "from-bo",
         "the guard must abandon the stale write rather than overwrite"
     );
     // Abandoning is only half the contract — the intent must land in a state
     // the caller can tell apart from success, or `update_app_data` reports a
     // silent no-op.
-    let intent: Option<StoredGroupIntent> = alix.context.db().fetch(&queued.id)?;
+    let intent: Option<StoredGroupIntent> =
+        Fetch::<StoredGroupIntent>::fetch(&alix.context.db(), &queued.id).await?;
     assert_eq!(
         intent.map(|i| i.state),
         Some(IntentState::Superseded),
@@ -326,7 +327,7 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
 async fn test_guarded_update_reports_the_value_that_landed() {
     tester!(alix);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.update_app_data("current".to_string(), None).await?;
 
     let err = group
@@ -341,7 +342,7 @@ async fn test_guarded_update_reports_the_value_that_landed() {
         }
         other => panic!("expected AppDataSuperseded, got {other:?}"),
     }
-    assert_eq!(group.app_data()?, "current");
+    assert_eq!(group.app_data().await?, "current");
 }
 
 /// A superseded intent must terminate `sync_until_intent_resolved` promptly
@@ -352,7 +353,7 @@ async fn test_guarded_update_reports_the_value_that_landed() {
 async fn test_superseded_intent_resolves_promptly_as_an_error() {
     tester!(alix);
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.update_app_data("current".to_string(), None).await?;
 
     // Queue a guarded write whose guard is already stale, bypassing the
@@ -364,7 +365,7 @@ async fn test_superseded_intent_resolves_promptly_as_an_error() {
     .into();
     let queued = QueueIntent::metadata_update()
         .data(intent_data)
-        .queue(&group)?;
+        .queue(&group).await?;
 
     let result = group.sync_until_intent_resolved(queued.id).await;
     assert!(
@@ -372,10 +373,11 @@ async fn test_superseded_intent_resolves_promptly_as_an_error() {
         "a superseded intent must not resolve as success"
     );
 
-    let intent: Option<StoredGroupIntent> = alix.context.db().fetch(&queued.id)?;
+    let intent: Option<StoredGroupIntent> =
+        Fetch::<StoredGroupIntent>::fetch(&alix.context.db(), &queued.id).await?;
     assert_eq!(intent.map(|i| i.state), Some(IntentState::Superseded));
     assert_eq!(
-        group.app_data()?,
+        group.app_data().await?,
         "current",
         "the guarded write must not have been applied"
     );

@@ -1,21 +1,19 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
+use super::consent_record::ConsentState;
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt, Sqlite,
-    consent_record::ConsentState,
     db_connection::DbConnection,
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
-use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
+use crate::{DuplicateItem, StorageError};
+#[cfg(feature = "sync")]
+use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::{Builder, UninitializedFieldError};
+#[cfg(feature = "sync")]
 use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    dsl::sql,
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    deserialize::FromSqlRow, dsl::sql, expression::AsExpression, prelude::*, sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
 mod convert;
@@ -26,27 +24,21 @@ pub use dms::QueryDms;
 pub use version::QueryGroupVersion;
 use xmtp_proto::types::{Cursor, GroupId};
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Builder,
-    Selectable,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, Selectable, QueryableByName)
 )]
-#[diesel(table_name = groups)]
-#[diesel(primary_key(id))]
-#[diesel(check_for_backend(Sqlite))]
+#[cfg_attr(feature = "sync", diesel(table_name = groups))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sync", diesel(check_for_backend(Sqlite)))]
 #[builder(
     setter(into),
     build_fn(error = "StorageError", validate = "Self::validate")
 )]
-#[derive(AsChangeset)]
+#[cfg_attr(feature = "sync", derive(AsChangeset))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "groups")]
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
@@ -143,38 +135,52 @@ impl StoredGroupBuilder {
 }
 
 /// A subset of the group table for fetching the commit log public key
-#[derive(Queryable)]
-#[diesel(table_name = groups)]
+#[cfg_attr(feature = "sync", derive(Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = groups))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "groups")]
 pub struct StoredGroupCommitLogPublicKey {
     pub id: GroupId,
     pub commit_log_public_key: Option<Vec<u8>>,
 }
 
 /// A struct for fetching groups that need readd requests with their latest epoch
-#[derive(Debug, Clone, Queryable, QueryableByName)]
+///
+/// Deliberately not a `PgModel`: `latest_commit_sequence_id` is a `MAX()` over
+/// `remote_commit_log`, not a column of any one table, so there is no column
+/// list for a derive to emit or for `schema_check` to verify.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, QueryableByName))]
 pub struct StoredGroupForReaddRequest {
-    #[diesel(sql_type = diesel::sql_types::Binary)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
     pub group_id: GroupId,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>))]
     pub latest_commit_sequence_id: Option<i64>,
 }
 
 /// A struct for fetching groups that need to respond to readd requests
-#[derive(Debug, Clone, Queryable, QueryableByName)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, QueryableByName))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "groups")]
 pub struct StoredGroupForRespondingReadds {
-    #[diesel(sql_type = diesel::sql_types::Binary)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
+    #[xmtp(rename = "id")]
     pub group_id: GroupId,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>))]
     pub dm_id: Option<String>,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
     pub conversation_type: ConversationType,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
     pub created_at_ns: i64,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
+#[cfg(feature = "sync")]
 impl_fetch!(StoredGroup, groups, GroupId);
+#[cfg(feature = "sync")]
 impl_store!(StoredGroup, groups);
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(StoredGroup, groups);
 
 impl StoredGroupBuilder {
@@ -216,12 +222,6 @@ pub struct GroupQueryArgs {
     pub order_by: Option<GroupQueryOrderBy>,
 }
 
-impl AsRef<GroupQueryArgs> for GroupQueryArgs {
-    fn as_ref(&self) -> &GroupQueryArgs {
-        self
-    }
-}
-
 impl GroupQueryArgs {
     pub fn validate(&self) -> Result<(), crate::ConnectionError> {
         if self.last_activity_after_ns.is_some() && self.created_after_ns.is_some() {
@@ -242,332 +242,422 @@ impl GroupQueryArgs {
 
 pub trait QueryGroup {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
-    fn find_groups<A: AsRef<GroupQueryArgs>>(
+    fn find_groups(
         &self,
-        args: A,
-    ) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
+        args: &GroupQueryArgs,
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+    fn find_groups_by_id_paged(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
         offset: i64,
-    ) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Updates group membership state
-    fn update_group_membership<Id: AsRef<[u8]>>(
+    fn update_group_membership(
         &self,
-        group_id: Id,
+        group_id: &GroupId,
         state: GroupMembershipState,
-    ) -> Result<(), crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
+    fn all_sync_groups(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+    fn find_sync_group(
+        &self,
+        id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+    fn primary_sync_group(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Return a single group that matches the given ID
-    fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+    fn find_group(
+        &self,
+        id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Return a single group that matches the given welcome ID
     fn find_group_by_sequence_id(
         &self,
         cursor: Cursor,
-    ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroup>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError>;
+    fn get_rotated_at_ns(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<i64, StorageError>> + xmtp_common::MaybeSend;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError>;
+    fn update_rotated_at_ns(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError>;
+    fn get_installations_time_checked(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<i64, StorageError>> + xmtp_common::MaybeSend;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError>;
+    fn update_installations_time_checked(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     fn update_message_disappearing_from_ns(
         &self,
         group_id: &GroupId,
         from_ns: Option<i64>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     fn update_message_disappearing_in_ns(
         &self,
         group_id: &GroupId,
         in_ns: Option<i64>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError>;
+    fn insert_or_replace_group(
+        &self,
+        group: StoredGroup,
+    ) -> impl std::future::Future<Output = Result<StoredGroup, StorageError>> + xmtp_common::MaybeSend;
 
     /// Get all the welcome ids turned into groups
-    fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError>;
+    fn group_cursors(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<Cursor>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     fn mark_group_as_maybe_forked(
         &self,
         group_id: &GroupId,
         fork_details: String,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError>;
+    fn clear_fork_flag_for_group(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError>;
+    fn has_duplicate_dm(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<bool, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Get conversations for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get conversations for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
-    fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+    fn get_conversation_ids_for_fork_check(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<Vec<u8>>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Get conversation IDs for conversations that are forked and need readd requests
     fn get_conversation_ids_for_requesting_readds(
         &self,
-    ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get conversation IDs for conversations that need to respond to readd requests
     fn get_conversation_ids_for_responding_readds(
         &self,
-    ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     fn get_conversation_type(
         &self,
         group_id: &GroupId,
-    ) -> Result<ConversationType, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<ConversationType, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Updates the commit log public key for a group
     fn set_group_commit_log_public_key(
         &self,
         group_id: &GroupId,
         public_key: &[u8],
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
         is_forked: Option<bool>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     /// Gets the is_commit_log_forked status for a group
     fn get_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
-    ) -> Result<Option<bool>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Option<bool>, StorageError>> + xmtp_common::MaybeSend;
 
     /// Updates the has_pending_leave_request status for a group
     fn set_group_has_pending_leave_request_status(
         &self,
         group_id: &GroupId,
         has_pending_leave_request: Option<bool>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    fn get_groups_have_pending_leave_request(&self)
-    -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+    fn get_groups_have_pending_leave_request(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<Vec<u8>>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryGroup for &T
 where
-    T: QueryGroup,
+    T: QueryGroup + xmtp_common::MaybeSync,
 {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
-    fn find_groups<A: AsRef<GroupQueryArgs>>(
+    async fn find_groups(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
-        (**self).find_groups(args)
+        (**self).find_groups(args).await
     }
 
-    fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+    async fn find_groups_by_id_paged(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
         offset: i64,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
-        (**self).find_groups_by_id_paged(args, offset)
+        (**self).find_groups_by_id_paged(args, offset).await
     }
 
     /// Updates group membership state
-    fn update_group_membership<Id: AsRef<[u8]>>(
+    async fn update_group_membership(
         &self,
-        group_id: Id,
+        group_id: &GroupId,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
-        (**self).update_group_membership(group_id, state)
+        (**self).update_group_membership(group_id, state).await
     }
 
-    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
-        (**self).all_sync_groups()
+    async fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+        (**self).all_sync_groups().await
     }
 
-    fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).find_sync_group(id)
+    async fn find_sync_group(
+        &self,
+        id: &GroupId,
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).find_sync_group(id).await
     }
 
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).primary_sync_group()
+    async fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).primary_sync_group().await
     }
 
     /// Return a single group that matches the given ID
-    fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).find_group(id)
+    async fn find_group(
+        &self,
+        id: &GroupId,
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+        (**self).find_group(id).await
     }
 
     /// Return a single group that matches the given welcome ID
-    fn find_group_by_sequence_id(
+    async fn find_group_by_sequence_id(
         &self,
         cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).find_group_by_sequence_id(cursor)
+        (**self).find_group_by_sequence_id(cursor).await
     }
 
-    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
-        (**self).get_rotated_at_ns(group_id)
-    }
-
-    /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
-        (**self).update_rotated_at_ns(group_id)
-    }
-
-    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError> {
-        (**self).get_installations_time_checked(group_id)
+    async fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
+        (**self).get_rotated_at_ns(group_id).await
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError> {
-        (**self).update_installations_time_checked(group_id)
+    async fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
+        (**self).update_rotated_at_ns(group_id).await
     }
 
-    fn update_message_disappearing_from_ns(
+    async fn get_installations_time_checked(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<i64, StorageError> {
+        (**self).get_installations_time_checked(group_id).await
+    }
+
+    /// Updates the 'last time checked' we checked for new installations.
+    async fn update_installations_time_checked(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<(), StorageError> {
+        (**self).update_installations_time_checked(group_id).await
+    }
+
+    async fn update_message_disappearing_from_ns(
         &self,
         group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
-        (**self).update_message_disappearing_from_ns(group_id, from_ns)
+        (**self)
+            .update_message_disappearing_from_ns(group_id, from_ns)
+            .await
     }
 
-    fn update_message_disappearing_in_ns(
+    async fn update_message_disappearing_in_ns(
         &self,
         group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
-        (**self).update_message_disappearing_in_ns(group_id, in_ns)
+        (**self)
+            .update_message_disappearing_in_ns(group_id, in_ns)
+            .await
     }
 
-    fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
-        (**self).insert_or_replace_group(group)
+    async fn insert_or_replace_group(
+        &self,
+        group: StoredGroup,
+    ) -> Result<StoredGroup, StorageError> {
+        (**self).insert_or_replace_group(group).await
     }
 
     /// Get all the welcome ids turned into groups
-    fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
-        (**self).group_cursors()
+    async fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
+        (**self).group_cursors().await
     }
 
-    fn mark_group_as_maybe_forked(
+    async fn mark_group_as_maybe_forked(
         &self,
         group_id: &GroupId,
         fork_details: String,
     ) -> Result<(), StorageError> {
-        (**self).mark_group_as_maybe_forked(group_id, fork_details)
+        (**self)
+            .mark_group_as_maybe_forked(group_id, fork_details)
+            .await
     }
 
-    fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
-        (**self).clear_fork_flag_for_group(group_id)
+    async fn clear_fork_flag_for_group(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).clear_fork_flag_for_group(group_id).await
     }
 
-    fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
-        (**self).has_duplicate_dm(group_id)
+    async fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
+        (**self).has_duplicate_dm(group_id).await
     }
 
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
-    fn get_conversation_ids_for_remote_log_publish(
+    async fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
-        (**self).get_conversation_ids_for_remote_log_publish()
+        (**self).get_conversation_ids_for_remote_log_publish().await
     }
 
-    fn get_conversation_ids_for_remote_log_download(
+    async fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
-        (**self).get_conversation_ids_for_remote_log_download()
+        (**self)
+            .get_conversation_ids_for_remote_log_download()
+            .await
     }
 
-    fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
-        (**self).get_conversation_ids_for_fork_check()
+    async fn get_conversation_ids_for_fork_check(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        (**self).get_conversation_ids_for_fork_check().await
     }
 
-    fn get_conversation_ids_for_requesting_readds(
+    async fn get_conversation_ids_for_requesting_readds(
         &self,
     ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
-        (**self).get_conversation_ids_for_requesting_readds()
+        (**self).get_conversation_ids_for_requesting_readds().await
     }
 
-    fn get_conversation_ids_for_responding_readds(
+    async fn get_conversation_ids_for_responding_readds(
         &self,
     ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
-        (**self).get_conversation_ids_for_responding_readds()
+        (**self).get_conversation_ids_for_responding_readds().await
     }
 
-    fn get_conversation_type(
+    async fn get_conversation_type(
         &self,
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
-        (**self).get_conversation_type(group_id)
+        (**self).get_conversation_type(group_id).await
     }
 
-    fn set_group_commit_log_public_key(
+    async fn set_group_commit_log_public_key(
         &self,
         group_id: &GroupId,
         public_key: &[u8],
     ) -> Result<(), StorageError> {
-        (**self).set_group_commit_log_public_key(group_id, public_key)
+        (**self)
+            .set_group_commit_log_public_key(group_id, public_key)
+            .await
     }
 
-    fn set_group_commit_log_forked_status(
+    async fn set_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
         is_forked: Option<bool>,
     ) -> Result<(), StorageError> {
-        (**self).set_group_commit_log_forked_status(group_id, is_forked)
+        (**self)
+            .set_group_commit_log_forked_status(group_id, is_forked)
+            .await
     }
 
-    fn get_group_commit_log_forked_status(
+    async fn get_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<bool>, StorageError> {
-        (**self).get_group_commit_log_forked_status(group_id)
+        (**self).get_group_commit_log_forked_status(group_id).await
     }
 
-    fn set_group_has_pending_leave_request_status(
+    async fn set_group_has_pending_leave_request_status(
         &self,
         group_id: &GroupId,
         has_pending_leave_request: Option<bool>,
     ) -> Result<(), StorageError> {
-        (**self).set_group_has_pending_leave_request_status(group_id, has_pending_leave_request)
+        (**self)
+            .set_group_has_pending_leave_request_status(group_id, has_pending_leave_request)
+            .await
     }
 
-    fn get_groups_have_pending_leave_request(
+    async fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
-        (**self).get_groups_have_pending_leave_request()
+        (**self).get_groups_have_pending_leave_request().await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
-    fn find_groups<A: AsRef<GroupQueryArgs>>(
+    async fn find_groups(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
-        args.as_ref().validate()?;
+        args.validate()?;
 
         let GroupQueryArgs {
             allowed_states,
@@ -582,7 +672,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             last_activity_before_ns,
             should_publish_commit_log,
             order_by,
-        } = args.as_ref();
+        } = args;
 
         let order_expression = match order_by.clone().unwrap_or_default() {
             GroupQueryOrderBy::CreatedAt => {
@@ -711,9 +801,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+    async fn find_groups_by_id_paged(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
         offset: i64,
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let GroupQueryArgs {
@@ -721,7 +811,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             created_before_ns,
             limit,
             ..
-        } = args.as_ref();
+        } = args;
 
         let mut query = groups::table
             .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
@@ -742,13 +832,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Updates group membership state
     #[xmtp_common::db_span]
-    fn update_group_membership<Id: AsRef<[u8]>>(
+    async fn update_group_membership(
         &self,
-        group_id: Id,
+        group_id: &GroupId,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_ref()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::membership_state.eq(state))
                 .execute(conn)
         })?;
@@ -757,7 +847,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+    async fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
@@ -766,7 +856,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    async fn find_sync_group(
+        &self,
+        id: &GroupId,
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
@@ -775,7 +868,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    async fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
@@ -785,7 +878,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Return a single group that matches the given ID
     #[xmtp_common::db_span]
-    fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    async fn find_group(
+        &self,
+        id: &GroupId,
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .limit(1)
@@ -797,7 +893,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Return a single group that matches the given welcome ID
     #[xmtp_common::db_span]
-    fn find_group_by_sequence_id(
+    async fn find_group_by_sequence_id(
         &self,
         cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
@@ -818,7 +914,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(groups.into_iter().next())
     }
 
-    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
+    async fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -833,7 +929,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
+    async fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(group_id))
@@ -844,7 +940,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError> {
+    async fn get_installations_time_checked(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -857,7 +956,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError> {
+    async fn update_installations_time_checked(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(group_id))
@@ -868,7 +970,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn update_message_disappearing_from_ns(
+    async fn update_message_disappearing_from_ns(
         &self,
         group_id: &GroupId,
         from_ns: Option<i64>,
@@ -882,7 +984,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn update_message_disappearing_in_ns(
+    async fn update_message_disappearing_in_ns(
         &self,
         group_id: &GroupId,
         in_ns: Option<i64>,
@@ -896,7 +998,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+    async fn insert_or_replace_group(
+        &self,
+        group: StoredGroup,
+    ) -> Result<StoredGroup, StorageError> {
         let maybe_inserted_group: Option<StoredGroup> = self.raw_query(|conn| {
             diesel::insert_into(dsl::groups)
                 .values(&group)
@@ -961,7 +1066,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Get all the welcome ids turned into groups
-    fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    async fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
         self.raw_query(|conn| {
             Ok(dsl::groups
                 .filter(dsl::sequence_id.is_not_null())
@@ -992,7 +1097,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })
     }
 
-    fn mark_group_as_maybe_forked(
+    async fn mark_group_as_maybe_forked(
         &self,
         group_id: &GroupId,
         fork_details: String,
@@ -1009,7 +1114,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
+    async fn clear_fork_flag_for_group(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
             diesel::update(dsl::groups.find(group_id))
                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
@@ -1018,7 +1126,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
+    async fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
         self.raw_query(|conn| {
             let dm_id: Option<String> = dsl::groups
                 .filter(dsl::id.eq(group_id))
@@ -1044,7 +1152,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Get conversation IDs for all conversations that require a remote commit log publish
     /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
     #[xmtp_common::db_span]
-    fn get_conversation_ids_for_remote_log_publish(
+    async fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
@@ -1069,7 +1177,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     // All dms and groups that are not sync groups and have consent state Allowed
     #[xmtp_common::db_span]
-    fn get_conversation_ids_for_remote_log_download(
+    async fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
@@ -1087,7 +1195,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
     #[xmtp_common::db_span]
-    fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    async fn get_conversation_ids_for_fork_check(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
                 dsl::conversation_type
@@ -1104,7 +1214,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_conversation_ids_for_requesting_readds(
+    async fn get_conversation_ids_for_requesting_readds(
         &self,
     ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
         use super::schema::{groups::dsl as groups_dsl, remote_commit_log::dsl as rcl_dsl};
@@ -1125,7 +1235,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_conversation_ids_for_responding_readds(
+    async fn get_conversation_ids_for_responding_readds(
         &self,
     ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
         use super::schema::{groups::dsl as groups_dsl, readd_status::dsl as readd_dsl};
@@ -1152,7 +1262,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_conversation_type(
+    async fn get_conversation_type(
         &self,
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
@@ -1163,7 +1273,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(conversation_type)
     }
 
-    fn set_group_commit_log_public_key(
+    async fn set_group_commit_log_public_key(
         &self,
         group_id: &GroupId,
         public_key: &[u8],
@@ -1187,7 +1297,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn set_group_commit_log_forked_status(
+    async fn set_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
         is_forked: Option<bool>,
@@ -1201,7 +1311,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn get_group_commit_log_forked_status(
+    async fn get_group_commit_log_forked_status(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<bool>, StorageError> {
@@ -1215,7 +1325,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         .map_err(StorageError::from)
     }
 
-    fn set_group_has_pending_leave_request_status(
+    async fn set_group_has_pending_leave_request_status(
         &self,
         group_id: &GroupId,
         has_pending_leave_request: Option<bool>,
@@ -1230,7 +1340,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_groups_have_pending_leave_request(
+    async fn get_groups_have_pending_leave_request(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
@@ -1246,8 +1356,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
     /// User is allowed to interact with this Group
@@ -1262,35 +1373,18 @@ pub enum GroupMembershipState {
     PendingRemove = 5,
 }
 
-impl ToSql<Integer, Sqlite> for GroupMembershipState
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<Integer, Sqlite> for GroupMembershipState
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(GroupMembershipState::Allowed),
-            2 => Ok(GroupMembershipState::Rejected),
-            3 => Ok(GroupMembershipState::Pending),
-            4 => Ok(GroupMembershipState::Restored),
-            5 => Ok(GroupMembershipState::PendingRemove),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(GroupMembershipState {
+    Allowed = 1,
+    Rejected = 2,
+    Pending = 3,
+    Restored = 4,
+    PendingRemove = 5,
+});
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum ConversationType {
     Group = 1,
     Dm = 2,
@@ -1314,30 +1408,12 @@ impl ConversationType {
     }
 }
 
-impl ToSql<Integer, Sqlite> for ConversationType
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<Integer, Sqlite> for ConversationType
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(ConversationType::Group),
-            2 => Ok(ConversationType::Dm),
-            3 => Ok(ConversationType::Sync),
-            4 => Ok(ConversationType::Oneshot),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(ConversationType {
+    Group = 1,
+    Dm = 2,
+    Sync = 3,
+    Oneshot = 4,
+});
 
 impl std::fmt::Display for ConversationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1443,8 +1519,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_it_stores_group() {
-        with_connection(|conn| {
+    async fn test_it_stores_group() {
+        with_connection(async |conn| {
             let test_group = generate_group(None);
 
             test_group.store(conn).unwrap();
@@ -1454,11 +1530,12 @@ pub(crate) mod tests {
                 test_group
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_it_fetches_group() {
-        with_connection(|conn| {
+    async fn test_it_fetches_group() {
+        with_connection(async |conn| {
             let test_group = generate_group(None);
 
             conn.raw_query(|raw_conn| {
@@ -1471,15 +1548,17 @@ pub(crate) mod tests {
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_it_updates_group_membership_state() {
-        with_connection(|conn| {
+    async fn test_it_updates_group_membership_state() {
+        with_connection(async |conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
             test_group.store(conn).unwrap();
-            conn.update_group_membership(test_group.id, GroupMembershipState::Rejected)
+            conn.update_group_membership(&test_group.id, GroupMembershipState::Rejected)
+                .await
                 .unwrap();
 
             let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
@@ -1491,6 +1570,7 @@ pub(crate) mod tests {
                 }
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -1520,66 +1600,72 @@ pub(crate) mod tests {
                 .other_inbox_id("placeholder_inbox_id_1");
 
             let all_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     conversation_type: Some(ConversationType::Group),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     allowed_states: Some(vec![GroupMembershipState::Pending]),
                     conversation_type: Some(ConversationType::Group),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
             assert_eq!(pending_results.len(), 1);
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     conversation_type: Some(ConversationType::Group),
                     limit: Some(1),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
 
             let results_with_created_at_ns_after = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     conversation_type: Some(ConversationType::Group),
                     limit: Some(1),
                     created_after_ns: Some(test_group_1.created_at_ns),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.primary_sync_group().unwrap();
+            let synced_groups = conn.primary_sync_group().await.unwrap();
             assert!(synced_groups.is_none());
 
             // test that dm groups are included
-            let dm_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            let dm_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test find_dm_group
             let dm_result = conn
-                .find_active_dm_group(format!("dm:placeholder_inbox_id_1:{}", other_inbox_id))
+                .find_active_dm_group(&format!("dm:placeholder_inbox_id_1:{}", other_inbox_id))
+                .await
                 .unwrap();
             assert!(dm_result.is_some());
 
             // test only dms are returned
             let dm_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     conversation_type: Some(ConversationType::Dm),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
@@ -1604,7 +1690,7 @@ pub(crate) mod tests {
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
             let result = conn.update_installations_time_checked(&test_group.id);
-            assert_ok!(result);
+            assert_ok!(result.await);
 
             // Check that the latest installation list timestamp has been updated
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
@@ -1615,8 +1701,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_new_group_has_correct_purpose() {
-        with_connection(|conn| {
+    async fn test_new_group_has_correct_purpose() {
+        with_connection(async |conn| {
             let test_group = generate_group(None);
 
             conn.raw_query(|raw_conn| {
@@ -1631,11 +1717,12 @@ pub(crate) mod tests {
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_find_groups_by_consent_state() {
-        with_connection(|conn| {
+    async fn test_find_groups_by_consent_state() {
+        with_connection(async |conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_1.store(conn).unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
@@ -1665,7 +1752,7 @@ pub(crate) mod tests {
             test_group_3_consent.store(conn).unwrap();
 
             let all_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     consent_states: Some(vec![
                         ConsentState::Allowed,
                         ConsentState::Unknown,
@@ -1673,59 +1760,66 @@ pub(crate) mod tests {
                     ]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(all_results.len(), 4);
 
-            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            let default_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
             assert_eq!(default_results.len(), 3);
 
             let allowed_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Allowed]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(allowed_results.len(), 2);
 
             let allowed_unknown_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(allowed_unknown_results.len(), 3);
 
             let denied_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Denied]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(denied_results.len(), 1);
             assert_eq!(denied_results[0].id, test_group_2.id);
 
             let unknown_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Unknown]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
 
             let empty_array_results = conn
-                .find_groups(GroupQueryArgs {
+                .find_groups(&GroupQueryArgs {
                     consent_states: Some(vec![]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(empty_array_results.len(), 3);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_sequence_ids() {
-        with_connection(|conn| {
+    async fn test_get_sequence_ids() {
+        with_connection(async |conn| {
             let mls_groups = [
                 generate_group_with_welcome(None, Some(30)),
                 generate_group(None),
@@ -1738,12 +1832,14 @@ pub(crate) mod tests {
             assert_eq!(
                 vec![30, 10],
                 conn.group_cursors()
+                    .await
                     .unwrap()
                     .into_iter()
                     .map(|c| c.sequence_id)
                     .collect::<Vec<u64>>()
             );
         })
+        .await
     }
 
     /// Regression test for the `group_cursors` abort
@@ -1757,8 +1853,8 @@ pub(crate) mod tests {
     /// in the invalid `(sequence_id = NOT NULL, originator_id = NULL)` state that
     /// aborts `group_cursors()` on the next conversation-stream startup.
     #[xmtp_common::test]
-    fn test_insert_or_replace_group_update_preserves_originator() {
-        with_connection(|conn| {
+    async fn test_insert_or_replace_group_update_preserves_originator() {
+        with_connection(async |conn| {
             // 1. Cursorless group created locally (both fields NULL — valid).
             let group = generate_group(None);
             assert!(group.sequence_id.is_none());
@@ -1772,7 +1868,7 @@ pub(crate) mod tests {
                 originator_id: Some(Originators::WELCOME_MESSAGES as i64),
                 ..group.clone()
             };
-            conn.insert_or_replace_group(incoming).unwrap();
+            conn.insert_or_replace_group(incoming).await.unwrap();
 
             // 3. The stored row must keep the invariant: seq set => originator set.
             let stored: StoredGroup = conn.fetch(&group.id).ok().flatten().unwrap();
@@ -1784,11 +1880,12 @@ pub(crate) mod tests {
             );
 
             // 4. group_cursors() (run on conversation-stream startup) must not abort.
-            let cursors = conn.group_cursors().unwrap();
+            let cursors = conn.group_cursors().await.unwrap();
             assert_eq!(cursors.len(), 1);
             assert_eq!(cursors[0].sequence_id, 5);
             assert_eq!(cursors[0].originator_id, Originators::WELCOME_MESSAGES);
         })
+        .await
     }
 
     /// Defense in depth: even if a legacy / half-populated row already exists with
@@ -1796,8 +1893,8 @@ pub(crate) mod tests {
     /// wild since the originator-id migration), `group_cursors()` must not abort the
     /// stream. It should skip the bad row instead of `.expect()`-panicking.
     #[xmtp_common::test]
-    fn test_group_cursors_skips_row_with_null_originator() {
-        with_connection(|conn| {
+    async fn test_group_cursors_skips_row_with_null_originator() {
+        with_connection(async |conn| {
             // A healthy cursor'd group.
             let good = generate_group_with_welcome(None, Some(30));
             good.store(conn).unwrap();
@@ -1815,16 +1912,17 @@ pub(crate) mod tests {
             .unwrap();
 
             // Must not panic; the bad row is skipped, the good one is returned.
-            let cursors = conn.group_cursors().unwrap();
+            let cursors = conn.group_cursors().await.unwrap();
             assert_eq!(cursors.len(), 1);
             assert_eq!(cursors[0].sequence_id, 30);
             assert_eq!(cursors[0].originator_id, Originators::WELCOME_MESSAGES);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_find_group_default_excludes_denied() {
-        with_connection(|conn| {
+    async fn test_find_group_default_excludes_denied() {
+        with_connection(async |conn| {
             // Create three groups: one allowed, one denied, one unknown (no consent)
             let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
             allowed_group.store(conn).unwrap();
@@ -1851,7 +1949,7 @@ pub(crate) mod tests {
             denied_consent.store(conn).unwrap();
 
             // Query using default args (no consent_states specified)
-            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            let default_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
 
             // Expect to include only: allowed_group and unknown_group (2 total)
             assert_eq!(default_results.len(), 2);
@@ -1860,11 +1958,12 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_conversation_ids_for_remote_log_publish() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_remote_log_publish() {
+        with_connection(async |conn| {
             let mut group1 = generate_group(None);
             let mut group2 = generate_group(None);
             let mut group3 = generate_group(None);
@@ -1894,7 +1993,10 @@ pub(crate) mod tests {
             group3.store(conn)?;
             group4.store(conn)?;
 
-            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            let commit_log_keys = conn
+                .get_conversation_ids_for_remote_log_publish()
+                .await
+                .unwrap();
             assert_eq!(commit_log_keys.len(), 2);
             assert_eq!(commit_log_keys[0].id, group1.id);
             assert_eq!(commit_log_keys[1].id, group3.id);
@@ -1904,11 +2006,12 @@ pub(crate) mod tests {
                 group3.commit_log_public_key
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
+        with_connection(async |conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let mut allowed_group = generate_group(None);
             allowed_group.should_publish_commit_log = true;
@@ -1938,15 +2041,19 @@ pub(crate) mod tests {
             denied_consent.store(conn).unwrap();
 
             // Function should only return groups with Allowed consent state
-            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            let commit_log_keys = conn
+                .get_conversation_ids_for_remote_log_publish()
+                .await
+                .unwrap();
             assert_eq!(commit_log_keys.len(), 1);
             assert_eq!(commit_log_keys[0].id, allowed_group.id);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_conversation_ids_for_remote_log_download_with_consent() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_remote_log_download_with_consent() {
+        with_connection(async |conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let allowed_group = generate_group(None);
             allowed_group.store(conn).unwrap();
@@ -1984,15 +2091,19 @@ pub(crate) mod tests {
             denied_consent.store(conn).unwrap();
 
             // Function should only return groups with Allowed consent state, excluding sync groups
-            let conversation_ids = conn.get_conversation_ids_for_remote_log_download().unwrap();
+            let conversation_ids = conn
+                .get_conversation_ids_for_remote_log_download()
+                .await
+                .unwrap();
             assert_eq!(conversation_ids.len(), 1);
             assert_eq!(conversation_ids[0].id, allowed_group.id);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_conversation_ids_for_responding_readds() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_responding_readds() {
+        with_connection(async |conn| {
             // Create test groups
             let group_id_1 = GroupId::ONE;
             let group_id_2 = GroupId::TWO;
@@ -2070,7 +2181,10 @@ pub(crate) mod tests {
             }
 
             // Call the method under test
-            let result = conn.get_conversation_ids_for_responding_readds().unwrap();
+            let result = conn
+                .get_conversation_ids_for_responding_readds()
+                .await
+                .unwrap();
 
             // Should return groups 1 and 3 (both have pending readd requests)
             // Group 2 has no pending readds
@@ -2094,6 +2208,7 @@ pub(crate) mod tests {
             assert_eq!(group3_result.conversation_type, ConversationType::Group);
             assert_eq!(group3_result.created_at_ns, 3000);
         })
+        .await
     }
 
     /// Regression guard for the `find_group` query-span instrumentation.
@@ -2117,8 +2232,8 @@ pub(crate) mod tests {
     /// no span-event/`FmtSpan` configuration is required, so the assertion is
     /// deterministic and not flaky. Scoping via `with_default` around only the
     /// `find_group` call keeps unrelated framework spans out of the buffer.
-    #[test]
-    fn test_find_group_span_emits_operation_and_skips_group_id() {
+    #[xmtp_common::test]
+    async fn test_find_group_span_emits_operation_and_skips_group_id() {
         use std::sync::{
             Arc,
             atomic::{AtomicU64, Ordering},
@@ -2171,7 +2286,7 @@ pub(crate) mod tests {
             fn exit(&self, _span: &tracing::span::Id) {}
         }
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // Insert a group so `find_group` exercises a real (Ok) query path.
             let test_group = generate_group(None);
             conn.raw_query(|raw_conn| {
@@ -2186,8 +2301,12 @@ pub(crate) mod tests {
             // Scope the subscriber tightly around the single instrumented call so
             // only `find_group`'s span lands in the buffer.
             tracing::subscriber::with_default(capture.clone(), || {
-                // `find_group` is synchronous; no runtime needed for the call.
-                let _ = conn.find_group(&test_group.id);
+                // The span opens when the future is *polled*, so it has to be
+                // driven inside this scope -- awaiting outside would poll it
+                // after the guard dropped and capture nothing. The sync track's
+                // futures are await-free, so a single poll resolves it here.
+                use futures::FutureExt;
+                let _ = conn.find_group(&test_group.id).now_or_never();
             });
 
             let logged = capture.buf.lock().clone();
@@ -2220,5 +2339,909 @@ pub(crate) mod tests {
                 "find_group span must carry only the operation field, got fields: {fields:?}"
             );
         })
+        .await
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+
+    /// Conversation types a listing never returns, as the integers the column
+    /// stores. Arrays of the `#[repr(i32)]` enums have no `PgHasArrayType`, so
+    /// every array bind converts first -- the same idiom as `QueryConsentRecord`.
+    fn virtual_type_ints() -> Vec<i32> {
+        ConversationType::virtual_types()
+            .into_iter()
+            .map(|t| t as i32)
+            .collect()
+    }
+
+    /// The consent lookup both `find_groups` and the commit-log listings need.
+    ///
+    /// `consent_records.entity` holds a group id as lowercase hex, which is what
+    /// `encode(id, 'hex')` produces directly -- the sync path spells the same
+    /// thing `lower(hex(groups.id))` because SQLite's `hex()` is uppercase.
+    const INNER_CONSENT_JOIN: &str =
+        "INNER JOIN consent_records c ON encode(groups.id, 'hex') = c.entity";
+    /// As above, but keeping groups that have no consent record at all.
+    const LEFT_CONSENT_JOIN: &str =
+        "LEFT JOIN consent_records c ON encode(groups.id, 'hex') = c.entity";
+
+    /// Keeps only the most recently active row per stitched DM.
+    ///
+    /// `encode(id, 'hex')` stands in for the sync path's bare `id`: both arms of
+    /// a Postgres `COALESCE` must share a type, and a `dm:a:b` string can never
+    /// collide with a hex id, so the grouping is unchanged.
+    const LATEST_PER_DM: &str = "NOT EXISTS (
+             SELECT 1 FROM groups g2
+             WHERE COALESCE(g2.dm_id, encode(g2.id, 'hex'))
+                 = COALESCE(groups.dm_id, encode(groups.id, 'hex'))
+               AND (COALESCE(g2.last_message_ns, 0), g2.id)
+                 > (COALESCE(groups.last_message_ns, 0), groups.id)
+         )";
+
+    /// Shared insert for `Store`/`StoreOrIgnore`. The `groups` PK `id` is the
+    /// caller-supplied group id (not DB-assigned), so every column is written;
+    /// the list and placeholders come from `PgModel` so they cannot drift from
+    /// the struct's field order that the binds below follow.
+    async fn insert_group(
+        g: &StoredGroup,
+        into: &impl crate::PgConnectionProvider,
+        on_conflict_ignore: bool,
+    ) -> Result<(), crate::StorageError> {
+        let placeholders = (1..=StoredGroup::COLUMNS.len())
+            .map(|i| format!("${i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let conflict = if on_conflict_ignore {
+            " ON CONFLICT DO NOTHING"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "INSERT INTO groups ({}) VALUES ({}){}",
+            StoredGroup::select_columns(),
+            placeholders,
+            conflict
+        );
+        let mut c = into.pg_conn().await?;
+        sqlx::query(&sql)
+            .bind(&g.id)
+            .bind(g.created_at_ns)
+            .bind(g.membership_state)
+            .bind(g.installations_last_checked)
+            .bind(&g.added_by_inbox_id)
+            .bind(g.sequence_id)
+            .bind(g.rotated_at_ns)
+            .bind(g.conversation_type)
+            .bind(&g.dm_id)
+            .bind(g.last_message_ns)
+            .bind(g.message_disappear_from_ns)
+            .bind(g.message_disappear_in_ns)
+            .bind(&g.paused_for_version)
+            .bind(g.maybe_forked)
+            .bind(&g.fork_details)
+            .bind(g.originator_id)
+            .bind(g.should_publish_commit_log)
+            .bind(&g.commit_log_public_key)
+            .bind(g.is_commit_log_forked)
+            .bind(g.has_pending_leave_request)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::Store<C> for StoredGroup {
+        type Output = ();
+        async fn store(&self, into: &C) -> Result<(), crate::StorageError> {
+            insert_group(self, into, false).await
+        }
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::StoreOrIgnore<C> for StoredGroup {
+        type Output = ();
+        async fn store_or_ignore(&self, into: &C) -> Result<(), crate::StorageError> {
+            insert_group(self, into, true).await
+        }
+    }
+
+    impl<C: crate::PgConnectionProvider> crate::Fetch<StoredGroup> for C {
+        type Key = GroupId;
+        async fn fetch(&self, key: &Self::Key) -> Result<Option<StoredGroup>, crate::StorageError> {
+            use sqlx::FromRow;
+            let mut c = self.pg_conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {} FROM groups WHERE id = $1 LIMIT 1",
+                StoredGroup::select_columns()
+            ))
+            .bind(key)
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            row.as_ref()
+                .map(|r| StoredGroup::from_row(r).map_err(crate::ConnectionError::from))
+                .transpose()
+                .map_err(Into::into)
+        }
+    }
+
+    impl QueryGroup for PgDb {
+        /// Every optional filter is expressed as `$n IS NULL OR ...` so one bind
+        /// order serves all combinations; only the consent join changes the
+        /// query's *shape*, and it is the last parameter so the rest keep their
+        /// numbers.
+        async fn find_groups(
+            &self,
+            args: &GroupQueryArgs,
+        ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+            args.validate()?;
+
+            let GroupQueryArgs {
+                allowed_states,
+                created_after_ns,
+                created_before_ns,
+                limit,
+                conversation_type,
+                consent_states,
+                include_sync_groups,
+                include_duplicate_dms,
+                last_activity_after_ns,
+                last_activity_before_ns,
+                should_publish_commit_log,
+                order_by,
+            } = args;
+
+            let default_states = [ConsentState::Allowed, ConsentState::Unknown];
+            let effective_consent_states = match consent_states {
+                Some(states) if !states.is_empty() => states.as_slice(),
+                _ => &default_states[..],
+            };
+            let includes_all = effective_consent_states.len() == 3;
+            let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+            let consent_ints: Vec<i32> =
+                effective_consent_states.iter().map(|s| *s as i32).collect();
+
+            let (join, consent_filter) = if includes_all {
+                // Every state matches, so the join would only cost rows.
+                ("", "TRUE")
+            } else if includes_unknown {
+                // LEFT JOIN keeps groups with no consent row at all. The sync
+                // impl ORs `state = Unknown` with the remaining states; the union
+                // of those is just `effective_consent_states`, which is $10.
+                (
+                    LEFT_CONSENT_JOIN,
+                    "(c.state IS NULL OR c.state = ANY($10::int4[]))",
+                )
+            } else {
+                (INNER_CONSENT_JOIN, "c.state = ANY($10::int4[])")
+            };
+
+            let dedup = if *include_duplicate_dms {
+                "TRUE"
+            } else {
+                LATEST_PER_DM
+            };
+
+            // Both orderings are over NOT NULL expressions, so neither needs
+            // NULLS LAST.
+            let order = match order_by.clone().unwrap_or_default() {
+                GroupQueryOrderBy::CreatedAt => "groups.created_at_ns ASC",
+                GroupQueryOrderBy::LastActivity => {
+                    "COALESCE(groups.last_message_ns, groups.created_at_ns) DESC"
+                }
+            };
+
+            let sql = format!(
+                "SELECT {cols} FROM groups {join} \
+                 WHERE groups.conversation_type <> ALL($1::int4[]) \
+                   AND ($2::bigint IS NULL OR groups.created_at_ns > $2) \
+                   AND ($3::bigint IS NULL OR groups.created_at_ns < $3) \
+                   AND ($4::bigint IS NULL \
+                        OR COALESCE(groups.last_message_ns, groups.created_at_ns) > $4) \
+                   AND ($5::bigint IS NULL \
+                        OR COALESCE(groups.last_message_ns, groups.created_at_ns) < $5) \
+                   AND ($6::int4 IS NULL OR groups.conversation_type = $6) \
+                   AND ($7::bool IS NULL OR groups.should_publish_commit_log = $7) \
+                   AND ($8::int4[] IS NULL OR groups.membership_state = ANY($8)) \
+                   AND {dedup} AND {consent_filter} \
+                 ORDER BY {order} LIMIT $9::bigint",
+                cols = StoredGroup::select_columns_for("groups"),
+            );
+
+            let mut query = sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(virtual_type_ints())
+                .bind(*created_after_ns)
+                .bind(*created_before_ns)
+                .bind(*last_activity_after_ns)
+                .bind(*last_activity_before_ns)
+                .bind(conversation_type.map(|t| t as i32))
+                .bind(*should_publish_commit_log)
+                .bind(
+                    allowed_states
+                        .as_ref()
+                        .map(|states| states.iter().map(|s| *s as i32).collect::<Vec<_>>()),
+                )
+                .bind(*limit);
+            if !includes_all {
+                query = query.bind(consent_ints);
+            }
+
+            // One connection for both statements. The sync path runs them on its
+            // single connection too, and re-acquiring would let an unrelated
+            // writer land between the two reads.
+            let mut c = self.conn().await?;
+            let mut groups = query.fetch_all(&mut *c).await?;
+
+            // Sync groups are excluded by the virtual-type filter above, so they
+            // are fetched separately when asked for.
+            if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
+                let sql = format!(
+                    "SELECT {} FROM groups WHERE conversation_type = $1",
+                    StoredGroup::select_columns()
+                );
+                let mut sync_groups = sqlx::query_as::<_, StoredGroup>(&sql)
+                    .bind(ConversationType::Sync)
+                    .fetch_all(&mut *c)
+                    .await?;
+                groups.append(&mut sync_groups);
+            }
+
+            Ok(groups)
+        }
+
+        async fn find_groups_by_id_paged(
+            &self,
+            args: &GroupQueryArgs,
+            offset: i64,
+        ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+            let GroupQueryArgs {
+                created_after_ns,
+                created_before_ns,
+                limit,
+                ..
+            } = args;
+
+            // `created_before_ns` is inclusive here and exclusive in
+            // `find_groups`; that asymmetry is the sync path's and is preserved.
+            let sql = format!(
+                "SELECT {} FROM groups \
+                 WHERE conversation_type <> ALL($1::int4[]) \
+                   AND ($2::bigint IS NULL OR created_at_ns > $2) \
+                   AND ($3::bigint IS NULL OR created_at_ns <= $3) \
+                 ORDER BY id LIMIT $4 OFFSET $5",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(virtual_type_ints())
+                .bind(*created_after_ns)
+                .bind(*created_before_ns)
+                .bind(limit.unwrap_or(100))
+                .bind(offset)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        async fn update_group_membership(
+            &self,
+            group_id: &GroupId,
+            state: GroupMembershipState,
+        ) -> Result<(), crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET membership_state = $1 WHERE id = $2")
+                .bind(state)
+                .bind(group_id)
+                .execute(&mut *c)
+                .await?;
+            Ok(())
+        }
+
+        async fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE conversation_type = $1 ORDER BY created_at_ns DESC",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(ConversationType::Sync)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        async fn find_sync_group(
+            &self,
+            id: &GroupId,
+        ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE conversation_type = $1 AND id = $2 LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(ConversationType::Sync)
+                .bind(id)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        async fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE conversation_type = $1 \
+                 ORDER BY created_at_ns DESC LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(ConversationType::Sync)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        async fn find_group(
+            &self,
+            id: &GroupId,
+        ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE id = $1 ORDER BY created_at_ns ASC LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(id)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        /// `LIMIT 2` rather than the sync path's unbounded load: one extra row is
+        /// all it takes to know whether to warn, and the returned group is the
+        /// same first row either way.
+        async fn find_group_by_sequence_id(
+            &self,
+            cursor: Cursor,
+        ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE sequence_id = $1 AND originator_id = $2 \
+                 ORDER BY created_at_ns ASC LIMIT 2",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            let groups = sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(cursor.sequence_id as i64)
+                .bind(cursor.originator_id as i64)
+                .fetch_all(&mut *c)
+                .await?;
+
+            if groups.len() > 1 {
+                tracing::warn!(
+                    cursor.sequence_id,
+                    "More than one group found for welcome_id {}",
+                    cursor.sequence_id
+                );
+            }
+            Ok(groups.into_iter().next())
+        }
+
+        async fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
+            let mut c = self.conn().await?;
+            let last_ts: Option<i64> =
+                sqlx::query_scalar("SELECT rotated_at_ns FROM groups WHERE id = $1")
+                    .bind(group_id)
+                    .fetch_optional(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+
+            last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
+                *group_id,
+            )))
+        }
+
+        async fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET rotated_at_ns = $1 WHERE id = $2")
+                .bind(xmtp_common::time::now_ns())
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn get_installations_time_checked(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<i64, StorageError> {
+            let mut c = self.conn().await?;
+            let last_ts: Option<i64> =
+                sqlx::query_scalar("SELECT installations_last_checked FROM groups WHERE id = $1")
+                    .bind(group_id)
+                    .fetch_optional(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+
+            last_ts.ok_or(NotFound::InstallationTimeForGroup(*group_id).into())
+        }
+
+        async fn update_installations_time_checked(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET installations_last_checked = $1 WHERE id = $2")
+                .bind(xmtp_common::time::now_ns())
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn update_message_disappearing_from_ns(
+            &self,
+            group_id: &GroupId,
+            from_ns: Option<i64>,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET message_disappear_from_ns = $1 WHERE id = $2")
+                .bind(from_ns)
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn update_message_disappearing_in_ns(
+            &self,
+            group_id: &GroupId,
+            in_ns: Option<i64>,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET message_disappear_in_ns = $1 WHERE id = $2")
+                .bind(in_ns)
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        /// Insert, or reconcile with the row that is already there.
+        ///
+        /// `atomic()` because the insert, the read-back and the two conditional
+        /// updates are a read-modify-write; without it another writer could land
+        /// between the read and the update. It also makes the duplicate-welcome
+        /// error roll back the restore overwrite below, which is what the sync
+        /// path gets from the openmls transaction its callers open.
+        async fn insert_or_replace_group(
+            &self,
+            group: StoredGroup,
+        ) -> Result<StoredGroup, StorageError> {
+            // Bind order follows `StoredGroup`'s field order, which is what
+            // `COLUMNS` is generated from. A field added without a bind fails
+            // loudly at the first insert ("bind message supplies N parameters").
+            let placeholders = (1..=StoredGroup::COLUMNS.len())
+                .map(|i| format!("${i}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let cols = StoredGroup::select_columns();
+
+            self.atomic(async |db| {
+                let inserted: Option<StoredGroup> = {
+                    let sql = format!(
+                        "INSERT INTO groups ({cols}) VALUES ({placeholders}) \
+                         ON CONFLICT (id) DO NOTHING RETURNING {cols}"
+                    );
+                    let mut c = db.conn().await?;
+                    sqlx::query_as::<_, StoredGroup>(&sql)
+                        .bind(group.id)
+                        .bind(group.created_at_ns)
+                        .bind(group.membership_state)
+                        .bind(group.installations_last_checked)
+                        .bind(&group.added_by_inbox_id)
+                        .bind(group.sequence_id)
+                        .bind(group.rotated_at_ns)
+                        .bind(group.conversation_type)
+                        .bind(&group.dm_id)
+                        .bind(group.last_message_ns)
+                        .bind(group.message_disappear_from_ns)
+                        .bind(group.message_disappear_in_ns)
+                        .bind(&group.paused_for_version)
+                        .bind(group.maybe_forked)
+                        .bind(&group.fork_details)
+                        .bind(group.originator_id)
+                        .bind(group.should_publish_commit_log)
+                        .bind(&group.commit_log_public_key)
+                        .bind(group.is_commit_log_forked)
+                        .bind(group.has_pending_leave_request)
+                        .fetch_optional(&mut *c)
+                        .await
+                        .map_err(crate::ConnectionError::from)?
+                };
+
+                // `RETURNING` already gives the stored row, so unlike the sync
+                // path there is no read-back after a successful insert.
+                if let Some(inserted) = inserted {
+                    return Ok(inserted);
+                }
+
+                let mut existing: StoredGroup = {
+                    let sql = format!("SELECT {cols} FROM groups WHERE id = $1");
+                    let mut c = db.conn().await?;
+                    sqlx::query_as::<_, StoredGroup>(&sql)
+                        .bind(group.id)
+                        .fetch_one(&mut *c)
+                        .await
+                        .map_err(crate::ConnectionError::from)?
+                };
+
+                // A restored group should be overwritten.
+                if matches!(existing.membership_state, GroupMembershipState::Restored) {
+                    // This mirrors diesel's `AsChangeset`, which skips the
+                    // primary key and skips `Option` fields that are `None` --
+                    // hence `COALESCE(new, existing)` on exactly the nullable
+                    // columns and a plain assignment on the rest.
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "UPDATE groups SET \
+                           created_at_ns = $2, \
+                           membership_state = $3, \
+                           installations_last_checked = $4, \
+                           added_by_inbox_id = $5, \
+                           sequence_id = COALESCE($6, sequence_id), \
+                           rotated_at_ns = $7, \
+                           conversation_type = $8, \
+                           dm_id = COALESCE($9, dm_id), \
+                           last_message_ns = COALESCE($10, last_message_ns), \
+                           message_disappear_from_ns = COALESCE($11, message_disappear_from_ns), \
+                           message_disappear_in_ns = COALESCE($12, message_disappear_in_ns), \
+                           paused_for_version = COALESCE($13, paused_for_version), \
+                           maybe_forked = $14, \
+                           fork_details = $15, \
+                           originator_id = COALESCE($16, originator_id), \
+                           should_publish_commit_log = $17, \
+                           commit_log_public_key = COALESCE($18, commit_log_public_key), \
+                           is_commit_log_forked = COALESCE($19, is_commit_log_forked), \
+                           has_pending_leave_request = \
+                               COALESCE($20, has_pending_leave_request) \
+                         WHERE id = $1",
+                    )
+                    .bind(group.id)
+                    .bind(group.created_at_ns)
+                    .bind(group.membership_state)
+                    .bind(group.installations_last_checked)
+                    .bind(&group.added_by_inbox_id)
+                    .bind(group.sequence_id)
+                    .bind(group.rotated_at_ns)
+                    .bind(group.conversation_type)
+                    .bind(&group.dm_id)
+                    .bind(group.last_message_ns)
+                    .bind(group.message_disappear_from_ns)
+                    .bind(group.message_disappear_in_ns)
+                    .bind(&group.paused_for_version)
+                    .bind(group.maybe_forked)
+                    .bind(&group.fork_details)
+                    .bind(group.originator_id)
+                    .bind(group.should_publish_commit_log)
+                    .bind(&group.commit_log_public_key)
+                    .bind(group.is_commit_log_forked)
+                    .bind(group.has_pending_leave_request)
+                    .execute(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                }
+
+                // Compared against the pre-update row, as the sync path does --
+                // the overwrite above does not refresh `existing`.
+                if existing.sequence_id == group.sequence_id {
+                    tracing::info!("Group welcome id already exists");
+                    // Error so OpenMLS db transactions are rolled back on
+                    // duplicate welcomes.
+                    return Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
+                        existing.cursor(),
+                    )));
+                }
+
+                tracing::info!("Group already exists");
+                if group.sequence_id.is_some()
+                    && (existing.sequence_id.is_none() || group.sequence_id > existing.sequence_id)
+                {
+                    // Co-set `originator_id` alongside `sequence_id`: the builder
+                    // invariant pairs them, and writing only one would leave the
+                    // row in a state `group_cursors()` has to skip.
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "UPDATE groups SET sequence_id = $1, originator_id = $2 WHERE id = $3",
+                    )
+                    .bind(group.sequence_id)
+                    .bind(group.originator_id)
+                    .bind(group.id)
+                    .execute(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                    existing.sequence_id = group.sequence_id;
+                    existing.originator_id = group.originator_id;
+                }
+                Ok(existing)
+            })
+            .await
+        }
+
+        async fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows: Vec<(Option<i64>, Option<i64>)> = sqlx::query_as(
+                "SELECT sequence_id, originator_id FROM groups WHERE sequence_id IS NOT NULL",
+            )
+            .fetch_all(&mut *c)
+            .await?;
+
+            Ok(rows
+                .into_iter()
+                .filter_map(|(seq, orig)| match (seq, orig) {
+                    (Some(seq), Some(orig)) => Some(Cursor::new(seq as u64, orig as u32)),
+                    // Defense in depth, matching the sync path: a row with a
+                    // `sequence_id` but a NULL `originator_id` violates the
+                    // builder invariant, and skipping it beats aborting the
+                    // whole conversation stream.
+                    (Some(seq), None) => {
+                        tracing::warn!(
+                            sequence_id = seq,
+                            "group row has sequence_id but NULL originator_id; skipping cursor"
+                        );
+                        None
+                    }
+                    (None, _) => None,
+                })
+                .collect())
+        }
+
+        async fn mark_group_as_maybe_forked(
+            &self,
+            group_id: &GroupId,
+            fork_details: String,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET maybe_forked = TRUE, fork_details = $1 WHERE id = $2")
+                .bind(fork_details)
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn clear_fork_flag_for_group(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<(), crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET maybe_forked = FALSE, fork_details = '' WHERE id = $1")
+                .bind(group_id)
+                .execute(&mut *c)
+                .await?;
+            Ok(())
+        }
+
+        /// One statement rather than the sync path's two. A missing group or a
+        /// NULL `dm_id` makes the subquery NULL, `dm_id = NULL` matches nothing,
+        /// and the count is 0 -- the same `false` the sync path returns.
+        async fn has_duplicate_dm(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<bool, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_scalar(
+                "SELECT COUNT(*) > 1 FROM groups \
+                 WHERE conversation_type = $1 \
+                   AND dm_id = (SELECT dm_id FROM groups WHERE id = $2)",
+            )
+            .bind(ConversationType::Dm)
+            .bind(group_id)
+            .fetch_one(&mut *c)
+            .await?)
+        }
+
+        async fn get_conversation_ids_for_remote_log_publish(
+            &self,
+        ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {cols} FROM groups {INNER_CONSENT_JOIN} \
+                 WHERE (groups.conversation_type = $1 \
+                        OR (groups.conversation_type = $2 \
+                            AND groups.should_publish_commit_log = TRUE)) \
+                   AND c.state = $3 \
+                 ORDER BY groups.created_at_ns ASC",
+                cols = StoredGroupCommitLogPublicKey::select_columns_for("groups"),
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupCommitLogPublicKey>(&sql)
+                .bind(ConversationType::Dm)
+                .bind(ConversationType::Group)
+                .bind(ConsentState::Allowed)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        async fn get_conversation_ids_for_remote_log_download(
+            &self,
+        ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {cols} FROM groups {INNER_CONSENT_JOIN} \
+                 WHERE groups.conversation_type <> ALL($1::int4[]) AND c.state = $2",
+                cols = StoredGroupCommitLogPublicKey::select_columns_for("groups"),
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupCommitLogPublicKey>(&sql)
+                .bind(virtual_type_ints())
+                .bind(ConsentState::Allowed)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        async fn get_conversation_ids_for_fork_check(
+            &self,
+        ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_scalar(
+                "SELECT id FROM groups \
+                 WHERE conversation_type <> ALL($1::int4[]) \
+                   AND (is_commit_log_forked IS NULL OR is_commit_log_forked <> TRUE)",
+            )
+            .bind(virtual_type_ints())
+            .fetch_all(&mut *c)
+            .await?)
+        }
+
+        async fn get_conversation_ids_for_requesting_readds(
+            &self,
+        ) -> Result<Vec<StoredGroupForReaddRequest>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            // Mapped by hand because `latest_commit_sequence_id` is an aggregate
+            // rather than a column, so `PgModel` has nothing to derive from. The
+            // `try_get`s are by name, matching the aliases below.
+            let rows = sqlx::query(
+                "SELECT groups.id AS group_id, \
+                        MAX(rcl.commit_sequence_id) AS latest_commit_sequence_id \
+                 FROM groups LEFT JOIN remote_commit_log rcl ON groups.id = rcl.group_id \
+                 WHERE groups.conversation_type <> ALL($1::int4[]) \
+                   AND groups.is_commit_log_forked = TRUE \
+                 GROUP BY groups.id",
+            )
+            .bind(virtual_type_ints())
+            .fetch_all(&mut *c)
+            .await?;
+
+            rows.iter()
+                .map(|row| {
+                    use sqlx::Row;
+                    Ok(StoredGroupForReaddRequest {
+                        group_id: row.try_get("group_id")?,
+                        latest_commit_sequence_id: row.try_get("latest_commit_sequence_id")?,
+                    })
+                })
+                .collect::<Result<_, sqlx::Error>>()
+                .map_err(Into::into)
+        }
+
+        async fn get_conversation_ids_for_responding_readds(
+            &self,
+        ) -> Result<Vec<StoredGroupForRespondingReadds>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT DISTINCT {cols} \
+                 FROM readd_status r INNER JOIN groups ON r.group_id = groups.id \
+                 WHERE r.requested_at_sequence_id IS NOT NULL \
+                   AND (r.requested_at_sequence_id >= r.responded_at_sequence_id \
+                        OR r.responded_at_sequence_id IS NULL)",
+                cols = StoredGroupForRespondingReadds::select_columns_for("groups"),
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupForRespondingReadds>(&sql)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        /// A missing group is an error, matching the sync path's `first()`.
+        async fn get_conversation_type(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<ConversationType, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            Ok(
+                sqlx::query_scalar("SELECT conversation_type FROM groups WHERE id = $1")
+                    .bind(group_id)
+                    .fetch_one(&mut *c)
+                    .await?,
+            )
+        }
+
+        /// The `IS NULL` guard makes this write-once: a second key for the same
+        /// group updates no rows and is reported as a duplicate.
+        async fn set_group_commit_log_public_key(
+            &self,
+            group_id: &GroupId,
+            public_key: &[u8],
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            let updated = sqlx::query(
+                "UPDATE groups SET commit_log_public_key = $1 \
+                 WHERE id = $2 AND commit_log_public_key IS NULL",
+            )
+            .bind(public_key)
+            .bind(group_id)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+
+            if updated == 0 {
+                return Err(StorageError::Duplicate(DuplicateItem::CommitLogPublicKey(
+                    group_id.as_ref().to_vec(),
+                )));
+            }
+            Ok(())
+        }
+
+        async fn set_group_commit_log_forked_status(
+            &self,
+            group_id: &GroupId,
+            is_forked: Option<bool>,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET is_commit_log_forked = $1 WHERE id = $2")
+                .bind(is_forked)
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        /// A missing group is an error, matching the sync path's `first()`; the
+        /// `Option` is the column's own nullability.
+        async fn get_group_commit_log_forked_status(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<bool>, StorageError> {
+            let mut c = self.conn().await?;
+            Ok(
+                sqlx::query_scalar("SELECT is_commit_log_forked FROM groups WHERE id = $1")
+                    .bind(group_id)
+                    .fetch_one(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?,
+            )
+        }
+
+        async fn set_group_has_pending_leave_request_status(
+            &self,
+            group_id: &GroupId,
+            has_pending_leave_request: Option<bool>,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("UPDATE groups SET has_pending_leave_request = $1 WHERE id = $2")
+                .bind(has_pending_leave_request)
+                .bind(group_id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn get_groups_have_pending_leave_request(
+            &self,
+        ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_scalar(
+                "SELECT id FROM groups \
+                 WHERE conversation_type <> $1 AND has_pending_leave_request = TRUE",
+            )
+            .bind(ConversationType::Sync)
+            .fetch_all(&mut *c)
+            .await?)
+        }
     }
 }

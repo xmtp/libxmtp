@@ -6,7 +6,7 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
-    utils::{VersionInfo, cleanup_duplicate_updates},
+    utils::VersionInfo,
     worker::{WorkerRunner, tasks::TaskWorker},
     worker::{device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker},
 };
@@ -24,8 +24,13 @@ use xmtp_api_d14n::{
 };
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
-use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
+use xmtp_db::{XmtpMlsStorageProvider, prelude::*};
+use xmtp_db::XmtpDb;
+// Raw diesel/SQLite cleanup + the concrete diesel key store — sync track only.
+#[cfg(feature = "sync")]
+use crate::utils::cleanup_duplicate_updates;
+#[cfg(feature = "sync")]
+use xmtp_db::{DbConnection, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_macro::log_event;
 use xmtp_proto::xmtp::mls::database::{
@@ -212,12 +217,12 @@ where
 ///
 /// TODO(#3748): removable once every client has shipped a release that enqueues
 /// these tasks inline — safe to delete by the next-next stable release.
-fn backfill_pending_self_remove_tasks<C>(context: &C) -> Result<(), StorageError>
+async fn backfill_pending_self_remove_tasks<C>(context: &C) -> Result<(), StorageError>
 where
     C: XmtpSharedContext,
 {
     let db = context.db();
-    for raw_id in db.get_groups_have_pending_leave_request()? {
+    for raw_id in db.get_groups_have_pending_leave_request().await? {
         let Ok(group_id) = xmtp_proto::types::GroupId::try_from(raw_id.as_slice()) else {
             continue;
         };
@@ -238,7 +243,7 @@ where
         // Insert-if-absent per group: leaves any live retrying task (and its
         // backoff) untouched, only replacing dead rows. Safe to call on every
         // startup without resurrecting exhausted tasks.
-        db.upsert_pending_self_remove_task(&group_id, task)?;
+        db.upsert_pending_self_remove_task(&group_id, task).await?;
     }
     Ok(())
 }
@@ -432,7 +437,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 // build: the DB was already opened/migrated above, so an error
                 // here means it is broken; building a client whose critical
                 // maintenance silently never got seeded would be worse.
-                crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)?;
+                crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)
+                    .await?;
                 // One-time backfill: pending self-removes recorded before the
                 // worker became event-driven have no LeaveRequest to re-fire, so
                 // seed a ProcessPendingSelfRemove task for each already-flagged
@@ -441,7 +447,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 // TODO: remove this migration once all clients have shipped a
                 // release that enqueues these tasks inline — safe to delete by the
                 // next-next stable release.
-                if let Err(e) = backfill_pending_self_remove_tasks(&context) {
+                if let Err(e) = backfill_pending_self_remove_tasks(&context).await {
                     tracing::warn!(
                         "pending-self-remove backfill failed (will rely on next sync): {e}"
                     );
@@ -474,15 +480,19 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             stream_router: Default::default(),
         };
 
-        // Cleanup old unstitched group updated messages.
-        let conn = DbConnection::new(client.db());
-        let cancel = client.context.cancellation_token().clone();
-        xmtp_common::spawn(None, async move {
-            tokio::select! {
-                _ = cancel.cancelled() => {}
-                _ = cleanup_duplicate_updates::perform(conn) => {}
-            }
-        });
+        // Cleanup old unstitched group updated messages. Raw diesel/SQLite work,
+        // sync track only.
+        #[cfg(feature = "sync")]
+        {
+            let conn = DbConnection::new(client.db());
+            let cancel = client.context.cancellation_token().clone();
+            xmtp_common::spawn(None, async move {
+                tokio::select! {
+                    _ = cancel.cancelled() => {}
+                    _ = cleanup_duplicate_updates::perform(conn) => {}
+                }
+            });
+        }
 
         Ok(client)
     }
@@ -529,40 +539,40 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    /// Use the default SQlite MLS Key-Value Store
+    /// Use the default SQLite MLS Key-Value Store (sync/diesel track).
+    #[cfg(feature = "sync")]
     pub fn default_mls_store(
         self,
-    ) -> Result<
-        ClientBuilder<ApiClient, SqlKeyStore<<Db as XmtpDb>::DbQuery>, Db>,
-        ClientBuilderError,
-    >
+    ) -> Result<ClientBuilder<ApiClient, SqlKeyStore<<Db as XmtpDb>::DbQuery>, Db>, ClientBuilderError>
     where
         Db: XmtpDb,
     {
-        Ok(ClientBuilder {
-            api_client: self.api_client,
-            identity: self.identity,
-            identity_strategy: self.identity_strategy,
-            scw_verifier: self.scw_verifier,
-            device_sync_worker_mode: self.device_sync_worker_mode,
-            fork_recovery_opts: self.fork_recovery_opts,
-            change_callbacks: self.change_callbacks,
-            version_info: self.version_info,
-            allow_offline: self.allow_offline,
-            disable_commit_log_worker: self.disable_commit_log_worker,
-            mls_storage: Some(SqlKeyStore::new(
-                self.store
-                    .as_ref()
-                    .ok_or(ClientBuilderError::MissingParameter {
-                        parameter: "encrypted store",
-                    })?
-                    .db(),
-            )),
-            store: self.store,
-            cursor_store: self.cursor_store,
-            disable_workers: self.disable_workers,
-            worker_config: self.worker_config,
-        })
+        let db = self
+            .store
+            .as_ref()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "encrypted store",
+            })?
+            .db();
+        Ok(self.mls_storage(SqlKeyStore::new(db)))
+    }
+
+    /// Use the default sqlx/Postgres MLS key store (async/server track).
+    #[cfg(not(feature = "sync"))]
+    pub fn default_mls_store(
+        self,
+    ) -> Result<ClientBuilder<ApiClient, xmtp_db::PgKeyStore, Db>, ClientBuilderError>
+    where
+        Db: XmtpDb<DbQuery = xmtp_db::PgDb>,
+    {
+        let db = self
+            .store
+            .as_ref()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "encrypted store",
+            })?
+            .db();
+        Ok(self.mls_storage(xmtp_db::PgKeyStore::new(db)))
     }
 
     pub fn mls_storage<NewS>(self, mls_storage: NewS) -> ClientBuilder<ApiClient, NewS, Db> {

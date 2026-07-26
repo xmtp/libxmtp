@@ -41,13 +41,12 @@ use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
-use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
-use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
 use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::{MlsProviderExt, TransactionOutcome};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
@@ -140,10 +139,10 @@ impl IdentityStrategy {
         use IdentityStrategy::*;
 
         info!("Initializing identity");
-        let stored_identity: Option<Identity> = mls_storage
-            .db()
-            .fetch(&())?
-            .map(|i: StoredIdentity| i.try_into())
+        let stored_identity: Option<Identity> =
+            Fetch::<StoredIdentity>::fetch(&mls_storage.db(), &())
+                .await?
+                .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
 
         debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
@@ -624,11 +623,12 @@ impl Identity {
         (*self.installation_keys.public_bytes()).into()
     }
 
-    pub fn sequence_id<C>(&self, conn: &DbConnection<C>) -> Result<i64, xmtp_db::ConnectionError>
-    where
-        C: ConnectionExt,
-    {
+    pub async fn sequence_id(
+        &self,
+        conn: &impl xmtp_db::DbQuery,
+    ) -> Result<i64, xmtp_db::ConnectionError> {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
+            .await
     }
 
     pub fn is_ready(&self) -> bool {
@@ -670,7 +670,7 @@ impl Identity {
 
     /// Generate a new key package and store the associated keys in the database.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn new_key_package(
+    pub(crate) async fn new_key_package(
         &self,
         provider: &impl MlsProviderExt,
         include_post_quantum: bool,
@@ -680,6 +680,7 @@ impl Identity {
             .credential(self.credential())
             .installation_keys(self.installation_keys.clone())
             .build(provider, include_post_quantum)
+            .await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -688,7 +689,8 @@ impl Identity {
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
     ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = mls_storage.db().fetch(&())?;
+        let stored_identity: Option<StoredIdentity> =
+            Fetch::<StoredIdentity>::fetch(&mls_storage.db(), &()).await?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
             return Ok(());
@@ -700,7 +702,9 @@ impl Identity {
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )
         .await?;
-        Ok(StoredIdentity::try_from(self)?.store(&mls_storage.db())?)
+        Ok(StoredIdentity::try_from(self)?
+            .store(&mls_storage.db())
+            .await?)
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
@@ -719,8 +723,9 @@ impl Identity {
         tracing::info!("Start rotating keys and uploading the new key package");
 
         // Generate and store key package locally
-        let (kp_bytes, history_id) =
-            self.generate_and_store_key_package(mls_storage, include_post_quantum)?;
+        let (kp_bytes, history_id) = self
+            .generate_and_store_key_package(mls_storage, include_post_quantum)
+            .await?;
 
         // Upload to network
         match api_client.upload_key_package(kp_bytes, true).await {
@@ -729,17 +734,20 @@ impl Identity {
                 let provider = XmtpOpenMlsProviderRef::new(mls_storage);
                 provider
                     .storage()
-                    .transaction(|conn| {
+                    .transaction(async |conn| {
                         let storage = conn.key_store();
                         storage
                             .db()
-                            .mark_key_package_before_id_to_be_deleted(history_id)?;
+                            .mark_key_package_before_id_to_be_deleted(history_id)
+                            .await?;
                         Ok::<_, StorageError>(Continue(()))
                     })
-                    .map(TransactionOutcome::into_continued)?;
+                    .await
+            .map(TransactionOutcome::into_continued)?;
                 mls_storage
                     .db()
-                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)
+                    .await?;
                 Ok(())
             }
             Err(err) => Err(IdentityError::ApiClient(err)),
@@ -750,7 +758,7 @@ impl Identity {
     /// Returns serialized bytes and history ID for later upload/cleanup.
     /// Prevents orphaned key packages if signature validation fails.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
+    pub(crate) async fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
         &self,
         mls_storage: &S,
         include_post_quantum: bool,
@@ -759,13 +767,14 @@ impl Identity {
         let NewKeyPackageResult {
             key_package: kp,
             pq_pub_key,
-        } = self.new_key_package(&provider, include_post_quantum)?;
+        } = self.new_key_package(&provider, include_post_quantum).await?;
 
         let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
         let history_id = provider
             .storage()
             .db()
-            .store_key_package_history_entry(hash_ref, pq_pub_key)?
+            .store_key_package_history_entry(hash_ref, pq_pub_key)
+            .await?
             .id;
 
         let kp_bytes = kp.tls_serialize_detached()?;
@@ -805,7 +814,7 @@ impl XmtpKeyPackage {
 }
 
 impl XmtpKeyPackageBuilder {
-    pub(crate) fn build(
+    pub(crate) async fn build(
         &mut self,
         provider: &impl MlsProviderExt,
         include_post_quantum: bool,
@@ -906,7 +915,7 @@ impl XmtpKeyPackageBuilder {
             }
         };
 
-        let kp = kp_builder.build(
+        let kp = maybe_await!(kp_builder.build(
             CIPHERSUITE,
             provider,
             &this.installation_keys,
@@ -914,7 +923,7 @@ impl XmtpKeyPackageBuilder {
                 credential: this.credential,
                 signature_key: this.installation_keys.public_slice().into(),
             },
-        )?;
+        ))?;
 
         store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
         Ok(NewKeyPackageResult {
@@ -1182,6 +1191,7 @@ mod tests {
             serialized_key_package_hash_ref,
             Some(pq_public_key_bytes.clone()),
         )
+        .await
         .unwrap();
 
         // Now test to see if the private keys are deleted by doing the same steps as above
@@ -1218,6 +1228,7 @@ mod tests {
         let kp = client
             .identity()
             .new_key_package(&provider, false)
+            .await
             .unwrap()
             .key_package;
         let proposals = kp.leaf_node().capabilities().proposals();
@@ -1354,8 +1365,8 @@ mod tests {
                 ..GroupQueryArgs::default()
             };
 
-            let amal_convos = amal.list_conversations(query_args.clone()).unwrap();
-            let bola_convos = bola.list_conversations(query_args).unwrap();
+            let amal_convos = amal.list_conversations(query_args.clone()).await.unwrap();
+            let bola_convos = bola.list_conversations(query_args).await.unwrap();
 
             assert_eq!(amal_convos.len(), 1);
             assert_eq!(bola_convos.len(), 1);

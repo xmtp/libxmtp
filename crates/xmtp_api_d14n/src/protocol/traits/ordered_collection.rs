@@ -15,5 +15,5 @@ pub trait OrderedEnvelopeCollection: MaybeSend + MaybeSync {
     async fn order(&mut self) -> Result<(), ResolutionError>;
 
     /// order without trying to resolve dependencies
-    fn order_offline(&mut self) -> Result<(), ResolutionError>;
+    async fn order_offline(&mut self) -> Result<(), ResolutionError>;
 }

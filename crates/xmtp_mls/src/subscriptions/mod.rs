@@ -388,7 +388,7 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?);
+        let mut known_welcomes = HashSet::from_iter(conn.group_cursors().await?);
         let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let welcomes: Vec<_> = match welcome {
             V3OrD14n::D14n(envelope) => {
@@ -759,7 +759,7 @@ pub(crate) mod tests {
         tester!(bo);
 
         // Alix creates a group and adds Bo
-        let alix_group = alix.create_group(None, None)?;
+        let alix_group = alix.create_group(None, None).await?;
         alix_group.add_members(&[bo.inbox_id()]).await?;
 
         // Query the welcome message envelope using query_at
@@ -816,7 +816,7 @@ pub(crate) mod tests {
         tester!(bo);
 
         // Alix creates a group and adds Bo
-        let alix_group = alix.create_group(None, None)?;
+        let alix_group = alix.create_group(None, None).await?;
         alix_group.add_members(&[bo.inbox_id()]).await?;
 
         // Query the welcome envelope using query_at for D14n format

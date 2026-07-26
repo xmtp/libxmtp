@@ -21,7 +21,7 @@ where
 {
     type Error = ApiClientError;
 
-    fn is_d14n(&self) -> Result<bool, Self::Error> {
+    async fn is_d14n(&self) -> Result<bool, Self::Error> {
         Ok(true)
     }
 

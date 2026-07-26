@@ -1,9 +1,17 @@
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection};
-use crate::icebox::types::{IceboxOrphans, IceboxWithDep};
+use crate::icebox::types::IceboxOrphans;
+#[cfg(feature = "sync")]
+use crate::icebox::types::IceboxWithDep;
+#[cfg(feature = "sync")]
 use crate::schema::icebox::dsl;
+#[cfg(feature = "sync")]
 use crate::schema::icebox_dependencies;
+#[cfg(feature = "sync")]
 use crate::{impl_store, schema::icebox};
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
+#[cfg(feature = "sync")]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::types::{
@@ -12,21 +20,15 @@ use xmtp_proto::types::{
 
 mod types;
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
+#[xmtp(table = "icebox")]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = icebox)]
-#[diesel(primary_key(originator_id, sequence_id))]
-#[diesel(belongs_to(crate::group::StoredGroup, foreign_key = group_id))]
+#[cfg_attr(feature = "sync", diesel(table_name = icebox))]
+#[cfg_attr(feature = "sync", diesel(primary_key(originator_id, sequence_id)))]
+#[cfg_attr(feature = "sync", diesel(belongs_to(crate::group::StoredGroup, foreign_key = group_id)))]
 pub struct Icebox {
     pub originator_id: i64,
     pub sequence_id: i64,
@@ -34,27 +36,25 @@ pub struct Icebox {
     pub envelope_payload: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(Icebox, icebox);
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
+#[xmtp(table = "icebox_dependencies")]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = icebox_dependencies)]
-#[diesel(primary_key(
-    envelope_originator_id,
-    envelope_sequence_id,
-    dependency_originator_id,
-    dependency_sequence_id
-))]
+#[cfg_attr(feature = "sync", diesel(table_name = icebox_dependencies))]
+#[cfg_attr(
+    feature = "sync",
+    diesel(primary_key(
+        envelope_originator_id,
+        envelope_sequence_id,
+        dependency_originator_id,
+        dependency_sequence_id
+    ))
+)]
 pub struct IceboxDependency {
     pub envelope_originator_id: i64,
     pub envelope_sequence_id: i64,
@@ -62,6 +62,7 @@ pub struct IceboxDependency {
     pub dependency_sequence_id: i64,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(IceboxDependency, icebox_dependencies);
 
 pub trait QueryIcebox {
@@ -74,7 +75,8 @@ pub trait QueryIcebox {
     fn past_dependents(
         &self,
         cursors: &[Cursor],
-    ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<OrphanedEnvelope>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Returns envelopes that depend on any of the specified cursors,
     /// along with each envelope's own dependencies.
@@ -82,44 +84,51 @@ pub trait QueryIcebox {
     fn future_dependents(
         &self,
         cursors: &[Cursor],
-    ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<OrphanedEnvelope>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// cache the orphans until its parent(s) may be found.
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError>;
+    fn ice(
+        &self,
+        orphans: Vec<OrphanedEnvelope>,
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Removes icebox entries that have been processed according to refresh_state.
     /// Deletes entries where the refresh_state cursor for the group is at or beyond
     /// the icebox entry's sequence_id, indicating the envelope has been processed.
-    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
+    fn prune_icebox(
+        &self,
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 }
 
 impl<T> QueryIcebox for &T
 where
-    T: QueryIcebox,
+    T: QueryIcebox + xmtp_common::MaybeSync,
 {
-    fn past_dependents(
+    async fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).past_dependents(cursors)
+        (**self).past_dependents(cursors).await
     }
 
-    fn future_dependents(
+    async fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).future_dependents(cursors)
+        (**self).future_dependents(cursors).await
     }
 
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
-        (**self).ice(orphans)
+    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+        (**self).ice(orphans).await
     }
 
-    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
-        (**self).prune_icebox()
+    async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+        (**self).prune_icebox().await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> DbConnection<C> {
     fn do_icebox_query(
         &self,
@@ -177,8 +186,9 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
-    fn past_dependents(
+    async fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
@@ -243,7 +253,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         self.do_icebox_query(query_str)
     }
 
-    fn future_dependents(
+    async fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
@@ -300,7 +310,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         self.do_icebox_query(query_str)
     }
 
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
         if orphans.is_empty() {
             return Ok(0);
         }
@@ -330,7 +340,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         })
     }
 
-    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+    async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
         use super::refresh_state::EntityKind;
         use super::schema::{icebox, refresh_state};
 
@@ -355,6 +365,301 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
             )
             .execute(conn)
         })
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+///
+/// The two things that made this trait "not a mechanical port" both dissolve
+/// here rather than needing a translation:
+///
+/// * the sync path interpolates the start cursors into a `VALUES` clause,
+///   because diesel's `sql_query` cannot bind a variable-length list. Postgres
+///   takes the whole set as two array parameters through `UNNEST`, so the SQL
+///   is a constant and nothing is formatted into it.
+/// * `IceboxWithDep` reads `group_id` and `envelope_payload` through raw
+///   pointers into SQLite's memory to avoid a copy inside diesel's `load_iter`.
+///   sqlx returns owned rows, so the async track decodes straight into
+///   `Vec<u8>` and the `unsafe` has nothing to buy.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use std::collections::HashMap;
+
+    /// One flat `(envelope, dependency)` pair, before grouping.
+    type DependencyRow = (i64, i64, GroupId, Vec<u8>, i64, i64);
+
+    /// The recursive walk, shared by both directions: only the CTE differs.
+    ///
+    /// Both statements return the envelope columns repeated once per
+    /// dependency, so the rows are grouped back into one `OrphanedEnvelope` per
+    /// `(originator_id, sequence_id)`.
+    fn collect(rows: Vec<DependencyRow>) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+        // Insertion-ordered, so the statement's ORDER BY survives into the
+        // result. The sync path groups through a `HashMap` and loses it.
+        let mut order: Vec<(i64, i64)> = Vec::new();
+        let mut builders: HashMap<(i64, i64), OrphanedEnvelopeBuilder> = HashMap::new();
+
+        for (originator_id, sequence_id, group_id, payload, dep_originator, dep_sequence) in rows {
+            let builder = builders
+                .entry((originator_id, sequence_id))
+                .or_insert_with(|| {
+                    order.push((originator_id, sequence_id));
+                    let mut builder = OrphanedEnvelopeBuilder::default();
+                    builder
+                        .cursor(Cursor::new(
+                            sequence_id as SequenceId,
+                            originator_id as OriginatorId,
+                        ))
+                        .payload(payload)
+                        .group_id(group_id);
+                    builder
+                });
+            builder.depending_on(Cursor::new(
+                dep_sequence as SequenceId,
+                dep_originator as OriginatorId,
+            ));
+        }
+
+        order
+            .into_iter()
+            .filter_map(|key| builders.remove(&key))
+            .map(|builder| {
+                builder
+                    .build()
+                    .map_err(|e| crate::ConnectionError::InvalidQuery(e.to_string()))
+            })
+            .collect()
+    }
+
+    /// `(originator_ids, sequence_ids)` as the two arrays `UNNEST` pairs back up.
+    fn split(cursors: &[Cursor]) -> (Vec<i64>, Vec<i64>) {
+        cursors
+            .iter()
+            .map(|c| (c.originator_id as i64, c.sequence_id as i64))
+            .unzip()
+    }
+
+    /// Walks *towards* the dependencies of the given cursors, so the outer
+    /// `SELECT DISTINCT` is needed: the two base cases can both reach the same
+    /// envelope.
+    const PAST_DEPENDENTS: &str = "
+        WITH RECURSIVE
+        start_cursors(originator_id, sequence_id) AS (
+            SELECT * FROM UNNEST($1::bigint[], $2::bigint[])
+        ),
+        dependency_chain AS (
+            -- Base case: the specified envelopes, if they are iceboxed
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN start_cursors sc ON i.originator_id = sc.originator_id
+                                  AND i.sequence_id = sc.sequence_id
+
+            UNION
+
+            -- ...or their immediate dependencies, if they are not
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.dependency_originator_id
+                                       AND i.sequence_id = d.dependency_sequence_id
+            JOIN start_cursors sc ON d.envelope_originator_id = sc.originator_id
+                                  AND d.envelope_sequence_id = sc.sequence_id
+
+            UNION ALL
+
+            -- Recursive case: keep walking down the dependency chain
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.dependency_originator_id
+                                       AND i.sequence_id = d.dependency_sequence_id
+            JOIN dependency_chain dc ON d.envelope_originator_id = dc.originator_id
+                                     AND d.envelope_sequence_id = dc.sequence_id
+        )
+        SELECT dc.originator_id, dc.sequence_id, dc.group_id, dc.envelope_payload,
+               d.dependency_originator_id, d.dependency_sequence_id
+        FROM (SELECT DISTINCT * FROM dependency_chain) dc
+        INNER JOIN icebox_dependencies d
+            ON dc.originator_id = d.envelope_originator_id
+           AND dc.sequence_id = d.envelope_sequence_id
+        ORDER BY dc.originator_id DESC, dc.sequence_id DESC";
+
+    /// Walks *away* from the given cursors, to everything blocked behind them.
+    /// The cursors themselves are never returned, only their dependents.
+    const FUTURE_DEPENDENTS: &str = "
+        WITH RECURSIVE
+        start_cursors(originator_id, sequence_id) AS (
+            SELECT * FROM UNNEST($1::bigint[], $2::bigint[])
+        ),
+        dependency_chain AS (
+            -- Base case: everything directly depending on a starting cursor
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.envelope_originator_id
+                                       AND i.sequence_id = d.envelope_sequence_id
+            JOIN start_cursors sc ON d.dependency_originator_id = sc.originator_id
+                                  AND d.dependency_sequence_id = sc.sequence_id
+
+            UNION ALL
+
+            -- Recursive case: keep walking up the dependent chain
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.envelope_originator_id
+                                       AND i.sequence_id = d.envelope_sequence_id
+            JOIN dependency_chain dc ON d.dependency_originator_id = dc.originator_id
+                                     AND d.dependency_sequence_id = dc.sequence_id
+        )
+        SELECT dc.originator_id, dc.sequence_id, dc.group_id, dc.envelope_payload,
+               d.dependency_originator_id, d.dependency_sequence_id
+        FROM dependency_chain dc
+        INNER JOIN icebox_dependencies d
+            ON dc.originator_id = d.envelope_originator_id
+           AND dc.sequence_id = d.envelope_sequence_id";
+
+    impl PgDb {
+        async fn icebox_walk(
+            &self,
+            sql: &str,
+            cursors: &[Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+            if cursors.is_empty() {
+                return Ok(Vec::new());
+            }
+            let (originator_ids, sequence_ids) = split(cursors);
+            let mut c = self.conn().await?;
+            let rows: Vec<DependencyRow> = sqlx::query_as(sql)
+                .bind(&originator_ids)
+                .bind(&sequence_ids)
+                .fetch_all(&mut *c)
+                .await?;
+            collect(rows)
+        }
+    }
+
+    impl QueryIcebox for PgDb {
+        async fn past_dependents(
+            &self,
+            cursors: &[Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+            self.icebox_walk(PAST_DEPENDENTS, cursors).await
+        }
+
+        async fn future_dependents(
+            &self,
+            cursors: &[Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+            self.icebox_walk(FUTURE_DEPENDENTS, cursors).await
+        }
+
+        /// Two bulk inserts rather than the sync path's row-at-a-time loop, and
+        /// `atomic()` for the same reason it opens a transaction: an envelope
+        /// stored without its dependency rows would look ready to process.
+        ///
+        /// `ON CONFLICT DO NOTHING` also covers duplicates *within* a batch,
+        /// which is why the row counts still match the sync path's.
+        async fn ice(
+            &self,
+            orphans: Vec<OrphanedEnvelope>,
+        ) -> Result<usize, crate::ConnectionError> {
+            if orphans.is_empty() {
+                return Ok(0);
+            }
+
+            let dependencies: Vec<IceboxDependency> =
+                orphans.iter().flat_map(|o| o.deps()).collect();
+            let entries: Vec<Icebox> = orphans.into_iter().map(Icebox::from).collect();
+
+            let mut originator_ids = Vec::with_capacity(entries.len());
+            let mut sequence_ids = Vec::with_capacity(entries.len());
+            // `GroupId` has no `PgHasArrayType`, so the array element type is the
+            // raw `bytea` the column already stores.
+            let mut group_ids: Vec<Vec<u8>> = Vec::with_capacity(entries.len());
+            let mut payloads = Vec::with_capacity(entries.len());
+            for entry in entries {
+                originator_ids.push(entry.originator_id);
+                sequence_ids.push(entry.sequence_id);
+                group_ids.push(entry.group_id.to_vec());
+                payloads.push(entry.envelope_payload);
+            }
+
+            let mut dep_envelope_originators = Vec::with_capacity(dependencies.len());
+            let mut dep_envelope_sequences = Vec::with_capacity(dependencies.len());
+            let mut dep_originators = Vec::with_capacity(dependencies.len());
+            let mut dep_sequences = Vec::with_capacity(dependencies.len());
+            for dep in dependencies {
+                dep_envelope_originators.push(dep.envelope_originator_id);
+                dep_envelope_sequences.push(dep.envelope_sequence_id);
+                dep_originators.push(dep.dependency_originator_id);
+                dep_sequences.push(dep.dependency_sequence_id);
+            }
+
+            self.atomic(async |db| {
+                let mut total = {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO icebox (originator_id, sequence_id, group_id, envelope_payload) \
+                         SELECT * FROM UNNEST($1::bigint[], $2::bigint[], $3::bytea[], $4::bytea[]) \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&originator_ids)
+                    .bind(&sequence_ids)
+                    .bind(&group_ids)
+                    .bind(&payloads)
+                    .execute(&mut *c)
+                    .await?
+                    .rows_affected()
+                };
+
+                if !dep_envelope_originators.is_empty() {
+                    let mut c = db.conn().await?;
+                    total += sqlx::query(
+                        "INSERT INTO icebox_dependencies \
+                         (envelope_originator_id, envelope_sequence_id, \
+                          dependency_originator_id, dependency_sequence_id) \
+                         SELECT * FROM UNNEST($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[]) \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&dep_envelope_originators)
+                    .bind(&dep_envelope_sequences)
+                    .bind(&dep_originators)
+                    .bind(&dep_sequences)
+                    .execute(&mut *c)
+                    .await?
+                    .rows_affected();
+                }
+
+                Ok(total as usize)
+            })
+            .await
+        }
+
+        /// `refresh_state.originator_id` is `INTEGER` and `icebox.originator_id`
+        /// is `BIGINT`; Postgres compares the two widths directly, so unlike the
+        /// sync path there is no cast.
+        async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+            use crate::encrypted_store::refresh_state::EntityKind;
+
+            let kinds: Vec<i32> = vec![
+                EntityKind::ApplicationMessage as i32,
+                EntityKind::CommitMessage as i32,
+            ];
+            let mut c = self.conn().await?;
+            let deleted = sqlx::query(
+                "DELETE FROM icebox WHERE EXISTS ( \
+                     SELECT 1 FROM refresh_state rs \
+                     WHERE rs.entity_id = icebox.group_id \
+                       AND rs.originator_id = icebox.originator_id \
+                       AND rs.sequence_id >= icebox.sequence_id \
+                       AND rs.entity_kind = ANY($1::int4[]))",
+            )
+            .bind(&kinds)
+            .execute(&mut *c)
+            .await?
+            .rows_affected();
+            Ok(deleted as usize)
+        }
     }
 }
 
@@ -424,22 +729,22 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn icebox_dependency_chain() {
-        with_connection(|conn| {
+    async fn icebox_dependency_chain() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
 
             // Store envelopes and dependencies
-            conn.ice(orphans.clone())?;
+            conn.ice(orphans.clone()).await?;
 
-            let dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
+            let dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)]).await?;
             assert_eq!(dep_chain.len(), 3);
 
             assert_eq!(orphans[0].depends_on[&1], 40);
             assert_eq!(orphans[1].depends_on[&2], 39);
             assert_eq!(orphans[2].depends_on[&2], 38);
 
-            let mut dep_chain = conn.future_dependents(&[Cursor::new(39, 2u32)])?;
+            let mut dep_chain = conn.future_dependents(&[Cursor::new(39, 2u32)]).await?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].cursor.sequence_id, 40);
@@ -450,11 +755,12 @@ mod tests {
             assert_eq!(dep_chain[1].cursor.originator_id, 1);
             assert_eq!(dep_chain[1].depends_on[&1], 40);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_wrong_originator() {
-        with_connection(|conn| {
+    async fn test_icebox_wrong_originator() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the originator
             let mut orphans = iced(group_id);
@@ -467,9 +773,9 @@ mod tests {
                 .build()
                 .unwrap();
 
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
-            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
+            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)]).await?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             // The last iced message should not be there due to the wrong originator_id.
             // past_dependents returns starting envelope + dependencies
@@ -480,14 +786,15 @@ mod tests {
 
             // With the changed originator, envelope (39, 1) has no dependents
             // (40, 1) depends on (39, 2), not (39, 1)
-            let dep_chain = conn.future_dependents(&[Cursor::new(39, 1u32)])?;
+            let dep_chain = conn.future_dependents(&[Cursor::new(39, 1u32)]).await?;
             assert_eq!(dep_chain.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_wrong_sequence() {
-        with_connection(|conn| {
+    async fn test_icebox_wrong_sequence() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the sequence_id to a non-conflicting value
             let mut orphans = iced(group_id);
@@ -500,9 +807,9 @@ mod tests {
                 .build()
                 .unwrap();
 
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
-            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
+            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)]).await?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
 
             // The last iced message should not be there due to the wrong sequence_id.
@@ -513,15 +820,16 @@ mod tests {
             assert_eq!(dep_chain[1].depends_on[&1], 40);
             // With the changed sequence_id, envelope (100, 2) has no dependents
             // Nothing depends on (100, 2) in the dependency chain
-            let dep_chain = conn.future_dependents(&[Cursor::new(100, 2u32)])?;
+            let dep_chain = conn.future_dependents(&[Cursor::new(100, 2u32)]).await?;
             assert_eq!(dep_chain.len(), 0);
         })
+        .await
     }
 
     // commit + two dependant application messages
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_multiple_dependencies() {
-        with_connection(|conn| {
+    async fn test_icebox_multiple_dependencies() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Test that two envelopes can depend on the same envelope
             let orphans = vec![
@@ -542,9 +850,9 @@ mod tests {
             ];
 
             let result = conn.ice(orphans);
-            assert!(result.is_ok());
+            assert!(result.await.is_ok());
 
-            let mut got = conn.future_dependents(&[Cursor::new(10, 0u32)])?;
+            let mut got = conn.future_dependents(&[Cursor::new(10, 0u32)]).await?;
             got.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(got.len(), 2);
             assert_eq!(got[0].cursor.sequence_id, 1);
@@ -557,12 +865,13 @@ mod tests {
                 assert_eq!(envelope.depends_on[&0], 10);
             }
         })
+        .await
     }
 
     // chained commits & app messages
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_chain() {
-        with_connection(|conn| {
+    async fn test_icebox_chain() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Test a chain where envelope 3 depends on 2, and both 1 and 2 depend on 3
             let orphans = vec![
@@ -590,9 +899,9 @@ mod tests {
             ];
 
             let result = conn.ice(orphans);
-            assert!(result.is_ok());
+            assert!(result.await.is_ok());
 
-            let mut got = conn.future_dependents(&[Cursor::new(2, 0u32)])?;
+            let mut got = conn.future_dependents(&[Cursor::new(2, 0u32)]).await?;
             got.sort_by_key(|i| i.cursor.sequence_id);
             assert_eq!(got.len(), 3);
 
@@ -603,21 +912,22 @@ mod tests {
             assert_eq!(got[2].cursor.sequence_id, 3);
             assert_eq!(got[2].cursor.originator_id, 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_future_dependents_multiple_cursors() {
-        with_connection(|conn| {
+    async fn test_future_dependents_multiple_cursors() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
 
             // Store envelopes and dependencies
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             // Test query with multiple cursors
             let cursors = vec![Cursor::new(39, 2u32), Cursor::new(40, 1u32)];
 
-            let mut result = conn.future_dependents(&cursors)?;
+            let mut result = conn.future_dependents(&cursors).await?;
             result.sort_by_key(|d| d.cursor.sequence_id);
 
             // Verify we get the union of dependants
@@ -634,26 +944,28 @@ mod tests {
             assert_eq!(result[0].depends_on[&2], 39);
             assert_eq!(result[1].depends_on[&1], 40);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_future_dependents_empty() {
-        with_connection(|conn| {
+    async fn test_future_dependents_empty() {
+        with_connection(async |conn| {
             // Test with empty cursor list
-            let result = conn.future_dependents(&[])?;
+            let result = conn.future_dependents(&[]).await?;
             assert_eq!(result.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_querying_dependencies_in_middle_works() {
-        with_connection(|conn| {
+    async fn test_querying_dependencies_in_middle_works() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
 
-            conn.ice(orphans.clone())?;
+            conn.ice(orphans.clone()).await?;
 
-            let mut result = conn.past_dependents(&[Cursor::new(40, 1u32)])?;
+            let mut result = conn.past_dependents(&[Cursor::new(40, 1u32)]).await?;
             assert_eq!(result.len(), 2);
             result.sort_by_key(|d| d.cursor.originator_id);
             assert_eq!(result[0].cursor, Cursor::new(40, 1u32));
@@ -661,19 +973,20 @@ mod tests {
             assert_eq!(result[1].cursor, Cursor::new(39, 2u32));
             assert_eq!(result[1].depends_on, Cursor::new(38, 2u32).into());
 
-            let result = conn.future_dependents(&[Cursor::new(40, 1u32)])?;
+            let result = conn.future_dependents(&[Cursor::new(40, 1u32)]).await?;
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].cursor, Cursor::new(41, 1u32));
             assert_eq!(result[0].depends_on, Cursor::new(40, 1u32).into());
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox() {
+    async fn test_prune_icebox() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -706,7 +1019,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             RefreshState {
                 entity_id: group_id.to_vec(),
@@ -716,7 +1029,7 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(
                 deleted, 2,
                 "Should delete entries with sequence_id 10 and 20"
@@ -733,14 +1046,15 @@ mod tests {
             assert_eq!(remaining[1].sequence_id, 10);
             assert_eq!(remaining[1].originator_id, 10);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox_no_cleanup_when_cursor_lower() {
+    async fn test_prune_icebox_no_cleanup_when_cursor_lower() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -759,7 +1073,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             RefreshState {
                 entity_id: group_id.to_vec(),
@@ -769,21 +1083,22 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete any entries");
 
             let remaining: Vec<Icebox> =
                 conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 2);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox_only_relevant_entity_kinds() {
+    async fn test_prune_icebox_only_relevant_entity_kinds() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -795,7 +1110,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             RefreshState {
                 entity_id: group_id.to_vec(),
@@ -805,21 +1120,22 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
 
             let remaining: Vec<Icebox> =
                 conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox_dependencies_cascade_deleted() {
+    async fn test_prune_icebox_dependencies_cascade_deleted() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -831,7 +1147,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             use crate::schema::icebox_dependencies::dsl as dep_dsl;
             let deps: Vec<IceboxDependency> = conn.raw_query(|conn| {
@@ -850,7 +1166,7 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 1, "Should delete the icebox entry");
 
             let remaining: Vec<Icebox> =
@@ -865,5 +1181,6 @@ mod tests {
             })?;
             assert_eq!(deps.len(), 0, "Dependencies should be cascade deleted");
         })
+        .await
     }
 }

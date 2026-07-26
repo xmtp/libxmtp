@@ -11,6 +11,10 @@ publish.workspace = true
 workspace = true
 
 [features]
+# Storage-track selection, forwarded to xmtp_db + xmtp_mls_common.
+default = ["sync"]
+sync = ["xmtp_db/sync", "xmtp_mls_common/sync"]
+async = ["xmtp_db/async", "xmtp_mls_common/async"]
 test-utils = ["xmtp_common/test-utils"]
 
 [dependencies]
@@ -31,8 +35,10 @@ tokio-util.workspace = true
 tracing.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
-xmtp_db.workspace = true
-xmtp_mls_common.workspace = true
+# Direct path deps so default features (the `sync` track) can be turned off; see
+# xmtp_mls_common/Cargo.toml for why `workspace = true` can't express this.
+xmtp_db = { path = "../xmtp_db", default-features = false }
+xmtp_mls_common = { path = "../xmtp_mls_common", default-features = false }
 xmtp_proto.workspace = true
 
 [dev-dependencies]

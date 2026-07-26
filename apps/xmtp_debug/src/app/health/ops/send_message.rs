@@ -29,7 +29,7 @@ impl HealthOp for SendMessage {
                 let Ok(group) = client.group(&gid) else {
                     return Ok(());
                 };
-                if !group.is_active()? {
+                if !group.is_active().await? {
                     return Ok(());
                 }
                 let body = format!("healthcheck from {}", client.inbox_id());

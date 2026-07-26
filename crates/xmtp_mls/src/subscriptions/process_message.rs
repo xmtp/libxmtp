@@ -21,9 +21,12 @@ pub trait ProcessFutureFactory<'a> {
         &self,
         msg: xmtp_proto::types::GroupMessage,
     ) -> BoxDynFuture<'a, Result<ProcessedMessage>>;
-    /// Try to retrieve a message
-    fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage)
-    -> Result<Option<StoredGroupMessage>>;
+    /// Probe the DB fast path for a message, without decrypting it.
+    ///
+    /// Takes the message by value and hands it back in [`Prepared::NeedsProcessing`]
+    /// on a miss, so the returned future owns everything it needs and the hot path
+    /// never clones the ciphertext.
+    fn prepare(&self, msg: xmtp_proto::types::GroupMessage) -> BoxDynFuture<'a, Result<Prepared>>;
 }
 
 impl<'a, Context> ProcessFutureFactory<'a> for ProcessMessageFuture<Context>
@@ -41,13 +44,19 @@ where
 
         Box::pin(future)
     }
-    /// Try to retrieve a message
-    fn retrieve(
-        &self,
-        msg: &xmtp_proto::types::GroupMessage,
-    ) -> Result<Option<StoredGroupMessage>> {
+    fn prepare(&self, msg: xmtp_proto::types::GroupMessage) -> BoxDynFuture<'a, Result<Prepared>> {
         let db = GroupDb::new(self.context.clone());
-        db.msg(None, msg).map_err(Into::into)
+        Box::pin(async move {
+            // Fast path: already stored locally — no decrypt, advance to the message's cursor.
+            if let Some(message) = db.msg(None, &msg).await? {
+                return Ok(Prepared::Ready {
+                    message,
+                    group_id: msg.group_id,
+                    cursor: msg.cursor,
+                });
+            }
+            Ok(Prepared::NeedsProcessing(msg))
+        })
     }
 }
 
@@ -118,10 +127,12 @@ pub struct Processed {
     pub tried: Cursor,
 }
 
-/// The result of [`prepare`]: the synchronous pre-step of the pipeline. Either the
-/// message was already stored locally (fast path) or it needs the async decrypt/store
-/// pass run on it.
-pub(crate) enum Prepared {
+/// The result of [`ProcessFutureFactory::prepare`]: the DB-probe pre-step of the
+/// pipeline. Either the message was already stored locally (fast path) or it needs the
+/// async decrypt/store pass run on it.
+// `pub` (not `pub(crate)`) because it appears in the return type of the public
+// `ProcessFutureFactory::prepare`; a narrower visibility trips `private_interfaces`.
+pub enum Prepared {
     /// Fast-path hit — no async work needed. Carries the stored message by value so
     /// consumers never face a "hit without a message" state.
     Ready {
@@ -131,24 +142,6 @@ pub(crate) enum Prepared {
     },
     /// Needs the async `create()` pass; carries the message to run it on.
     NeedsProcessing(xmtp_proto::types::GroupMessage),
-}
-
-/// Synchronous pre-step shared by the live stream and the bidi manager: probe the DB
-/// fast path. Returns the stored message on a hit (no decrypt), or the message to run
-/// the async pass on.
-pub(crate) fn prepare<'a>(
-    factory: &impl ProcessFutureFactory<'a>,
-    msg: xmtp_proto::types::GroupMessage,
-) -> Result<Prepared> {
-    // Fast path: already stored locally — no decrypt, advance to the message's cursor.
-    if let Some(stored) = factory.retrieve(&msg)? {
-        return Ok(Prepared::Ready {
-            message: stored,
-            group_id: msg.group_id,
-            cursor: msg.cursor,
-        });
-    }
-    Ok(Prepared::NeedsProcessing(msg))
 }
 
 /// Synchronous post-step shared by the live stream and the bidi manager: map the async
@@ -172,14 +165,15 @@ pub(crate) fn finish(processed: ProcessedMessage) -> Processed {
 ///    produced.
 ///
 /// The caller owns dedup and cursor advancement (see [`Processed`]). The live
-/// [`super::stream_messages`] stream shares the same [`prepare`]/[`finish`] steps from
-/// its poll state-machine (which cannot `.await` this directly).
+/// [`super::stream_messages`] stream drives the same
+/// [`ProcessFutureFactory::prepare`]/[`ProcessFutureFactory::create`] futures from its
+/// poll state-machine (which cannot `.await` this directly).
 #[xmtp_common::span(prefix = "stream")]
 pub async fn process_one<'a>(
     factory: &impl ProcessFutureFactory<'a>,
     msg: xmtp_proto::types::GroupMessage,
 ) -> Result<Processed> {
-    match prepare(factory, msg)? {
+    match factory.prepare(msg).await? {
         Prepared::Ready {
             message,
             group_id,
@@ -425,11 +419,21 @@ mod tests {
             Box::pin(async move { Ok(processed) })
         }
 
-        fn retrieve(
+        fn prepare(
             &self,
-            _msg: &xmtp_proto::types::GroupMessage,
-        ) -> Result<Option<StoredGroupMessage>> {
-            Ok(self.retrieve.clone())
+            msg: xmtp_proto::types::GroupMessage,
+        ) -> xmtp_common::BoxDynFuture<'a, Result<Prepared>> {
+            let hit = self.retrieve.clone();
+            Box::pin(async move {
+                match hit {
+                    Some(message) => Ok(Prepared::Ready {
+                        message,
+                        group_id: msg.group_id,
+                        cursor: msg.cursor,
+                    }),
+                    None => Ok(Prepared::NeedsProcessing(msg)),
+                }
+            })
         }
     }
 

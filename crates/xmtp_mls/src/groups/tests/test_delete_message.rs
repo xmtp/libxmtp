@@ -12,7 +12,7 @@ use xmtp_db::message_deletion::QueryMessageDeletion;
 async fn test_delete_message_by_sender() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
@@ -29,14 +29,14 @@ async fn test_delete_message_by_sender() {
     bo_group.sync().await?;
 
     // Verify the message exists for both
-    let alix_messages = alix_group.find_messages(&MsgQueryArgs::default())?;
+    let alix_messages = alix_group.find_messages(&MsgQueryArgs::default()).await?;
     assert_eq!(alix_messages.len(), 2); // 1 text message + 1 membership change
 
-    let bo_messages = bo_group.find_messages(&MsgQueryArgs::default())?;
+    let bo_messages = bo_group.find_messages(&MsgQueryArgs::default()).await?;
     assert_eq!(bo_messages.len(), 2);
 
     // Alix deletes the message
-    let deletion_id = alix_group.delete_message(message_id.clone())?;
+    let deletion_id = alix_group.delete_message(message_id.clone()).await?;
     assert!(!deletion_id.is_empty());
 
     // Publish and sync
@@ -45,13 +45,15 @@ async fn test_delete_message_by_sender() {
 
     // Verify the message is marked as deleted in the database
     let alix_conn = alix.context.db();
-    assert!(alix_conn.is_message_deleted(&message_id)?);
+    assert!(alix_conn.is_message_deleted(&message_id).await?);
 
     let bo_conn = bo.context.db();
-    assert!(bo_conn.is_message_deleted(&message_id)?);
+    assert!(bo_conn.is_message_deleted(&message_id).await?);
 
     // Verify deletion record exists
-    let deletion = alix_conn.get_deletion_by_deleted_message_id(&message_id)?;
+    let deletion = alix_conn
+        .get_deletion_by_deleted_message_id(&message_id)
+        .await?;
     assert!(deletion.is_some());
     let deletion = deletion.unwrap();
     assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
@@ -63,7 +65,7 @@ async fn test_delete_message_by_sender() {
 async fn test_delete_message_by_super_admin() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bola sends a message
@@ -80,7 +82,7 @@ async fn test_delete_message_by_super_admin() {
     alix_group.sync().await?;
 
     // Alix (super admin) deletes Bola's message
-    let deletion_id = alix_group.delete_message(message_id.clone())?;
+    let deletion_id = alix_group.delete_message(message_id.clone()).await?;
     assert!(!deletion_id.is_empty());
 
     // Publish and sync
@@ -89,10 +91,12 @@ async fn test_delete_message_by_super_admin() {
 
     // Verify the message is marked as deleted
     let alix_conn = alix.context.db();
-    assert!(alix_conn.is_message_deleted(&message_id)?);
+    assert!(alix_conn.is_message_deleted(&message_id).await?);
 
     // Verify deletion was done by super admin
-    let deletion = alix_conn.get_deletion_by_deleted_message_id(&message_id)?;
+    let deletion = alix_conn
+        .get_deletion_by_deleted_message_id(&message_id)
+        .await?;
     assert!(deletion.is_some());
     let deletion = deletion.unwrap();
     assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
@@ -104,7 +108,7 @@ async fn test_delete_message_by_super_admin() {
 async fn test_delete_message_authorization_failure() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
@@ -122,7 +126,7 @@ async fn test_delete_message_authorization_failure() {
     // Bola tries to delete Alix's message (should fail - not authorized)
     let result = bo_group.delete_message(message_id.clone());
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))
     ));
 }
@@ -132,17 +136,19 @@ async fn test_delete_message_authorization_failure() {
 async fn test_cannot_delete_transcript_messages() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Sync to get the membership change message
     alix_group.sync().await?;
 
     // Find the membership change message
-    let messages = alix_group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::MembershipChange),
-        ..Default::default()
-    })?;
+    let messages = alix_group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::MembershipChange),
+            ..Default::default()
+        })
+        .await?;
     assert!(!messages.is_empty());
 
     let membership_message_id = messages[0].id.clone();
@@ -150,7 +156,7 @@ async fn test_cannot_delete_transcript_messages() {
     // Try to delete the membership change message (should fail)
     let result = alix_group.delete_message(membership_message_id);
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(
             DeleteMessageError::NonDeletableMessage
         ))
@@ -161,13 +167,13 @@ async fn test_cannot_delete_transcript_messages() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_nonexistent_message() {
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     // Try to delete a message that doesn't exist
     let fake_message_id = vec![1, 2, 3, 4, 5];
     let result = alix_group.delete_message(fake_message_id);
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(
             DeleteMessageError::MessageNotFound(_)
         ))
@@ -178,7 +184,7 @@ async fn test_delete_nonexistent_message() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_already_deleted_message() {
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     // Send a message
     let text_content = TextCodec::encode("Test message".to_string())?;
@@ -188,14 +194,14 @@ async fn test_delete_already_deleted_message() {
         .await?;
 
     // Delete the message
-    alix_group.delete_message(message_id.clone())?;
+    alix_group.delete_message(message_id.clone()).await?;
     alix_group.publish_messages().await?;
     alix_group.sync().await?;
 
     // Try to delete again (should fail)
     let result = alix_group.delete_message(message_id);
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(
             DeleteMessageError::MessageAlreadyDeleted
         ))
@@ -207,7 +213,7 @@ async fn test_delete_already_deleted_message() {
 async fn test_out_of_order_deletion() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
@@ -218,7 +224,7 @@ async fn test_out_of_order_deletion() {
         .await?;
 
     // Alix deletes the message immediately (before bo syncs)
-    alix_group.delete_message(message_id.clone())?;
+    alix_group.delete_message(message_id.clone()).await?;
     alix_group.publish_messages().await?;
 
     // Bola syncs and should receive both the message and deletion
@@ -228,10 +234,12 @@ async fn test_out_of_order_deletion() {
 
     // Verify the message is marked as deleted for Bola
     let bo_conn = bo.context.db();
-    assert!(bo_conn.is_message_deleted(&message_id)?);
+    assert!(bo_conn.is_message_deleted(&message_id).await?);
 
     // Verify the deletion record exists
-    let deletion = bo_conn.get_deletion_by_deleted_message_id(&message_id)?;
+    let deletion = bo_conn
+        .get_deletion_by_deleted_message_id(&message_id)
+        .await?;
     assert!(deletion.is_some());
 }
 
@@ -243,7 +251,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
     use xmtp_db::message_deletion::StoredMessageDeletion;
 
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.sync().await?;
 
     let alix_conn = alix.context.db();
@@ -282,7 +290,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    delete_message.store(&alix_conn)?;
+    delete_message.store(&alix_conn).await?;
 
     // Step 2: Store the deletion record (references the DeleteMessage above)
     // This simulates the deletion arriving before the original message
@@ -294,13 +302,19 @@ async fn test_true_out_of_order_deletion_by_sender() {
         is_super_admin_deletion: false,             // Regular user deletion
         deleted_at_ns: xmtp_common::time::now_ns(),
     };
-    deletion.store(&alix_conn)?;
+    deletion.store(&alix_conn).await?;
 
     // Verify deletion record exists but target message doesn't
-    assert!(alix_conn.get_group_message(&future_message_id)?.is_none());
     assert!(
         alix_conn
-            .get_deletion_by_deleted_message_id(&future_message_id)?
+            .get_group_message(&future_message_id)
+            .await?
+            .is_none()
+    );
+    assert!(
+        alix_conn
+            .get_deletion_by_deleted_message_id(&future_message_id)
+            .await?
             .is_some()
     );
 
@@ -329,13 +343,15 @@ async fn test_true_out_of_order_deletion_by_sender() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    message.store(&alix_conn)?;
+    message.store(&alix_conn).await?;
 
     // Step 4: Verify the message is now marked as deleted via is_message_deleted
-    assert!(alix_conn.is_message_deleted(&future_message_id)?);
+    assert!(alix_conn.is_message_deleted(&future_message_id).await?);
 
     // Step 5: Verify enrichment correctly shows the message as deleted
-    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let enriched = alix_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let deleted_msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
     assert!(
         deleted_msg.is_some(),
@@ -361,7 +377,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
 
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     let bo_groups = bo.sync_welcomes().await?;
@@ -404,7 +420,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    malicious_delete_message.store(&bo_conn)?;
+    malicious_delete_message.store(&bo_conn).await?;
 
     // Step 2: Bo (non-admin) tries to delete Alix's message by storing a deletion record
     // This simulates a malicious deletion arriving before the message
@@ -416,7 +432,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         is_super_admin_deletion: false,           // Bo is not super admin
         deleted_at_ns: xmtp_common::time::now_ns(),
     };
-    malicious_deletion.store(&bo_conn)?;
+    malicious_deletion.store(&bo_conn).await?;
 
     // Step 3: Store Alix's message (arriving after the malicious deletion)
     let text_content = TextCodec::encode("Alix's message".to_string())?;
@@ -443,13 +459,15 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    message.store(&bo_conn)?;
+    message.store(&bo_conn).await?;
 
     // Deletion record exists but is unauthorized
-    assert!(bo_conn.is_message_deleted(&future_message_id)?);
+    assert!(bo_conn.is_message_deleted(&future_message_id).await?);
 
     // Enrichment should show original message since deletion is unauthorized
-    let enriched = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let enriched = bo_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
     assert!(msg.is_some(), "Message should be in enriched results");
 
@@ -472,7 +490,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
 async fn test_enrichment_with_deleted_messages() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
@@ -488,10 +506,12 @@ async fn test_enrichment_with_deleted_messages() {
     bo_group.sync().await?;
 
     // Verify Bola can see the original message content
-    let messages = bo_group.find_enriched_messages(&MsgQueryArgs {
-        content_types: Some(vec![ContentType::Text]),
-        ..Default::default()
-    })?;
+    let messages = bo_group
+        .find_enriched_messages(&MsgQueryArgs {
+            content_types: Some(vec![ContentType::Text]),
+            ..Default::default()
+        })
+        .await?;
     assert_eq!(messages.len(), 1);
 
     let MessageBody::Text(text) = &messages[0].content else {
@@ -500,12 +520,14 @@ async fn test_enrichment_with_deleted_messages() {
     assert_eq!(text.content, "Secret message");
 
     // Alix deletes the message
-    alix_group.delete_message(message_id.clone())?;
+    alix_group.delete_message(message_id.clone()).await?;
     alix_group.publish_messages().await?;
     bo_group.sync().await?;
 
     // Verify the enriched message is now a DeletedMessage placeholder
-    let messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages = bo_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
 
     // Find the deleted message (skip membership changes)
     let deleted_msg = messages.iter().find(|msg| msg.metadata.id == message_id);
@@ -526,7 +548,7 @@ async fn test_enrichment_with_deleted_messages() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_filtered_from_lists() {
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     // Send a message
     let text_content = TextCodec::encode("Test message".to_string())?;
@@ -536,15 +558,17 @@ async fn test_delete_message_filtered_from_lists() {
         .await?;
 
     // Delete the message
-    alix_group.delete_message(message_id)?;
+    alix_group.delete_message(message_id).await?;
     alix_group.publish_messages().await?;
     alix_group.sync().await?;
 
     // Query messages excluding DeleteMessage content type
-    let messages = alix_group.find_messages(&MsgQueryArgs {
-        exclude_content_types: Some(vec![ContentType::DeleteMessage]),
-        ..Default::default()
-    })?;
+    let messages = alix_group
+        .find_messages(&MsgQueryArgs {
+            exclude_content_types: Some(vec![ContentType::DeleteMessage]),
+            ..Default::default()
+        })
+        .await?;
 
     // Should only see the original text message and membership change, not the DeleteMessage
     for msg in &messages {
@@ -556,7 +580,7 @@ async fn test_delete_message_filtered_from_lists() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_deletion_database_queries() {
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     // Send multiple messages
     let mut message_ids = vec![];
@@ -570,24 +594,24 @@ async fn test_deletion_database_queries() {
     }
 
     // Delete two of them
-    alix_group.delete_message(message_ids[0].clone())?;
-    alix_group.delete_message(message_ids[2].clone())?;
+    alix_group.delete_message(message_ids[0].clone()).await?;
+    alix_group.delete_message(message_ids[2].clone()).await?;
     alix_group.publish_messages().await?;
     alix_group.sync().await?;
 
     let conn = alix.context.db();
 
     // Test get_deletions_for_messages
-    let deletions = conn.get_deletions_for_messages(message_ids.clone())?;
+    let deletions = conn.get_deletions_for_messages(message_ids.clone()).await?;
     assert_eq!(deletions.len(), 2);
 
     // Test is_message_deleted
-    assert!(conn.is_message_deleted(&message_ids[0])?);
-    assert!(!conn.is_message_deleted(&message_ids[1])?);
-    assert!(conn.is_message_deleted(&message_ids[2])?);
+    assert!(conn.is_message_deleted(&message_ids[0]).await?);
+    assert!(!conn.is_message_deleted(&message_ids[1]).await?);
+    assert!(conn.is_message_deleted(&message_ids[2]).await?);
 
     // Test get_group_deletions
-    let group_deletions = conn.get_group_deletions(&alix_group.group_id)?;
+    let group_deletions = conn.get_group_deletions(&alix_group.group_id).await?;
     assert_eq!(group_deletions.len(), 2);
 }
 
@@ -596,7 +620,7 @@ async fn test_deletion_database_queries() {
 async fn test_admin_deletion_flag() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     let bo_groups = bo.sync_welcomes().await?;
@@ -612,13 +636,15 @@ async fn test_admin_deletion_flag() {
     alix_group.sync().await?;
 
     // Alix (super admin) deletes Bola's message
-    alix_group.delete_message(bo_message_id.clone())?;
+    alix_group.delete_message(bo_message_id.clone()).await?;
     alix_group.publish_messages().await?;
     bo_group.sync().await?;
 
     // Verify deletion is marked as super admin deletion
     let bo_conn = bo.context.db();
-    let deletion = bo_conn.get_deletion_by_deleted_message_id(&bo_message_id)?;
+    let deletion = bo_conn
+        .get_deletion_by_deleted_message_id(&bo_message_id)
+        .await?;
     assert!(deletion.is_some());
 
     let deletion = deletion.unwrap();
@@ -626,7 +652,9 @@ async fn test_admin_deletion_flag() {
     assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
 
     // Verify enriched message shows admin deletion
-    let messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages = bo_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let deleted_msg = messages.iter().find(|msg| msg.metadata.id == bo_message_id);
     assert!(deleted_msg.is_some());
 
@@ -646,7 +674,7 @@ async fn test_reply_to_deleted_message() {
 
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends an original message
@@ -677,7 +705,9 @@ async fn test_reply_to_deleted_message() {
     alix_group.sync().await?;
 
     // Verify the reply shows the original message correctly before deletion
-    let messages_before = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages_before = alix_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let reply_msg_before = messages_before
         .iter()
         .find(|msg| msg.metadata.id == reply_message_id);
@@ -692,13 +722,17 @@ async fn test_reply_to_deleted_message() {
     };
 
     // Now Alix deletes the original message
-    alix_group.delete_message(original_message_id.clone())?;
+    alix_group
+        .delete_message(original_message_id.clone())
+        .await?;
     alix_group.publish_messages().await?;
     bo_group.sync().await?;
     alix_group.sync().await?;
 
     // Verify the reply now shows the deleted state for the referenced message
-    let messages_after = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages_after = alix_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let reply_msg_after = messages_after
         .iter()
         .find(|msg| msg.metadata.id == reply_message_id);
@@ -729,10 +763,10 @@ async fn test_cannot_delete_message_from_different_group() {
     tester!(bo);
 
     // Create two separate groups
-    let group1 = alix.create_group(None, None)?;
+    let group1 = alix.create_group(None, None).await?;
     group1.add_members(&[bo.inbox_id()]).await?;
 
-    let group2 = alix.create_group(None, None)?;
+    let group2 = alix.create_group(None, None).await?;
     group2.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message in group1
@@ -751,17 +785,17 @@ async fn test_cannot_delete_message_from_different_group() {
     // Attempt to delete group1's message from group2 (should fail)
     let result = group2.delete_message(group1_message_id.clone());
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(DeleteMessageError::NotAuthorized))
     ));
 
     // Verify the message in group1 is NOT deleted
     let alix_conn = alix.context.db();
-    assert!(!alix_conn.is_message_deleted(&group1_message_id)?);
+    assert!(!alix_conn.is_message_deleted(&group1_message_id).await?);
 
     // Verify we can still delete it from the correct group
-    group1.delete_message(group1_message_id.clone())?;
-    assert!(alix_conn.is_message_deleted(&group1_message_id)?);
+    group1.delete_message(group1_message_id.clone()).await?;
+    assert!(alix_conn.is_message_deleted(&group1_message_id).await?);
 }
 
 /// Test that we cannot delete a delete message
@@ -769,7 +803,7 @@ async fn test_cannot_delete_message_from_different_group() {
 async fn test_cannot_delete_delete_message() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
@@ -780,17 +814,19 @@ async fn test_cannot_delete_delete_message() {
         .await?;
 
     // Alix deletes the message
-    let delete_message_id = alix_group.delete_message(original_message_id.clone())?;
+    let delete_message_id = alix_group
+        .delete_message(original_message_id.clone())
+        .await?;
 
     // Publish the deletion
     alix_group.publish_messages().await?;
 
     // Verify the original message is deleted
     let alix_conn = alix.context.db();
-    assert!(alix_conn.is_message_deleted(&original_message_id)?);
+    assert!(alix_conn.is_message_deleted(&original_message_id).await?);
 
     // Verify the delete message exists in the database
-    let delete_msg = alix_conn.get_group_message(&delete_message_id)?;
+    let delete_msg = alix_conn.get_group_message(&delete_message_id).await?;
     assert!(delete_msg.is_some());
     let delete_msg = delete_msg.unwrap();
     assert_eq!(delete_msg.content_type, ContentType::DeleteMessage);
@@ -798,14 +834,14 @@ async fn test_cannot_delete_delete_message() {
     // Try to delete the delete message - should fail
     let result = alix_group.delete_message(delete_message_id.clone());
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(
             DeleteMessageError::NonDeletableMessage
         ))
     ));
 
     // Verify the delete message is NOT deleted
-    assert!(!alix_conn.is_message_deleted(&delete_message_id)?);
+    assert!(!alix_conn.is_message_deleted(&delete_message_id).await?);
 }
 
 /// Test concurrent deletions - multiple people trying to delete the same message
@@ -816,7 +852,7 @@ async fn test_concurrent_deletions() {
     tester!(caro);
 
     // Alix creates a group with Bo and Caro, making Bo also a super admin
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
         .await?;
@@ -865,8 +901,8 @@ async fn test_concurrent_deletions() {
     let bo_deletion = bo_group.delete_message(message_id.clone());
 
     // At least one should succeed, the other should get MessageAlreadyDeleted
-    let alix_succeeded = alix_deletion.is_ok();
-    let bo_succeeded = bo_deletion.is_ok();
+    let alix_succeeded = alix_deletion.await.is_ok();
+    let bo_succeeded = bo_deletion.await.is_ok();
 
     // At least one must succeed
     assert!(
@@ -889,12 +925,14 @@ async fn test_concurrent_deletions() {
     let bo_conn = bo.context.db();
     let caro_conn = caro.context.db();
 
-    assert!(alix_conn.is_message_deleted(&message_id)?);
-    assert!(bo_conn.is_message_deleted(&message_id)?);
-    assert!(caro_conn.is_message_deleted(&message_id)?);
+    assert!(alix_conn.is_message_deleted(&message_id).await?);
+    assert!(bo_conn.is_message_deleted(&message_id).await?);
+    assert!(caro_conn.is_message_deleted(&message_id).await?);
 
     // Verify enriched messages show the deleted state
-    let caro_messages = caro_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let caro_messages = caro_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let deleted_msg = caro_messages
         .iter()
         .find(|msg| msg.metadata.id == message_id);
@@ -922,7 +960,7 @@ async fn test_sender_and_admin_both_delete() {
     tester!(bo);
 
     // Alix creates a group with Bo
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bo syncs and gets the group
@@ -941,7 +979,7 @@ async fn test_sender_and_admin_both_delete() {
     alix_group.sync().await?;
 
     // Bo (sender) deletes their own message first
-    bo_group.delete_message(message_id.clone())?;
+    bo_group.delete_message(message_id.clone()).await?;
     bo_group.publish_messages().await?;
 
     // Alix syncs to see the deletion
@@ -950,14 +988,16 @@ async fn test_sender_and_admin_both_delete() {
     // Alix (super admin) tries to delete the same message - should fail
     let result = alix_group.delete_message(message_id.clone());
     assert!(matches!(
-        result,
+        result.await,
         Err(GroupError::DeleteMessage(
             DeleteMessageError::MessageAlreadyDeleted
         ))
     ));
 
     // Verify the message is deleted and shows as deleted by sender
-    let bo_messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let bo_messages = bo_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let deleted_msg = bo_messages.iter().find(|msg| msg.metadata.id == message_id);
     assert!(deleted_msg.is_some());
 
@@ -976,7 +1016,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
     use xmtp_db::message_deletion::StoredMessageDeletion;
 
     tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     let alix_conn = alix.context.db();
     let alix_inbox_id = alix.inbox_id().to_string();
 
@@ -1012,7 +1052,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    delete_message.store(&alix_conn)?;
+    delete_message.store(&alix_conn).await?;
 
     // Store deletion with is_super_admin_deletion=true (out-of-order scenario)
     let deletion = StoredMessageDeletion {
@@ -1023,7 +1063,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         is_super_admin_deletion: true,
         deleted_at_ns: xmtp_common::time::now_ns(),
     };
-    deletion.store(&alix_conn)?;
+    deletion.store(&alix_conn).await?;
 
     // Store the original message (same sender as deleter)
     let text_content = TextCodec::encode("Alix's message".to_string())?;
@@ -1050,10 +1090,12 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    original_message.store(&alix_conn)?;
+    original_message.store(&alix_conn).await?;
 
     // Verify enrichment shows DeletedBy::Sender since deleter == sender
-    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let enriched = alix_group
+        .find_enriched_messages(&MsgQueryArgs::default())
+        .await?;
     let deleted_msg = enriched
         .iter()
         .find(|m| m.metadata.id == future_message_id)
@@ -1079,7 +1121,7 @@ async fn test_stream_message_deletions_from_other_client() {
     tester!(bo);
 
     // Create a group and add bo
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bo syncs to join the group
@@ -1122,7 +1164,7 @@ async fn test_stream_message_deletions_from_other_client() {
     handle.wait_for_ready().await;
 
     // Alix deletes the message and publishes
-    alix_group.delete_message(message_id.clone())?;
+    alix_group.delete_message(message_id.clone()).await?;
     alix_group.publish_messages().await?;
 
     // Bo syncs to receive the deletion (this triggers the MessageDeleted event)
@@ -1157,7 +1199,7 @@ async fn test_stream_message_deletions_fires_for_self_after_publish() {
     tester!(alix);
 
     // Create a group
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
 
     // Alix sends a message
     let text_content = TextCodec::encode("Message to be deleted".to_string())?;
@@ -1190,7 +1232,7 @@ async fn test_stream_message_deletions_fires_for_self_after_publish() {
     handle.wait_for_ready().await;
 
     // Alix deletes the message and publishes
-    alix_group.delete_message(message_id.clone())?;
+    alix_group.delete_message(message_id.clone()).await?;
     alix_group.publish_messages().await?;
 
     // Alix syncs (the deletion message is skipped because it was already processed locally)

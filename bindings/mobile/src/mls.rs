@@ -697,38 +697,49 @@ impl FfiXmtpClient {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, FfiError> {
+    pub async fn conversation(
+        &self,
+        conversation_id: Vec<u8>,
+    ) -> Result<FfiConversation, FfiError> {
         let conversation_id = xmtp_proto::types::GroupId::try_from(conversation_id)
             .map_err(|e| FfiError::generic(e.to_string()))?;
         self.inner_client
             .stitched_group(&conversation_id)
+            .await
             .map(Into::into)
             .map_err(Into::into)
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn dm_conversation(&self, target_inbox_id: String) -> Result<FfiConversation, FfiError> {
+    pub async fn dm_conversation(
+        &self,
+        target_inbox_id: String,
+    ) -> Result<FfiConversation, FfiError> {
         let convo = self
             .inner_client
-            .dm_group_from_target_inbox(target_inbox_id)?;
+            .dm_group_from_target_inbox(target_inbox_id)
+            .await?;
         Ok(convo.into())
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, FfiError> {
-        let message = self.inner_client.message(message_id)?;
+    pub async fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, FfiError> {
+        let message = self.inner_client.message(message_id).await?;
         Ok(message.into())
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn enriched_message(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, FfiError> {
-        let message = self.inner_client.message_v2(message_id)?;
+    pub async fn enriched_message(
+        &self,
+        message_id: Vec<u8>,
+    ) -> Result<FfiDecodedMessage, FfiError> {
+        let message = self.inner_client.message_v2(message_id).await?;
         Ok(message.into())
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, FfiError> {
-        let deleted_count = self.inner_client.delete_message(message_id)?;
+    pub async fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, FfiError> {
+        let deleted_count = self.inner_client.delete_message(message_id).await?;
         Ok(deleted_count as u32)
     }
 
@@ -1792,7 +1803,7 @@ impl FfiConversations {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn create_group_optimistic(
+    pub async fn create_group_optimistic(
         &self,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, FfiError> {
@@ -1829,7 +1840,8 @@ impl FfiConversations {
 
         let convo = self
             .inner_client
-            .create_group(group_permissions, Some(metadata_options))?;
+            .create_group(group_permissions, Some(metadata_options))
+            .await?;
 
         Ok(Arc::new(convo.into()))
     }
@@ -1849,7 +1861,7 @@ impl FfiConversations {
                 .join(", ")
         );
 
-        let convo = self.create_group_optimistic(opts)?;
+        let convo = self.create_group_optimistic(opts).await?;
 
         if !account_identities.is_empty() {
             convo.add_members_by_identity(account_identities).await?;
@@ -1871,7 +1883,7 @@ impl FfiConversations {
             inbox_ids.join(", ")
         );
 
-        let convo = self.create_group_optimistic(opts)?;
+        let convo = self.create_group_optimistic(opts).await?;
 
         if !inbox_ids.is_empty() {
             convo.add_members(inbox_ids).await?;
@@ -1944,13 +1956,14 @@ impl FfiConversations {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn list(
+    pub async fn list(
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(opts.into())?
+            .list_conversations(opts.into())
+            .await?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1967,7 +1980,7 @@ impl FfiConversations {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn list_groups(
+    pub async fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, FfiError> {
@@ -1976,7 +1989,8 @@ impl FfiConversations {
             .list_conversations(GroupQueryArgs {
                 conversation_type: Some(ConversationType::Group),
                 ..GroupQueryArgs::from(opts)
-            })?
+            })
+            .await?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1993,7 +2007,7 @@ impl FfiConversations {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn list_dms(
+    pub async fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, FfiError> {
@@ -2002,7 +2016,8 @@ impl FfiConversations {
             .list_conversations(GroupQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 ..GroupQueryArgs::from(opts)
-            })?
+            })
+            .await?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -2149,18 +2164,21 @@ impl FfiConversations {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
+    pub async fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let inner = self.inner_client.as_ref();
-        let conversations = inner.find_groups(GroupQueryArgs {
-            include_duplicate_dms: true,
-            ..GroupQueryArgs::default()
-        })?;
+        let conversations = inner
+            .find_groups(GroupQueryArgs {
+                include_duplicate_dms: true,
+                ..GroupQueryArgs::default()
+            })
+            .await?;
 
         let mut hmac_map = HashMap::new();
         for conversation in conversations {
             let id = conversation.group_id.to_vec();
             let keys = conversation
-                .hmac_keys(-1..=1)?
+                .hmac_keys(-1..=1)
+                .await?
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>();
@@ -2757,22 +2775,23 @@ impl FfiConversation {
 
     /// send a message without immediately publishing to the delivery service.
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn send_optimistic(
+    pub async fn send_optimistic(
         &self,
         content_bytes: Vec<u8>,
         opts: FfiSendMessageOpts,
     ) -> Result<Vec<u8>, FfiError> {
         let id = self
             .inner
-            .send_message_optimistic(content_bytes.as_slice(), opts.into())?;
+            .send_message_optimistic(content_bytes.as_slice(), opts.into())
+            .await?;
 
         Ok(id)
     }
 
     /// Delete a message by its ID. Returns the ID of the deletion message.
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, FfiError> {
-        let deletion_id = self.inner.delete_message(message_id)?;
+    pub async fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, FfiError> {
+        let deletion_id = self.inner.delete_message(message_id).await?;
         Ok(deletion_id)
     }
 
@@ -2786,17 +2805,20 @@ impl FfiConversation {
     /// Prepare a message for later publishing.
     /// Stores the message locally without publishing. Returns the message ID.
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn prepare_message(
+    pub async fn prepare_message(
         &self,
         content_bytes: Vec<u8>,
         should_push: bool,
         idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, FfiError> {
-        let id = self.inner.prepare_message_for_later_publish(
-            content_bytes.as_slice(),
-            should_push,
-            idempotency_key,
-        )?;
+        let id = self
+            .inner
+            .prepare_message_for_later_publish(
+                content_bytes.as_slice(),
+                should_push,
+                idempotency_key,
+            )
+            .await?;
         Ok(id)
     }
 
@@ -2821,7 +2843,8 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, FfiError> {
         let messages: Vec<FfiMessage> = self
             .inner
-            .find_messages(&opts.into())?
+            .find_messages(&opts.into())
+            .await?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
@@ -2830,20 +2853,21 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, FfiError> {
-        let count = self.inner.count_messages(&opts.into())?;
+    pub async fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, FfiError> {
+        let count = self.inner.count_messages(&opts.into()).await?;
 
         Ok(count)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn find_messages_with_reactions(
+    pub async fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessageWithReactions>, FfiError> {
         let messages: Vec<FfiMessageWithReactions> = self
             .inner
-            .find_messages_with_reactions(&opts.into())?
+            .find_messages_with_reactions(&opts.into())
+            .await?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
@@ -2851,13 +2875,14 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn find_enriched_messages(
+    pub async fn find_enriched_messages(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<Arc<FfiDecodedMessage>>, FfiError> {
         let messages: Vec<Arc<FfiDecodedMessage>> = self
             .inner
-            .find_messages_v2(&opts.into())?
+            .find_messages_v2(&opts.into())
+            .await?
             .into_iter()
             .map(|msg| Arc::new(msg.into()))
             .collect();
@@ -2900,8 +2925,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn membership_state(&self) -> Result<FfiGroupMembershipState, FfiError> {
-        let state = self.inner.membership_state()?;
+    pub async fn membership_state(&self) -> Result<FfiGroupMembershipState, FfiError> {
+        let state = self.inner.membership_state().await?;
         Ok(state.into())
     }
 
@@ -3002,8 +3027,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_name(&self) -> Result<String, FfiError> {
-        let group_name = self.inner.group_name()?;
+    pub async fn group_name(&self) -> Result<String, FfiError> {
+        let group_name = self.inner.group_name().await?;
         Ok(group_name)
     }
 
@@ -3016,8 +3041,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn app_data(&self) -> Result<String, FfiError> {
-        let app_data = self.inner.app_data()?;
+    pub async fn app_data(&self) -> Result<String, FfiError> {
+        let app_data = self.inner.app_data().await?;
         Ok(app_data)
     }
 
@@ -3033,8 +3058,8 @@ impl FfiConversation {
     /// and the marker extension is an internal protocol detail.
     /// Mirrors `proposalsEnabled` on the wasm and node bindings.
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn proposals_enabled(&self) -> Result<bool, FfiError> {
-        Ok(self.inner.is_proposals_enabled()?)
+    pub async fn proposals_enabled(&self) -> Result<bool, FfiError> {
+        Ok(self.inner.is_proposals_enabled().await?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3050,8 +3075,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_image_url_square(&self) -> Result<String, FfiError> {
-        Ok(self.inner.group_image_url_square()?)
+    pub async fn group_image_url_square(&self) -> Result<String, FfiError> {
+        Ok(self.inner.group_image_url_square().await?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3067,8 +3092,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_description(&self) -> Result<String, FfiError> {
-        Ok(self.inner.group_description()?)
+    pub async fn group_description(&self) -> Result<String, FfiError> {
+        Ok(self.inner.group_description().await?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3117,24 +3142,24 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn admin_list(&self) -> Result<Vec<String>, FfiError> {
-        self.inner.admin_list().map_err(Into::into)
+    pub async fn admin_list(&self) -> Result<Vec<String>, FfiError> {
+        self.inner.admin_list().await.map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn super_admin_list(&self) -> Result<Vec<String>, FfiError> {
-        self.inner.super_admin_list().map_err(Into::into)
+    pub async fn super_admin_list(&self) -> Result<Vec<String>, FfiError> {
+        self.inner.super_admin_list().await.map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn is_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
-        let admin_list = self.admin_list()?;
+    pub async fn is_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
+        let admin_list = self.admin_list().await?;
         Ok(admin_list.contains(inbox_id))
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
-        let super_admin_list = self.super_admin_list()?;
+    pub async fn is_super_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
+        let super_admin_list = self.super_admin_list().await?;
         Ok(super_admin_list.contains(inbox_id))
     }
 
@@ -3171,8 +3196,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, FfiError> {
-        let permissions = self.inner.permissions()?;
+    pub async fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, FfiError> {
+        let permissions = self.inner.permissions().await?;
         Ok(Arc::new(FfiGroupPermissions {
             inner: Arc::new(permissions),
         }))
@@ -3215,33 +3240,35 @@ impl FfiConversation {
     }
 
     #[xmtp_common::err_span]
-    pub fn is_active(&self) -> Result<bool, FfiError> {
-        self.inner.is_active().map_err(Into::into)
+    pub async fn is_active(&self) -> Result<bool, FfiError> {
+        self.inner.is_active().await.map_err(Into::into)
     }
 
     #[xmtp_common::err_span]
-    pub fn paused_for_version(&self) -> Result<Option<String>, FfiError> {
-        self.inner.paused_for_version().map_err(Into::into)
+    pub async fn paused_for_version(&self) -> Result<Option<String>, FfiError> {
+        self.inner.paused_for_version().await.map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn consent_state(&self) -> Result<FfiConsentState, FfiError> {
+    pub async fn consent_state(&self) -> Result<FfiConsentState, FfiError> {
         self.inner
             .consent_state()
+            .await
             .map(Into::into)
             .map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), FfiError> {
+    pub async fn update_consent_state(&self, state: FfiConsentState) -> Result<(), FfiError> {
         self.inner
             .update_consent_state(state.into())
+            .await
             .map_err(Into::into)
     }
 
     #[xmtp_common::err_span]
-    pub fn added_by_inbox_id(&self) -> Result<String, FfiError> {
-        self.inner.added_by_inbox_id().map_err(Into::into)
+    pub async fn added_by_inbox_id(&self) -> Result<String, FfiError> {
+        self.inner.added_by_inbox_id().await.map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3261,14 +3288,15 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
-        let duplicate_dms = self.inner.find_duplicate_dms()?;
+    pub async fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
+        let duplicate_dms = self.inner.find_duplicate_dms().await?;
 
         let mut hmac_map = HashMap::new();
         for conversation in duplicate_dms {
             let id = conversation.group_id.to_vec();
             let keys = conversation
-                .hmac_keys(-1..=1)?
+                .hmac_keys(-1..=1)
+                .await?
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>();
@@ -3278,7 +3306,8 @@ impl FfiConversation {
 
         let keys = self
             .inner
-            .hmac_keys(-1..=1)?
+            .hmac_keys(-1..=1)
+            .await?
             .into_iter()
             .map(Into::into)
             .collect::<Vec<_>>();
@@ -3309,7 +3338,7 @@ impl FfiConversation {
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, FfiError> {
-        let dms = self.inner.find_duplicate_dms()?;
+        let dms = self.inner.find_duplicate_dms().await?;
 
         let ffi_conversations: Vec<Arc<FfiConversation>> =
             dms.into_iter().map(|dm| Arc::new(dm.into())).collect();
@@ -3318,8 +3347,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn get_last_read_times(&self) -> Result<HashMap<String, i64>, FfiError> {
-        let latest_read_times = self.inner.get_last_read_times()?;
+    pub async fn get_last_read_times(&self) -> Result<HashMap<String, i64>, FfiError> {
+        let latest_read_times = self.inner.get_last_read_times().await?;
         Ok(latest_read_times)
     }
 }

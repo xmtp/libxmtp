@@ -97,7 +97,6 @@ use xmtp_db::{
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     remote_commit_log::CommitResult,
     sql_key_store,
-    user_preferences::StoredUserPreferences,
 };
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
@@ -225,6 +224,7 @@ pub enum GroupMessageProcessingError {
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
     Builder(#[from] derive_builder::UninitializedFieldError),
+    #[cfg(feature = "sync")]
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
@@ -255,6 +255,7 @@ impl RetryableError for GroupMessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Storage(err) => err.is_retryable(),
+            #[cfg(feature = "sync")]
             Self::Diesel(err) => err.is_retryable(),
             Self::Identity(err) => err.is_retryable(),
             Self::OpenMlsProcessMessage(err) => err.is_retryable(),
@@ -405,12 +406,12 @@ pub(crate) struct PublishIntentData {
 #[cfg(any(test, feature = "test-utils"))]
 impl PublishIntentData {
     #[allow(dead_code)]
-    pub fn post_commit_data(&self) -> Option<Vec<u8>> {
+    pub async fn post_commit_data(&self) -> Option<Vec<u8>> {
         self.post_commit_action.clone()
     }
 
     #[allow(dead_code)]
-    pub fn staged_commit(&self) -> Option<Vec<u8>> {
+    pub async fn staged_commit(&self) -> Option<Vec<u8>> {
         self.staged_commit.clone()
     }
 }
@@ -443,7 +444,7 @@ pub(crate) struct ProcessedMessageOutcome {
 impl ProcessedMessageOutcome {
     /// An outcome with no swallowed intent error (external messages, successes,
     /// already-processed early returns).
-    fn new(identifier: MessageIdentifier) -> Self {
+    async fn new(identifier: MessageIdentifier) -> Self {
         Self {
             identifier,
             intent_error: None,
@@ -471,7 +472,7 @@ where
         );
 
         // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&self.group_id)? {
+        for other_dm in conn.other_dms(&self.group_id).await? {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
                 other_dm.id,
@@ -489,13 +490,14 @@ where
         Ok(sync_summary)
     }
 
-    fn handle_group_paused(&self) -> Result<(), GroupError> {
+    async fn handle_group_paused(&self) -> Result<(), GroupError> {
         // Check if group is paused and try to unpause if version requirements are met
         let group_id_typed = self.group_id;
         if let Some(required_min_version_str) = self
             .context
             .db()
-            .get_group_paused_version(&group_id_typed)?
+            .get_group_paused_version(&group_id_typed)
+            .await?
         {
             tracing::info!(
                 "Group is paused until version: {}",
@@ -511,7 +513,7 @@ where
                      Group ID: {}",
                     hex::encode(self.group_id),
                 );
-                self.context.db().unpause_group(&group_id_typed)?;
+                self.context.db().unpause_group(&group_id_typed).await?;
             } else {
                 tracing::warn!(
                     "Skipping sync for paused group since version requirements are not met. \
@@ -555,7 +557,7 @@ where
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
 
-        if !self.is_active().map_err(SyncSummary::other)? {
+        if !self.is_active().await.map_err(SyncSummary::other)? {
             log_event!(
                 Event::GroupSyncGroupInactive,
                 self.context.installation_id(),
@@ -564,7 +566,7 @@ where
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
 
-        if let Err(e) = self.handle_group_paused() {
+        if let Err(e) = self.handle_group_paused().await {
             if matches!(e, GroupError::GroupPausedUntilUpdate(_)) {
                 // nothing synced
                 return Ok(summary);
@@ -615,11 +617,15 @@ where
         // Filter to kinds this build understands: after a downgrade,
         // rows written by a newer build would otherwise fail `FromSql`
         // and poison the whole query (see `IntentKind::all`).
-        let intents = self.context.db().find_group_intents(
-            self.group_id,
-            Some(vec![IntentState::ToPublish, IntentState::Published]),
-            Some(IntentKind::all().collect()),
-        )?;
+        let intents = self
+            .context
+            .db()
+            .find_group_intents(
+                &self.group_id,
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(IntentKind::all().collect()),
+            )
+            .await?;
 
         let Some(intent) = intents.last() else {
             return Ok(Default::default());
@@ -706,7 +712,7 @@ where
                 Ok(s) => summary.extend(s),
                 Err(s) => summary.extend(s),
             }
-            match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id) {
+            match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id).await {
                 Ok(Some(StoredGroupIntent {
                     state: IntentState::Processed,
                     ..
@@ -784,7 +790,7 @@ where
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
     }
 
-    fn validate_message_epoch(
+    async fn validate_message_epoch(
         inbox_id: InboxIdRef<'_>,
         intent_id: i32,
         group_epoch: GroupEpoch,
@@ -857,6 +863,7 @@ where
                     message_epoch,
                     MAX_PAST_EPOCHS,
                 )
+                .await
                 .map_err(|err| IntentResolutionError {
                     processing_error: err,
                     next_intent_state: IntentState::ToPublish,
@@ -990,6 +997,7 @@ where
                     message_epoch,
                     MAX_PAST_EPOCHS,
                 )
+                .await
                 .map_err(|err| IntentResolutionError {
                     processing_error: err,
                     next_intent_state: IntentState::ToPublish,
@@ -1006,7 +1014,7 @@ where
     // to use in the event the error is non-retriable.
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(level = "trace", skip_all)]
-    fn process_own_message(
+    async fn process_own_message(
         &self,
         mls_group: &mut OpenMlsGroup,
         commit: Option<(StagedCommit, ValidatedCommit)>,
@@ -1074,12 +1082,15 @@ where
                 intent.id
             );
 
-            if let Err(err) = mls_group.merge_staged_commit_logged(
-                &XmtpOpenMlsProviderRef::new(storage),
-                staged_commit,
-                &validated_commit,
-                cursor.sequence_id as i64,
-            ) {
+            if let Err(err) = mls_group
+                .merge_staged_commit_logged(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    staged_commit,
+                    &validated_commit,
+                    cursor.sequence_id as i64,
+                )
+                .await
+            {
                 tracing::error!("error merging commit: {err}");
                 return Err(IntentResolutionError {
                     processing_error: err,
@@ -1095,6 +1106,7 @@ where
                 &validated_commit.readded_installations,
                 cursor.sequence_id as i64,
             )
+            .await
             .map_err(|err| IntentResolutionError {
                 processing_error: err.into(),
                 next_intent_state: IntentState::Error,
@@ -1108,6 +1120,7 @@ where
                     *cursor,
                     storage,
                 )
+                .await
                 .map_err(|err| IntentResolutionError {
                     processing_error: err,
                     // If it is a non-retriable error, the commit will be applied, but the transcript message
@@ -1116,14 +1129,16 @@ where
                 })?;
 
             // Clean up pending_remove list for removed members
-            self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
+            self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes)
+                .await;
 
             // Handle super_admin status changes
             self.handle_super_admin_status_change(
                 storage,
                 mls_group,
                 &validated_commit.metadata_validation_info,
-            );
+            )
+            .await;
 
             if let Some((_, payload)) = &msg {
                 log_event!(
@@ -1178,6 +1193,7 @@ where
                 envelope.cursor,
                 message_expire_at_ns,
             )
+            .await
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
@@ -1190,8 +1206,9 @@ where
         if message_expire_at_ns.is_some() {
             *disappearing_stored = true;
         }
-        self.process_own_leave_request_message(mls_group, storage, &id);
-        self.process_own_delete_message(storage, &id);
+        self.process_own_leave_request_message(mls_group, storage, &id)
+            .await;
+        self.process_own_delete_message(storage, &id).await;
         Ok(Some(id))
     }
 
@@ -1221,18 +1238,22 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        let result = provider.key_store().transaction(|conn| {
+        let result = provider.key_store().transaction(async |conn| {
             let storage = conn.key_store();
             let provider = XmtpOpenMlsProvider::new(storage);
-            processed_message = Some(super::app_data::process_message_with_app_data(
-                mls_group,
-                &provider,
-                message.clone(),
-                self.context.version_info().pkg_semver(),
-            ));
+            processed_message = Some(
+                super::app_data::process_message_with_app_data(
+                    mls_group,
+                    &provider,
+                    message.clone(),
+                    self.context.version_info().pkg_semver(),
+                )
+                .await,
+            );
             // Roll back: sync with the server before committing.
             Ok::<TransactionOutcome<()>, StorageError>(Rollback)
-        });
+        })
+        .await;
         if !matches!(result, Ok(Rollback)) {
             result
                 .map(TransactionOutcome::into_continued)
@@ -1243,7 +1264,7 @@ where
             .map_err(GroupMessageProcessingError::from_app_data_processing)?;
 
         // Reload the mlsgroup to clear the it's internal cache
-        mls_group.reload(provider.storage())?;
+        mls_group.reload(provider.storage()).await?;
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns as u64)?;
@@ -1289,7 +1310,8 @@ where
                         match &e {
                             CommitValidationError::ProtocolVersionTooLow(_) => {}
                             _ => {
-                                self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                self.maybe_update_cursor(&self.context.db(), envelope)
+                                    .await?;
                             }
                         };
 
@@ -1336,7 +1358,8 @@ where
                         ?proposal_type,
                         "Received proposal but proposals are not enabled on this group"
                     );
-                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                    self.maybe_update_cursor(&self.context.db(), envelope)
+                        .await?;
                     return Err(CommitValidationError::ProposalsNotEnabled.into());
                 }
 
@@ -1359,7 +1382,8 @@ where
                     match super::app_data::policy::membership_policy_set_from_registry(mls_group) {
                         Ok(ps) => ps,
                         Err(e) => {
-                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            self.maybe_update_cursor(&self.context.db(), envelope)
+                                .await?;
                             return Err(CommitValidationError::from(e).into());
                         }
                     }
@@ -1367,7 +1391,8 @@ where
                     match extract_group_permissions(mls_group) {
                         Ok(p) => p,
                         Err(e) => {
-                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            self.maybe_update_cursor(&self.context.db(), envelope)
+                                .await?;
                             return Err(CommitValidationError::from(e).into());
                         }
                     }
@@ -1388,13 +1413,15 @@ where
                             match xmtp_mls_common::group_metadata::GroupMetadata::try_from(proto) {
                                 Ok(m) => m,
                                 Err(e) => {
-                                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                    self.maybe_update_cursor(&self.context.db(), envelope)
+                                        .await?;
                                     return Err(CommitValidationError::from(e).into());
                                 }
                             }
                         }
                         Ok(None) | Err(_) => {
-                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            self.maybe_update_cursor(&self.context.db(), envelope)
+                                .await?;
                             return Err(CommitValidationError::from(
                                 xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
                             )
@@ -1405,7 +1432,8 @@ where
                     match extract_group_metadata(extensions) {
                         Ok(m) => m,
                         Err(e) => {
-                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            self.maybe_update_cursor(&self.context.db(), envelope)
+                                .await?;
                             return Err(CommitValidationError::from(e).into());
                         }
                     }
@@ -1416,7 +1444,7 @@ where
                     ) {
                         Ok(m) => m,
                         Err(e) => {
-                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            self.maybe_update_cursor(&self.context.db(), envelope).await?;
                             return Err(CommitValidationError::from(
                                 xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
                             )
@@ -1442,7 +1470,8 @@ where
                         "Received invalid proposal, rejecting"
                     );
                     // Update cursor so we don't reprocess this invalid proposal
-                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                    self.maybe_update_cursor(&self.context.db(), envelope)
+                        .await?;
                     return Err(e.into());
                 }
 
@@ -1452,7 +1481,7 @@ where
         };
 
         let mut deferred_events = DeferredEvents::new();
-        let identifier = provider.key_store().transaction(|conn| {
+        let identifier = provider.key_store().transaction(async |conn| {
             let storage = conn.key_store();
             let db = storage.db();
             let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -1469,7 +1498,7 @@ where
                 cursor
             );
             let requires_processing = if allow_cursor_increment {
-                self.maybe_update_cursor(&db, envelope)?
+                self.maybe_update_cursor(&db, envelope).await?
             } else {
                 tracing::info!(
                     "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1477,7 +1506,7 @@ where
                     *cursor
                 );
                 let current_cursor = db
-                    .get_last_cursor_for_originator(envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                    .get_last_cursor_for_originator(envelope.group_id.as_slice(), envelope.entity_kind(), envelope.originator_id()).await?;
                 current_cursor.sequence_id < envelope.cursor.sequence_id
             };
             if !requires_processing {
@@ -1499,6 +1528,7 @@ where
                 message.clone(),
                 self.context.version_info().pkg_semver(),
             )
+            .await
             .map_err(GroupMessageProcessingError::from_app_data_processing)?;
             let identifier = self.process_external_message(
                 mls_group,
@@ -1507,9 +1537,10 @@ where
                 validated_commit.clone(),
                 &storage,
                 &mut deferred_events,
-            )?;
+            ).await?;
             Ok::<_, GroupMessageProcessingError>(Continue(identifier))
         })
+        .await
         .map(TransactionOutcome::into_continued)?;
 
         // Send all deferred events after the transaction completes
@@ -1521,7 +1552,7 @@ where
     /// Process an external message
     /// returns a MessageIdentifier, identifying the message processed if any.
     #[tracing::instrument(level = "trace", skip_all)]
-    fn process_external_message(
+    async fn process_external_message(
         &self,
         mls_group: &mut OpenMlsGroup,
         processed_message: ProcessedMessage,
@@ -1590,7 +1621,7 @@ where
                             // key this message id was derived from.
                             idempotency_key,
                         };
-                        message.store_or_ignore(&storage.db())?;
+                        message.store_or_ignore(&storage.db()).await?;
                         identifier.internal_id(message_id);
 
                         // A disappearing message was just persisted with a known
@@ -1610,7 +1641,7 @@ where
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
-                            }) = storage.db().find_group(&self.group_id)?
+                            }) = storage.db().find_group(&self.group_id).await?
                             {
                                 // Send this event after the transaction completes
                                 deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
@@ -1622,11 +1653,13 @@ where
                                 storage,
                                 &message,
                                 Some(deferred_events),
-                            )?;
+                            )
+                            .await?;
                         }
 
                         if message.content_type == ContentType::DeleteMessage {
-                            self.process_delete_message(mls_group, storage, &message)?;
+                            self.process_delete_message(mls_group, storage, &message)
+                                .await?;
                         }
 
                         Ok::<_, GroupMessageProcessingError>(())
@@ -1652,7 +1685,7 @@ where
                 // Explicitly persist the proposal to the key store so it survives group reloads.
                 // process_message() only stores proposals in-memory; without this call,
                 // they are lost when the group is reloaded from storage.
-                mls_group.store_pending_proposal(storage, *proposal_ptr)?;
+                maybe_await!(mls_group.store_pending_proposal(storage, *proposal_ptr))?;
                 Ok(())
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
@@ -1712,29 +1745,35 @@ where
 
                 identifier.group_context(staged_commit.group_context().clone());
 
-                mls_group.merge_staged_commit_logged(
-                    &XmtpOpenMlsProviderRef::new(storage),
-                    staged_commit,
-                    &validated_commit,
-                    cursor.sequence_id as i64,
-                )?;
+                mls_group
+                    .merge_staged_commit_logged(
+                        &XmtpOpenMlsProviderRef::new(storage),
+                        staged_commit,
+                        &validated_commit,
+                        cursor.sequence_id as i64,
+                    )
+                    .await?;
 
                 Self::mark_readd_requests_as_responded(
                     storage,
                     &self.group_id,
                     &validated_commit.readded_installations,
                     cursor.sequence_id as i64,
-                )?;
+                )
+                .await?;
 
-                let transcript = self.save_transcript_message(
-                    validated_commit.clone(),
-                    envelope_timestamp_ns as u64,
-                    *cursor,
-                    storage,
-                )?;
+                let transcript = self
+                    .save_transcript_message(
+                        validated_commit.clone(),
+                        envelope_timestamp_ns as u64,
+                        *cursor,
+                        storage,
+                    )
+                    .await?;
 
                 // remove left/removed members from the pending_remove list
-                self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
+                self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes)
+                    .await;
 
                 // Handle super_admin status changes for the current user
                 // If promoted: check for pending remove members and mark group accordingly
@@ -1743,7 +1782,8 @@ where
                     storage,
                     mls_group,
                     &validated_commit.metadata_validation_info,
-                );
+                )
+                .await;
 
                 if let Some((msg, payload)) = transcript {
                     identifier.internal_id(msg.id);
@@ -1770,16 +1810,19 @@ where
         identifier.build()
     }
 
-    fn process_own_leave_request_message(
+    async fn process_own_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message_id: &[u8],
     ) {
-        if let Ok(Some(message)) = storage.db().get_group_message(message_id)
+        if let Ok(Some(message)) = storage.db().get_group_message(message_id).await
             && message.content_type == ContentType::LeaveRequest
         {
-            match self.process_leave_request_message(mls_group, storage, &message, None) {
+            match self
+                .process_leave_request_message(mls_group, storage, &message, None)
+                .await
+            {
                 Ok(()) => {
                     debug!("Successfully processed leave request message");
                 }
@@ -1790,10 +1833,14 @@ where
         }
     }
 
-    fn process_own_delete_message(&self, storage: &impl XmtpMlsStorageProvider, message_id: &[u8]) {
+    async fn process_own_delete_message(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        message_id: &[u8],
+    ) {
         let db = storage.db();
 
-        let Ok(Some(message)) = db.get_group_message(message_id) else {
+        let Ok(Some(message)) = db.get_group_message(message_id).await else {
             return;
         };
 
@@ -1801,7 +1848,7 @@ where
             return;
         }
 
-        let Ok(Some(deletion)) = db.get_message_deletion(message_id) else {
+        let Ok(Some(deletion)) = db.get_message_deletion(message_id).await else {
             tracing::warn!(
                 message_id = hex::encode(message_id),
                 "Deletion record not found for own delete message"
@@ -1809,7 +1856,8 @@ where
             return;
         };
 
-        let Ok(Some(original_msg)) = db.get_group_message(&deletion.deleted_message_id) else {
+        let Ok(Some(original_msg)) = db.get_group_message(&deletion.deleted_message_id).await
+        else {
             tracing::debug!(
                 deleted_message_id = hex::encode(&deletion.deleted_message_id),
                 "Original message not found for deletion event (may be out-of-order)"
@@ -1825,7 +1873,7 @@ where
             ]));
     }
 
-    fn process_leave_request_message(
+    async fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
@@ -1839,7 +1887,8 @@ where
         if message.sender_inbox_id == current_inbox_id {
             storage
                 .db()
-                .update_group_membership(self.group_id, GroupMembershipState::PendingRemove)?;
+                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)
+                .await?;
         }
 
         // put the user in the pending-remove list
@@ -1848,7 +1897,8 @@ where
             inbox_id: message.sender_inbox_id.clone(),
             message_id: message.id.clone(),
         }
-        .store_or_ignore(&storage.db())?;
+        .store_or_ignore(&storage.db())
+        .await?;
 
         // Durable backstop: enqueue a self-remove task in THIS txn (atomic with the
         // PendingRemove insert, one per group, survives restart). The inline call
@@ -1869,7 +1919,8 @@ where
             .build(proto)?;
         storage
             .db()
-            .upsert_pending_self_remove_task(&self.group_id, task)?;
+            .upsert_pending_self_remove_task(&self.group_id, task)
+            .await?;
         // Wake post-commit. The own-leave path has no DeferredEvents (its task is a
         // no-op) — fine, it's picked up on the worker's next turn.
         if let Some(deferred_events) = deferred_events {
@@ -1878,7 +1929,8 @@ where
 
         // If we reach here, the action was by another user or no validated commit
         // Only process admin actions if we're admin/super-admin
-        self.process_admin_pending_remove_actions(mls_group, storage)?;
+        self.process_admin_pending_remove_actions(mls_group, storage)
+            .await?;
 
         Ok(())
     }
@@ -1887,7 +1939,7 @@ where
     ///
     /// Returns `Ok(())` for invalid deletions to avoid disrupting sync.
     #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn process_delete_message(
+    pub(crate) async fn process_delete_message(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
@@ -1921,7 +1973,7 @@ where
             }
         };
 
-        let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
+        let original_msg_opt = storage.db().get_group_message(&target_message_id).await?;
 
         let is_super_admin_deletion = if let Some(ref original_msg) = original_msg_opt {
             if original_msg.group_id.as_slice() != self.group_id.as_slice() {
@@ -1978,7 +2030,7 @@ where
             deleted_at_ns: message.sent_at_ns,
         };
 
-        deletion.store_or_ignore(&storage.db())?;
+        deletion.store_or_ignore(&storage.db()).await?;
 
         let out_of_order = original_msg_opt.is_none();
         if let Some(original_msg) = original_msg_opt {
@@ -2001,7 +2053,7 @@ where
         Ok(())
     }
 
-    fn process_admin_pending_remove_actions(
+    async fn process_admin_pending_remove_actions(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
@@ -2028,20 +2080,21 @@ where
         }
         let pending_remove_users = storage
             .db()
-            .get_pending_remove_users(&GroupId::try_from(mls_group.group_id())?)?;
+            .get_pending_remove_users(&GroupId::try_from(mls_group.group_id())?)
+            .await?;
         if pending_remove_users.is_empty() {
             return Ok(());
         }
 
         // if the current user is in pending remove-users, then we should not mark it for the worker
         if !pending_remove_users.contains(&current_inbox_id) {
-            self.update_group_pending_status(storage, true)
+            self.update_group_pending_status(storage, true).await;
         }
 
         Ok(())
     }
 
-    fn clean_pending_remove_list(
+    async fn clean_pending_remove_list(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         removed_inboxes: &[Inbox],
@@ -2058,6 +2111,7 @@ where
         match storage
             .db()
             .delete_pending_remove_users(&self.group_id, removed_inbox_ids.clone())
+            .await
         {
             Ok(_) => {
                 tracing::info!(
@@ -2077,7 +2131,7 @@ where
         }
     }
 
-    fn handle_super_admin_status_change(
+    async fn handle_super_admin_status_change(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         mls_group: &OpenMlsGroup,
@@ -2108,12 +2162,12 @@ where
                 tracing::warn!("Invalid group_id length while handling super-admin promotion");
                 return;
             };
-            match storage.db().get_pending_remove_users(&group_id) {
+            match storage.db().get_pending_remove_users(&group_id).await {
                 Ok(pending_remove_users) => {
                     if !pending_remove_users.is_empty()
                         && !pending_remove_users.contains(&current_inbox_id)
                     {
-                        self.update_group_pending_status(storage, true);
+                        self.update_group_pending_status(storage, true).await;
                     }
                 }
                 Err(e) => {
@@ -2127,11 +2181,11 @@ where
             }
         } else if was_demoted {
             // Demoted from super_admin: clear the pending leave request status
-            self.update_group_pending_status(storage, false);
+            self.update_group_pending_status(storage, false).await;
         }
     }
 
-    pub(crate) fn update_group_pending_status(
+    pub(crate) async fn update_group_pending_status(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         has_pending_removes: bool,
@@ -2147,6 +2201,7 @@ where
             if let Err(e) = storage
                 .db()
                 .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+                .await
             {
                 tracing::error!(
                     error = %e,
@@ -2165,6 +2220,7 @@ where
             if let Err(e) = storage
                 .db()
                 .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+                .await
             {
                 tracing::error!(
                     operation = "set_group_pending_status",
@@ -2176,18 +2232,17 @@ where
         }
     }
 
-    pub(crate) fn mark_readd_requests_as_responded(
+    pub(crate) async fn mark_readd_requests_as_responded(
         storage: &impl XmtpMlsStorageProvider,
         group_id: &GroupId,
         readded_installations: &HashSet<Vec<u8>>,
         cursor: i64,
     ) -> Result<(), StorageError> {
         for installation_id in readded_installations {
-            storage.db().update_responded_at_sequence_id(
-                group_id,
-                installation_id.as_slice(),
-                cursor,
-            )?;
+            storage
+                .db()
+                .update_responded_at_sequence_id(group_id, installation_id.as_slice(), cursor)
+                .await?;
         }
         Ok(())
     }
@@ -2241,11 +2296,15 @@ where
         trust_message_order: bool,
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         if trust_message_order {
-            let last_cursor = self.context.db().get_last_cursor_for_originator(
-                envelope.group_id,
-                envelope.entity_kind(),
-                envelope.originator_id(),
-            )?;
+            let last_cursor = self
+                .context
+                .db()
+                .get_last_cursor_for_originator(
+                    envelope.group_id.as_slice(),
+                    envelope.entity_kind(),
+                    envelope.originator_id(),
+                )
+                .await?;
             tracing::info!("last cursor of processed = {}", last_cursor);
             if last_cursor.sequence_id >= envelope.sequence_id() {
                 tracing::info!(
@@ -2260,7 +2319,7 @@ where
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
                 let identifier = MessageIdentifierBuilder::from(envelope).build()?;
-                return Ok(ProcessedMessageOutcome::new(identifier));
+                return Ok(ProcessedMessageOutcome::new(identifier).await);
             }
         }
 
@@ -2425,13 +2484,16 @@ where
 
         let intent = db
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())
+            .await
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = db.get_last_cursor_for_originator(
-            self.group_id,
-            envelope.entity_kind(),
-            envelope.originator_id(),
-        )?;
+        let group_cursor = db
+            .get_last_cursor_for_originator(
+                self.group_id.as_slice(),
+                envelope.entity_kind(),
+                envelope.originator_id(),
+            )
+            .await?;
         if group_cursor.sequence_id >= envelope.sequence_id() {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
@@ -2439,7 +2501,7 @@ where
             let identifier = MessageIdentifierBuilder::from(envelope)
                 .previously_processed(true)
                 .build()?;
-            return Ok(ProcessedMessageOutcome::new(identifier));
+            return Ok(ProcessedMessageOutcome::new(identifier).await);
         }
 
         tracing::info!(
@@ -2483,12 +2545,12 @@ where
                 // Set inside the txn when a self-sent disappearing message is
                 // published; consumed post-commit below to re-arm the worker.
                 let mut disappearing_stored = false;
-                let intent_error = self.context.mls_storage().transaction(|conn| {
+                let intent_error = self.context.mls_storage().transaction(async |conn| {
                     let storage = conn.key_store();
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let requires_processing = if allow_cursor_increment {
-                        self.maybe_update_cursor(&db, envelope)?
+                        self.maybe_update_cursor(&db, envelope).await?
                     } else {
                         tracing::info!(
                             "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -2496,7 +2558,7 @@ where
                             cursor
                         );
                         let current_cursor = db
-                            .get_last_cursor_for_originator(envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                            .get_last_cursor_for_originator(envelope.group_id.as_slice(), envelope.entity_kind(), envelope.originator_id()).await?;
                         current_cursor.sequence_id < envelope.sequence_id()
                     };
                     if !requires_processing {
@@ -2517,7 +2579,7 @@ where
                     let result: Result<Option<Vec<u8>>, IntentResolutionError> = match validation_result {
                         Err(err) => Err(err),
                         Ok(validated_intent) => {
-                            self.process_own_message(mls_group, validated_intent, &intent, envelope, &storage, &mut disappearing_stored)
+                            self.process_own_message(mls_group, validated_intent, &intent, envelope, &storage, &mut disappearing_stored).await
                         }
                     };
                     // The non-retryable cause for an `Error`-bound intent. Only
@@ -2549,7 +2611,7 @@ where
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
-                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
+                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error).await {
                                 tracing::error!(group_id = %self.group_id, cursor = cursor.sequence_id, "Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             if err.next_intent_state == IntentState::Error {
@@ -2577,18 +2639,18 @@ where
                     let mut intent_error = None;
                     match next_intent_state {
                         IntentState::ToPublish => {
-                            db.set_group_intent_to_publish(intent_id)?;
+                            db.set_group_intent_to_publish(intent_id).await?;
                         }
                         IntentState::Committed => {
-                            self.handle_metadata_update_from_intent(&intent, &storage)?;
-                            db.set_group_intent_committed(intent_id, cursor)?;
+                            self.handle_metadata_update_from_intent(&intent, &storage).await?;
+                            db.set_group_intent_committed(intent_id, cursor).await?;
                         }
                         IntentState::Published => {
                             tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
                         }
                         IntentState::Error => {
                             tracing::error!("Intent [{}] moved to error status", intent_id);
-                            db.set_group_intent_error(intent_id)?;
+                            db.set_group_intent_error(intent_id).await?;
                             // The intent genuinely failed this round. Surface the
                             // cause so the sync summary reports it instead of a
                             // misleading success; the message was still consumed.
@@ -2596,7 +2658,7 @@ where
                         }
                         IntentState::Processed => {
                             tracing::debug!("Intent [{}] moved to Processed status", intent_id);
-                            db.set_group_intent_processed(intent_id)?;
+                            db.set_group_intent_processed(intent_id).await?;
                         }
                         IntentState::Superseded => {
                             // Supersession is decided at publish time, before
@@ -2609,6 +2671,7 @@ where
                     }
                     Ok(Continue(intent_error))
                 })
+                .await
                 .map(TransactionOutcome::into_continued)?;
                 let identifier = identifier.build()?;
                 Ok(ProcessedMessageOutcome {
@@ -2638,13 +2701,13 @@ where
                         allow_cursor_increment,
                     )
                     .await?;
-                Ok(ProcessedMessageOutcome::new(identifier))
+                Ok(ProcessedMessageOutcome::new(identifier).await)
             }
         }
     }
 
     /// In case of metadataUpdate will extract the updated fields and store them to the db
-    fn handle_metadata_update_from_intent(
+    async fn handle_metadata_update_from_intent(
         &self,
         intent: &StoredGroupIntent,
         storage: &impl XmtpMlsStorageProvider,
@@ -2654,16 +2717,22 @@ where
 
             match data.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                    storage.db().update_message_disappearing_from_ns(
-                        &self.group_id,
-                        data.field_value.parse::<i64>().ok(),
-                    )?
+                    storage
+                        .db()
+                        .update_message_disappearing_from_ns(
+                            &self.group_id,
+                            data.field_value.parse::<i64>().ok(),
+                        )
+                        .await?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                    storage.db().update_message_disappearing_in_ns(
-                        &self.group_id,
-                        data.field_value.parse::<i64>().ok(),
-                    )?
+                    storage
+                        .db()
+                        .update_message_disappearing_in_ns(
+                            &self.group_id,
+                            data.field_value.parse::<i64>().ok(),
+                        )
+                        .await?
                 }
                 _ => {} // handle other metadata updates
             }
@@ -2672,7 +2741,7 @@ where
         Ok(())
     }
 
-    fn handle_metadata_update_from_commit(
+    async fn handle_metadata_update_from_commit(
         &self,
         metadata_field_changes: &Vec<group_updated::MetadataFieldChange>,
         storage: &impl XmtpMlsStorageProvider,
@@ -2686,7 +2755,8 @@ where
                         .and_then(|v| v.parse::<i64>().ok());
                     storage
                         .db()
-                        .update_message_disappearing_from_ns(&self.group_id, parsed_value)?
+                        .update_message_disappearing_from_ns(&self.group_id, parsed_value)
+                        .await?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
                     let parsed_value = change
@@ -2695,7 +2765,8 @@ where
                         .and_then(|v| v.parse::<i64>().ok());
                     storage
                         .db()
-                        .update_message_disappearing_in_ns(&self.group_id, parsed_value)?
+                        .update_message_disappearing_in_ns(&self.group_id, parsed_value)
+                        .await?
                 }
                 _ => {} // Handle other metadata updates if needed
             }
@@ -2712,7 +2783,7 @@ where
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let message = match process_result {
             Ok(m) => {
-                self.context.db().prune_icebox()?;
+                self.context.db().prune_icebox().await?;
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
                     &envelope.group_id,
@@ -2726,7 +2797,8 @@ where
                 // Instead of updating cursor, mark group as paused
                 self.context
                     .db()
-                    .set_group_paused(&self.group_id, &min_version)?;
+                    .set_group_paused(&self.group_id, &min_version)
+                    .await?;
                 tracing::warn!(
                     "Group [{}] paused due to minimum protocol version requirement",
                     hex::encode(self.group_id)
@@ -2744,12 +2816,12 @@ where
                 // Do not update the cursor if you have been removed from the group - you may be readded
                 // later
                 if !e.is_retryable() && mls_group.is_active()
-                    && let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
+                    && let Err(transaction_error) = self.context.mls_storage().transaction(async |conn| {
                     let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     // TODO(rich): Add log_err! macro/trait for swallowing errors
                     if let Err(update_cursor_error) =
-                        self.maybe_update_cursor(&storage.db(), envelope)
+                        self.maybe_update_cursor(&storage.db(), envelope).await
                     {
                         // We don't need to propagate the error if the cursor fails to update - the worst case is
                         // that the non-retriable error is processed again
@@ -2760,7 +2832,7 @@ where
                         envelope.sequence_id(),
                         envelope.message.epoch(),
                         &e,
-                    ) {
+                    ).await {
                         tracing::error!(
                                 group_id = %self.group_id,
                                 cursor = envelope.sequence_id(),
@@ -2770,6 +2842,7 @@ where
                     }
                     Ok::<_, GroupMessageProcessingError>(Continue(()))
                 })
+                .await
                 .map(TransactionOutcome::into_continued)
                 {
                     tracing::error!(group_id = %self.group_id, cursor = envelope.sequence_id(), "Error post-processing non-retryable error: {transaction_error:?}");
@@ -2880,12 +2953,18 @@ where
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    fn maybe_update_cursor(
+    async fn maybe_update_cursor(
         &self,
         db: &impl DbQuery,
         message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
-        let updated = db.update_cursor(message.group_id, message.entity_kind(), message.cursor)?;
+        let updated = db
+            .update_cursor(
+                message.group_id.as_slice(),
+                message.entity_kind(),
+                message.cursor,
+            )
+            .await?;
         if updated {
             log_event!(
                 Event::GroupCursorUpdate,
@@ -2900,7 +2979,7 @@ where
         Ok(updated)
     }
 
-    fn save_transcript_message(
+    async fn save_transcript_message(
         &self,
         validated_commit: ValidatedCommit,
         timestamp_ns: u64,
@@ -2913,7 +2992,10 @@ where
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
 
-        let pending_remove_users = &storage.db().get_pending_remove_users(&self.group_id)?;
+        let pending_remove_users = &storage
+            .db()
+            .get_pending_remove_users(&self.group_id)
+            .await?;
         let payload: GroupUpdated = validated_commit.into_with(pending_remove_users);
         tracing::info!("Storing transcript message");
         let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;
@@ -2936,10 +3018,11 @@ where
             }
         });
 
-        self.handle_metadata_update_from_commit(&payload.metadata_field_changes, storage)?;
+        self.handle_metadata_update_from_commit(&payload.metadata_field_changes, storage)
+            .await?;
 
         // When a DM is stitched, it can repeat group updates. We want to prevent saving those messages.
-        if self.update_already_exists(&payload, storage)? {
+        if self.update_already_exists(&payload, storage).await? {
             return Ok(None);
         }
 
@@ -2966,11 +3049,11 @@ where
             idempotency_key: timestamp_ns.to_string(),
         };
 
-        msg.store_or_ignore(&storage.db())?;
+        msg.store_or_ignore(&storage.db()).await?;
         Ok(Some((msg, payload)))
     }
 
-    fn update_already_exists(
+    async fn update_already_exists(
         &self,
         payload: &GroupUpdated,
         storage: &impl XmtpMlsStorageProvider,
@@ -2987,15 +3070,17 @@ where
         loop {
             // DMs are stitched, so we don't want to have the same
             // group updates from multiple DMs being saved to the database.
-            msgs = self.find_messages_v2_with_conn(
-                &MsgQueryArgs {
-                    content_types: Some(vec![ContentType::GroupUpdated]),
-                    inserted_after_ns,
-                    limit: Some(100),
-                    ..Default::default()
-                },
-                storage.db(),
-            )?;
+            msgs = self
+                .find_messages_v2_with_conn(
+                    &MsgQueryArgs {
+                        content_types: Some(vec![ContentType::GroupUpdated]),
+                        inserted_after_ns,
+                        limit: Some(100),
+                        ..Default::default()
+                    },
+                    storage.db(),
+                )
+                .await?;
 
             let Some(msg) = msgs.last() else {
                 break;
@@ -3037,7 +3122,8 @@ where
             GroupEpoch::from(group_epoch),
             message_epoch,
             MAX_PAST_EPOCHS,
-        );
+        )
+        .await;
 
         if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
             let fork_details = format!(
@@ -3055,6 +3141,7 @@ where
                 .context
                 .db()
                 .mark_group_as_maybe_forked(&self.group_id, fork_details)
+                .await
             {
                 // Losing this write silently loses the durable fork signal.
                 tracing::error!(
@@ -3075,10 +3162,10 @@ where
         self.load_mls_group_with_lock_async(async |mut mls_group| {
             // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
             let intents = db.find_group_intents(
-                self.group_id,
+                &self.group_id,
                 Some(vec![IntentState::ToPublish]),
                 Some(IntentKind::all().collect()),
-            )?;
+            ).await?;
 
             for intent in intents {
                 let result = retry_async!(
@@ -3101,9 +3188,9 @@ where
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
-                            db.set_group_intent_error_and_fail_msg(&intent, id)?;
+                            db.set_group_intent_error_and_fail_msg(&intent, id).await?;
                         } else {
-                            db.increment_intent_publish_attempt_count(intent.id)?;
+                            db.increment_intent_publish_attempt_count(intent.id).await?;
                         }
 
                         return Err(err);
@@ -3125,7 +3212,7 @@ where
                         // removing this transaction causes missed messages
                         self.context
                             .mls_storage()
-                            .transaction(|conn| {
+                            .transaction(async |conn| {
                                 let storage = conn.key_store();
                                 let db = storage.db();
                                 db.set_group_intent_published(
@@ -3134,9 +3221,10 @@ where
                                     post_commit_action,
                                     staged_commit,
                                     group_epoch as i64,
-                                )?;
+                                ).await?;
                                 Ok::<_, StorageError>(Continue(()))
                             })
+                            .await
                             .map(TransactionOutcome::into_continued)?;
                         tracing::debug!(
                             inbox_id = self.context.inbox_id(),
@@ -3155,7 +3243,7 @@ where
                             .iter()
                             .map(|p| (p.as_slice(), should_send_push_notification))
                             .collect();
-                        let messages = self.prepare_group_messages(payload_pairs)?;
+                        let messages = self.prepare_group_messages(payload_pairs).await?;
                         let result = self.context
                             .api()
                             .send_group_messages(messages)
@@ -3180,7 +3268,7 @@ where
                                     err = ?err
                                 );
 
-                                handle_published_intent_send_failure(&db, &intent)?;
+                                handle_published_intent_send_failure(&db, &intent).await?;
                                 Err(err)?;
                             }
                             (kind, Ok(_)) => {
@@ -3222,10 +3310,11 @@ where
                         // "not ToPublish": swallowing it would leave the intent
                         // stuck in `ToPublish` while reporting success, and the
                         // caller waiting on it would spin until it timed out.
-                        let still_to_publish = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)?
+                        let still_to_publish = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)
+                            .await?
                             .is_some_and(|intent| intent.state == IntentState::ToPublish);
                         if still_to_publish {
-                            db.set_group_intent_processed(intent.id)?
+                            db.set_group_intent_processed(intent.id).await?
                         }
                     }
                 }
@@ -3264,11 +3353,11 @@ where
                 // Pending proposals are handled at the API level (in send_message)
                 // by committing them before creating the SendMessage intent
                 let group_epoch = openmls_group.epoch().as_u64();
-                let msg = openmls_group.create_message(
+                let msg = maybe_await!(openmls_group.create_message(
                     &self.context.mls_provider(),
                     &self.context.identity().installation_keys,
                     intent_data.message.as_slice(),
-                )?;
+                ))?;
 
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![msg.tls_serialize_detached()?],
@@ -3281,9 +3370,14 @@ where
             IntentKind::KeyUpdate => {
                 let keys = self.context.identity().installation_keys.clone();
                 let (bundle, staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
-                        group.self_update(provider, &keys, LeafNodeParameters::default())
-                    })?;
+                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
+                        maybe_await!(group.self_update(
+                            provider,
+                            &keys,
+                            LeafNodeParameters::default()
+                        ))
+                    })
+                    .await?;
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![bundle.commit().tls_serialize_detached()?],
                     staged_commit,
@@ -3320,7 +3414,7 @@ where
                             field = %metadata_intent.field_name,
                             "abandoning guarded metadata update: committed value no longer matches"
                         );
-                        self.context.db().set_group_intent_superseded(intent.id)?;
+                        self.context.db().set_group_intent_superseded(intent.id).await?;
                         return Ok(None);
                     }
                 }
@@ -3375,16 +3469,18 @@ where
                         generate_commit_with_rollback(
                             storage,
                             openmls_group,
-                            move |group, provider| -> Result<_, GroupError> {
+                            async move |group, provider| -> Result<_, GroupError> {
                                 Ok(stage_app_data_propose_and_commit(
                                     group,
                                     provider,
                                     &signer,
                                     component_id,
                                     payload,
-                                )?)
+                                )
+                                .await?)
                             },
-                        )?;
+                        )
+                        .await?;
 
                     let (commit, welcome, _group_info) = bundle.into_messages();
                     // A metadata-only AppDataUpdate commit has no add/remove
@@ -3415,13 +3511,14 @@ where
 
                 let keys = self.context.identity().installation_keys.clone();
                 let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
-                        group.update_group_context_extensions(
+                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
+                        maybe_await!(group.update_group_context_extensions(
                             provider,
                             mutable_metadata_extensions.clone(),
                             &keys,
-                        )
-                    })?;
+                        ))
+                    })
+                    .await?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -3466,7 +3563,8 @@ where
                             admin_list_update_intent,
                             signer,
                             intent.should_push,
-                        )?;
+                        )
+                        .await?;
                     return Ok(Some(publish));
                 }
 
@@ -3478,13 +3576,14 @@ where
 
                 let keys = self.context.identity().installation_keys.clone();
                 let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
-                        group.update_group_context_extensions(
+                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
+                        maybe_await!(group.update_group_context_extensions(
                             provider,
                             mutable_metadata_extensions.clone(),
                             &keys,
-                        )
-                    })?;
+                        ))
+                    })
+                    .await?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -3523,7 +3622,8 @@ where
                             update_permissions_intent,
                             signer,
                             intent.should_push,
-                        )?;
+                        )
+                        .await?;
                     return Ok(Some(publish));
                 }
 
@@ -3535,13 +3635,14 @@ where
 
                 let keys = self.context.identity().installation_keys.clone();
                 let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
-                        group.update_group_context_extensions(
+                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
+                        maybe_await!(group.update_group_context_extensions(
                             provider,
                             group_permissions_extensions.clone(),
                             &keys,
-                        )
-                    })?;
+                        ))
+                    })
+                    .await?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
@@ -3614,7 +3715,8 @@ where
                     let latest_sequence_ids = self
                         .context
                         .db()
-                        .get_latest_sequence_id(&inbox_ids_to_add)?;
+                        .get_latest_sequence_id(&inbox_ids_to_add)
+                        .await?;
 
                     // Build the projected membership for kp lookup.
                     let mut projected = old_group_membership.clone();
@@ -3685,9 +3787,13 @@ where
 
                     // Generate add proposals for each key package
                     for key_package in &changes_with_kps.new_key_packages {
-                        let (proposal_msg, _proposal_ref) = openmls_group
-                            .propose_add_member(&self.context.mls_provider(), signer, key_package)
-                            .map_err(GroupError::ProposeAddMember)?;
+                        let (proposal_msg, _proposal_ref) = maybe_await!(openmls_group
+                            .propose_add_member(
+                                &self.context.mls_provider(),
+                                signer,
+                                key_package
+                            ))
+                        .map_err(GroupError::ProposeAddMember)?;
                         proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                     }
                 }
@@ -3707,13 +3813,13 @@ where
 
                     // Generate remove proposals for collected members
                     for member_index in members_to_remove {
-                        let (proposal_msg, _proposal_ref) = openmls_group
+                        let (proposal_msg, _proposal_ref) = maybe_await!(openmls_group
                             .propose_remove_member(
                                 &self.context.mls_provider(),
                                 signer,
                                 member_index,
-                            )
-                            .map_err(GroupError::ProposeRemoveMember)?;
+                            ))
+                        .map_err(GroupError::ProposeRemoveMember)?;
                         proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                     }
 
@@ -3749,7 +3855,7 @@ where
                         &old_group_membership,
                         &new_membership,
                     )?;
-                    let (proposal_msg, _) = openmls_group
+                    let (proposal_msg, _) = maybe_await!(openmls_group
                         .propose_app_data_update(
                             &self.context.mls_provider(),
                             signer,
@@ -3758,8 +3864,8 @@ where
                             openmls::messages::proposals::AppDataUpdateOperation::Update(
                                 payload.into(),
                             ),
-                        )
-                        .map_err(GroupError::Proposal)?;
+                        ))
+                    .map_err(GroupError::Proposal)?;
                     proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                 }
 
@@ -3795,13 +3901,13 @@ where
                     Extensions::tls_deserialize(&mut intent_data.extensions_bytes.as_slice())?;
 
                 let signer = &self.context.identity().installation_keys;
-                let (proposal_msg, _proposal_ref) = openmls_group
+                let (proposal_msg, _proposal_ref) = maybe_await!(openmls_group
                     .propose_group_context_extensions(
                         &self.context.mls_provider(),
                         new_extensions,
                         signer,
-                    )
-                    .map_err(GroupError::Proposal)?;
+                    ))
+                .map_err(GroupError::Proposal)?;
 
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![proposal_msg.tls_serialize_detached()?],
@@ -3867,16 +3973,18 @@ where
                 ) = generate_commit_with_rollback(
                     storage,
                     openmls_group,
-                    move |group, provider| -> Result<_, GroupError> {
+                    async move |group, provider| -> Result<_, GroupError> {
                         Ok(super::app_data::migration::stage_bootstrap_commit(
                             group,
                             provider,
                             &signer,
                             &component_values,
                             new_extensions,
-                        )?)
+                        )
+                        .await?)
                     },
-                )?;
+                )
+                .await?;
                 let (commit, _, _) = bundle.into_messages();
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![commit.tls_serialize_detached()?],
@@ -3910,7 +4018,8 @@ where
                     intent_data,
                     signer,
                     intent.should_push,
-                )?;
+                )
+                .await?;
                 return Ok(Some(publish));
             }
             IntentKind::CommitPendingProposals => {
@@ -3987,8 +4096,11 @@ where
                         inbox_ids_to_add.iter().map(|s| s.as_str()).collect();
                     load_identity_updates(self.context.api(), &self.context.db(), &inbox_ids_refs)
                         .await?;
-                    let latest_sequence_ids =
-                        self.context.db().get_latest_sequence_id(&inbox_ids_refs)?;
+                    let latest_sequence_ids = self
+                        .context
+                        .db()
+                        .get_latest_sequence_id(&inbox_ids_refs)
+                        .await?;
 
                     for inbox_id in &inbox_ids_to_add {
                         let sequence_id = latest_sequence_ids
@@ -4096,15 +4208,15 @@ where
                         generate_commit_with_rollback(
                             storage,
                             openmls_group,
-                            |group, provider| -> Result<_, GroupError> {
+                            async |group, provider| -> Result<_, GroupError> {
                                 // Create GCE proposal locally
-                                let (gce_msg, _) = group
+                                let (gce_msg, _) = maybe_await!(group
                                     .propose_group_context_extensions(
                                         provider,
                                         new_extensions.clone(),
                                         &signer,
-                                    )
-                                    .map_err(GroupError::Proposal)?;
+                                    ))
+                                .map_err(GroupError::Proposal)?;
                                 let gce_payload = gce_msg.tls_serialize_detached()?;
 
                                 // Create commit consuming all proposals (including GCE).
@@ -4126,11 +4238,13 @@ where
                                         }
                                         _ => true,
                                     },
-                                )?;
+                                )
+                                .await?;
 
                                 Ok((gce_payload, bundle))
                             },
-                        )?;
+                        )
+                        .await?;
 
                     let (commit, maybe_welcome, _group_info) = bundle.into_messages();
                     let staged_commit =
@@ -4171,7 +4285,7 @@ where
                     let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
                         storage,
                         openmls_group,
-                        |group, provider| -> Result<_, GroupError> {
+                        async |group, provider| -> Result<_, GroupError> {
                             // See plan §11 — this commit path also has to thread
                             // queued `AppDataUpdate` proposals' dict writes in
                             // lockstep with the commit build.
@@ -4194,8 +4308,10 @@ where
                                     _ => true,
                                 },
                             )
+                            .await
                         },
-                    )?;
+                    )
+                    .await?;
                     let (commit, maybe_welcome, _group_info) = bundle.into_messages();
 
                     let staged_commit =
@@ -4239,10 +4355,10 @@ where
         let intents =
             // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
             db.find_group_intents(
-                self.group_id,
+                &self.group_id,
                 Some(vec![IntentState::Committed]),
                 Some(IntentKind::all().collect()),
-            )?;
+            ).await?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {
@@ -4260,7 +4376,7 @@ where
                     }
                 }
             }
-            db.set_group_intent_processed(intent.id)?
+            db.set_group_intent_processed(intent.id).await?
         }
 
         Ok(())
@@ -4271,7 +4387,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let db = self.context.db();
-        let Some(stored_group) = db.find_group(&self.group_id)? else {
+        let Some(stored_group) = db.find_group(&self.group_id).await? else {
             return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
         };
         if stored_group.conversation_type.is_virtual() {
@@ -4282,11 +4398,11 @@ where
         let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = xmtp_common::time::now_ns();
-        let last_ns = db.get_installations_time_checked(&self.group_id)?;
+        let last_ns = db.get_installations_time_checked(&self.group_id).await?;
         let elapsed_ns = now_ns - last_ns;
-        if elapsed_ns > interval_ns && self.is_active()? {
+        if elapsed_ns > interval_ns && self.is_active().await? {
             self.add_missing_installations().await?;
-            db.update_installations_time_checked(&self.group_id)?;
+            db.update_installations_time_checked(&self.group_id).await?;
         }
 
         Ok(())
@@ -4322,7 +4438,7 @@ where
 
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
-            .queue(self)?;
+            .queue(self).await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -4349,7 +4465,7 @@ where
             // Load any missing updates from the network
             load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
 
-            let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
+            let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str]).await?;
 
             // Get a list of all inbox IDs that have increased sequence_id for the group
             let changed_inbox_ids =
@@ -4618,18 +4734,18 @@ where
     /// `group.hmac_keys(-1..=1)`` will provide 3 keys consisting of last epoch, current epoch, and next epoch
     /// `group.hmac_keys(0..=0) will provide 1 key, consisting of only the current epoch
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn hmac_keys(
+    pub async fn hmac_keys(
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
         let conn = self.context.db();
 
-        let preferences = StoredUserPreferences::load(&conn)?;
+        let preferences = conn.load_user_preferences().await?;
         let mut ikm = match preferences.hmac_key {
             Some(ikm) => ikm,
             None => {
                 let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
+                conn.store_hmac_key(&key, None).await?;
                 key
             }
         };
@@ -4654,12 +4770,13 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) fn prepare_group_messages(
+    pub(super) async fn prepare_group_messages(
         &self,
         payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<GroupMessageInput>, GroupError> {
         let hmac_key = self
-            .hmac_keys(0..=0)?
+            .hmac_keys(0..=0)
+            .await?
             .pop()
             .expect("Range of count 1 was provided.");
         let sender_hmac =
@@ -4857,67 +4974,119 @@ fn get_removed_leaf_nodes(
 /// The epoch is captured from within the transaction before the operation,
 /// ensuring it reflects the state used during the commit creation even if
 /// the database is updated between the transaction and when the caller uses it.
-pub(super) fn generate_commit_with_rollback<S, R, E, F>(
+// Shared body for both track-specific definitions of
+// `generate_commit_with_rollback` below. The two definitions differ ONLY in the
+// operation-closure bound (the async track additionally requires the closure's
+// `CallOnceFuture` be `Send`); the logic is identical, so it lives here once.
+// `storage`/`openmls_group`/`operation` are passed in so they resolve at the
+// call site inside each fn.
+macro_rules! generate_commit_with_rollback_body {
+    ($storage:ident, $openmls_group:ident, $operation:ident) => {{
+        let mut result = None;
+        let mut staged_commit = None;
+        let mut group_epoch = None;
+
+        let transaction_result = $storage
+            .transaction(async |conn| {
+                let key_store = conn.key_store();
+                let provider = XmtpOpenMlsProviderRef::new(&key_store);
+
+                // Capture the epoch before the operation to ensure we have the correct
+                // epoch even if the database is updated after the transaction and before we save the intent locally.
+                group_epoch = Some($openmls_group.epoch().as_u64());
+
+                // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
+                result = Some($operation($openmls_group, &provider).await);
+
+                // Extract the staged commit data before rollback
+                staged_commit = $openmls_group
+                    .pending_commit()
+                    .as_ref()
+                    .map(xmtp_db::db_serialize)
+                    .transpose()
+                    .inspect_err(|error| tracing::error!(%error, "Error serializing staged commit"))
+                    .ok()
+                    .flatten();
+
+                // Intentionally roll back: we captured everything we need; do not persist the commit.
+                Ok::<TransactionOutcome<()>, StorageError>(Rollback)
+            })
+            .await;
+
+        match transaction_result {
+            Ok(Continue(_)) => unreachable!("Transaction always requests rollback"),
+            Ok(Rollback) => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        // Return early if group epoch is not set otherwise unwrap the group epoch
+        let group_epoch =
+            group_epoch.expect("Group epoch should have been captured in transaction");
+
+        // This must go after error checking
+        // Reload the group to clear its internal cache after rollback
+        $openmls_group.reload($storage).await?;
+
+        // Extract and handle the operation result
+        let operation_result = result
+            .expect("Operation should have been called")
+            .map_err(|e| e.into())?;
+
+        Ok((operation_result, staged_commit, group_epoch))
+    }};
+}
+
+/// Async (Postgres) track. The operation runs openmls ops that are `async`
+/// here, so it is an async closure whose future is awaited inside the (Send)
+/// transaction future and must itself be `Send`. That is expressed by naming
+/// the closure's `CallOnceFuture` and requiring it `MaybeSend`, which needs
+/// this crate's async-track nightly features. See
+/// [`generate_commit_with_rollback_body`] for the shared logic.
+#[cfg(all(feature = "async", not(feature = "sync")))]
+pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,
     operation: F,
 ) -> Result<(R, Option<Vec<u8>>, u64), GroupError>
 where
     S: XmtpMlsStorageProvider,
-    E: Into<GroupError>,
-    F: for<'a> FnOnce(
-        &mut OpenMlsGroup,
-        &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
-    ) -> Result<R, E>,
+    R: xmtp_common::MaybeSend,
+    E: Into<GroupError> + xmtp_common::MaybeSend,
+    F: for<'a> AsyncFnOnce(
+            &mut OpenMlsGroup,
+            &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
+        ) -> Result<R, E>
+        + xmtp_common::MaybeSend,
+    for<'a, 'g, 'p, 'k> <F as AsyncFnOnce<(
+        &'g mut OpenMlsGroup,
+        &'p XmtpOpenMlsProviderRef<'k, <S::TxQuery as TransactionalKeyStore>::Store<'a>>,
+    )>>::CallOnceFuture: xmtp_common::MaybeSend,
 {
-    let mut result = None;
-    let mut staged_commit = None;
-    let mut group_epoch = None;
+    generate_commit_with_rollback_body!(storage, openmls_group, operation)
+}
 
-    let transaction_result = storage.transaction(|conn| {
-        let key_store = conn.key_store();
-        let provider = XmtpOpenMlsProviderRef::new(&key_store);
-
-        // Capture the epoch before the operation to ensure we have the correct
-        // epoch even if the database is updated after the transaction and before we save the intent locally.
-        group_epoch = Some(openmls_group.epoch().as_u64());
-
-        // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
-        result = Some(operation(openmls_group, &provider));
-
-        // Extract the staged commit data before rollback
-        staged_commit = openmls_group
-            .pending_commit()
-            .as_ref()
-            .map(xmtp_db::db_serialize)
-            .transpose()
-            .inspect_err(|error| tracing::error!(%error, "Error serializing staged commit"))
-            .ok()
-            .flatten();
-
-        // Intentionally roll back: we captured everything we need; do not persist the commit.
-        Ok::<TransactionOutcome<()>, StorageError>(Rollback)
-    });
-
-    match transaction_result {
-        Ok(Continue(_)) => unreachable!("Transaction always requests rollback"),
-        Ok(Rollback) => {}
-        Err(e) => return Err(e.into()),
-    }
-
-    // Return early if group epoch is not set otherwise unwrap the group epoch
-    let group_epoch = group_epoch.expect("Group epoch should have been captured in transaction");
-
-    // This must go after error checking
-    // Reload the group to clear its internal cache after rollback
-    openmls_group.reload(storage)?;
-
-    // Extract and handle the operation result
-    let operation_result = result
-        .expect("Operation should have been called")
-        .map_err(|e| e.into())?;
-
-    Ok((operation_result, staged_commit, group_epoch))
+/// Sync (SQLite) track. openmls ops are blocking here, so the operation closure
+/// yields a ready future with no real awaits; the stable `AsyncFnOnce` sugar is
+/// all that's needed and there is no `CallOnceFuture: Send` requirement (naming
+/// it would need nightly features the stable toolchain can't enable). See
+/// [`generate_commit_with_rollback_body`] for the shared logic.
+#[cfg(feature = "sync")]
+pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
+    storage: &S,
+    openmls_group: &mut OpenMlsGroup,
+    operation: F,
+) -> Result<(R, Option<Vec<u8>>, u64), GroupError>
+where
+    S: XmtpMlsStorageProvider,
+    R: xmtp_common::MaybeSend,
+    E: Into<GroupError> + xmtp_common::MaybeSend,
+    F: for<'a> AsyncFnOnce(
+            &mut OpenMlsGroup,
+            &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
+        ) -> Result<R, E>
+        + xmtp_common::MaybeSend,
+{
+    generate_commit_with_rollback_body!(storage, openmls_group, operation)
 }
 
 /// Build a commit bundle that consumes all pending proposals and
@@ -4931,7 +5100,7 @@ where
 /// `proposal_filter` so the business logic (e.g. "only include a GCE
 /// whose membership matches the one we're about to apply") stays at
 /// the call site.
-fn build_commit_with_pending_app_data_updates<P, F>(
+async fn build_commit_with_pending_app_data_updates<P, F>(
     group: &mut OpenMlsGroup,
     provider: &P,
     signer: &impl openmls_traits::signatures::Signer,
@@ -4945,17 +5114,17 @@ where
 {
     let app_data_updates = super::app_data::pending_app_data_updates(group)?;
 
-    let mut stage = group
+    let mut stage = maybe_await!(group
         .commit_builder()
         .consume_proposal_store(true)
-        .load_psks(provider.storage())
-        .map_err(CommitToPendingProposalsError::from)?;
+        .load_psks(provider.storage()))
+    .map_err(CommitToPendingProposalsError::from)?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
-    let bundle = stage
+    let built = stage
         .build(provider.rand(), provider.crypto(), signer, proposal_filter)
-        .map_err(CommitToPendingProposalsError::from)?
-        .stage_commit(provider)
+        .map_err(CommitToPendingProposalsError::from)?;
+    let bundle = maybe_await!(built.stage_commit(provider))
         .map_err(CommitToPendingProposalsError::from)?;
 
     Ok(bundle)
@@ -4967,7 +5136,7 @@ pub(crate) fn decode_staged_commit(
     Ok(xmtp_db::db_deserialize(data)?)
 }
 
-fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
+async fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
     db: &Db,
     intent: &StoredGroupIntent,
 ) -> Result<(), GroupError> {
@@ -4979,11 +5148,11 @@ fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
             intent.id
         );
         let id = utils::id::calculate_message_id_for_intent(intent)?;
-        db.set_group_intent_error_and_fail_msg(intent, id)?;
+        db.set_group_intent_error_and_fail_msg(intent, id).await?;
     } else {
         // Reset so the next retry re-encrypts at the current epoch.
-        db.increment_intent_publish_attempt_count(intent.id)?;
-        db.set_group_intent_to_publish(intent.id)?;
+        db.increment_intent_publish_attempt_count(intent.id).await?;
+        db.set_group_intent_to_publish(intent.id).await?;
     }
 
     Ok(())
@@ -5011,7 +5180,7 @@ pub(crate) mod tests {
 
         tester!(amal_a, triggers);
         let amal_group_a: Arc<MlsGroup<_>> =
-            Arc::new(amal_a.create_group(None, Default::default()).unwrap());
+            Arc::new(amal_a.create_group(None, Default::default()).await.unwrap());
 
         let db = amal_a.context.db();
 
@@ -5025,6 +5194,7 @@ pub(crate) mod tests {
             let s = xmtp_common::rand_string::<100>();
             amal_group_a
                 .send_message_optimistic(s.as_bytes(), SendMessageOpts::default())
+                .await
                 .unwrap();
         }
 
@@ -5054,10 +5224,10 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
         let amal_group: Arc<TestMlsGroup> =
-            Arc::new(amal.create_group(None, Default::default()).unwrap());
+            Arc::new(amal.create_group(None, Default::default()).await.unwrap());
 
-        let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();
-        let current_hmac_key = amal_group.hmac_keys(0..=0).unwrap().pop().unwrap();
+        let hmac_keys = amal_group.hmac_keys(-1..=1).await.unwrap();
+        let current_hmac_key = amal_group.hmac_keys(0..=0).await.unwrap().pop().unwrap();
         assert_eq!(hmac_keys.len(), 3);
         assert_eq!(hmac_keys[1].key, current_hmac_key.key);
         assert_eq!(hmac_keys[1].epoch, current_hmac_key.epoch);
@@ -5074,8 +5244,8 @@ pub(crate) mod tests {
         assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
     }
 
-    #[test]
-    fn send_failures_for_published_intents_revert_to_to_publish() {
+    #[xmtp_common::test]
+    async fn send_failures_for_published_intents_revert_to_to_publish() {
         let intent = StoredGroupIntent {
             id: 42,
             kind: IntentKind::SendMessage,
@@ -5103,7 +5273,7 @@ pub(crate) mod tests {
             .returning(|_| Ok(()));
 
         let result = handle_published_intent_send_failure(&db, &intent);
-        assert!(result.is_ok());
+        assert!(result.await.is_ok());
     }
 
     /// Test that process_delete_message handles completely malformed bytes gracefully
@@ -5115,7 +5285,7 @@ pub(crate) mod tests {
         use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 
         tester!(alix);
-        let alix_group = alix.create_group(None, None)?;
+        let alix_group = alix.create_group(None, None).await?;
 
         // Create a message with completely invalid EncodedContent proto
         let malformed_message = xmtp_db::group_message::StoredGroupMessage {
@@ -5142,15 +5312,17 @@ pub(crate) mod tests {
 
         // Use load_mls_group_with_lock to get access to the MLS group and call process_delete_message
         let storage = alix.context.mls_storage();
-        let result: Result<(), crate::groups::GroupError> =
-            alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result =
-                    alix_group.process_delete_message(&mls_group, storage, &malformed_message);
-                match inner_result {
+        let result: Result<(), crate::groups::GroupError> = alix_group
+            .load_mls_group_with_lock_async(async |mls_group| {
+                match alix_group
+                    .process_delete_message(&mls_group, storage, &malformed_message)
+                    .await
+                {
                     Ok(()) => Ok(()),
                     Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
                 }
-            });
+            })
+            .await;
 
         assert!(
             result.is_ok(),
@@ -5167,7 +5339,7 @@ pub(crate) mod tests {
         use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
         tester!(alix);
-        let alix_group = alix.create_group(None, None)?;
+        let alix_group = alix.create_group(None, None).await?;
 
         // Create a valid EncodedContent wrapper but with invalid inner DeleteMessage content
         let encoded_content = EncodedContent {
@@ -5209,15 +5381,17 @@ pub(crate) mod tests {
         };
 
         let storage = alix.context.mls_storage();
-        let result: Result<(), crate::groups::GroupError> =
-            alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result =
-                    alix_group.process_delete_message(&mls_group, storage, &malformed_message);
-                match inner_result {
+        let result: Result<(), crate::groups::GroupError> = alix_group
+            .load_mls_group_with_lock_async(async |mls_group| {
+                match alix_group
+                    .process_delete_message(&mls_group, storage, &malformed_message)
+                    .await
+                {
                     Ok(()) => Ok(()),
                     Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
                 }
-            });
+            })
+            .await;
 
         assert!(
             result.is_ok(),
@@ -5235,7 +5409,7 @@ pub(crate) mod tests {
         use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 
         tester!(alix);
-        let alix_group = alix.create_group(None, None)?;
+        let alix_group = alix.create_group(None, None).await?;
 
         // Create a valid DeleteMessage but with invalid hex in message_id
         let delete_msg = DeleteMessage {
@@ -5284,15 +5458,17 @@ pub(crate) mod tests {
         };
 
         let storage = alix.context.mls_storage();
-        let result: Result<(), crate::groups::GroupError> =
-            alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result =
-                    alix_group.process_delete_message(&mls_group, storage, &message_with_bad_hex);
-                match inner_result {
+        let result: Result<(), crate::groups::GroupError> = alix_group
+            .load_mls_group_with_lock_async(async |mls_group| {
+                match alix_group
+                    .process_delete_message(&mls_group, storage, &message_with_bad_hex)
+                    .await
+                {
                     Ok(()) => Ok(()),
                     Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
                 }
-            });
+            })
+            .await;
 
         assert!(
             result.is_ok(),

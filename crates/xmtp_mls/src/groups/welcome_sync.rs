@@ -70,7 +70,7 @@ where
         &self,
         welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
-        validator: impl ValidateGroupMembership,
+        validator: impl ValidateGroupMembership + xmtp_common::MaybeSync,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
         match self
             .process_new_welcome_spanned(welcome, cursor_increment, validator)
@@ -88,7 +88,7 @@ where
         &self,
         welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
-        validator: impl ValidateGroupMembership,
+        validator: impl ValidateGroupMembership + xmtp_common::MaybeSync,
     ) -> Result<WelcomeOutcome<Context>, GroupError> {
         let result = XmtpWelcome::builder()
             .context(self.context.clone())
@@ -230,7 +230,7 @@ where
             // committed: don't discard `groups` over a failed queue — nothing
             // half-landed, and the next welcome retries the whole thing.
             if let Err(e) =
-                crate::worker::key_package_maintenance::queue_key_rotation(&self.context)
+                crate::worker::key_package_maintenance::queue_key_rotation(&self.context).await
             {
                 tracing::warn!("key rotation queue failed after welcome sync: {e}");
             }
@@ -291,11 +291,12 @@ where
         let api = self.context.api();
 
         let group_ids: Vec<GroupId> = groups.iter().map(|group| group.group_id).collect();
-        let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
-        let last_synced_cursors = db.get_last_cursor_for_ids(
-            &id_slices,
-            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-        )?;
+        let last_synced_cursors = db
+            .get_last_cursor_for_ids(
+                &group_ids,
+                &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+            )
+            .await?;
         let latest_message_metadata = api.get_newest_message_metadata(&group_ids).await?;
 
         let group_ids_needing_sync =
@@ -313,7 +314,8 @@ where
         let db = self.context.db();
         self.sync_welcomes().await?;
         let groups = db
-            .all_sync_groups()?
+            .all_sync_groups()
+            .await?
             .into_iter()
             .map(|g| {
                 MlsGroup::new(
@@ -347,7 +349,7 @@ where
     pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
         use crate::groups::validated_commit::LibXMTPVersion;
 
-        let paused = self.context.db().get_paused_groups_with_versions()?;
+        let paused = self.context.db().get_paused_groups_with_versions().await?;
         if paused.is_empty() {
             return Ok(0);
         }
@@ -374,7 +376,7 @@ where
                 // transient DB failure on one row shouldn't abort the
                 // sweep for the others. The next sync sweep will pick
                 // this row up again.
-                if let Err(err) = self.context.db().unpause_group(&group_id) {
+                if let Err(err) = self.context.db().unpause_group(&group_id).await {
                     tracing::warn!(
                         group_id = hex::encode(group_id.as_ref()),
                         required = %required_str,
@@ -422,7 +424,7 @@ where
             ..GroupQueryArgs::default()
         };
 
-        let conversations = db.fetch_conversation_list(query_args)?;
+        let conversations = db.fetch_conversation_list(&query_args).await?;
 
         let all_groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()
@@ -619,9 +621,14 @@ mod tests {
         DbF: FnMut(&mut MockDbQuery) + Send + 'static,
         TxF: FnMut(&mut MockDbQuery) + Send + 'static,
         TxF2: FnMut(&mut MockDbQuery) + Send + 'static,
-        V: ValidateGroupMembership,
+        V: ValidateGroupMembership + xmtp_common::MaybeSync,
     {
-        fn build(self) -> (impl XmtpSharedContext, impl ValidateGroupMembership) {
+        fn build(
+            self,
+        ) -> (
+            impl XmtpSharedContext,
+            impl ValidateGroupMembership + xmtp_common::MaybeSync,
+        ) {
             let this = self.inner_build().unwrap();
             let mut tx_functions = this.transaction_calls;
             let mut nested_tx_functions = this.nested_transaction_calls;
@@ -674,7 +681,7 @@ mod tests {
     async fn happy_path(context: NewMockContext) {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
-        let (kp, mls_welcome) = client.join_group();
+        let (kp, mls_welcome) = client.join_group().await;
         let network_welcome = generate_welcome(
             50,
             kp.hpke_init_key().as_slice().to_vec(),
@@ -720,7 +727,7 @@ mod tests {
     async fn increments_cursor_on_non_retryable_in_tx(context: NewMockContext) {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
-        let (kp, mls_welcome) = client.join_group();
+        let (kp, mls_welcome) = client.join_group().await;
         let network_welcome = generate_welcome(
             50,
             kp.hpke_init_key().as_slice().to_vec(),
@@ -807,7 +814,7 @@ mod tests {
     async fn increments_cursor_on_non_retryable_during_validation(context: NewMockContext) {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
-        let (kp, mls_welcome) = client.join_group();
+        let (kp, mls_welcome) = client.join_group().await;
         let network_welcome = generate_welcome(
             50,
             kp.hpke_init_key().as_slice().to_vec(),
@@ -843,7 +850,7 @@ mod tests {
     async fn increments_message_cursor_from_welcome_metadata(context: NewMockContext) {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
-        let (kp, mls_welcome) = client.join_group();
+        let (kp, mls_welcome) = client.join_group().await;
         let network_welcome = generate_welcome(
             50,
             kp.hpke_init_key().as_slice().to_vec(),
@@ -902,12 +909,12 @@ mod tests {
     #[xmtp_common::test]
     async fn does_not_increment(
         context: NewMockContext,
-        #[case] validator: impl ValidateGroupMembership,
+        #[case] validator: impl ValidateGroupMembership + xmtp_common::MaybeSync,
         #[case] cursor_increment: bool,
     ) {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
-        let (kp, mls_welcome) = client.join_group();
+        let (kp, mls_welcome) = client.join_group().await;
         let network_welcome = generate_welcome(
             50,
             kp.hpke_init_key().as_slice().to_vec(),
@@ -940,14 +947,14 @@ mod tests {
     async fn later_welcome_must_not_advance_cursor_past_retryable_failure(context: NewMockContext) {
         let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
         let client = create_mls_client(mem.as_ref());
-        let (first_kp, first_mls_welcome) = client.join_group();
+        let (first_kp, first_mls_welcome) = client.join_group().await;
         let first_welcome = generate_welcome(
             50,
             first_kp.hpke_init_key().as_slice().to_vec(),
             first_mls_welcome,
             None,
         );
-        let (second_kp, second_mls_welcome) = client.join_group();
+        let (second_kp, second_mls_welcome) = client.join_group().await;
         let second_welcome = generate_welcome(
             51,
             second_kp.hpke_init_key().as_slice().to_vec(),

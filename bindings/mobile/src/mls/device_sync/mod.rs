@@ -59,14 +59,15 @@ impl FfiXmtpClient {
     /// You may need to manually sync the sync group before calling
     /// this function to see recently uploaded archives.
     #[xmtp_common::err_span]
-    pub fn list_available_archives(
+    pub async fn list_available_archives(
         &self,
         days_cutoff: i64,
     ) -> Result<Vec<FfiAvailableArchive>, FfiError> {
         let available = self
             .inner_client
             .device_sync_client()
-            .list_available_archives(days_cutoff)?;
+            .list_available_archives(days_cutoff)
+            .await?;
 
         Ok(available.into_iter().map(Into::into).collect())
     }

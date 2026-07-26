@@ -13,13 +13,13 @@
 
 use crate::groups::GroupError;
 use crate::tester;
-use xmtp_db::sql_key_store::count_kv_reads;
+use xmtp_db::sql_key_store::count_kv_reads_async;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn metadata_read_amplification() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group
         .update_group_name("Perf Test Group".to_string())
         .await?;
@@ -29,38 +29,40 @@ async fn metadata_read_amplification() {
 
     // Correctness: the context-read path returns the same metadata as the old
     // full-load path, and the public accessors still return the set values.
-    let baseline = group.mutable_metadata_via_full_load()?;
-    let now = group.mutable_metadata()?;
+    let baseline = group.mutable_metadata_via_full_load().await?;
+    let now = group.mutable_metadata().await?;
     assert_eq!(baseline.attributes, now.attributes, "attributes must match");
     assert_eq!(baseline.admin_list, now.admin_list, "admin_list must match");
     assert_eq!(
         baseline.super_admin_list, now.super_admin_list,
         "super_admin_list must match"
     );
-    assert_eq!(group.group_name()?, "Perf Test Group");
-    assert_eq!(group.group_description()?, "measuring reads");
+    assert_eq!(group.group_name().await?, "Perf Test Group");
+    assert_eq!(group.group_description().await?, "measuring reads");
     // permissions() now also reads the context; just ensure it still works.
-    let _ = group.permissions()?;
+    let _ = group.permissions().await?;
 
     // Baseline: one metadata fetch via the old full `OpenMlsGroup::load`.
-    let (res, one_full_load) = count_kv_reads(|| group.mutable_metadata_via_full_load());
+    let (res, one_full_load) =
+        count_kv_reads_async(group.mutable_metadata_via_full_load()).await;
     res?;
 
     // New snapshot: one context read yields every mutable-metadata field.
-    let (res, snapshot) = count_kv_reads(|| group.mutable_metadata());
+    let (res, snapshot) = count_kv_reads_async(group.mutable_metadata()).await;
     res?;
 
     // A realistic conversation-header render, through the REAL public API.
     let me = alix.inbox_id().to_string();
-    let (res, header_public) = count_kv_reads(|| -> Result<(), GroupError> {
-        group.group_name()?;
-        group.group_description()?;
-        group.admin_list()?;
-        group.super_admin_list()?;
-        group.is_admin(me)?;
-        group.permissions()?;
-        Ok(())
-    });
+    let (res, header_public) = count_kv_reads_async(async {
+        group.group_name().await?;
+        group.group_description().await?;
+        group.admin_list().await?;
+        group.super_admin_list().await?;
+        group.is_admin(me).await?;
+        group.permissions().await?;
+        Ok::<(), GroupError>(())
+    })
+    .await;
     res?;
 
     let old_header = one_full_load * 6; // each of the 6 accessors used to full-load

@@ -59,7 +59,7 @@ impl Validator for NoMissingMessages {
                 // Skip clients that left or were removed: their local view
                 // is intentionally frozen at the moment of removal and will
                 // not see post-removal commits.
-                if !mls_group.is_active().unwrap_or(false) {
+                if !mls_group.is_active().await.unwrap_or(false) {
                     continue;
                 }
                 pairs.push((client.clone(), group_id, mls_group, expected));
@@ -90,7 +90,7 @@ impl Validator for NoMissingMessages {
             // Authoritative join floor: messages older than the group's
             // local `created_at_ns` were sent before this client joined
             // and aren't expected to appear in their store.
-            let join_at_ns = match db.find_group(group_id) {
+            let join_at_ns = match db.find_group(group_id).await {
                 Ok(Some(g)) => g.created_at_ns,
                 Ok(None) => {
                     tracing::debug!(
@@ -120,7 +120,7 @@ impl Validator for NoMissingMessages {
                     continue;
                 }
                 expected_after_join += 1;
-                match db.get_group_message(msg.id) {
+                match db.get_group_message(&msg.id).await {
                     Ok(Some(_)) => {}
                     Ok(None) => {
                         missing += 1;

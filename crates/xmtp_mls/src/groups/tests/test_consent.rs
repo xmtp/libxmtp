@@ -13,9 +13,9 @@ async fn test_auto_consent_to_own_group() {
         .await?;
 
     alix1.sync_welcomes().await?;
-    let unwanted = alix1.group(&unwanted_bo.group_id)?;
+    let unwanted = alix1.group(&unwanted_bo.group_id).await?;
     // We were added by ourselves, but we did not consent to the group. The group should remain unconsented.
-    assert_eq!(unwanted.consent_state()?, ConsentState::Unknown);
+    assert_eq!(unwanted.consent_state().await?, ConsentState::Unknown);
 
     tester!(alix2, from: alix1);
     unwanted_bo
@@ -23,13 +23,13 @@ async fn test_auto_consent_to_own_group() {
         .await?;
 
     alix2.sync_welcomes().await?;
-    let unwanted2 = alix2.group(&unwanted.group_id)?;
-    assert_eq!(unwanted2.consent_state()?, ConsentState::Unknown);
+    let unwanted2 = alix2.group(&unwanted.group_id).await?;
+    assert_eq!(unwanted2.consent_state().await?, ConsentState::Unknown);
 
-    let g = alix1.create_group(None, None)?;
+    let g = alix1.create_group(None, None).await?;
     g.send_message(b"hello", SendMessageOpts::default()).await?;
     alix2.sync_welcomes().await?;
 
-    let g2 = alix2.group(&g.group_id)?;
-    assert_eq!(g2.consent_state()?, ConsentState::Allowed);
+    let g2 = alix2.group(&g.group_id).await?;
+    assert_eq!(g2.consent_state().await?, ConsentState::Allowed);
 }

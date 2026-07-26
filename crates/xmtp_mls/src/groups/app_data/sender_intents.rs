@@ -50,11 +50,11 @@ use crate::{
 /// (AddSuper/RemoveSuper) and returns the staged commit's
 /// `PublishIntentData`. The wire format always carries a delta, even
 /// for single mutations.
-pub(crate) fn apply_update_admin_list_app_data_intent(
+pub(crate) async fn apply_update_admin_list_app_data_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateAdminListIntentData,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
     let storage = context.mls_storage();
@@ -89,16 +89,18 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
         storage,
         openmls_group,
-        move |group, provider| -> Result<_, GroupError> {
+        async move |group, provider| -> Result<_, GroupError> {
             Ok(stage_app_data_propose_and_commit(
                 group,
                 provider,
                 &signer,
                 component_id,
                 payload,
-            )?)
+            )
+            .await?)
         },
-    )?;
+    )
+    .await?;
 
     let (commit, welcome, _group_info) = bundle.into_messages();
     debug_assert!(
@@ -124,11 +126,11 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
 /// here because the underlying `COMPONENT_REGISTRY` mutation is
 /// hardcoded super-admin-only by the dispatch layer's permission
 /// check.
-pub(crate) fn apply_update_permission_app_data_intent(
+pub(crate) async fn apply_update_permission_app_data_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdatePermissionIntentData,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
     let storage = context.mls_storage();
@@ -202,16 +204,18 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
         storage,
         openmls_group,
-        move |group, provider| -> Result<_, GroupError> {
+        async move |group, provider| -> Result<_, GroupError> {
             Ok(stage_app_data_propose_and_commit(
                 group,
                 provider,
                 &signer,
                 ComponentId::COMPONENT_REGISTRY,
                 payload,
-            )?)
+            )
+            .await?)
         },
-    )?;
+    )
+    .await?;
 
     let (commit, welcome, _group_info) = bundle.into_messages();
     debug_assert!(
@@ -259,11 +263,11 @@ pub(crate) fn apply_update_permission_app_data_intent(
 ///   forward-compat intent shape in place without silently downgrading
 ///   collection writes to last-writer-wins (which would corrupt the
 ///   collections' replay semantics).
-pub(crate) fn apply_app_data_update_intent(
+pub(crate) async fn apply_app_data_update_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: AppDataUpdateIntentData,
-    signer: impl Signer,
+    signer: impl Signer + xmtp_common::MaybeSend + xmtp_common::MaybeSync,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
     let storage = context.mls_storage();
@@ -274,16 +278,18 @@ pub(crate) fn apply_app_data_update_intent(
     let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
         storage,
         openmls_group,
-        move |group, provider| -> Result<_, GroupError> {
+        async move |group, provider| -> Result<_, GroupError> {
             Ok(stage_app_data_propose_and_commit(
                 group,
                 provider,
                 &signer,
                 component_id,
                 payload,
-            )?)
+            )
+            .await?)
         },
-    )?;
+    )
+    .await?;
 
     let (commit, welcome, _group_info) = bundle.into_messages();
     debug_assert!(

@@ -9,7 +9,17 @@ members = [
   "crates/*",
 ]
 
-exclude = ["apps/android", "apps/xnet/Cargo.toml", "apps/xnet/assets"]
+exclude = [
+  "apps/android",
+  "apps/xnet/Cargo.toml",
+  "apps/xnet/assets",
+  # Postgres-only integration tests for xmtp_db's async storage track. Excluded
+  # rather than made a member: it must depend on xmtp_db with the default `sync`
+  # feature OFF, which is impossible from inside this workspace (xmtp_db's self
+  # dev-dependency always turns `sync` back on). Keeping it out also keeps it
+  # clear of hakari, `clippy --all-features`, and default-members.
+  "crates/xmtp_db_pg_tests",
+]
 
 # Default members must be part of workspace hack to maximize cache hits in CI/nix/crane
 default-members = [
@@ -82,20 +92,45 @@ itertools = "0.15"
 js-sys = "0.3"
 libcrux-ed25519 = "0.0.9"
 lru = "0.18"
+maybe-async = "0.2.11"
 mockall = { version = "0.15" }
 mockall_double = "0.3.1"
 once_cell = "1.21.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = [
+# openmls' storage traits are async-by-default via maybe_async; `sync` collapses
+# them to the blocking shape. The track is NOT selected here: `openmls/sync` is
+# `maybe-async/is_sync`, which is a global switch, so pinning it on a workspace
+# dependency would force it on in every build -- including xmtp_db's async-only
+# one, where it silently collapses the Query* traits back to sync. It is selected
+# by `xmtp_db`'s own `sync` feature instead, so the two tracks stay selectable.
+# LOCAL FORK (prototype): points at the `openmls-storage-send` jj workspace, based
+# on the pinned rev 19860a87 plus the change that makes the `StorageProvider` /
+# `PublicStorageProvider` futures `Send` on the async track (so openmls storage
+# awaits can flow through herald's spawned Send workers). Path deps (not a `[patch]`
+# on the git URL) on purpose: the workspace-hack pins a *different* openmls rev, and
+# a URL patch would merge the two instances and let the hack's `sync` feature poison
+# the async `openmls_traits` (is_sync -> blocking trait). Path keeps them separate.
+# Restore the git rev (bumped) once the Send change lands on the fork.
+openmls = { path = "../openmls-storage-send/openmls", default-features = false, features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+openmls_basic_credential = { path = "../openmls-storage-send/basic_credential" }
+openmls_libcrux_crypto = { path = "../openmls-storage-send/libcrux_crypto", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+# `extensions-draft` here is not cosmetic: it is the only path that reaches
+# `openmls_memory_storage/extensions-draft`, which libxmtp pulls in transitively
+# and never names directly. Without it that crate's `StorageProvider` impl omits
+# the three `application_export_tree` methods while `openmls_traits` -- which does
+# have the feature -- still requires them. This used to be supplied accidentally
+# by the workspace-hack unifying openmls' features; now that openmls is excluded
+# from the hack, the dependent has to state it.
+openmls_rust_crypto = { path = "../openmls-storage-send/openmls_rust_crypto", features = [
+  "extensions-draft",
+  "draft-ietf-mls-pq-ciphersuites",
+] }
+openmls_traits = { path = "../openmls-storage-send/traits", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
@@ -129,6 +164,10 @@ serde_json = { version = "1.0", default-features = false }
 serde_path_to_error = "0.1"
 # must stay on this version for compatibility with ed25519_dalek
 sha2 = "0.10.9"
+# Async storage track. Postgres only, deliberately: sqlx-sqlite pins
+# libsqlite3-sys ^0.30 while diesel needs ^0.35, and both set `links = "sqlite3"`
+# -- cargo permits one such package per graph. Never enabled on wasm.
+sqlx = { version = "0.8.6", default-features = false }
 strum = { version = "0.28", features = ["derive"] }
 syn = { version = "2.0", features = [
   "parsing",

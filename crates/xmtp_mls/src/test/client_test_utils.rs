@@ -33,7 +33,7 @@ where
             .await?;
 
         other.sync_welcomes().await?;
-        let other_group = other.group(&group.group_id)?;
+        let other_group = other.group(&group.group_id).await?;
 
         // Since the other client synced welcomes before creating a DM
         // the group_id should be the same.
@@ -55,7 +55,9 @@ where
 
         other.sync_welcomes().await?;
         let other_dm = other.find_or_create_dm(self.inbox_id(), None).await?;
-        other_dm.update_consent_state(xmtp_db::consent_record::ConsentState::Allowed)?;
+        other_dm
+            .update_consent_state(xmtp_db::consent_record::ConsentState::Allowed)
+            .await?;
 
         // Since the other client synced welcomes before creating a DM
         // the group_id should be the same.
@@ -96,14 +98,12 @@ where
         let other_epoch = other_sync_group.epoch().await?;
         assert_eq!(epoch, other_epoch);
 
-        let ratchet_tree =
-            sync_group.load_mls_group_with_lock(self.context.mls_storage(), |g| {
-                Ok(g.export_ratchet_tree())
-            })?;
+        let ratchet_tree = sync_group
+            .load_mls_group_with_lock_async(async |g| Ok::<_, GroupError>(g.export_ratchet_tree()))
+            .await?;
         let other_ratchet_tree = other_sync_group
-            .load_mls_group_with_lock(other.context.mls_storage(), |g| {
-                Ok(g.export_ratchet_tree())
-            })?;
+            .load_mls_group_with_lock_async(async |g| Ok::<_, GroupError>(g.export_ratchet_tree()))
+            .await?;
         assert_eq!(ratchet_tree, other_ratchet_tree);
         let sync_group_verified = format!(
             "verified [{}] has same sync group as [{}]",

@@ -1,6 +1,5 @@
-use xmtp_common::{ErrorCode, RetryableError, retryable};
-
 use self::transactions::MutableTransactionConnection;
+#[cfg(feature = "sync")]
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 use bincode;
@@ -13,6 +12,7 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use xmtp_configuration::OPENMLS_KV_TARGET;
 
+// Builds on `crate::mock`, which is sync-track only.
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 mod transactions;
@@ -26,9 +26,8 @@ const UPDATE_QUERY: &str =
 const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
 #[cfg(feature = "test-utils")]
-#[derive(
-    Selectable, Queryable, QueryableByName, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "sync", derive(Selectable, Queryable, QueryableByName))]
 #[diesel(table_name = crate::schema::openmls_key_value)]
 pub struct OpenMlsKeyValue {
     pub version: i32,
@@ -70,6 +69,9 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
+/// Sync track only: `Store<'a>` must be an `XmtpMlsStorageProvider`, which
+/// `SqlKeyStore` only is on the diesel track.
+#[cfg(feature = "sync")]
 impl TransactionalKeyStore for diesel::SqliteConnection {
     type Store<'a>
         = SqlKeyStore<MutableTransactionConnection<'a>>
@@ -125,6 +127,22 @@ pub fn count_kv_reads<R>(f: impl FnOnce() -> R) -> (R, u64) {
         let count = KV_READS.with(|c| c.get());
         (result, count)
     })
+}
+
+/// Async counterpart of [`count_kv_reads`]: awaits `f` inside the counting
+/// scope so the reads performed at its `.await` points are attributed to it.
+/// The metadata accessors are `async` on the sqlx/Postgres track (and return
+/// ready futures on the diesel track), so their reads happen when the future is
+/// polled, not when the closure that builds it runs.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub async fn count_kv_reads_async<R>(f: impl std::future::Future<Output = R>) -> (R, u64) {
+    KV_READS
+        .scope(std::cell::Cell::new(0), async move {
+            let result = f.await;
+            let count = KV_READS.with(|c| c.get());
+            (result, count)
+        })
+        .await
 }
 
 impl<A> SqlKeyStore<A> {
@@ -317,55 +335,11 @@ where
     }
 }
 
-/// Errors thrown by the key store.
-/// General error type for Mls Storage Trait
-#[derive(thiserror::Error, Debug, ErrorCode)]
-pub enum SqlKeyStoreError {
-    /// Unsupported value type.
-    ///
-    /// Key store does not allow storing serialized values. Not retryable.
-    #[error("The key store does not allow storing serialized values.")]
-    UnsupportedValueTypeBytes,
-    /// Unsupported method.
-    ///
-    /// PSK operations not supported by this key store. Not retryable.
-    #[error("Updating is not supported by this key store.")]
-    UnsupportedMethod,
-    /// Serialization error.
-    ///
-    /// Failed to serialize value for key store. Not retryable.
-    #[error("Error serializing value.")]
-    SerializationError,
-    /// Value not found.
-    ///
-    /// Requested key not in OpenMLS key store. Not retryable.
-    #[error("Value does not exist.")]
-    NotFound,
-    /// Database error.
-    ///
-    /// Underlying Diesel database error. May be retryable.
-    #[error("database error: {0}")]
-    Storage(#[from] diesel::result::Error),
-    /// Connection error.
-    ///
-    /// Database connection error. Retryable.
-    #[error("connection {0}")]
-    Connection(#[from] crate::ConnectionError),
-}
-
-impl RetryableError for SqlKeyStoreError {
-    fn is_retryable(&self) -> bool {
-        use SqlKeyStoreError::*;
-        match self {
-            Storage(err) => retryable!(err),
-            SerializationError => false,
-            UnsupportedMethod => false,
-            UnsupportedValueTypeBytes => false,
-            NotFound => false,
-            Connection(c) => retryable!(c),
-        }
-    }
-}
+// `SqlKeyStoreError` (and its `RetryableError` / `From<bincode::Error>` impls)
+// now live in the track-agnostic `crate::mls_store_error` module, re-exported at
+// the crate root, so the async provider and `xmtp_mls` error enums can name it
+// on both tracks.
+pub use crate::SqlKeyStoreError;
 
 const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";
 const ENCRYPTION_KEY_PAIR_LABEL: &[u8] = b"EncryptionKeyPair";
@@ -1269,11 +1243,6 @@ fn epoch_key_pairs_id(
     Ok(key)
 }
 
-impl From<bincode::Error> for SqlKeyStoreError {
-    fn from(_: bincode::Error) -> Self {
-        Self::SerializationError
-    }
-}
 
 #[cfg(any(test, feature = "test-utils"))]
 impl SqlKeyStore<crate::test_utils::MemoryStorage> {
@@ -1418,7 +1387,7 @@ pub(crate) mod tests {
 
         // Commit: a value written inside a committing transaction is visible after.
         let outcome = key_store
-            .transaction(|conn| {
+            .transaction(async |conn| {
                 conn.key_store().write::<CURRENT_VERSION>(
                     crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
                     &committed_key,
@@ -1432,7 +1401,7 @@ pub(crate) mod tests {
 
         // Rollback: returns Ok(Rollback), NOT an Err, and the write is discarded.
         let outcome = key_store
-            .transaction(|conn| {
+            .transaction(async |conn| {
                 conn.key_store().write::<CURRENT_VERSION>(
                     crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
                     &rolled_back_key,
@@ -1446,7 +1415,7 @@ pub(crate) mod tests {
 
         // Real error: a closure returning Err propagates as Err (and rolls back).
         let result: Result<TransactionOutcome<()>, StorageError> =
-            key_store.transaction(|_conn| Err(StorageError::DbSerialize));
+            key_store.transaction(async |_conn| Err(StorageError::DbSerialize));
         assert!(matches!(result, Err(StorageError::DbSerialize)));
     }
 

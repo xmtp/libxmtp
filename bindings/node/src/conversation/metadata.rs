@@ -38,9 +38,9 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn group_name(&self) -> Result<String> {
+  pub async fn group_name(&self) -> Result<String> {
     let group = self.create_mls_group();
-    let group_name = group.group_name().map_err(ErrorWrapper::from)?;
+    let group_name = group.group_name().await.map_err(ErrorWrapper::from)?;
 
     Ok(group_name)
   }
@@ -64,16 +64,24 @@ impl Conversation {
   /// the legacy GroupContextExtensions path.
   #[napi]
   #[xmtp_common::err_span]
-  pub fn proposals_enabled(&self) -> Result<bool> {
+  pub async fn proposals_enabled(&self) -> Result<bool> {
     let group = self.create_mls_group();
-    Ok(group.is_proposals_enabled().map_err(ErrorWrapper::from)?)
+    Ok(
+      group
+        .is_proposals_enabled()
+        .await
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn group_description(&self) -> Result<String> {
+  pub async fn group_description(&self) -> Result<String> {
     let group = self.create_mls_group();
-    let group_description = group.group_description().map_err(ErrorWrapper::from)?;
+    let group_description = group
+      .group_description()
+      .await
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group_description)
   }
@@ -93,10 +101,13 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn group_image_url_square(&self) -> Result<String> {
+  pub async fn group_image_url_square(&self) -> Result<String> {
     let group = self.create_mls_group();
 
-    let group_image_url_square = group.group_image_url_square().map_err(ErrorWrapper::from)?;
+    let group_image_url_square = group
+      .group_image_url_square()
+      .await
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group_image_url_square)
   }
@@ -116,9 +127,9 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn app_data(&self) -> Result<String> {
+  pub async fn app_data(&self) -> Result<String> {
     let group = self.create_mls_group();
-    let app_data = group.app_data().map_err(ErrorWrapper::from)?;
+    let app_data = group.app_data().await.map_err(ErrorWrapper::from)?;
 
     Ok(app_data)
   }

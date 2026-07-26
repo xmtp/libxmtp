@@ -10,13 +10,14 @@ use xmtp_db::group::GroupQueryArgs;
 impl Conversations {
   #[napi]
   #[xmtp_common::err_span]
-  pub fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
+  pub async fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let inner = self.inner_client.as_ref();
     let conversations = inner
       .find_groups(GroupQueryArgs {
         include_duplicate_dms: true,
         ..Default::default()
       })
+      .await
       .map_err(ErrorWrapper::from)?;
 
     let mut hmac_map = HashMap::new();
@@ -24,6 +25,7 @@ impl Conversations {
       let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
+        .await
         .map_err(ErrorWrapper::from)?
         .into_iter()
         .map(Into::into)

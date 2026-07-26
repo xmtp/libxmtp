@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use std::{cmp::Ordering, collections::HashMap};
 use xmtp_db::{
-    ConnectionError, ConnectionExt, XmtpDb,
+    ConnectionError, ConnectionExt, TransactionOutcome, XmtpDb, XmtpMlsStorageProvider,
     association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
     conversation_list::QueryConversationList,
@@ -22,6 +22,7 @@ use xmtp_db::{
     readd_status::QueryReaddStatus,
     refresh_state::{EntityKind, QueryRefreshState},
     remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
+    sql_key_store::SqlKeyStore,
     tasks::QueryTasks,
 };
 
@@ -29,7 +30,9 @@ macro_rules! bench {
     ($self:ident, $fn:ident($($args:expr),*)) => {{
         let key = stringify!($fn($($args),*));
         let store = $self.store.clone();
-        let result = $self.bench_with_key(key, || store.db().$fn($($args),*));
+        let result = $self
+            .bench_with_key(key, async || store.db().$fn($($args),*).await)
+            .await;
         result
     }};
 }
@@ -48,15 +51,21 @@ where
     Db: XmtpDb + Clone,
     <Db as XmtpDb>::Connection: ConnectionExt,
 {
-    pub fn new(store: Db) -> Result<Self> {
-        let mut dms = store.db().find_groups(GroupQueryArgs {
-            conversation_type: Some(ConversationType::Dm),
-            ..Default::default()
-        })?;
-        let mut groups = store.db().find_groups(GroupQueryArgs {
-            conversation_type: Some(ConversationType::Group),
-            ..Default::default()
-        })?;
+    pub async fn new(store: Db) -> Result<Self> {
+        let mut dms = store
+            .db()
+            .find_groups(&GroupQueryArgs {
+                conversation_type: Some(ConversationType::Dm),
+                ..Default::default()
+            })
+            .await?;
+        let mut groups = store
+            .db()
+            .find_groups(&GroupQueryArgs {
+                conversation_type: Some(ConversationType::Group),
+                ..Default::default()
+            })
+            .await?;
 
         tracing::info!("Found {} Groups", groups.len());
         tracing::info!("Found {} DMs", dms.len());
@@ -81,9 +90,9 @@ where
         self.rand_dm.as_ref().or(self.rand_group.as_ref())
     }
 
-    fn bench_with_key<T, F>(&mut self, key: &str, mut f: F) -> T
+    async fn bench_with_key<T, F>(&mut self, key: &str, mut f: F) -> T
     where
-        F: FnMut() -> T,
+        F: AsyncFnMut() -> T,
     {
         const ITERATIONS: u32 = 10;
 
@@ -92,7 +101,7 @@ where
 
         for _ in 0..ITERATIONS {
             let start = std::time::Instant::now();
-            let result = f();
+            let result = f().await;
             let elapsed = start.elapsed();
             total_elapsed += elapsed.as_nanos();
             last_result = Some(result);
@@ -108,40 +117,36 @@ where
 
     pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
         let mut results = vec![];
-        let result = self.store.conn().raw_query(|conn| {
-            conn.transaction(|_txn| {
-                results.push(self.bench_group_queries());
-                results.push(self.bench_group_intent_queries());
-                results.push(self.bench_consent_queries());
-                results.push(self.bench_message_queries());
-                results.push(self.bench_association_state_queries());
-                results.push(self.bench_identity_update_queries());
-                results.push(self.bench_refresh_state_queries());
-                results.push(self.bench_key_package_history_queries());
-                results.push(self.bench_conversation_list_queries());
-                results.push(self.bench_commit_log_queries());
-                results.push(self.bench_dm_queries());
-                results.push(self.bench_message_deletion_queries());
-                results.push(self.bench_device_sync_queries());
-                results.push(self.bench_task_queries());
-                results.push(self.bench_icebox_queries());
-                results.push(self.bench_readd_status_queries());
-                results.push(self.bench_pending_remove_queries());
-                results.push(self.bench_identity_queries());
-                results.push(self.bench_group_version_queries());
+        // The benches are async now, so the enclosing transaction has to be the
+        // storage provider's (which drives the await-free sqlite futures to
+        // completion) rather than a bare diesel callback, which cannot be async.
+        // `savepoint` is the variant that wraps a plain `conn.transaction(..)`,
+        // matching what this used to do. The run is always rolled back: several
+        // benches write (delivery status, cursors, consent records).
+        let storage = SqlKeyStore::new(self.store.conn());
+        storage.savepoint::<(), ConnectionError, _>(async |_txn| {
+            results.push(self.bench_group_queries().await);
+            results.push(self.bench_group_intent_queries().await);
+            results.push(self.bench_consent_queries().await);
+            results.push(self.bench_message_queries().await);
+            results.push(self.bench_association_state_queries().await);
+            results.push(self.bench_identity_update_queries().await);
+            results.push(self.bench_refresh_state_queries().await);
+            results.push(self.bench_key_package_history_queries().await);
+            results.push(self.bench_conversation_list_queries().await);
+            results.push(self.bench_commit_log_queries().await);
+            results.push(self.bench_dm_queries().await);
+            results.push(self.bench_message_deletion_queries().await);
+            results.push(self.bench_device_sync_queries().await);
+            results.push(self.bench_task_queries().await);
+            results.push(self.bench_icebox_queries().await);
+            results.push(self.bench_readd_status_queries().await);
+            results.push(self.bench_pending_remove_queries().await);
+            results.push(self.bench_identity_queries().await);
+            results.push(self.bench_group_version_queries().await);
 
-                Err::<(), xmtp_db::diesel::result::Error>(
-                    xmtp_db::diesel::result::Error::RollbackTransaction,
-                )
-            })
-        });
-
-        match result {
-            Err(ConnectionError::Database(xmtp_db::diesel::result::Error::RollbackTransaction)) => {
-                // Expected
-            }
-            result => result?,
-        }
+            Ok(TransactionOutcome::Rollback)
+        })?;
 
         self.print_results();
 
@@ -223,7 +228,7 @@ where
         );
     }
 
-    pub fn bench_message_queries(&mut self) -> Result<()> {
+    pub async fn bench_message_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No groups to run message queries on.");
         };
@@ -248,7 +253,8 @@ where
         let messages = self
             .store
             .db()
-            .get_group_messages(&group.id, &MsgQueryArgs::default())?;
+            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .await?;
 
         if let Some(message) = messages.first() {
             let message_id = message.id.clone();
@@ -300,7 +306,7 @@ where
         Ok(())
     }
 
-    pub fn bench_group_queries(&mut self) -> Result<()> {
+    pub async fn bench_group_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No groups to run group queries on.");
         };
@@ -310,8 +316,8 @@ where
         bench!(self, get_conversation_ids_for_requesting_readds())?;
         bench!(self, get_conversation_ids_for_responding_readds())?;
         bench!(self, get_conversation_type(&group.id))?;
-        bench!(self, find_groups(GroupQueryArgs::default()))?;
-        bench!(self, find_groups_by_id_paged(GroupQueryArgs::default(), 0))?;
+        bench!(self, find_groups(&GroupQueryArgs::default()))?;
+        bench!(self, find_groups_by_id_paged(&GroupQueryArgs::default(), 0))?;
         bench!(self, all_sync_groups())?;
         bench!(self, primary_sync_group())?;
         bench!(self, find_group(&group.id))?;
@@ -343,7 +349,7 @@ where
         Ok(())
     }
 
-    fn bench_consent_queries(&mut self) -> Result<()> {
+    async fn bench_consent_queries(&mut self) -> Result<()> {
         let Some(group) = self.group_or_dm() else {
             bail!("No group to lookup DMs on");
         };
@@ -380,7 +386,7 @@ where
         Ok(())
     }
 
-    fn bench_association_state_queries(&mut self) -> Result<()> {
+    async fn bench_association_state_queries(&mut self) -> Result<()> {
         let Some(inbox_id) = self.rand_inbox_id.clone() else {
             bail!("No inbox_id available for association state queries.");
         };
@@ -395,7 +401,7 @@ where
         Ok(())
     }
 
-    fn bench_identity_update_queries(&mut self) -> Result<()> {
+    async fn bench_identity_update_queries(&mut self) -> Result<()> {
         let Some(inbox_id) = self.rand_inbox_id.clone() else {
             bail!("No inbox_id available for identity update queries.");
         };
@@ -418,7 +424,7 @@ where
         Ok(())
     }
 
-    fn bench_group_intent_queries(&mut self) -> Result<()> {
+    async fn bench_group_intent_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No group to run group intent queries on.");
         };
@@ -447,13 +453,13 @@ where
         bench!(self, find_group_intent_by_payload_hash(&dummy_hash))?;
 
         // Find dependant commits
-        let payload_hashes: Vec<Vec<u8>> = vec![dummy_hash.clone()];
+        let payload_hashes: Vec<&[u8]> = vec![dummy_hash.as_slice()];
         bench!(self, find_dependant_commits(&payload_hashes))?;
 
         Ok(())
     }
 
-    fn bench_refresh_state_queries(&mut self) -> Result<()> {
+    async fn bench_refresh_state_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No group to run refresh state queries on.");
         };
@@ -461,13 +467,17 @@ where
         // Get refresh state
         bench!(
             self,
-            get_refresh_state(&group.id, EntityKind::ApplicationMessage, 0)
+            get_refresh_state(group.id.as_slice(), EntityKind::ApplicationMessage, 0)
         )?;
 
         // Get last cursor for originators
         bench!(
             self,
-            get_last_cursor_for_originators(&group.id, EntityKind::ApplicationMessage, &[0, 10])
+            get_last_cursor_for_originators(
+                group.id.as_slice(),
+                EntityKind::ApplicationMessage,
+                &[0, 10]
+            )
         )?;
 
         // Get last cursor for IDs
@@ -479,14 +489,17 @@ where
         bench!(
             self,
             update_cursor(
-                group.id,
+                group.id.as_slice(),
                 EntityKind::ApplicationMessage,
                 Cursor::new(0, 0u32)
             )
         )?;
 
         // Latest cursor for ID
-        bench!(self, latest_cursor_for_id(&group.id, &entities, None))?;
+        bench!(
+            self,
+            latest_cursor_for_id(group.id.as_slice(), &entities, None)
+        )?;
 
         // Get remote log cursors
         bench!(self, get_remote_log_cursors(&[group.id.as_slice()]))?;
@@ -494,7 +507,7 @@ where
         Ok(())
     }
 
-    fn bench_key_package_history_queries(&mut self) -> Result<()> {
+    async fn bench_key_package_history_queries(&mut self) -> Result<()> {
         // Find key package history entries before a high ID (to get all)
         bench!(self, find_key_package_history_entries_before_id(i32::MAX))?;
 
@@ -504,14 +517,14 @@ where
         Ok(())
     }
 
-    fn bench_conversation_list_queries(&mut self) -> Result<()> {
+    async fn bench_conversation_list_queries(&mut self) -> Result<()> {
         // Fetch conversation list with default args
-        bench!(self, fetch_conversation_list(GroupQueryArgs::default()))?;
+        bench!(self, fetch_conversation_list(&GroupQueryArgs::default()))?;
 
         // Fetch conversation list with filters
         bench!(
             self,
-            fetch_conversation_list(GroupQueryArgs {
+            fetch_conversation_list(&GroupQueryArgs {
                 conversation_type: Some(ConversationType::Group),
                 ..Default::default()
             })
@@ -519,7 +532,7 @@ where
 
         bench!(
             self,
-            fetch_conversation_list(GroupQueryArgs {
+            fetch_conversation_list(&GroupQueryArgs {
                 conversation_type: Some(ConversationType::Dm),
                 ..Default::default()
             })
@@ -527,7 +540,7 @@ where
 
         bench!(
             self,
-            fetch_conversation_list(GroupQueryArgs {
+            fetch_conversation_list(&GroupQueryArgs {
                 limit: Some(10),
                 ..Default::default()
             })
@@ -536,7 +549,7 @@ where
         Ok(())
     }
 
-    fn bench_commit_log_queries(&mut self) -> Result<()> {
+    async fn bench_commit_log_queries(&mut self) -> Result<()> {
         let Some(group) = self.group_or_dm().cloned() else {
             bail!("No group to run commit log queries on.");
         };
@@ -564,7 +577,7 @@ where
         Ok(())
     }
 
-    fn bench_dm_queries(&mut self) -> Result<()> {
+    async fn bench_dm_queries(&mut self) -> Result<()> {
         let Some(dm) = self.rand_dm.clone() else {
             bail!("No DM available for DM queries.");
         };
@@ -584,7 +597,7 @@ where
         Ok(())
     }
 
-    fn bench_message_deletion_queries(&mut self) -> Result<()> {
+    async fn bench_message_deletion_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No group to run message deletion queries on.");
         };
@@ -596,7 +609,8 @@ where
         let messages = self
             .store
             .db()
-            .get_group_messages(&group.id, &MsgQueryArgs::default())?;
+            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .await?;
 
         if let Some(message) = messages.first() {
             let message_id = message.id.clone();
@@ -618,7 +632,7 @@ where
         Ok(())
     }
 
-    fn bench_device_sync_queries(&mut self) -> Result<()> {
+    async fn bench_device_sync_queries(&mut self) -> Result<()> {
         // Unprocessed sync group messages
         bench!(self, unprocessed_sync_group_messages())?;
 
@@ -628,7 +642,7 @@ where
         Ok(())
     }
 
-    fn bench_task_queries(&mut self) -> Result<()> {
+    async fn bench_task_queries(&mut self) -> Result<()> {
         // Get all tasks
         bench!(self, get_tasks())?;
 
@@ -638,7 +652,7 @@ where
         Ok(())
     }
 
-    fn bench_icebox_queries(&mut self) -> Result<()> {
+    async fn bench_icebox_queries(&mut self) -> Result<()> {
         // Past dependents with empty cursors
         let empty_cursors: Vec<Cursor> = vec![];
         bench!(self, past_dependents(&empty_cursors))?;
@@ -652,7 +666,7 @@ where
         Ok(())
     }
 
-    fn bench_readd_status_queries(&mut self) -> Result<()> {
+    async fn bench_readd_status_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No group to run readd status queries on.");
         };
@@ -676,7 +690,7 @@ where
         Ok(())
     }
 
-    fn bench_pending_remove_queries(&mut self) -> Result<()> {
+    async fn bench_pending_remove_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No group to run pending remove queries on.");
         };
@@ -691,14 +705,14 @@ where
         Ok(())
     }
 
-    fn bench_identity_queries(&mut self) -> Result<()> {
+    async fn bench_identity_queries(&mut self) -> Result<()> {
         // Check if identity needs rotation
         bench!(self, is_identity_needs_rotation())?;
 
         Ok(())
     }
 
-    fn bench_group_version_queries(&mut self) -> Result<()> {
+    async fn bench_group_version_queries(&mut self) -> Result<()> {
         let Some(group) = self.rand_group.clone() else {
             bail!("No group to run group version queries on.");
         };
@@ -723,7 +737,7 @@ mod tests {
         alix.test_talk_in_new_group_with(&bo).await?;
         alix.test_talk_in_dm_with(&bo).await?;
 
-        let mut bencher = DbBencher::new(alix.context.store().clone())?;
+        let mut bencher = DbBencher::new(alix.context.store().clone()).await?;
         let result = bencher.bench()?;
         assert!(result.iter().all(|r| r.is_ok()));
     }

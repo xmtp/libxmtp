@@ -3,12 +3,11 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use tracing::info;
 use xmtp_db::diesel::prelude::*;
-use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{ConnectionExt, DbConnection};
 use xmtp_db::{
     group::{ConversationType, GroupQueryArgs, QueryGroup},
     group_message::{ContentType, MsgQueryArgs},
-    prelude::QueryGroupMessage,
+    prelude::{QueryGroupMessage, QueryUserPreferences},
 };
 
 use crate::groups::mls_sync::GroupMessageProcessingError;
@@ -30,7 +29,7 @@ async fn perform_inner<C>(db: DbConnection<C>) -> Result<(), GroupMessageProcess
 where
     C: ConnectionExt,
 {
-    let prefs = StoredUserPreferences::load(&db)?;
+    let prefs = db.load_user_preferences().await?;
     if prefs.dm_group_updates_migrated {
         info!("DM group updates migration has already been performed. Skipping.");
         return Ok(());
@@ -39,14 +38,16 @@ where
     let mut group_offset = 0;
     let mut groups;
     loop {
-        groups = db.find_groups_by_id_paged(
-            GroupQueryArgs {
-                conversation_type: Some(ConversationType::Dm),
-                limit: Some(BATCH_SIZE),
-                ..Default::default()
-            },
-            group_offset,
-        )?;
+        groups = db
+            .find_groups_by_id_paged(
+                &GroupQueryArgs {
+                    conversation_type: Some(ConversationType::Dm),
+                    limit: Some(BATCH_SIZE),
+                    ..Default::default()
+                },
+                group_offset,
+            )
+            .await?;
 
         if groups.is_empty() {
             break;
@@ -58,15 +59,17 @@ where
             let mut originals: HashSet<u64> = HashSet::default();
 
             loop {
-                msgs = db.get_group_messages(
-                    &group.id,
-                    &MsgQueryArgs {
-                        content_types: Some(vec![ContentType::GroupUpdated]),
-                        sent_after_ns,
-                        limit: Some(BATCH_SIZE),
-                        ..Default::default()
-                    },
-                )?;
+                msgs = db
+                    .get_group_messages(
+                        &group.id,
+                        &MsgQueryArgs {
+                            content_types: Some(vec![ContentType::GroupUpdated]),
+                            sent_after_ns,
+                            limit: Some(BATCH_SIZE),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
 
                 {
                     let Some(msg) = msgs.last() else {
@@ -75,7 +78,7 @@ where
                     sent_after_ns = Some(msg.sent_at_ns);
                 }
 
-                let msgs = enrich_messages(&db, &group.id, msgs)?;
+                let msgs = enrich_messages(&db, &group.id, msgs).await?;
 
                 for msg in msgs {
                     let MessageBody::GroupUpdated(update) = msg.content else {
@@ -104,11 +107,7 @@ where
         group_offset += BATCH_SIZE;
     }
 
-    db.raw_query(|conn| {
-        xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
-            .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(true))
-            .execute(conn)
-    })?;
+    db.set_dm_group_updates_migrated().await?;
 
     Ok(())
 }
@@ -166,10 +165,12 @@ mod tests {
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
         dm.sync().await?;
-        let old_updates = dm.find_messages_v2(&MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        })?;
+        let old_updates = dm
+            .find_messages_v2(&MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
+            .await?;
 
         // Insert some duplicate group_updated messages
         let payload1 = GroupUpdated {
@@ -192,9 +193,9 @@ mod tests {
 
         for i in 0..3 {
             let msg1 = gen_update_msg(dm.group_id, payload1.clone());
-            msg1.store(&alix.db())?;
+            msg1.store(&alix.db()).await?;
             let msg2 = gen_update_msg(dm.group_id, payload2.clone());
-            msg2.store(&alix.db())?;
+            msg2.store(&alix.db()).await?;
 
             if i > 0 {
                 duplicates.push(msg1.id);
@@ -202,12 +203,19 @@ mod tests {
             }
         }
 
+        // Client startup already ran this migration and recorded it, so clear the
+        // flag to exercise the cleanup itself. (Before the flag was written with
+        // an upsert it never stuck on a fresh database, and this test passed only
+        // because the "one-time" migration silently re-ran on every start.)
+        clear_migrated_flag(&alix.db())?;
         perform(alix.db()).await;
 
-        let msgs = dm.find_messages_v2(&MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        })?;
+        let msgs = dm
+            .find_messages_v2(&MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
+            .await?;
 
         for msg in &msgs {
             assert!(
@@ -222,14 +230,54 @@ mod tests {
         // Let's insert another duplicate and make sure it stays this time.
         // We don't want the perform to run more than once.
         let msg = gen_update_msg(dm.group_id, payload1.clone());
-        msg.store(&alix.db())?;
+        msg.store(&alix.db()).await?;
         perform(alix.db()).await;
 
         // The duplicate should remain because perform will only clean up once.
-        let msgs = dm.find_messages_v2(&MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        })?;
+        let msgs = dm
+            .find_messages_v2(&MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
+            .await?;
         assert!(msgs.iter().any(|m| m.metadata.id == msg.id));
+    }
+
+    /// Clears the one-time flag so a test can run the migration itself.
+    fn clear_migrated_flag<C: ConnectionExt>(
+        db: &DbConnection<C>,
+    ) -> Result<(), GroupMessageProcessingError> {
+        db.raw_query(|conn| {
+            xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
+                .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(false))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
+    /// The migration is one-time: once recorded, a later run must not touch
+    /// anything. This is what the flag exists for, and what a bare `UPDATE`
+    /// against a missing preferences row failed to deliver.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_cleanup_runs_only_once() {
+        tester!(alix);
+
+        // The startup run recorded it; a second run is a no-op.
+        assert!(
+            alix.db()
+                .load_user_preferences()
+                .await?
+                .dm_group_updates_migrated
+        );
+
+        clear_migrated_flag(&alix.db())?;
+        perform(alix.db()).await;
+        assert!(
+            alix.db()
+                .load_user_preferences()
+                .await?
+                .dm_group_updates_migrated,
+            "running the migration records that it ran"
+        );
     }
 }

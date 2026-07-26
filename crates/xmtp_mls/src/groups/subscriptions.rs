@@ -48,6 +48,7 @@ where
                 let store = SqliteCursorStore::new(self.context.db());
                 let cursor: TopicCursor = store
                     .latest_for_topics(&mut topics.iter())
+                    .await
                     .map_err(SubscribeError::dyn_err)?
                     .into();
                 stream::try_extractor::<_, GroupMessageExtractor>(stream::ordered(
@@ -203,7 +204,7 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let amal_group = amal.create_group(None, None).unwrap();
+        let amal_group = amal.create_group(None, None).await.unwrap();
         // Add bola
         amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
@@ -236,7 +237,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
-        let group = amal.create_group(None, None).unwrap();
+        let group = amal.create_group(None, None).await.unwrap();
 
         let stream = group.stream().await.unwrap();
         futures::pin_mut!(stream);
@@ -272,7 +273,7 @@ pub(crate) mod tests {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group(None, None).unwrap();
+        let amal_group = amal.create_group(None, None).await.unwrap();
 
         let stream = amal_group.stream().await.unwrap();
         futures::pin_mut!(stream);
@@ -352,7 +353,7 @@ pub(crate) mod tests {
             stream_router: Default::default(),
         };
 
-        let group = client.create_group(None, None).unwrap();
+        let group = client.create_group(None, None).await.unwrap();
 
         let fake_message = xmtp_common::FakeMlsApplicationMessage::generate();
         let mls_message_out = openmls::prelude::MlsMessageOut::from(fake_message);
@@ -445,7 +446,7 @@ pub(crate) mod tests {
             stream_router: Default::default(),
         };
 
-        let group = client.create_group(None, None).unwrap();
+        let group = client.create_group(None, None).await.unwrap();
 
         let fake_message = xmtp_common::FakeMlsApplicationMessage::generate();
         let mls_message_out = openmls::prelude::MlsMessageOut::from(fake_message);

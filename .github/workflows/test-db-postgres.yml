@@ -1,0 +1,43 @@
+name: Test xmtp_db (Postgres)
+on:
+  workflow_call:
+jobs:
+  test:
+    name: Test (xmtp_db async track / Postgres)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    # These tests exist because the async track turns every query into a network
+    # round-trip. Contention, isolation, rollback and retry classification cannot
+    # be reproduced against SQLite or a mock, so a real server is the point.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: xmtp
+          POSTGRES_PASSWORD: xmtp
+          POSTGRES_DB: xmtp_asyncdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U xmtp -d xmtp_asyncdb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: test-db-postgres
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "false"
+      - uses: taiki-e/install-action@just
+      # `just` enters the nix devshell itself via `dev/nix-shell`, so this must
+      # not be wrapped in another `nix develop`. `xmtp_db_pg_tests` is outside
+      # the workspace (see its Cargo.toml), hence a manifest-path invocation
+      # rather than `-p`.
+      - name: Run async-track tests against Postgres
+        env:
+          XMTP_ASYNCDB_PG_URL: postgres://xmtp:xmtp@localhost:5432/xmtp_asyncdb
+        run: just test-pg

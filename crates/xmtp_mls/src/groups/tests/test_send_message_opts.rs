@@ -6,7 +6,7 @@ use crate::tester;
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message_should_push() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
     // Send a message with should_push set to true
     group
