@@ -3,42 +3,62 @@ use crate::ConnectionExt;
 use super::*;
 
 use xmtp_proto::types::GroupId;
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryGroupVersion {
-    fn set_group_paused(&self, group_id: &GroupId, min_version: &str) -> Result<(), StorageError>;
+    async fn set_group_paused(
+        &self,
+        group_id: &GroupId,
+        min_version: &str,
+    ) -> Result<(), StorageError>;
 
-    fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError>;
+    async fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
-    fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError>;
+    async fn get_group_paused_version(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<String>, StorageError>;
 
     /// Return every group currently flagged as paused, with the
     /// `paused_for_version` floor it's pinned to. Used by the
     /// startup/sweep recovery path to re-evaluate paused groups
     /// against the now-current `pkg_version` without having to sync
     /// each group individually.
-    fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError>;
+    async fn get_paused_groups_with_versions(&self)
+    -> Result<Vec<(GroupId, String)>, StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryGroupVersion for &T
 where
     T: QueryGroupVersion,
 {
-    fn set_group_paused(&self, group_id: &GroupId, min_version: &str) -> Result<(), StorageError> {
-        (**self).set_group_paused(group_id, min_version)
+    async fn set_group_paused(
+        &self,
+        group_id: &GroupId,
+        min_version: &str,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_paused(group_id, min_version).await
     }
 
-    fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError> {
-        (**self).unpause_group(group_id)
+    async fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError> {
+        (**self).unpause_group(group_id).await
     }
 
-    fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError> {
-        (**self).get_group_paused_version(group_id)
+    async fn get_group_paused_version(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<String>, StorageError> {
+        (**self).get_group_paused_version(group_id).await
     }
 
-    fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError> {
-        (**self).get_paused_groups_with_versions()
+    async fn get_paused_groups_with_versions(
+        &self,
+    ) -> Result<Vec<(GroupId, String)>, StorageError> {
+        (**self).get_paused_groups_with_versions().await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
     fn set_group_paused(&self, group_id: &GroupId, min_version: &str) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;

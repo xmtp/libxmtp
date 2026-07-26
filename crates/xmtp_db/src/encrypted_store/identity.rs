@@ -45,62 +45,69 @@ impl StoredIdentity {
         }
     }
 }
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIdentity {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+    async fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
     /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
     /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
     /// value — one transaction, so neither write can land without the other.
     /// `rotation_seed` is insert-or-ignored first so the pull-in always has a live
     /// target (commit-target-first), even if startup seeding never ran.
     /// Callers wake the TaskWorker AFTER this returns (never inside a tx).
-    fn queue_key_rotation_with_nudge(
+    async fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
     ) -> Result<(), StorageError>;
-    fn reset_key_package_rotation_queue(
+    async fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError>;
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+    async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
     /// The identity's absolute rotation deadline (`next_key_package_rotation_ns`).
     /// `None` if NULL or if no identity row exists yet (indistinguishable to callers;
     /// treat as "no scheduled deadline").
-    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
+    async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryIdentity for &T
 where
     T: QueryIdentity,
 {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
-        (**self).queue_key_package_rotation()
+    async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+        (**self).queue_key_package_rotation().await
     }
 
-    fn queue_key_rotation_with_nudge(
+    async fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
     ) -> Result<(), StorageError> {
-        (**self).queue_key_rotation_with_nudge(rotation_task_hash, rotation_seed)
+        (**self)
+            .queue_key_rotation_with_nudge(rotation_task_hash, rotation_seed)
+            .await
     }
 
-    fn reset_key_package_rotation_queue(
+    async fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError> {
-        (**self).reset_key_package_rotation_queue(rotation_interval_ns)
+        (**self)
+            .reset_key_package_rotation_queue(rotation_interval_ns)
+            .await
     }
 
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
-        (**self).is_identity_needs_rotation()
+    async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+        (**self).is_identity_needs_rotation().await
     }
 
-    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
-        (**self).next_key_package_rotation_ns()
+    async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).next_key_package_rotation_ns().await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {

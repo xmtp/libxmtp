@@ -36,6 +36,7 @@ diesel_migrations = { workspace = true, features = ["sqlite"] }
 futures = { workspace = true, optional = true }
 hex.workspace = true
 itertools.workspace = true
+maybe-async.workspace = true
 mockall = { workspace = true, optional = true }
 openmls.workspace = true
 openmls_basic_credential.workspace = true
@@ -58,6 +59,20 @@ xmtp_proto = { workspace = true, features = ["diesel"] }
 zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Postgres only, deliberately: sqlx-sqlite pins libsqlite3-sys ^0.30 while
+# diesel here needs ^0.35, and both set `links = "sqlite3"` — cargo permits only
+# one such package per graph. SQLite therefore stays exclusively on the diesel
+# (sync) track, which is also the only track wasm can use.
+sqlx = { version = "0.8.6", optional = true, default-features = false, features = [
+  "postgres",
+  "runtime-tokio",
+] }
+# `tokio::sync::Mutex` pins one connection for the duration of a transaction.
+# It must be tokio's and not parking_lot's: the transaction closure is
+# caller-supplied and (once it is `maybe_async`) awaits arbitrary work between
+# lock acquisition and release, so a blocking guard would hold an OS thread
+# across unbounded network round-trips.
+tokio = { workspace = true, optional = true }
 libsqlite3-sys = { version = "0.35", features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
@@ -82,6 +97,11 @@ futures.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 xmtp_cryptography.workspace = true
+# `default-features = false` deliberately: this self dev-dependency exists only
+# to switch `test-utils` on for the test targets. Letting it pull the default
+# `sync` feature would unify `sync` with `async` whenever the async track is
+# under test, and `maybe-async/is_sync` is a global switch -- the trait would
+# collapse to the blocking shape while the sqlx impls stayed `async fn`.
 xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -92,6 +112,12 @@ criterion = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [features]
+default = ["sync"]
+# Storage tracks. `sync` is diesel+SQLite and is the only option on wasm (sqlx
+# cannot target wasm32-unknown-unknown). `async` is sqlx and is what servers
+# use. maybe-async/is_sync is a global switch, so exactly one may be enabled.
+sync = ["maybe-async/is_sync"]
+async = ["dep:sqlx", "dep:tokio"]
 update-schema = ["dep:toml"]
 # Enables the latency-injecting SQLite VFS used by the disk-latency benchmarks.
 bench = []

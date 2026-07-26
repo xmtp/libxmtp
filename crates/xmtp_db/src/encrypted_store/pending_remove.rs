@@ -32,47 +32,54 @@ pub struct PendingRemove {
 
 impl_store_or_ignore!(PendingRemove, pending_remove);
 impl_fetch!(PendingRemove, pending_remove);
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryPendingRemove {
-    fn get_pending_remove_users(
+    async fn get_pending_remove_users(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<String>, crate::ConnectionError>;
-    fn get_user_pending_remove_status(
+    async fn get_user_pending_remove_status(
         &self,
         group_id: &GroupId,
         inbox_id: &str,
     ) -> Result<bool, crate::ConnectionError>;
-    fn delete_pending_remove_users(
+    async fn delete_pending_remove_users(
         &self,
         group_id: &GroupId,
         inbox_ids: Vec<String>,
     ) -> Result<usize, crate::ConnectionError>;
 }
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryPendingRemove for &T
 where
     T: QueryPendingRemove,
 {
-    fn get_pending_remove_users(
+    async fn get_pending_remove_users(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<String>, crate::ConnectionError> {
-        (**self).get_pending_remove_users(group_id)
+        (**self).get_pending_remove_users(group_id).await
     }
-    fn get_user_pending_remove_status(
+    async fn get_user_pending_remove_status(
         &self,
         group_id: &GroupId,
         inbox_id: &str,
     ) -> Result<bool, crate::ConnectionError> {
-        (**self).get_user_pending_remove_status(group_id, inbox_id)
+        (**self)
+            .get_user_pending_remove_status(group_id, inbox_id)
+            .await
     }
-    fn delete_pending_remove_users(
+    async fn delete_pending_remove_users(
         &self,
         group_id: &GroupId,
         inbox_ids: Vec<String>,
     ) -> Result<usize, crate::ConnectionError> {
-        (**self).delete_pending_remove_users(group_id, inbox_ids)
+        (**self)
+            .delete_pending_remove_users(group_id, inbox_ids)
+            .await
     }
 }
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
     fn get_pending_remove_users(
         &self,

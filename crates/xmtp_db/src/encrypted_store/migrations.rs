@@ -8,32 +8,33 @@ use crate::ConnectionError;
 ///
 /// WARNING: These operations are dangerous and can cause data loss.
 /// They are intended for debugging and admin tools only.
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryMigrations {
     /// Returns a list of all applied migration versions, most recent first.
-    fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError>;
+    async fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError>;
 
     /// Returns a list of all available (embedded) migration names.
-    fn available_migrations(&self) -> Result<Vec<String>, ConnectionError>;
+    async fn available_migrations(&self) -> Result<Vec<String>, ConnectionError>;
 
     /// Rollback all migrations after and including the specified version.
     ///
     /// WARNING: This is destructive and may cause data loss.
-    fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
+    async fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
 
     /// Run a specific migration by name.
     ///
     /// NOTE: This runs the migration SQL directly without updating the
     /// schema_migrations tracking table.
-    fn run_migration(&self, name: &str) -> Result<(), ConnectionError>;
+    async fn run_migration(&self, name: &str) -> Result<(), ConnectionError>;
 
     /// Revert a specific migration by name.
     ///
     /// NOTE: This runs the revert SQL directly without updating the
     /// schema_migrations tracking table.
-    fn revert_migration(&self, name: &str) -> Result<(), ConnectionError>;
+    async fn revert_migration(&self, name: &str) -> Result<(), ConnectionError>;
 
     /// Run all pending migrations.
-    fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError>;
+    async fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError>;
 }
 
 fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> {
@@ -41,6 +42,7 @@ fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> 
         .map_err(|e| ConnectionError::Database(diesel::result::Error::QueryBuilderError(e)))
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
         let applied: Vec<MigrationVersion<'static>> = self.raw_query(|conn| {

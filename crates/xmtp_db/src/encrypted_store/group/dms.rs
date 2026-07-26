@@ -4,38 +4,47 @@ use super::*;
 use crate::ConnectionError;
 
 use xmtp_proto::types::GroupId;
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
-    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError>;
+    async fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError>;
 
-    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    async fn find_active_dm_group<M>(
+        &self,
+        members: M,
+    ) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display;
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError>;
+    async fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryDms for &T
 where
     T: QueryDms,
 {
-    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
-        (**self).fetch_stitched(key)
+    async fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
+        (**self).fetch_stitched(key).await
     }
 
-    fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    async fn find_active_dm_group<M>(
+        &self,
+        members: M,
+    ) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
-        (**self).find_active_dm_group(members)
+        (**self).find_active_dm_group(members).await
     }
 
-    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
-        (**self).other_dms(group_id)
+    async fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
+        (**self).other_dms(group_id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {

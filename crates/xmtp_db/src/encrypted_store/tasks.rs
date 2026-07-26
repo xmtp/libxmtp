@@ -135,38 +135,39 @@ pub fn data_hash_for(task: &TaskProto) -> TaskDataHash {
 /// recurring row lives forever; an applied pull-in self-deletes).
 pub const NEVER_EXPIRES: i64 = i64::MAX;
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryTasks {
-    fn create_task(&self, task: NewTask) -> Result<Task, StorageError>;
+    async fn create_task(&self, task: NewTask) -> Result<Task, StorageError>;
 
     /// Idempotent enqueue: a payload-identical duplicate is a no-op (the existing
     /// row wins; OR IGNORE swallows any constraint hit, not just data_hash UNIQUE).
-    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError>;
+    async fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError>;
 
     /// Lower a task's `next_attempt_at_ns` to `MIN(current, at_ns)` — never raises.
     /// Returns whether a row matched; a missing target is a no-op (`false`).
     /// TaskWorker dispatch thread only (sole rescheduler).
-    fn pull_in_task_deadline(
+    async fn pull_in_task_deadline(
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
     ) -> Result<bool, StorageError>;
 
-    fn get_tasks(&self) -> Result<Vec<Task>, StorageError>;
+    async fn get_tasks(&self) -> Result<Vec<Task>, StorageError>;
 
-    fn get_next_task(&self) -> Result<Option<Task>, StorageError>;
+    async fn get_next_task(&self) -> Result<Option<Task>, StorageError>;
 
     /// Ensure exactly one live `ProcessPendingSelfRemove` task exists for
     /// `group_id`. Clears only dead rows (expired / attempts-exhausted) then
     /// insert-or-ignores, so a live retrying task keeps its backoff and is never
     /// deleted out from under the TaskRunner, while a stale dead row can't block
     /// a fresh retry via the `data_hash` unique constraint.
-    fn upsert_pending_self_remove_task(
+    async fn upsert_pending_self_remove_task(
         &self,
         group_id: &GroupId,
         task: NewTask,
     ) -> Result<(), StorageError>;
 
-    fn update_task(
+    async fn update_task(
         &self,
         id: i32,
         attempts: i32,
@@ -174,57 +175,65 @@ pub trait QueryTasks {
         next_attempt_at_ns: i64,
     ) -> Result<Task, StorageError>;
 
-    fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
+    async fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T: QueryTasks> QueryTasks for &'_ T {
-    fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
-        (**self).create_task(task)
+    async fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
+        (**self).create_task(task).await
     }
 
-    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
-        (**self).create_or_ignore_task(task)
+    async fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
+        (**self).create_or_ignore_task(task).await
     }
 
-    fn pull_in_task_deadline(
+    async fn pull_in_task_deadline(
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
     ) -> Result<bool, StorageError> {
-        (**self).pull_in_task_deadline(target_data_hash, at_ns)
+        (**self)
+            .pull_in_task_deadline(target_data_hash, at_ns)
+            .await
     }
 
-    fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
-        (**self).get_tasks()
+    async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
+        (**self).get_tasks().await
     }
 
-    fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
-        (**self).get_next_task()
+    async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
+        (**self).get_next_task().await
     }
 
-    fn upsert_pending_self_remove_task(
+    async fn upsert_pending_self_remove_task(
         &self,
         group_id: &GroupId,
         task: NewTask,
     ) -> Result<(), StorageError> {
-        (**self).upsert_pending_self_remove_task(group_id, task)
+        (**self)
+            .upsert_pending_self_remove_task(group_id, task)
+            .await
     }
 
-    fn update_task(
+    async fn update_task(
         &self,
         id: i32,
         attempts: i32,
         last_attempted_at_ns: i64,
         next_attempt_at_ns: i64,
     ) -> Result<Task, StorageError> {
-        (**self).update_task(id, attempts, last_attempted_at_ns, next_attempt_at_ns)
+        (**self)
+            .update_task(id, attempts, last_attempted_at_ns, next_attempt_at_ns)
+            .await
     }
 
-    fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
-        (**self).delete_task(id)
+    async fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
+        (**self).delete_task(id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
     fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
         self.raw_query(|conn| {

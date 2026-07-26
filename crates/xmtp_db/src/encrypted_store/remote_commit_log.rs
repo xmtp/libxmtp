@@ -138,13 +138,14 @@ pub enum RemoteCommitLogOrder {
     DescendingByRowid,
 }
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryRemoteCommitLog {
-    fn get_latest_remote_log_for_group(
+    async fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
-    fn get_remote_commit_log_after_cursor(
+    async fn get_remote_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
@@ -152,27 +153,31 @@ pub trait QueryRemoteCommitLog {
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryRemoteCommitLog for &T
 where
     T: QueryRemoteCommitLog,
 {
-    fn get_latest_remote_log_for_group(
+    async fn get_latest_remote_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
-        (**self).get_latest_remote_log_for_group(group_id)
+        (**self).get_latest_remote_log_for_group(group_id).await
     }
 
-    fn get_remote_commit_log_after_cursor(
+    async fn get_remote_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
-        (**self).get_remote_commit_log_after_cursor(group_id, after_cursor, order_by)
+        (**self)
+            .get_remote_commit_log_after_cursor(group_id, after_cursor, order_by)
+            .await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
     fn get_latest_remote_log_for_group(
         &self,

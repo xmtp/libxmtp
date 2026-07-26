@@ -26,83 +26,96 @@ pub struct StoredKeyPackageHistoryEntry {
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryKeyPackageHistory {
-    fn store_key_package_history_entry(
+    async fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
         post_quantum_public_key: Option<Vec<u8>>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError>;
 
-    fn find_key_package_history_entry_by_hash_ref(
+    async fn find_key_package_history_entry_by_hash_ref(
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError>;
 
-    fn find_key_package_history_entries_before_id(
+    async fn find_key_package_history_entries_before_id(
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
 
-    fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError>;
+    async fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError>;
 
-    fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
+    async fn get_expired_key_packages(
+        &self,
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
 
     /// Soonest pending `delete_at_ns` across all key packages marked for deletion,
     /// or `None` if none are marked. The KpDeletion task's reschedule source.
-    fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
+    async fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
 
-    fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
+    async fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
 
-    fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
+    async fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryKeyPackageHistory for &T
 where
     T: QueryKeyPackageHistory,
 {
-    fn store_key_package_history_entry(
+    async fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
         post_quantum_public_key: Option<Vec<u8>>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        (**self).store_key_package_history_entry(key_package_hash_ref, post_quantum_public_key)
+        (**self)
+            .store_key_package_history_entry(key_package_hash_ref, post_quantum_public_key)
+            .await
     }
 
-    fn find_key_package_history_entry_by_hash_ref(
+    async fn find_key_package_history_entry_by_hash_ref(
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        (**self).find_key_package_history_entry_by_hash_ref(hash_ref)
+        (**self)
+            .find_key_package_history_entry_by_hash_ref(hash_ref)
+            .await
     }
 
-    fn find_key_package_history_entries_before_id(
+    async fn find_key_package_history_entries_before_id(
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
-        (**self).find_key_package_history_entries_before_id(id)
+        (**self)
+            .find_key_package_history_entries_before_id(id)
+            .await
     }
 
-    fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
-        (**self).mark_key_package_before_id_to_be_deleted(id)
+    async fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
+        (**self).mark_key_package_before_id_to_be_deleted(id).await
     }
 
-    fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
-        (**self).get_expired_key_packages()
+    async fn get_expired_key_packages(
+        &self,
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+        (**self).get_expired_key_packages().await
     }
 
-    fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
-        (**self).min_key_package_delete_at_ns()
+    async fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).min_key_package_delete_at_ns().await
     }
 
-    fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
-        (**self).delete_key_package_history_up_to_id(id)
+    async fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
+        (**self).delete_key_package_history_up_to_id(id).await
     }
 
-    fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
-        (**self).delete_key_package_entry_with_id(id)
+    async fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
+        (**self).delete_key_package_entry_with_id(id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     fn store_key_package_history_entry(
         &self,

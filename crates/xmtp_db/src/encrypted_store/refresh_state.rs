@@ -128,22 +128,23 @@ fn rows_to_global_cursor_map(
     map
 }
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryRefreshState {
-    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+    async fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
         originator_id: u32,
     ) -> Result<Option<RefreshState>, StorageError>;
 
-    fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
         &self,
         id: Id,
         entity_kind: EntityKind,
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError>;
 
-    fn get_last_cursor_for_originator<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originator<Id: AsRef<[u8]>>(
         &self,
         id: Id,
         entity_kind: EntityKind,
@@ -151,88 +152,97 @@ pub trait QueryRefreshState {
     ) -> Result<Cursor, StorageError> {
         // get_last_cursor guaranteed to return entry for id
         self.get_last_cursor_for_originators(id, entity_kind, &[originator_id])
+            .await
             .map(|c| c[0])
     }
 
-    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
         &self,
         ids: &[Id],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>;
 
-    fn update_cursor<Id: AsRef<[u8]>>(
+    async fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError>;
 
-    fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    async fn latest_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError>;
 
-    fn get_remote_log_cursors(
+    async fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
-    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+    async fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
         originator: u32,
     ) -> Result<Option<RefreshState>, StorageError> {
-        (**self).get_refresh_state(entity_id, entity_kind, originator)
+        (**self)
+            .get_refresh_state(entity_id, entity_kind, originator)
+            .await
     }
 
-    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
         &self,
         ids: &[Id],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
-        (**self).get_last_cursor_for_ids(ids, entities)
+        (**self).get_last_cursor_for_ids(ids, entities).await
     }
 
-    fn update_cursor<Id: AsRef<[u8]>>(
+    async fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError> {
-        (**self).update_cursor(entity_id, entity_kind, cursor)
+        (**self).update_cursor(entity_id, entity_kind, cursor).await
     }
 
-    fn get_remote_log_cursors(
+    async fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
-        (**self).get_remote_log_cursors(conversation_ids)
+        (**self).get_remote_log_cursors(conversation_ids).await
     }
 
-    fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
         &self,
         id: Id,
         entity_kind: EntityKind,
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
-        (**self).get_last_cursor_for_originators(id, entity_kind, originator_ids)
+        (**self)
+            .get_last_cursor_for_originators(id, entity_kind, originator_ids)
+            .await
     }
 
-    fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    async fn latest_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
-        (**self).latest_cursor_for_id(entity_id, entities, originators)
+        (**self)
+            .latest_cursor_for_id(entity_id, entities, originators)
+            .await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     #[tracing::instrument(level = "debug", skip_all)]
     fn get_refresh_state<EntityId: AsRef<[u8]>>(

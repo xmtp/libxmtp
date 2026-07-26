@@ -13,6 +13,7 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use xmtp_configuration::OPENMLS_KV_TARGET;
 
+// Builds on `crate::mock`, which is sync-track only.
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 mod transactions;
@@ -70,6 +71,9 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
+/// Sync track only: `Store<'a>` must be an `XmtpMlsStorageProvider`, which
+/// `SqlKeyStore` only is on the diesel track.
+#[cfg(feature = "sync")]
 impl TransactionalKeyStore for diesel::SqliteConnection {
     type Store<'a>
         = SqlKeyStore<MutableTransactionConnection<'a>>

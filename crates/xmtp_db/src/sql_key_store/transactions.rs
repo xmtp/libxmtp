@@ -42,6 +42,11 @@ impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
     }
 }
 
+/// `SqlKeyStore` is the diesel/SQLite openmls provider, so it can only satisfy
+/// `XmtpMlsStorageProvider` on the sync track — its `DbQuery<'a>` associated type
+/// names `DbConnection`, whose `Query*` impls only exist there. Servers use
+/// `openmls_sqlx_storage` instead.
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     type Connection = C;
 

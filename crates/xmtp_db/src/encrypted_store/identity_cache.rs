@@ -85,14 +85,15 @@ impl From<StoredIdentityKind> for IdentifierKind {
 impl_store!(IdentityCache, identity_cache);
 impl_fetch!(IdentityCache, identity_cache);
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIdentityCache {
     /// Returns a HashMap of WalletAddress -> InboxId
-    fn fetch_cached_inbox_ids(
+    async fn fetch_cached_inbox_ids(
         &self,
         identifiers: &[(Address, StoredIdentityKind)],
     ) -> Result<HashMap<String, String>, StorageError>;
 
-    fn cache_inbox_id<S: ToString>(
+    async fn cache_inbox_id<S: ToString>(
         &self,
         kind: StoredIdentityKind,
         identity: String,
@@ -100,29 +101,31 @@ pub trait QueryIdentityCache {
     ) -> Result<(), StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<G> QueryIdentityCache for &G
 where
     G: QueryIdentityCache,
 {
-    fn fetch_cached_inbox_ids(
+    async fn fetch_cached_inbox_ids(
         &self,
         identifiers: &[(Address, StoredIdentityKind)],
     ) -> Result<HashMap<String, String>, StorageError> {
-        (**self).fetch_cached_inbox_ids(identifiers)
+        (**self).fetch_cached_inbox_ids(identifiers).await
     }
 
-    fn cache_inbox_id<S: ToString>(
+    async fn cache_inbox_id<S: ToString>(
         &self,
         kind: StoredIdentityKind,
         identity: String,
         inbox_id: S,
     ) -> Result<(), StorageError> {
-        (**self).cache_inbox_id(kind, identity, inbox_id)
+        (**self).cache_inbox_id(kind, identity, inbox_id).await
     }
 }
 
 type Address = String;
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     /// Returns a HashMap of WalletAddress -> InboxId
     fn fetch_cached_inbox_ids(

@@ -65,10 +65,27 @@ pub trait IntoConnection {
     fn into_connection(self) -> Self::Connection;
 }
 
+/// The parts of `DbQuery` that only one storage track can provide.
+///
+/// `ReadOnly` (`PRAGMA query_only`), `Pragmas` (`busy_timeout`, `cipher_log_level`)
+/// and `ConnectionExt` (`raw_query` over a `&mut SqliteConnection`) are all
+/// SQLite-shaped, so they are supertraits of `DbQuery` on the sync track only.
+/// On the async track this collapses to an empty blanket-implemented trait,
+/// which keeps the `DbQuery` list below single-copy instead of cfg-forking it.
+#[cfg(feature = "sync")]
+pub trait BackendSpecific: ReadOnly + Pragmas + crate::ConnectionExt {}
+#[cfg(feature = "sync")]
+impl<T: ?Sized> BackendSpecific for T where T: ReadOnly + Pragmas + crate::ConnectionExt {}
+
+#[cfg(not(feature = "sync"))]
+pub trait BackendSpecific {}
+#[cfg(not(feature = "sync"))]
+impl<T: ?Sized> BackendSpecific for T {}
+
 pub trait DbQuery:
     MaybeSend
     + MaybeSync
-    + ReadOnly
+    + BackendSpecific
     + QueryConsentRecord
     + QueryConversationList
     + QueryDms
@@ -92,15 +109,13 @@ pub trait DbQuery:
     + QueryIcebox
     + QueryMessageDeletion
     + QueryMigrationCutover
-    + Pragmas
-    + crate::ConnectionExt
 {
 }
 
 impl<T: ?Sized> DbQuery for T where
     T: MaybeSend
         + MaybeSync
-        + ReadOnly
+        + BackendSpecific
         + QueryConsentRecord
         + QueryConversationList
         + QueryDms
@@ -124,8 +139,6 @@ impl<T: ?Sized> DbQuery for T where
         + QueryIcebox
         + QueryMessageDeletion
         + QueryMigrationCutover
-        + Pragmas
-        + crate::ConnectionExt
 {
 }
 

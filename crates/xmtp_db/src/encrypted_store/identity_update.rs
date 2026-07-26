@@ -48,10 +48,11 @@ impl StoredIdentityUpdate {
 
 impl_store!(StoredIdentityUpdate, identity_updates);
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIdentityUpdates {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
-    fn get_identity_updates<InboxId: AsRef<str>>(
+    async fn get_identity_updates<InboxId: AsRef<str>>(
         &self,
         inbox_id: InboxId,
         from_sequence_id: Option<i64>,
@@ -59,71 +60,75 @@ pub trait QueryIdentityUpdates {
     ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError>;
 
     /// Batch insert identity updates, ignoring duplicates.
-    fn insert_or_ignore_identity_updates(
+    async fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
     ) -> Result<(), crate::ConnectionError>;
 
-    fn get_latest_sequence_id_for_inbox(
+    async fn get_latest_sequence_id_for_inbox(
         &self,
         inbox_id: &str,
     ) -> Result<i64, crate::ConnectionError>;
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
-    fn get_latest_sequence_id(
+    async fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
 
     /// Returns the count of identity updates for inbox_ids
-    fn count_inbox_updates(
+    async fn count_inbox_updates(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryIdentityUpdates for &T
 where
     T: QueryIdentityUpdates,
 {
-    fn get_identity_updates<InboxId: AsRef<str>>(
+    async fn get_identity_updates<InboxId: AsRef<str>>(
         &self,
         inbox_id: InboxId,
         from_sequence_id: Option<i64>,
         to_sequence_id: Option<i64>,
     ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
-        (**self).get_identity_updates(inbox_id, from_sequence_id, to_sequence_id)
+        (**self)
+            .get_identity_updates(inbox_id, from_sequence_id, to_sequence_id)
+            .await
     }
 
-    fn insert_or_ignore_identity_updates(
+    async fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
     ) -> Result<(), crate::ConnectionError> {
-        (**self).insert_or_ignore_identity_updates(updates)
+        (**self).insert_or_ignore_identity_updates(updates).await
     }
 
-    fn get_latest_sequence_id_for_inbox(
+    async fn get_latest_sequence_id_for_inbox(
         &self,
         inbox_id: &str,
     ) -> Result<i64, crate::ConnectionError> {
-        (**self).get_latest_sequence_id_for_inbox(inbox_id)
+        (**self).get_latest_sequence_id_for_inbox(inbox_id).await
     }
 
-    fn get_latest_sequence_id(
+    async fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
-        (**self).get_latest_sequence_id(inbox_ids)
+        (**self).get_latest_sequence_id(inbox_ids).await
     }
 
-    fn count_inbox_updates(
+    async fn count_inbox_updates(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
-        (**self).count_inbox_updates(inbox_ids)
+        (**self).count_inbox_updates(inbox_ids).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`

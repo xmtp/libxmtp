@@ -64,6 +64,7 @@ pub struct IceboxDependency {
 
 impl_store!(IceboxDependency, icebox_dependencies);
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIcebox {
     /// Returns the envelopes (if they exist) plus all their dependencies, and
     /// dependencies of dependencies, along with each envelope's own dependencies.
@@ -71,7 +72,7 @@ pub trait QueryIcebox {
     /// processed, was accidentally committed to the icebox.
     /// Generally, if an envelope has a dependency on something in the icebox already
     /// it means its dependency could not be processed, so it must also be iceboxed.
-    fn past_dependents(
+    async fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
@@ -79,44 +80,45 @@ pub trait QueryIcebox {
     /// Returns envelopes that depend on any of the specified cursors,
     /// along with each envelope's own dependencies.
     /// Does not return the cursors themselves, if they exist in the chain.
-    fn future_dependents(
+    async fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
 
     /// cache the orphans until its parent(s) may be found.
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError>;
+    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError>;
 
     /// Removes icebox entries that have been processed according to refresh_state.
     /// Deletes entries where the refresh_state cursor for the group is at or beyond
     /// the icebox entry's sequence_id, indicating the envelope has been processed.
-    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
+    async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryIcebox for &T
 where
     T: QueryIcebox,
 {
-    fn past_dependents(
+    async fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).past_dependents(cursors)
+        (**self).past_dependents(cursors).await
     }
 
-    fn future_dependents(
+    async fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        (**self).future_dependents(cursors)
+        (**self).future_dependents(cursors).await
     }
 
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
-        (**self).ice(orphans)
+    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+        (**self).ice(orphans).await
     }
 
-    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
-        (**self).prune_icebox()
+    async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+        (**self).prune_icebox().await
     }
 }
 
@@ -177,6 +179,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
     fn past_dependents(
         &self,

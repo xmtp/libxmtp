@@ -27,40 +27,43 @@ impl Default for StoredMigrationCutover {
     }
 }
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryMigrationCutover {
-    fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError>;
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError>;
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError>;
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError>;
 
-    fn get_last_checked_ns(&self) -> Result<i64, StorageError>;
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError>;
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError>;
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError>;
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError>;
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T: QueryMigrationCutover> QueryMigrationCutover for &T {
-    fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
-        (**self).get_migration_cutover()
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
+        (**self).get_migration_cutover().await
     }
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
-        (**self).set_cutover_ns(cutover_ns)
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
+        (**self).set_cutover_ns(cutover_ns).await
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
-        (**self).get_last_checked_ns()
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
+        (**self).get_last_checked_ns().await
     }
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
-        (**self).set_last_checked_ns(last_checked_ns)
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
+        (**self).set_last_checked_ns(last_checked_ns).await
     }
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
-        (**self).set_has_migrated(has_migrated)
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
+        (**self).set_has_migrated(has_migrated).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
     fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
         let result = self.raw_query(|conn| dsl::d14n_migration_cutover.first(conn).optional())?;

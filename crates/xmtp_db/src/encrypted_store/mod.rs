@@ -166,6 +166,18 @@ pub enum ConnectionError {
     /// Invalid query parameters or configuration. Not retryable.
     #[error("invalid query: {0}")]
     InvalidQuery(String),
+    /// Postgres error from the async (sqlx) track.
+    ///
+    /// Retryability is classified by SQLSTATE -- see [`is_retryable_sqlx`].
+    #[cfg(feature = "async")]
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+    /// A transaction could not be committed because a handle to it outlived the
+    /// transaction closure. The transaction is rolled back. Not retryable --
+    /// this is a programming error, not contention.
+    #[cfg(feature = "async")]
+    #[error("transaction handle escaped its closure; transaction rolled back")]
+    TransactionHandleEscaped,
     /// Invalid version.
     ///
     /// DB migration version mismatch -- running a newer DB on older LibXMTP. Not retryable.
@@ -187,7 +199,40 @@ impl RetryableError for ConnectionError {
             Self::ReconnectInTransaction => true,
             Self::InvalidQuery(_) => false,
             Self::InvalidVersion { .. } => false,
+            #[cfg(feature = "async")]
+            Self::Sqlx(e) => is_retryable_sqlx(e),
+            #[cfg(feature = "async")]
+            Self::TransactionHandleEscaped => false,
         }
+    }
+}
+
+/// Postgres counterpart to SQLite's `SQLITE_BUSY` retry classification.
+///
+/// On SQLite, contention shows up as a busy/locked code and the caller retries.
+/// Postgres surfaces the same situations as SQLSTATE classes, and — because the
+/// connection is now a network socket — adds a class SQLite has no equivalent
+/// for: the round-trip itself failing. Both are retryable; a rejected statement
+/// is not.
+#[cfg(feature = "async")]
+pub fn is_retryable_sqlx(e: &sqlx::Error) -> bool {
+    use sqlx::error::DatabaseError;
+    match e {
+        // Contention. 40001 serialization_failure and 40P01 deadlock_detected are
+        // what SQLITE_BUSY becomes under MVCC; 55P03 lock_not_available is the
+        // `NOWAIT`/`SKIP LOCKED` analogue.
+        sqlx::Error::Database(db) => matches!(
+            DatabaseError::code(db.as_ref()).as_deref(),
+            Some("40001" | "40P01" | "55P03")
+        ),
+        // The round trip failed rather than the statement. No SQLite analogue --
+        // these only exist once the database is across a network.
+        sqlx::Error::Io(_) | sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => true,
+        // Server closed the connection mid-flight.
+        sqlx::Error::Protocol(_) | sqlx::Error::WorkerCrashed => true,
+        // Statement was understood and rejected, or the result didn't match --
+        // retrying re-runs an identical failure.
+        _ => false,
     }
 }
 

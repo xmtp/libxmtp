@@ -63,25 +63,28 @@ pub struct ConversationListItem {
     pub originator_id: Option<i64>,
 }
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryConversationList {
-    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+    async fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryConversationList for &T
 where
     T: QueryConversationList,
 {
-    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+    async fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
-        (**self).fetch_conversation_list(args)
+        (**self).fetch_conversation_list(args).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
     fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,

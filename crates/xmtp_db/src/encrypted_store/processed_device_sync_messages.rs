@@ -91,54 +91,69 @@ impl_store_or_ignore!(
     processed_device_sync_messages
 );
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryDeviceSyncMessages {
-    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError>;
-    fn sync_group_messages_paged(
+    async fn unprocessed_sync_group_messages(
+        &self,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError>;
+    async fn sync_group_messages_paged(
         &self,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<StoredGroupMessage>, StorageError>;
     /// Marks a device sync message as processed.
-    fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError>;
+    async fn mark_device_sync_msg_as_processed(
+        &self,
+        message_id: &[u8],
+    ) -> Result<(), StorageError>;
     /// Increments the attempt count for a device sync message.
     /// If the attempt count reaches max_attempts, the state is set to Failed.
     /// Returns the new attempt count.
-    fn increment_device_sync_msg_attempt(
+    async fn increment_device_sync_msg_attempt(
         &self,
         message_id: &[u8],
         max_attempts: i32,
     ) -> Result<i32, StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryDeviceSyncMessages for &T
 where
     T: QueryDeviceSyncMessages,
 {
-    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        (**self).unprocessed_sync_group_messages()
+    async fn unprocessed_sync_group_messages(
+        &self,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        (**self).unprocessed_sync_group_messages().await
     }
 
-    fn sync_group_messages_paged(
+    async fn sync_group_messages_paged(
         &self,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        (**self).sync_group_messages_paged(offset, limit)
+        (**self).sync_group_messages_paged(offset, limit).await
     }
 
-    fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError> {
-        (**self).mark_device_sync_msg_as_processed(message_id)
+    async fn mark_device_sync_msg_as_processed(
+        &self,
+        message_id: &[u8],
+    ) -> Result<(), StorageError> {
+        (**self).mark_device_sync_msg_as_processed(message_id).await
     }
 
-    fn increment_device_sync_msg_attempt(
+    async fn increment_device_sync_msg_attempt(
         &self,
         message_id: &[u8],
         max_attempts: i32,
     ) -> Result<i32, StorageError> {
-        (**self).increment_device_sync_msg_attempt(message_id, max_attempts)
+        (**self)
+            .increment_device_sync_msg_attempt(message_id, max_attempts)
+            .await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
     fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let result = self.raw_query(|conn| {

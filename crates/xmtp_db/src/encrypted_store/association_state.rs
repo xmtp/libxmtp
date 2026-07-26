@@ -19,55 +19,58 @@ pub struct StoredAssociationState {
 impl_fetch!(StoredAssociationState, association_state, (String, i64));
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryAssociationStateCache {
-    fn write_to_cache(
+    async fn write_to_cache(
         &self,
         inbox_id: String,
         sequence_id: i64,
         state: AssociationStateProto,
     ) -> Result<(), StorageError>;
 
-    fn read_from_cache<A: AsRef<str>>(
+    async fn read_from_cache<A: AsRef<str>>(
         &self,
         inbox_id: A,
         sequence_id: i64,
     ) -> Result<Option<AssociationStateProto>, StorageError>;
 
-    fn batch_read_from_cache(
+    async fn batch_read_from_cache(
         &self,
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<AssociationStateProto>, StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<R> QueryAssociationStateCache for &R
 where
     R: QueryAssociationStateCache,
 {
-    fn write_to_cache(
+    async fn write_to_cache(
         &self,
         inbox_id: String,
         sequence_id: i64,
         state: AssociationStateProto,
     ) -> Result<(), StorageError> {
-        (**self).write_to_cache(inbox_id, sequence_id, state)
+        (**self).write_to_cache(inbox_id, sequence_id, state).await
     }
 
-    fn read_from_cache<A: AsRef<str>>(
+    async fn read_from_cache<A: AsRef<str>>(
         &self,
         inbox_id: A,
         sequence_id: i64,
     ) -> Result<Option<AssociationStateProto>, StorageError> {
-        (**self).read_from_cache(inbox_id, sequence_id)
+        (**self).read_from_cache(inbox_id, sequence_id).await
     }
 
-    fn batch_read_from_cache(
+    async fn batch_read_from_cache(
         &self,
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<AssociationStateProto>, StorageError> {
-        (**self).batch_read_from_cache(identifiers)
+        (**self).batch_read_from_cache(identifiers).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
     fn write_to_cache(
         &self,

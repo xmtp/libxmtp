@@ -374,6 +374,10 @@ impl NativeDb {
     }
 }
 
+/// `XmtpDb::DbQuery` is bound by `crate::DbQuery`, which `DbConnection` only
+/// satisfies on the sync track. The diesel database itself still compiles on the
+/// async track; only its role as *the* store is sync-track-only.
+#[cfg(feature = "sync")]
 impl XmtpDb for NativeDb {
     type Connection =
         Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>;

@@ -39,72 +39,77 @@ impl_store!(StoredMessageDeletion, message_deletions);
 impl_store_or_ignore!(StoredMessageDeletion, message_deletions);
 
 /// Trait for querying message deletions
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryMessageDeletion {
     /// Get a deletion record by the DeleteMessage ID
-    fn get_message_deletion(
+    async fn get_message_deletion(
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Get deletion record for a specific deleted message
-    fn get_deletion_by_deleted_message_id(
+    async fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Get all deletions for a list of message IDs
-    fn get_deletions_for_messages(
+    async fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Get all deletions in a group
-    fn get_group_deletions(
+    async fn get_group_deletions(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
 
     /// Check if a message has been deleted
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+    async fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryMessageDeletion for &T
 where
     T: QueryMessageDeletion,
 {
-    fn get_message_deletion(
+    async fn get_message_deletion(
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_message_deletion(id)
+        (**self).get_message_deletion(id).await
     }
 
-    fn get_deletion_by_deleted_message_id(
+    async fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_deletion_by_deleted_message_id(deleted_message_id)
+        (**self)
+            .get_deletion_by_deleted_message_id(deleted_message_id)
+            .await
     }
 
-    fn get_deletions_for_messages(
+    async fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_deletions_for_messages(message_ids)
+        (**self).get_deletions_for_messages(message_ids).await
     }
 
-    fn get_group_deletions(
+    async fn get_group_deletions(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        (**self).get_group_deletions(group_id)
+        (**self).get_group_deletions(group_id).await
     }
 
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        (**self).is_message_deleted(message_id)
+    async fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        (**self).is_message_deleted(message_id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     fn get_message_deletion(
         &self,

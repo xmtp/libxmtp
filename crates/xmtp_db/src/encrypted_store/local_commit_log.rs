@@ -132,27 +132,28 @@ pub enum LocalCommitLogOrder {
     DescendingByRowid,
 }
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryLocalCommitLog {
-    fn get_group_logs(
+    async fn get_group_logs(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
     // Local commit log entries are returned sorted in ascending order of `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-    fn get_local_commit_log_after_cursor(
+    async fn get_local_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
         order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
-    fn get_latest_log_for_group(
+    async fn get_latest_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
 
-    fn get_local_commit_log_cursor(
+    async fn get_local_commit_log_cursor(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError>;
@@ -161,54 +162,58 @@ pub trait QueryLocalCommitLog {
     /// Chain-start entries have `commit_sequence_id == 0` (Welcome /
     /// GroupCreation / BackupRestore) and mark the beginning of the member's
     /// current membership session.
-    fn get_latest_chain_start_rowid(
+    async fn get_latest_chain_start_rowid(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryLocalCommitLog for &T
 where
     T: QueryLocalCommitLog,
 {
-    fn get_group_logs(
+    async fn get_group_logs(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_group_logs(group_id)
+        (**self).get_group_logs(group_id).await
     }
 
-    fn get_local_commit_log_after_cursor(
+    async fn get_local_commit_log_after_cursor(
         &self,
         group_id: &GroupId,
         after_cursor: i64,
         order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_local_commit_log_after_cursor(group_id, after_cursor, order_by)
+        (**self)
+            .get_local_commit_log_after_cursor(group_id, after_cursor, order_by)
+            .await
     }
 
-    fn get_latest_log_for_group(
+    async fn get_latest_log_for_group(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_latest_log_for_group(group_id)
+        (**self).get_latest_log_for_group(group_id).await
     }
 
-    fn get_local_commit_log_cursor(
+    async fn get_local_commit_log_cursor(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
-        (**self).get_local_commit_log_cursor(group_id)
+        (**self).get_local_commit_log_cursor(group_id).await
     }
 
-    fn get_latest_chain_start_rowid(
+    async fn get_latest_chain_start_rowid(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
-        (**self).get_latest_chain_start_rowid(group_id)
+        (**self).get_latest_chain_start_rowid(group_id).await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     fn get_group_logs(
         &self,

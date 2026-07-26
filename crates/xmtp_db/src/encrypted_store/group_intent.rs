@@ -239,14 +239,15 @@ impl NewGroupIntent {
     }
 }
 
+#[maybe_async::maybe_async(AFIT)]
 pub trait QueryGroupIntent {
-    fn insert_group_intent(
+    async fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
     ) -> Result<StoredGroupIntent, crate::ConnectionError>;
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    fn find_group_intents<Id: AsRef<[u8]>>(
+    async fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
@@ -255,7 +256,7 @@ pub trait QueryGroupIntent {
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
-    fn set_group_intent_published(
+    async fn set_group_intent_published(
         &self,
         intent_id: ID,
         payload_hash: &[u8],
@@ -265,62 +266,71 @@ pub trait QueryGroupIntent {
     ) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `Committed`
-    fn set_group_intent_committed(&self, intent_id: ID, cursor: Cursor)
-    -> Result<(), StorageError>;
+    async fn set_group_intent_committed(
+        &self,
+        intent_id: ID,
+        cursor: Cursor,
+    ) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `Committed`
-    fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError>;
+    async fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError>;
 
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
-    fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
+    async fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
 
     /// Set the intent with the given ID to `Error`
-    fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError>;
+    async fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError>;
 
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
-    fn find_group_intent_by_payload_hash(
+    async fn find_group_intent_by_payload_hash(
         &self,
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError>;
 
     /// find the commit message refresh state for each intent payload hash
-    fn find_dependant_commits<P: AsRef<[u8]>>(
+    async fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
         payload_hashes: &[P],
     ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError>;
 
-    fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError>;
+    async fn increment_intent_publish_attempt_count(
+        &self,
+        intent_id: ID,
+    ) -> Result<(), StorageError>;
 
-    fn set_group_intent_error_and_fail_msg(
+    async fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,
         msg_id: Option<Vec<u8>>,
     ) -> Result<(), StorageError>;
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryGroupIntent for &T
 where
     T: QueryGroupIntent,
 {
-    fn insert_group_intent(
+    async fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
     ) -> Result<StoredGroupIntent, crate::ConnectionError> {
-        (**self).insert_group_intent(to_save)
+        (**self).insert_group_intent(to_save).await
     }
 
-    fn find_group_intents<Id: AsRef<[u8]>>(
+    async fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
-        (**self).find_group_intents(group_id, allowed_states, allowed_kinds)
+        (**self)
+            .find_group_intents(group_id, allowed_states, allowed_kinds)
+            .await
     }
 
-    fn set_group_intent_published(
+    async fn set_group_intent_published(
         &self,
         intent_id: ID,
         payload_hash: &[u8],
@@ -328,62 +338,74 @@ where
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
     ) -> Result<(), StorageError> {
-        (**self).set_group_intent_published(
-            intent_id,
-            payload_hash,
-            post_commit_data,
-            staged_commit,
-            published_in_epoch,
-        )
+        (**self)
+            .set_group_intent_published(
+                intent_id,
+                payload_hash,
+                post_commit_data,
+                staged_commit,
+                published_in_epoch,
+            )
+            .await
     }
 
-    fn set_group_intent_committed(
+    async fn set_group_intent_committed(
         &self,
         intent_id: ID,
         cursor: Cursor,
     ) -> Result<(), StorageError> {
-        (**self).set_group_intent_committed(intent_id, cursor)
+        (**self).set_group_intent_committed(intent_id, cursor).await
     }
 
-    fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
-        (**self).set_group_intent_processed(intent_id)
+    async fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_processed(intent_id).await
     }
 
-    fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
-        (**self).set_group_intent_to_publish(intent_id)
+    async fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_to_publish(intent_id).await
     }
 
-    fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
-        (**self).set_group_intent_error(intent_id)
+    async fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_error(intent_id).await
     }
 
-    fn find_group_intent_by_payload_hash(
+    async fn find_group_intent_by_payload_hash(
         &self,
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
-        (**self).find_group_intent_by_payload_hash(payload_hash)
+        (**self)
+            .find_group_intent_by_payload_hash(payload_hash)
+            .await
     }
 
-    fn find_dependant_commits<P: AsRef<[u8]>>(
+    async fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
         payload_hashes: &[P],
     ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
-        (**self).find_dependant_commits(payload_hashes)
+        (**self).find_dependant_commits(payload_hashes).await
     }
 
-    fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
-        (**self).increment_intent_publish_attempt_count(intent_id)
+    async fn increment_intent_publish_attempt_count(
+        &self,
+        intent_id: ID,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .increment_intent_publish_attempt_count(intent_id)
+            .await
     }
 
-    fn set_group_intent_error_and_fail_msg(
+    async fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,
         msg_id: Option<Vec<u8>>,
     ) -> Result<(), StorageError> {
-        (**self).set_group_intent_error_and_fail_msg(intent, msg_id)
+        (**self)
+            .set_group_intent_error_and_fail_msg(intent, msg_id)
+            .await
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     #[xmtp_common::db_span]
     fn insert_group_intent(

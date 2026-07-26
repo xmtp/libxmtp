@@ -2,6 +2,9 @@
 
 pub mod encrypted_store;
 mod errors;
+/// Async-track storage handle (sqlx + Postgres). Servers only; never wasm.
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+pub mod pg;
 pub mod serialization;
 pub use serialization::*;
 pub mod sql_key_store;
@@ -12,6 +15,8 @@ pub use xmtp_openmls_provider::{
     TransactionOutcome, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
     XmtpOpenMlsProviderRefMut,
 };
+// `mock!`/`automock` generate blocking `fn` bodies, so these only satisfy the
+// `Query*` traits in their sync-collapsed shape.
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 
@@ -19,6 +24,7 @@ pub mod mock;
 #[cfg(all(not(target_arch = "wasm32"), feature = "bench"))]
 pub mod latency_vfs;
 
+// Raw SQLite DDL (triggers, rowid, PRAGMA) with no Postgres translation.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 #[cfg(any(test, feature = "test-utils"))]
