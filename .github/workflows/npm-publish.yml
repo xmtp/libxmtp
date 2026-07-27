@@ -68,7 +68,7 @@ jobs:
       version: ${{ inputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}
