@@ -96,5 +96,38 @@
       });
     }
   )
+  # nixpkgs 624af665's cc-wrapper enables TLSDESC for every Linux x86
+  # target when the compiler is clang >= 19.1 (tlsDialect in
+  # pkgs/build-support/cc-wrapper/default.nix) with no Android
+  # exclusion, so the NDK wrapper's clang hook injects
+  # -mtls-dialect=gnu2 into every compile. NDK clang hard-rejects it:
+  #   clang: error: unsupported argument 'gnu2' to option
+  #     '-mtls-dialect=' for target 'x86_64-unknown-linux-android'
+  # breaking all C/asm cross-compiles (first casualty: ring's
+  # pregenerated asm in the Android unit-test job).
+  #
+  # Strip the flag from the wrapper's add-local-cc-cflags-before.sh,
+  # where machineFlags are substituted for clang. Gated on isAndroid,
+  # and the android closure rebuilds on any nixpkgs bump anyway, so
+  # this invalidates no extra cache.
+  #
+  # Upstream fix would be `&& !targetPlatform.isAndroid` in the
+  # tlsDialect definition; drop this overlay once that lands.
+  (
+    final: prev:
+    prev.lib.optionalAttrs (prev.stdenv.hostPlatform.isAndroid or false) {
+      stdenv = prev.overrideCC prev.stdenv (
+        prev.stdenv.cc.overrideAttrs (old: {
+          postFixup = (old.postFixup or "") + ''
+            hook=$out/nix-support/add-local-cc-cflags-before.sh
+            if [ -f "$hook" ]; then
+              # escapeShellArgs single-quotes the substituted flag
+              sed -i -e "s/ '-mtls-dialect=gnu2'//g" -e 's/ -mtls-dialect=gnu2//g' "$hook"
+            fi
+          '';
+        })
+      );
+    }
+  )
 
 ]
