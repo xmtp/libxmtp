@@ -46,6 +46,9 @@ let
     wasm-bindgen-cli = host.callPackage ./packages/wasm-bindgen-cli.nix { };
     napi-rs-cli = host.callPackage ./packages/napi-rs-cli { };
     swiftlint = host.callPackage ./packages/swiftlint.nix { };
+    # Prebuilt binary — nixpkgs' swiftformat needs the Swift toolchain, which
+    # is broken/uncached on Linux in current nixpkgs.
+    swiftformat = host.callPackage ./packages/swiftformat.nix { };
     xmtp = {
       inherit ffi-uniffi-bindgen;
       filesets = host.callPackage ./filesets.nix { };
