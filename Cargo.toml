@@ -9,7 +9,17 @@ members = [
   "crates/*",
 ]
 
-exclude = ["apps/android", "apps/xnet/Cargo.toml", "apps/xnet/assets"]
+exclude = [
+  "apps/android",
+  "apps/xnet/Cargo.toml",
+  "apps/xnet/assets",
+  # Postgres-only integration tests for xmtp_db's async storage track. Excluded
+  # rather than made a member: it must depend on xmtp_db with the default `sync`
+  # feature OFF, which is impossible from inside this workspace (xmtp_db's self
+  # dev-dependency always turns `sync` back on). Keeping it out also keeps it
+  # clear of hakari, `clippy --all-features`, and default-members.
+  "crates/xmtp_db_pg_tests",
+]
 
 # Default members must be part of workspace hack to maximize cache hits in CI/nix/crane
 default-members = [

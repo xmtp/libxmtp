@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       workspace: ${{ steps.filter.outputs.workspace }}
+      db_postgres: ${{ steps.filter.outputs.db_postgres }}
       node: ${{ steps.filter.outputs.node }}
       wasm: ${{ steps.filter.outputs.wasm }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
@@ -46,6 +47,17 @@ jobs:
               - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
+            db_postgres:
+              - 'crates/xmtp_db/**'
+              - 'crates/xmtp_db_pg_tests/**'
+              - 'crates/xmtp_proto/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'justfile'
+              - '.github/workflows/test-db-postgres.yml'
             node:
               - 'crates/**'
               - 'bindings/node/**'
@@ -156,6 +168,12 @@ jobs:
     uses: ./.github/workflows/test-workspace.yml
     secrets: inherit
 
+  test-db-postgres:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.db_postgres == 'true'
+    uses: ./.github/workflows/test-db-postgres.yml
+    secrets: inherit
+
   test-xdbg:
     needs: detect-changes
     if: needs.detect-changes.outputs.xdbg == 'true'
@@ -244,6 +262,7 @@ jobs:
     if: always()
     needs:
       - test-workspace
+      - test-db-postgres
       - test-xdbg
       - test-keepalive-probe
       - test-node

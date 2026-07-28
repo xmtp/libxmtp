@@ -1,0 +1,62 @@
+[package]
+name = "xmtp_db_pg_tests"
+description = "Integration tests for xmtp_db's async (sqlx + Postgres) storage track"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+
+# Deliberately NOT a member of the libxmtp workspace -- it is listed in the root
+# manifest's `exclude`.
+#
+# The two storage tracks are selected by cargo features, and `maybe-async/is_sync`
+# is a global switch: whenever `sync` is present in a graph it wins, and the
+# `Query*` traits collapse to their blocking shape, so the sqlx impls (gated
+# `not(feature = "sync")`) are compiled out. Every test target *inside* xmtp_db
+# has `sync` on, because xmtp_db self-dev-depends on itself to switch `test-utils`
+# on for `tests/` and its bench.
+#
+# Depending on xmtp_db from a separate crate sidesteps that entirely: a
+# dependency's dev-dependencies are never built, so no `sync` enters this graph
+# and these tests exercise the exact `--no-default-features --features async`
+# build that ships to servers.
+#
+# Being excluded (rather than a non-default member) also keeps it out of
+# `cargo hakari`, `clippy --all-features`, `default-members`, and the CI/nix
+# cache, none of which should have to know about a Postgres-only test crate.
+# The cost is a separate Cargo.lock; versions below are pinned to match the
+# workspace.
+
+[dependencies]
+sqlx = { version = "0.8.6", default-features = false, features = [
+  "postgres",
+  "runtime-tokio",
+] }
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
+xmtp_common = { path = "../xmtp_common" }
+xmtp_db = { path = "../xmtp_db", default-features = false, features = [
+  "async",
+] }
+xmtp_proto = { path = "../xmtp_proto", features = ["sqlx"] }
+
+# Mirrors the root manifest's `[patch.crates-io]`. Cargo only honours patches at
+# a workspace root, and this crate is its own root, so they have to be restated.
+#
+# These are not optional cosmetics: without the `xmtp-workspace-hack` patch the
+# hack resolves to the empty crates.io placeholder instead of the local crate,
+# openmls's features stop being unified, and `openmls_memory_storage` fails to
+# compile against an `openmls_traits` that has `extensions-draft` on.
+#
+# KEEP IN SYNC with the root `Cargo.toml`. Drift here surfaces as confusing
+# resolution errors in this crate only.
+[patch.crates-io]
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+tracing-oslog = { git = "https://github.com/xmtp/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
+
+[patch.crates-io.xmtp-workspace-hack]
+path = "../xmtp-workspace-hack"

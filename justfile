@@ -98,6 +98,20 @@ _test-crate +crates:
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     {{ cargo_test }} $args
 
+# Postgres-backed tests for xmtp_db's async (sqlx) storage track.
+#
+# `xmtp_db_pg_tests` is deliberately outside the workspace so it can depend on
+# xmtp_db with the default `sync` feature OFF -- see its Cargo.toml. That is why
+# this is a manifest-path invocation and not `just test crate ...`.
+#
+# Needs a scratch Postgres. Locally:
+#   docker run -d --name xmtp-asyncdb-pg -e POSTGRES_USER=xmtp \
+#     -e POSTGRES_PASSWORD=xmtp -e POSTGRES_DB=xmtp_asyncdb \
+#     -p 55432:5432 postgres:16
+test-pg *args="":
+    XMTP_ASYNCDB_PG_URL="${XMTP_ASYNCDB_PG_URL:-postgres://xmtp:xmtp@127.0.0.1:55432/xmtp_asyncdb}" \
+      cargo test --manifest-path crates/xmtp_db_pg_tests/Cargo.toml {{ args }}
+
 # Run xdbg cross-version compat harness. Stable HEADs by default; pass
 # --profile nightly for nightly samples. Anything after `--` is forwarded
 # to every xdbg invocation as global flags (e.g. -vvvv for trace logs).
