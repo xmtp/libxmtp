@@ -41,6 +41,7 @@ pub mod remote_commit_log;
 pub mod schema;
 #[cfg(feature = "sync")]
 mod schema_gen;
+pub mod sql_int_enum;
 #[cfg(feature = "sync")]
 pub mod store;
 pub mod tasks;

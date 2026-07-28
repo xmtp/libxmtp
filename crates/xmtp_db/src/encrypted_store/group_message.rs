@@ -16,12 +16,7 @@ use crate::impl_fetch;
 use derive_builder::Builder;
 #[cfg(feature = "sync")]
 use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    dsl::sql as diesel_sql,
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
+    deserialize::FromSqlRow, dsl::sql as diesel_sql, expression::AsExpression, prelude::*,
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
@@ -175,30 +170,10 @@ pub enum GroupMessageKind {
     MembershipChange = 2,
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for GroupMessageKind
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for GroupMessageKind
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(GroupMessageKind::Application),
-            2 => Ok(GroupMessageKind::MembershipChange),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(GroupMessageKind {
+    Application = 1,
+    MembershipChange = 2,
+});
 
 /// Trait for determining if a message can be deleted by users.
 pub trait Deletable {
@@ -346,45 +321,25 @@ impl From<String> for ContentType {
     }
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for ContentType
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for ContentType
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            0 => Ok(ContentType::Unknown),
-            1 => Ok(ContentType::Text),
-            2 => Ok(ContentType::GroupMembershipChange),
-            3 => Ok(ContentType::GroupUpdated),
-            4 => Ok(ContentType::Reaction),
-            5 => Ok(ContentType::ReadReceipt),
-            6 => Ok(ContentType::Reply),
-            7 => Ok(ContentType::Attachment),
-            8 => Ok(ContentType::RemoteAttachment),
-            9 => Ok(ContentType::TransactionReference),
-            10 => Ok(ContentType::WalletSendCalls),
-            11 => Ok(ContentType::LeaveRequest),
-            12 => Ok(ContentType::Markdown),
-            13 => Ok(ContentType::Actions),
-            14 => Ok(ContentType::Intent),
-            15 => Ok(ContentType::MultiRemoteAttachment),
-            16 => Ok(ContentType::DeleteMessage),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(ContentType {
+    Unknown = 0,
+    Text = 1,
+    GroupMembershipChange = 2,
+    GroupUpdated = 3,
+    Reaction = 4,
+    ReadReceipt = 5,
+    Reply = 6,
+    Attachment = 7,
+    RemoteAttachment = 8,
+    TransactionReference = 9,
+    WalletSendCalls = 10,
+    LeaveRequest = 11,
+    Markdown = 12,
+    Actions = 13,
+    Intent = 14,
+    MultiRemoteAttachment = 15,
+    DeleteMessage = 16,
+});
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -396,31 +351,11 @@ pub enum DeliveryStatus {
     Failed = 3,
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for DeliveryStatus
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for DeliveryStatus
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(DeliveryStatus::Unpublished),
-            2 => Ok(DeliveryStatus::Published),
-            3 => Ok(DeliveryStatus::Failed),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(DeliveryStatus {
+    Unpublished = 1,
+    Published = 2,
+    Failed = 3,
+});
 
 #[cfg(feature = "sync")]
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);

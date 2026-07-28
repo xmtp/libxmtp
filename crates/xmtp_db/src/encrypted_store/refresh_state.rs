@@ -1,19 +1,12 @@
 use std::collections::HashMap;
 
 #[cfg(feature = "sync")]
-use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
-};
+use diesel::{deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer};
 use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
 #[cfg(feature = "sync")]
-use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
+use super::{ConnectionExt, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
 
 #[cfg(feature = "sync")]
@@ -73,35 +66,15 @@ impl std::fmt::Display for EntityKind {
     }
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for EntityKind
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for EntityKind
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(EntityKind::Welcome),
-            2 => Ok(EntityKind::ApplicationMessage),
-            3 => Ok(EntityKind::CommitLogUpload),
-            4 => Ok(EntityKind::CommitLogDownload),
-            5 => Ok(EntityKind::CommitLogForkCheckLocal),
-            6 => Ok(EntityKind::CommitLogForkCheckRemote),
-            7 => Ok(EntityKind::CommitMessage),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(EntityKind {
+    Welcome = 1,
+    ApplicationMessage = 2,
+    CommitLogUpload = 3,
+    CommitLogDownload = 4,
+    CommitLogForkCheckLocal = 5,
+    CommitLogForkCheckRemote = 6,
+    CommitMessage = 7,
+});
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]

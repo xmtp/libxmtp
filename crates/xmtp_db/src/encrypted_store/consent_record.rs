@@ -1,6 +1,6 @@
-use super::group::StoredGroup;
 #[cfg(feature = "sync")]
-use super::{ConnectionExt, Sqlite};
+use super::ConnectionExt;
+use super::group::StoredGroup;
 #[cfg(feature = "sync")]
 use super::{
     db_connection::DbConnection,
@@ -12,12 +12,7 @@ use super::{
 use crate::{DbQuery, StorageError, impl_store};
 #[cfg(feature = "sync")]
 use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer,
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
@@ -362,30 +357,10 @@ pub enum ConsentType {
     InboxId = 2,
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for ConsentType
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for ConsentType
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(ConsentType::ConversationId),
-            2 => Ok(ConsentType::InboxId),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(ConsentType {
+    ConversationId = 1,
+    InboxId = 2,
+});
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -401,31 +376,11 @@ pub enum ConsentState {
     Denied = 2,
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for ConsentState
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for ConsentState
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            0 => Ok(ConsentState::Unknown),
-            1 => Ok(ConsentState::Allowed),
-            2 => Ok(ConsentState::Denied),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(ConsentState {
+    Unknown = 0,
+    Allowed = 1,
+    Denied = 2,
+});
 
 #[cfg(test)]
 mod tests {

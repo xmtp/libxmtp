@@ -1,6 +1,6 @@
 #[cfg(feature = "sync")]
 use super::{
-    ConnectionExt, Sqlite,
+    ConnectionExt,
     db_connection::DbConnection,
     schema::{
         group_messages::dsl as group_messages_dsl,
@@ -11,14 +11,7 @@ use super::{
 use super::{group::ConversationType, group_message::StoredGroupMessage};
 use crate::{StorageError, impl_store, impl_store_or_ignore};
 #[cfg(feature = "sync")]
-use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
-};
+use diesel::{deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer};
 use serde::{Deserialize, Serialize};
 
 /// The state of a device sync message processing
@@ -36,31 +29,11 @@ pub enum DeviceSyncProcessingState {
     Failed = 2,
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for DeviceSyncProcessingState
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for DeviceSyncProcessingState
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            0 => Ok(DeviceSyncProcessingState::Pending),
-            1 => Ok(DeviceSyncProcessingState::Processed),
-            2 => Ok(DeviceSyncProcessingState::Failed),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(DeviceSyncProcessingState {
+    Pending = 0,
+    Processed = 1,
+    Failed = 2,
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]

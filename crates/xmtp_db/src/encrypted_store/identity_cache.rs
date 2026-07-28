@@ -1,25 +1,21 @@
 #[cfg(feature = "sync")]
-use super::schema::identity_cache;
+use super::ConnectionExt;
 #[cfg(feature = "sync")]
-use super::{ConnectionExt, Sqlite};
+use super::schema::identity_cache;
 #[cfg(feature = "sync")]
 use crate::DbConnection;
 use crate::StorageError;
 use crate::{Store, impl_fetch, impl_store};
 #[cfg(feature = "sync")]
-use diesel::backend::Backend;
-#[cfg(feature = "sync")]
-use diesel::deserialize::{self, FromSql, FromSqlRow};
+use diesel::deserialize::FromSqlRow;
 #[cfg(feature = "sync")]
 use diesel::expression::AsExpression;
 #[cfg(feature = "sync")]
-use diesel::serialize::{IsNull, Output, ToSql};
+use diesel::prelude::*;
 #[cfg(feature = "sync")]
 use diesel::sql_types::Integer;
 #[cfg(feature = "sync")]
 use diesel::{Insertable, Queryable};
-#[cfg(feature = "sync")]
-use diesel::{prelude::*, serialize};
 use serde::{Deserialize, Serialize};
 use std::any::type_name;
 use std::collections::HashMap;
@@ -180,30 +176,10 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     }
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for StoredIdentityKind
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for StoredIdentityKind
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(Self::Ethereum),
-            2 => Ok(Self::Passkey),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(StoredIdentityKind {
+    Ethereum = 1,
+    Passkey = 2,
+});
 
 #[cfg(test)]
 pub(crate) mod tests {

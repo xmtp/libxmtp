@@ -11,13 +11,7 @@ use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_i
 use derive_builder::{Builder, UninitializedFieldError};
 #[cfg(feature = "sync")]
 use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    dsl::sql,
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    deserialize::FromSqlRow, dsl::sql, expression::AsExpression, prelude::*, sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
 mod convert;
@@ -1316,33 +1310,13 @@ pub enum GroupMembershipState {
     PendingRemove = 5,
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for GroupMembershipState
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for GroupMembershipState
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(GroupMembershipState::Allowed),
-            2 => Ok(GroupMembershipState::Rejected),
-            3 => Ok(GroupMembershipState::Pending),
-            4 => Ok(GroupMembershipState::Restored),
-            5 => Ok(GroupMembershipState::PendingRemove),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(GroupMembershipState {
+    Allowed = 1,
+    Rejected = 2,
+    Pending = 3,
+    Restored = 4,
+    PendingRemove = 5,
+});
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1371,32 +1345,12 @@ impl ConversationType {
     }
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for ConversationType
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for ConversationType
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(ConversationType::Group),
-            2 => Ok(ConversationType::Dm),
-            3 => Ok(ConversationType::Sync),
-            4 => Ok(ConversationType::Oneshot),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(ConversationType {
+    Group = 1,
+    Dm = 2,
+    Sync = 3,
+    Oneshot = 4,
+});
 
 impl std::fmt::Display for ConversationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

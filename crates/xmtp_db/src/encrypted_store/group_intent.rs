@@ -3,12 +3,7 @@ use std::collections::HashMap;
 use derive_builder::Builder;
 #[cfg(feature = "sync")]
 use diesel::{
-    backend::Backend,
-    connection::DefaultLoadingMode,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
+    connection::DefaultLoadingMode, deserialize::FromSqlRow, expression::AsExpression, prelude::*,
     sql_types::Integer,
 };
 use itertools::Itertools;
@@ -18,7 +13,7 @@ use xmtp_proto::types::{Cursor, GroupId};
 
 #[cfg(feature = "sync")]
 use super::{
-    ConnectionExt, Sqlite,
+    ConnectionExt,
     db_connection::DbConnection,
     schema::group_intents::{self, dsl},
 };
@@ -687,68 +682,28 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 }
 
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for IntentKind
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
+crate::impl_sql_int_enum!(IntentKind {
+    SendMessage = 1,
+    KeyUpdate = 2,
+    MetadataUpdate = 3,
+    UpdateGroupMembership = 4,
+    UpdateAdminList = 5,
+    UpdatePermission = 6,
+    ReaddInstallations = 7,
+    ProposeMemberUpdate = 8,
+    ProposeGroupContextExtensions = 9,
+    CommitPendingProposals = 10,
+    BootstrapMigration = 11,
+    AppDataUpdate = 12,
+});
 
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for IntentKind
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(IntentKind::SendMessage),
-            2 => Ok(IntentKind::KeyUpdate),
-            3 => Ok(IntentKind::MetadataUpdate),
-            4 => Ok(IntentKind::UpdateGroupMembership),
-            5 => Ok(IntentKind::UpdateAdminList),
-            6 => Ok(IntentKind::UpdatePermission),
-            7 => Ok(IntentKind::ReaddInstallations),
-            8 => Ok(IntentKind::ProposeMemberUpdate),
-            9 => Ok(IntentKind::ProposeGroupContextExtensions),
-            10 => Ok(IntentKind::CommitPendingProposals),
-            11 => Ok(IntentKind::BootstrapMigration),
-            12 => Ok(IntentKind::AppDataUpdate),
-            x => Err(format!("Unrecognized IntentKind variant {}", x).into()),
-        }
-    }
-}
-
-#[cfg(feature = "sync")]
-impl ToSql<Integer, Sqlite> for IntentState
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl FromSql<Integer, Sqlite> for IntentState
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(IntentState::ToPublish),
-            2 => Ok(IntentState::Published),
-            3 => Ok(IntentState::Committed),
-            4 => Ok(IntentState::Error),
-            5 => Ok(IntentState::Processed),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
+crate::impl_sql_int_enum!(IntentState {
+    ToPublish = 1,
+    Published = 2,
+    Committed = 3,
+    Error = 4,
+    Processed = 5,
+});
 
 #[cfg(test)]
 pub(crate) mod tests {
