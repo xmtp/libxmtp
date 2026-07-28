@@ -160,8 +160,10 @@ pub enum MigrationError {
 /// Mapping summary:
 ///
 /// - Mutable scalar components pull insert/update from
-///   `update_metadata_policy[field_name]` (default Allow); delete is
-///   hardcoded super-admin-only. Per-field `ComponentType` comes from
+///   `update_metadata_policy[field_name]`; a missing key defaults to
+///   admin-only (super-admin for the 0x800A protocol-version floor),
+///   mirroring the legacy enforcer. Delete is hardcoded super-admin-only.
+///   Per-field `ComponentType` comes from
 ///   [`metadata_field_registry_mapping`] — disappearing-message
 ///   timestamps are bytes (BE-u64), the rest are utf-8 strings.
 /// - `ADMIN_LIST` is constrained: insert/update from `add_admin_policy`,
@@ -234,16 +236,31 @@ fn build_registry(
     }
 
     // Mutable scalar components: insert/update from
-    // `update_metadata_policy[field]` (default Allow); delete is always
-    // super-admin-only. Per-field `ComponentType` comes from the
-    // mapping — strings for free-form text, bytes for the BE-u64
-    // disappearing-message timestamps.
+    // `update_metadata_policy[field]`; delete is always super-admin-only.
+    // Per-field `ComponentType` comes from the mapping — strings for
+    // free-form text, bytes for the BE-u64 disappearing-message
+    // timestamps.
+    //
+    // A field ABSENT from `update_metadata_policy` must default to what the
+    // legacy enforcer applied to a missing field — admin-only
+    // (`group_permissions.rs`: "default to admin only for fields with
+    // missing policies"), NOT `Allow`. The protocol-version floor defaults
+    // to super-admin instead, matching every preconfigured PolicySet
+    // (`default_map`/`default_policy`/`policy_admin_only`), so a group that
+    // predates the field can't be wedged by a non-super-admin raising the
+    // monotonic 0x800A floor. Present keys are carried verbatim, so a DM's
+    // stored `Allow` (from `dm_map`) is preserved rather than tightened.
     for (field, component_id, component_type) in metadata_field_registry_mapping() {
+        let default_base = if matches!(field, MetadataField::MinimumSupportedProtocolVersion) {
+            MetadataBasePolicy::AllowIfSuperAdmin
+        } else {
+            MetadataBasePolicy::AllowIfAdmin
+        };
         let policy = policy_set
             .update_metadata_policy
             .get(field.as_str())
             .cloned()
-            .unwrap_or_else(|| metadata_policy(MetadataBasePolicy::Allow));
+            .unwrap_or_else(|| metadata_policy(default_base));
 
         registry.set(
             *component_id,
@@ -964,6 +981,13 @@ mod tests {
             kind: Some(MetadataKind::Base(MetadataBasePolicy::AllowIfAdmin as i32)),
         }
     }
+    fn allow_if_super_admin_metadata() -> MetadataPolicyProto {
+        MetadataPolicyProto {
+            kind: Some(MetadataKind::Base(
+                MetadataBasePolicy::AllowIfSuperAdmin as i32,
+            )),
+        }
+    }
     fn admin_only_perms() -> PermissionsUpdatePolicyProto {
         PermissionsUpdatePolicyProto {
             kind: Some(PermissionsKind::Base(
@@ -1018,12 +1042,61 @@ mod tests {
     }
 
     #[test]
-    fn synthesis_defaults_to_allow_for_missing_metadata_fields() {
+    fn synthesis_defaults_to_admin_for_missing_metadata_fields() {
+        // A field absent from the legacy `update_metadata_policy` map must
+        // mirror the legacy enforcer's missing-field fallback (admin-only),
+        // NOT `Allow` — otherwise migrating a group that predates the field
+        // silently downgrades it to anyone-editable.
         let registry = synthesize_registry_from_policy_set(&minimal_default_policy_set()).unwrap();
         let meta = registry.get(&ComponentId::GROUP_NAME).unwrap().unwrap();
         let perms = meta.permissions.unwrap();
-        let ins = perms.insert_policy.unwrap();
-        assert_eq!(ins, allow_metadata());
+        assert_eq!(perms.insert_policy.unwrap(), allow_if_admin_metadata());
+        assert_eq!(perms.update_policy.unwrap(), allow_if_admin_metadata());
+    }
+
+    #[test]
+    fn synthesis_defaults_min_version_floor_to_super_admin_when_missing() {
+        // The monotonic 0x800A protocol-version floor is a group-wedge lever:
+        // a group whose stored PolicySet omits it (created before the field
+        // existed, or every DM created before it) must NOT let a non-super-
+        // admin raise it, or any member could pause the group permanently.
+        let registry = synthesize_registry_from_policy_set(&minimal_default_policy_set()).unwrap();
+        let meta = registry
+            .get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION)
+            .unwrap()
+            .unwrap();
+        let perms = meta.permissions.unwrap();
+        assert_eq!(
+            perms.insert_policy.unwrap(),
+            allow_if_super_admin_metadata()
+        );
+        assert_eq!(
+            perms.update_policy.unwrap(),
+            allow_if_super_admin_metadata()
+        );
+    }
+
+    #[test]
+    fn synthesis_preserves_a_stored_min_version_policy() {
+        // The super-admin default only fills a MISSING key; a stored floor
+        // policy (e.g. a DM's `Allow` from `dm_map`) is carried verbatim so
+        // migration stays faithful rather than unfaithfully tightening it.
+        let mut ps = minimal_default_policy_set();
+        ps.update_metadata_policy.insert(
+            MetadataField::MinimumSupportedProtocolVersion
+                .as_str()
+                .to_string(),
+            allow_metadata(),
+        );
+        let registry = synthesize_registry_from_policy_set(&ps).unwrap();
+        let meta = registry
+            .get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            meta.permissions.unwrap().insert_policy.unwrap(),
+            allow_metadata()
+        );
     }
 
     #[test]
@@ -1037,14 +1110,14 @@ mod tests {
             meta.permissions.clone().unwrap().insert_policy.unwrap(),
             allow_if_admin_metadata()
         );
-        // Description still defaults to Allow.
+        // Description, still absent from the map, defaults to admin-only.
         let desc = registry
             .get(&ComponentId::GROUP_DESCRIPTION)
             .unwrap()
             .unwrap();
         assert_eq!(
             desc.permissions.unwrap().insert_policy.unwrap(),
-            allow_metadata()
+            allow_if_admin_metadata()
         );
     }
 
