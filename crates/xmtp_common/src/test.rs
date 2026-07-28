@@ -42,7 +42,7 @@ pub fn logger() {
 
 // Execute once before any tests are run
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "test-utils"))]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn ctor_logging_setup() {
     crate::logger();
     let _ = fdlimit::raise_fd_limit();

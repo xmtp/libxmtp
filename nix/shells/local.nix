@@ -100,7 +100,7 @@ mkShell (
         jdk17
         kotlin-language-server
 
-        # Swift
+        # Swift (prebuilt binary from the xmtp overlay)
         swiftformat
 
         # Misc dev

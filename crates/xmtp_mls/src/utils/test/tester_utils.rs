@@ -27,7 +27,7 @@ use futures::{
 use futures_executor::block_on;
 use parking_lot::Mutex;
 use passkey::{
-    authenticator::{Authenticator, UserCheck, UserValidationMethod},
+    authenticator::{Authenticator, UiHint, UserCheck, UserValidationMethod},
     client::{Client as PasskeyClient, DefaultClientData},
     types::{Bytes, Passkey, ctap2::*, rand::random_vec, webauthn::*},
 };
@@ -661,7 +661,7 @@ where
 }
 
 pub type PKCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
-pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
+pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList, ()>;
 
 #[derive(Clone)]
 pub struct PasskeyUser {
@@ -787,7 +787,7 @@ impl UserValidationMethod for PkUserValidationMethod {
     type PasskeyItem = Passkey;
     async fn check_user<'a>(
         &self,
-        _credential: Option<&'a Passkey>,
+        _hint: UiHint<'a, Passkey>,
         presence: bool,
         verification: bool,
     ) -> Result<UserCheck, Ctap2Error> {

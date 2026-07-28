@@ -33,7 +33,7 @@ pub mod api {
 pub mod test {
     xmtp_common::if_native! {
         #[cfg(test)]
-        #[ctor::ctor]
+        #[ctor::ctor(unsafe)]
         fn _setup() {
             xmtp_common::logger()
         }

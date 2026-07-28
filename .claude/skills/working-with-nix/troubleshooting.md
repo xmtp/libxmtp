@@ -243,6 +243,27 @@ The per-target `.node` builds (`node-bindings-*`) do NOT require network access 
 
 ---
 
+## Issue: WASM Tests Fail — Playwright Executable Doesn't Exist
+
+**Symptoms:**
+- `browserType.launch: Executable doesn't exist at /nix/store/...-playwright-browsers/chromium_headless_shell-NNNN/...`
+- Playwright suggests running `yarn playwright install` (do NOT — browsers come from Nix)
+- Usually appears right after a nixpkgs (flake.lock) bump
+
+**Cause:** npm playwright's version differs from nixpkgs' playwright. Browsers are provided by Nix (`PLAYWRIGHT_BROWSERS_PATH` in `nix/js.nix`), but npm playwright looks them up by the browser revision numbers of *its own* version, so the versions must match exactly.
+
+**Solution:**
+
+```bash
+nix eval --raw .#devShells.x86_64-linux.js.PLAYWRIGHT_VERSION
+# Set "playwright": "=<that version>" in bindings/wasm/package.json, then:
+cd bindings/wasm && yarn install
+```
+
+Verify in the js shell: expected revisions in `node_modules/playwright-core/browsers.json` must all exist in `ls $PLAYWRIGHT_BROWSERS_PATH`.
+
+---
+
 ## Debugging Commands
 
 ### Verbose Nix Output

@@ -149,7 +149,7 @@ pub async fn connect_to_backend(
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, FfiError> {
     init_logger();
-    // Install the rustls crypto provider explicitly. On Apple platforms the `#[ctor::ctor]`
+    // Install the rustls crypto provider explicitly. On Apple platforms the `#[ctor::ctor(unsafe)]`
     // in `xmtp_cryptography` never fires (the constructor link section is unsupported), so
     // relying on it would leave reqwest without a provider and panic on the history-sync HTTP
     // path. Idempotent, so it is safe to call on every entry point. See issue #3846.

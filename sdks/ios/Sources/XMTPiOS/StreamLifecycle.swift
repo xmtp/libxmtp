@@ -145,7 +145,9 @@ final class StreamLifecycleManager: @unchecked Sendable {
 		lock.lock()
 		desiredLive = live
 		let shouldStart = !isReconciling && appliedLive != desiredLive
-		if shouldStart { isReconciling = true }
+		if shouldStart {
+			isReconciling = true
+		}
 		lock.unlock()
 
 		if shouldStart {
