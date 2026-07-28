@@ -102,14 +102,21 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Agent mode denies tools not allow-listed here; the prompt needs
-          # git history reads, file edits, and the final commit. 50 turns
-          # covers six SDK note files.
+          # Agent mode denies tools not allow-listed here. Enumerated
+          # subcommands only — a blanket Bash(git:*) would allow
+          # arbitrary shell via `git -c alias.x='!cmd' x`, and this job
+          # holds write perms + API keys while reading untrusted commit
+          # history. The --no-pager variants are listed because prefix
+          # rules match literally. 100 turns: six SDK note files over a
+          # full release range didn't fit in 50.
           claude_args: >-
-            --max-turns 50
-            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*),Bash(git add:*),Bash(git commit:*),Read,Edit,Write,Glob,Grep"
+            --max-turns 100
+            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git add:*),Bash(git commit:*),Bash(git --no-pager diff:*),Bash(git --no-pager log:*),Bash(git --no-pager show:*),Read,Edit,Write,Glob,Grep"
           # The redispatch shim initiates runs as github-actions[bot]
           allowed_bots: "github-actions"
+          # Transcript in the job log — debugging denials/caps is blind
+          # without it. Nothing secret runs in this workflow.
+          show_full_output: true
           prompt: |
             You are drafting release notes for a software SDK. The audience is end users
             of this SDK, not contributors to this repo.
@@ -141,6 +148,11 @@ jobs:
 
             After editing all files, commit with message:
             docs: draft release notes for ${{ steps.version.outputs.version }} [skip ci]
+
+            Tool constraints: only plain git subcommands (diff, log, show,
+            status, add, commit) are allowed, optionally with --no-pager.
+            Do not use `git -c`, aliases, pipes, command substitution, or
+            heredocs — commit with a single `git commit -m "<message>"`.
 
       - name: Push draft release notes
         if: steps.classify.outputs.has_empty == 'true'
@@ -187,14 +199,21 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Agent mode denies tools not allow-listed here; the prompt needs
-          # git history reads, file edits, and the final commit. 50 turns
-          # covers six SDK note files.
+          # Agent mode denies tools not allow-listed here. Enumerated
+          # subcommands only — a blanket Bash(git:*) would allow
+          # arbitrary shell via `git -c alias.x='!cmd' x`, and this job
+          # holds write perms + API keys while reading untrusted commit
+          # history. The --no-pager variants are listed because prefix
+          # rules match literally. 100 turns: six SDK note files over a
+          # full release range didn't fit in 50.
           claude_args: >-
-            --max-turns 50
-            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*),Bash(git add:*),Bash(git commit:*),Read,Edit,Write,Glob,Grep"
+            --max-turns 100
+            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git add:*),Bash(git commit:*),Bash(git --no-pager diff:*),Bash(git --no-pager log:*),Bash(git --no-pager show:*),Read,Edit,Write,Glob,Grep"
           # The redispatch shim initiates runs as github-actions[bot]
           allowed_bots: "github-actions"
+          # Transcript in the job log — debugging denials/caps is blind
+          # without it. Nothing secret runs in this workflow.
+          show_full_output: true
           prompt: |
             You are reviewing release notes for a software SDK. The audience is end users
             of this SDK, not contributors to this repo.
@@ -230,6 +249,11 @@ jobs:
 
             If you make changes, commit with message:
             docs: suggest release notes updates for ${{ steps.version.outputs.version }}
+
+            Tool constraints: only plain git subcommands (diff, log, show,
+            status, add, commit) are allowed, optionally with --no-pager.
+            Do not use `git -c`, aliases, pipes, command substitution, or
+            heredocs — commit with a single `git commit -m "<message>"`.
 
       - name: Push suggestions and manage PR
         if: steps.classify.outputs.has_content == 'true'
