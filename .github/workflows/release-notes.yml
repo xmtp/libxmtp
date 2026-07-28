@@ -16,10 +16,6 @@ on:
         required: true
         type: string
 
-concurrency:
-  group: release-notes-${{ inputs.release-branch || github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
   # claude-code-action rejects push-triggered runs ("Unsupported event
   # type: push"), so convert the push into a workflow_dispatch of this
@@ -45,6 +41,12 @@ jobs:
   update-release-notes:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    # Job-level (not workflow-level) so the push shim above never joins
+    # the group — its dispatched child was cancelling it, leaving a
+    # spurious cancelled run on every release-branch push.
+    concurrency:
+      group: release-notes-${{ inputs.release-branch || github.ref_name }}
+      cancel-in-progress: true
     permissions:
       contents: write
       pull-requests: write
@@ -100,9 +102,12 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Budget for six SDK note files: each needs a diff, a log, and a
-          # full draft, plus the final commit. 15 was exhausted mid-draft.
-          claude_args: "--max-turns 50"
+          # Agent mode denies tools not allow-listed here; the prompt needs
+          # git history reads, file edits, and the final commit. 50 turns
+          # covers six SDK note files.
+          claude_args: >-
+            --max-turns 50
+            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*),Bash(git add:*),Bash(git commit:*),Read,Edit,Write,Glob,Grep"
           # The redispatch shim initiates runs as github-actions[bot]
           allowed_bots: "github-actions"
           prompt: |
@@ -182,9 +187,12 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Budget for six SDK note files: each needs a diff, a log, and a
-          # full draft, plus the final commit. 15 was exhausted mid-draft.
-          claude_args: "--max-turns 50"
+          # Agent mode denies tools not allow-listed here; the prompt needs
+          # git history reads, file edits, and the final commit. 50 turns
+          # covers six SDK note files.
+          claude_args: >-
+            --max-turns 50
+            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*),Bash(git add:*),Bash(git commit:*),Read,Edit,Write,Glob,Grep"
           # The redispatch shim initiates runs as github-actions[bot]
           allowed_bots: "github-actions"
           prompt: |
