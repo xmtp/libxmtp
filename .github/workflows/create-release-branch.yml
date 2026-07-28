@@ -123,6 +123,12 @@ jobs:
   release-notes:
     needs: create-branch
     uses: ./.github/workflows/release-notes.yml
+    # A called workflow's permissions are capped by the caller job's grant,
+    # and id-token defaults to none — it must be granted here too.
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
     with:
       release-branch: release/${{ inputs.version }}
     secrets: inherit

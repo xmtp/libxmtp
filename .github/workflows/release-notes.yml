@@ -20,6 +20,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # claude-code-action exchanges an OIDC token for its GitHub token
+      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
