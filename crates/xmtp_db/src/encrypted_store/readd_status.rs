@@ -1,17 +1,24 @@
 use std::collections::HashSet;
 
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 
+#[cfg(feature = "sync")]
 use super::{
     DbConnection,
     schema::readd_status::{self},
 };
+#[cfg(feature = "sync")]
 use crate::{ConnectionExt, impl_store};
 
 use xmtp_proto::types::GroupId;
-#[derive(Identifiable, Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq)]
-#[diesel(table_name = readd_status)]
-#[diesel(primary_key(group_id, installation_id))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Identifiable, Queryable, Selectable, Insertable)
+)]
+#[cfg_attr(feature = "sync", diesel(table_name = readd_status))]
+#[cfg_attr(feature = "sync", diesel(primary_key(group_id, installation_id)))]
 pub struct ReaddStatus {
     pub group_id: GroupId,
     pub installation_id: Vec<u8>,
@@ -19,6 +26,7 @@ pub struct ReaddStatus {
     pub responded_at_sequence_id: Option<i64>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(ReaddStatus, readd_status);
 
 #[maybe_async::maybe_async(AFIT)]

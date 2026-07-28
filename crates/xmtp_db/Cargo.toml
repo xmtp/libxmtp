@@ -26,13 +26,15 @@ bincode.workspace = true
 bon.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
-diesel = { workspace = true, features = [
+# Sync track only. A server build must pull neither diesel nor -- more to the
+# point -- libsqlite3-sys below, which vendors SQLCipher and OpenSSL.
+diesel = { workspace = true, optional = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
   "serde_json",
 ] }
-diesel_migrations = { workspace = true, features = ["sqlite"] }
+diesel_migrations = { workspace = true, optional = true, features = ["sqlite"] }
 futures = { workspace = true, optional = true }
 hex.workspace = true
 itertools.workspace = true
@@ -55,7 +57,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
-xmtp_proto = { workspace = true, features = ["diesel"] }
+xmtp_proto.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -73,10 +75,10 @@ sqlx = { workspace = true, optional = true, features = [
 # lock acquisition and release, so a blocking guard would hold an OS thread
 # across unbounded network round-trips.
 tokio = { workspace = true, optional = true }
-libsqlite3-sys = { version = "0.35", features = [
+libsqlite3-sys = { version = "0.35", optional = true, features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
-diesel = { workspace = true, features = ["r2d2"] }
+diesel = { workspace = true, optional = true, features = ["r2d2"] }
 dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
@@ -119,7 +121,13 @@ default = ["sync"]
 # Storage tracks. `sync` is diesel+SQLite and is the only option on wasm (sqlx
 # cannot target wasm32-unknown-unknown). `async` is sqlx and is what servers
 # use. maybe-async/is_sync is a global switch, so exactly one may be enabled.
-sync = ["maybe-async/is_sync"]
+sync = [
+  "maybe-async/is_sync",
+  "dep:diesel",
+  "dep:diesel_migrations",
+  "dep:libsqlite3-sys",
+  "xmtp_proto/diesel",
+]
 async = ["dep:sqlx", "dep:tokio", "xmtp_proto/sqlx"]
 update-schema = ["dep:toml"]
 # Enables the latency-injecting SQLite VFS used by the disk-latency benchmarks.

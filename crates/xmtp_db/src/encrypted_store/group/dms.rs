@@ -1,3 +1,4 @@
+#[cfg(feature = "sync")]
 use crate::ConnectionExt;
 
 use super::*;

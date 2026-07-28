@@ -1,26 +1,25 @@
+#[cfg(feature = "sync")]
 use super::ConnectionExt;
+#[cfg(feature = "sync")]
 use crate::schema::pending_remove::dsl;
+#[cfg(feature = "sync")]
 use crate::{DbConnection, impl_fetch, impl_store_or_ignore, schema::pending_remove};
+#[cfg(feature = "sync")]
 use diesel::dsl::exists;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
+#[cfg(feature = "sync")]
 use diesel::select;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::types::GroupId;
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = pending_remove)]
-#[diesel(primary_key(inbox_id, group_id))]
+#[cfg_attr(feature = "sync", diesel(table_name = pending_remove))]
+#[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, group_id)))]
 pub struct PendingRemove {
     /// Id of the group this message is tied to.
     pub group_id: GroupId,
@@ -30,7 +29,9 @@ pub struct PendingRemove {
     pub message_id: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(PendingRemove, pending_remove);
+#[cfg(feature = "sync")]
 impl_fetch!(PendingRemove, pending_remove);
 #[maybe_async::maybe_async(AFIT)]
 pub trait QueryPendingRemove {

@@ -1,6 +1,9 @@
+#[cfg(feature = "sync")]
 use diesel::migration::{Migration, MigrationSource, MigrationVersion};
+#[cfg(feature = "sync")]
 use diesel_migrations::MigrationHarness;
 
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, MIGRATIONS, Sqlite, db_connection::DbConnection};
 use crate::ConnectionError;
 
@@ -37,6 +40,7 @@ pub trait QueryMigrations {
     async fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError>;
 }
 
+#[cfg(feature = "sync")]
 fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> {
     MigrationSource::<Sqlite>::migrations(&MIGRATIONS)
         .map_err(|e| ConnectionError::Database(diesel::result::Error::QueryBuilderError(e)))

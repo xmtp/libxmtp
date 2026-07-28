@@ -1,4 +1,7 @@
-use super::{ConnectionExt, Sqlite, group::StoredGroup};
+use super::group::StoredGroup;
+#[cfg(feature = "sync")]
+use super::{ConnectionExt, Sqlite};
+#[cfg(feature = "sync")]
 use super::{
     db_connection::DbConnection,
     schema::{
@@ -7,6 +10,7 @@ use super::{
     },
 };
 use crate::{DbQuery, StorageError, impl_store};
+#[cfg(feature = "sync")]
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -25,9 +29,10 @@ use xmtp_proto::{
 mod convert;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, Eq, Deserialize, Serialize)]
-#[diesel(table_name = consent_records)]
-#[diesel(primary_key(entity_type, entity))]
+#[derive(Debug, Clone, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = consent_records))]
+#[cfg_attr(feature = "sync", diesel(primary_key(entity_type, entity)))]
 pub struct StoredConsentRecord {
     /// Enum, [`ConsentType`] representing the type of consent (conversation_id inbox_id, etc..)
     pub entity_type: ConsentType,
@@ -82,6 +87,7 @@ impl StoredConsentRecord {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_store!(StoredConsentRecord, consent_records);
 
 #[maybe_async::maybe_async(AFIT)]
@@ -345,8 +351,9 @@ impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 /// Type of consent record stored
 pub enum ConsentType {
     /// Consent is for a conversation
@@ -355,6 +362,7 @@ pub enum ConsentType {
     InboxId = 2,
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for ConsentType
 where
     i32: ToSql<Integer, Sqlite>,
@@ -365,6 +373,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for ConsentType
 where
     i32: FromSql<Integer, Sqlite>,
@@ -379,8 +388,9 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 /// The state of the consent
 pub enum ConsentState {
     /// Consent is unknown
@@ -391,6 +401,7 @@ pub enum ConsentState {
     Denied = 2,
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for ConsentState
 where
     i32: ToSql<Integer, Sqlite>,
@@ -401,6 +412,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for ConsentState
 where
     i32: FromSql<Integer, Sqlite>,

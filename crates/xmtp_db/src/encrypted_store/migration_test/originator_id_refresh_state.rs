@@ -1,4 +1,6 @@
+#[cfg(feature = "sync")]
 use diesel::QueryableByName;
+#[cfg(feature = "sync")]
 use diesel::sql_types::{BigInt, Blob, Bool, Integer, Text};
 use xmtp_configuration::Originators;
 
@@ -212,15 +214,16 @@ async fn down_identity_updates() {
         .unwrap();
 
     #[allow(dead_code)]
-    #[derive(QueryableByName, Debug)]
+    #[derive(Debug)]
+    #[cfg_attr(feature = "sync", derive(QueryableByName))]
     struct OldIdentityUpdate {
-        #[diesel(sql_type = Text)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = Text))]
         inbox_id: String,
-        #[diesel(sql_type = BigInt)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
         sequence_id: i64,
-        #[diesel(sql_type = BigInt)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
         server_timestamp_ns: i64,
-        #[diesel(sql_type = Blob)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = Blob))]
         payload: Vec<u8>,
     }
     let results: Vec<OldIdentityUpdate> = db.conn().raw_query(|conn| {
@@ -322,13 +325,14 @@ async fn down() {
     // - Primary key should be (entity_id, entity_kind) without originator_id
 
     // Query using the old schema (cursor column instead of sequence_id, no originator_id)
-    #[derive(QueryableByName, Debug)]
+    #[derive(Debug)]
+    #[cfg_attr(feature = "sync", derive(QueryableByName))]
     struct OldRefreshState {
-        #[diesel(sql_type = Blob)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = Blob))]
         entity_id: Vec<u8>,
-        #[diesel(sql_type = Integer)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
         entity_kind: i32,
-        #[diesel(sql_type = BigInt)]
+        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
         cursor: i64,
     }
 

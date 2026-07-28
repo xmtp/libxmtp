@@ -1,6 +1,7 @@
 use xmtp_common::{ErrorCode, RetryableError, retryable};
 
 use self::transactions::MutableTransactionConnection;
+#[cfg(feature = "sync")]
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 use bincode;
@@ -27,9 +28,8 @@ const UPDATE_QUERY: &str =
 const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
 #[cfg(feature = "test-utils")]
-#[derive(
-    Selectable, Queryable, QueryableByName, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "sync", derive(Selectable, Queryable, QueryableByName))]
 #[diesel(table_name = crate::schema::openmls_key_value)]
 pub struct OpenMlsKeyValue {
     pub version: i32,

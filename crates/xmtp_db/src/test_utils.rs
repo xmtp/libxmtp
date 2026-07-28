@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+#[cfg(feature = "sync")]
 use crate::{DbConnection, EncryptedMessageStore};
 mod impls;
 mod mls_memory_storage;

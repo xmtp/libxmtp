@@ -1,19 +1,26 @@
+use crate::StorageError;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 
-use super::{ConnectionExt, StorageError, db_connection::DbConnection, schema::openmls_key_store};
+#[cfg(feature = "sync")]
+use super::{ConnectionExt, db_connection::DbConnection, schema::openmls_key_store};
 use crate::{Delete, impl_fetch, impl_store};
 
-#[derive(Insertable, Queryable, Debug, Clone)]
-#[diesel(table_name = openmls_key_store)]
-#[diesel(primary_key(key_bytes))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = openmls_key_store))]
+#[cfg_attr(feature = "sync", diesel(primary_key(key_bytes)))]
 pub struct StoredKeyStoreEntry {
     pub key_bytes: Vec<u8>,
     pub value_bytes: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
+#[cfg(feature = "sync")]
 impl_store!(StoredKeyStoreEntry, openmls_key_store);
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> Delete<StoredKeyStoreEntry> for DbConnection<C> {
     type Key = Vec<u8>;
     fn delete(&self, key: Vec<u8>) -> Result<usize, StorageError> where {

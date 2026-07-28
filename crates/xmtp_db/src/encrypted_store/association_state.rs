@@ -1,22 +1,29 @@
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 
+#[cfg(feature = "sync")]
 use super::schema::association_state::{self, dsl};
+#[cfg(feature = "sync")]
 use crate::ConnectionExt;
+#[cfg(feature = "sync")]
 use crate::DbConnection;
 use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
 use prost::Message;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
-#[diesel(table_name = association_state)]
-#[diesel(primary_key(inbox_id, sequence_id))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = association_state))]
+#[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, sequence_id)))]
 pub struct StoredAssociationState {
     pub inbox_id: String,
     pub sequence_id: i64,
     pub state: Vec<u8>,
 }
+#[cfg(feature = "sync")]
 impl_fetch!(StoredAssociationState, association_state, (String, i64));
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
 #[maybe_async::maybe_async(AFIT)]

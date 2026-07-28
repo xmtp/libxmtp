@@ -1,6 +1,9 @@
+#[cfg(feature = "sync")]
 use super::ConnectionExt;
 use super::group::ConversationType;
+#[cfg(feature = "sync")]
 use super::schema::groups;
+#[cfg(feature = "sync")]
 use super::{
     Sqlite,
     db_connection::DbConnection,
@@ -11,6 +14,7 @@ use super::{
 };
 use crate::impl_fetch;
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -36,12 +40,11 @@ pub mod messages_newer_than_tests;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Queryable, Selectable, Identifiable, Eq, PartialEq,
-)]
-#[diesel(table_name = group_messages)]
-#[diesel(primary_key(id))]
-#[diesel(check_for_backend(Sqlite))]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(Queryable, Selectable, Identifiable))]
+#[cfg_attr(feature = "sync", diesel(table_name = group_messages))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sync", diesel(check_for_backend(Sqlite)))]
 /// Successfully processed messages to be returned to the User.
 pub struct StoredGroupMessage {
     /// Id of the message.
@@ -93,8 +96,9 @@ impl StoredGroupMessage {
 }
 
 // Separate Insertable struct that excludes inserted_at_ns to let the database set it
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = group_messages)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = group_messages))]
 struct NewStoredGroupMessage {
     pub id: Vec<u8>,
     pub group_id: GroupId,
@@ -163,13 +167,15 @@ pub enum SortBy {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum GroupMessageKind {
     Application = 1,
     MembershipChange = 2,
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for GroupMessageKind
 where
     i32: ToSql<Integer, Sqlite>,
@@ -180,6 +186,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for GroupMessageKind
 where
     i32: FromSql<Integer, Sqlite>,
@@ -212,8 +219,9 @@ impl Deletable for GroupMessageKind {
 
 //Legacy content types found at https://github.com/xmtp/xmtp-js/tree/main/content-types
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromSqlRow, AsExpression)]
-#[diesel(sql_type = diesel::sql_types::Integer)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "sync", derive(FromSqlRow, AsExpression))]
+#[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
 pub enum ContentType {
     Unknown = 0,
     Text = 1,
@@ -338,6 +346,7 @@ impl From<String> for ContentType {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for ContentType
 where
     i32: ToSql<Integer, Sqlite>,
@@ -348,6 +357,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for ContentType
 where
     i32: FromSql<Integer, Sqlite>,
@@ -377,14 +387,16 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, FromSqlRow, AsExpression)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(FromSqlRow, AsExpression))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum DeliveryStatus {
     Unpublished = 1,
     Published = 2,
     Failed = 3,
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for DeliveryStatus
 where
     i32: ToSql<Integer, Sqlite>,
@@ -395,6 +407,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for DeliveryStatus
 where
     i32: FromSql<Integer, Sqlite>,
@@ -409,9 +422,11 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 
 // Custom store implementation that uses NewStoredGroupMessage to exclude inserted_at_ns
+#[cfg(feature = "sync")]
 impl<C> crate::Store<C> for StoredGroupMessage
 where
     C: crate::ConnectionExt,
@@ -430,6 +445,7 @@ where
 }
 
 // Custom store_or_ignore implementation that uses NewStoredGroupMessage
+#[cfg(feature = "sync")]
 impl<C> crate::StoreOrIgnore<C> for StoredGroupMessage
 where
     C: crate::ConnectionExt,
@@ -1487,6 +1503,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 }
 
+#[cfg(feature = "sync")]
 fn group_id_filter(
     group_id: &[u8],
 ) -> impl diesel::expression::BoxableExpression<

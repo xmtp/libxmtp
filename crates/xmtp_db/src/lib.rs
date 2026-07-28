@@ -7,10 +7,13 @@ mod errors;
 pub mod pg;
 pub mod serialization;
 pub use serialization::*;
+#[cfg(feature = "sync")]
 pub mod sql_key_store;
 mod traits;
 pub use traits::*;
+#[cfg(feature = "sync")]
 pub mod xmtp_openmls_provider;
+#[cfg(feature = "sync")]
 pub use xmtp_openmls_provider::{
     TransactionOutcome, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
     XmtpOpenMlsProviderRefMut,
@@ -30,21 +33,28 @@ pub mod test_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub use test_utils::*;
 
+#[cfg(feature = "sync")]
 pub use diesel;
 pub use encrypted_store::*;
 pub use errors::*;
 pub use xmtp_proto as proto;
 
+#[cfg(feature = "sync")]
 use diesel::connection::SimpleConnection;
 
+#[cfg(feature = "sync")]
 use crate::sql_key_store::SqlKeyStore;
 
+#[cfg(feature = "sync")]
 /// The default platform-specific store
 pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;
+#[cfg(feature = "sync")]
 pub type DefaultDbConnection = <DefaultStore as XmtpDb>::DbQuery;
+#[cfg(feature = "sync")]
 pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 
 pub mod prelude {
+    #[cfg(feature = "sync")]
     pub use super::ReadOnly;
     pub use super::association_state::QueryAssociationStateCache;
     pub use super::consent_record::QueryConsentRecord;
@@ -62,7 +72,9 @@ pub mod prelude {
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
+    #[cfg(feature = "sync")]
     pub use super::migrations::QueryMigrations;
+    #[cfg(feature = "sync")]
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;
@@ -80,6 +92,7 @@ pub trait ReadOnly {
     fn disable_readonly(&self) -> Result<(), StorageError>;
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError> {
@@ -122,7 +135,7 @@ fn test_setup() {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn init_sqlite() {}
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(all(any(test, feature = "test-utils"), feature = "sync"))]
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
 

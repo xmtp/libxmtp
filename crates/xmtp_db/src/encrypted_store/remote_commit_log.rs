@@ -1,9 +1,12 @@
+#[cfg(feature = "sync")]
 use diesel::RunQueryDsl;
 
+#[cfg(feature = "sync")]
 use crate::{
     ConnectionExt, DbConnection, impl_store, schema::remote_commit_log,
     schema::remote_commit_log::dsl,
 };
+#[cfg(feature = "sync")]
 use diesel::{
     Insertable, Queryable,
     backend::Backend,
@@ -20,8 +23,9 @@ use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 use xmtp_proto::types::GroupId;
-#[derive(Insertable, Debug, Clone)]
-#[diesel(table_name = remote_commit_log)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
 pub struct NewRemoteCommitLog {
     pub log_sequence_id: i64,
     pub group_id: GroupId,
@@ -31,11 +35,13 @@ pub struct NewRemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(NewRemoteCommitLog, remote_commit_log);
 
-#[derive(Insertable, Queryable, Clone)]
-#[diesel(table_name = remote_commit_log)]
-#[diesel(primary_key(rowid))]
+#[derive(Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
+#[cfg_attr(feature = "sync", diesel(primary_key(rowid)))]
 pub struct RemoteCommitLog {
     pub rowid: i32,
     // The sequence ID of the log entry on the server
@@ -53,11 +59,13 @@ pub struct RemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(RemoteCommitLog, remote_commit_log);
 
 #[repr(i32)]
-#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum CommitResult {
     Unknown = 0,
     Success = 1,
@@ -95,6 +103,7 @@ impl std::fmt::Debug for RemoteCommitLog {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for CommitResult
 where
     i32: ToSql<Integer, Sqlite>,
@@ -105,6 +114,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for CommitResult
 where
     i32: FromSql<Integer, Sqlite>,

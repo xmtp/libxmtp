@@ -1,21 +1,23 @@
 use crate::icebox::{Icebox, IceboxDependency};
+#[cfg(feature = "sync")]
 use diesel::QueryableByName;
 use xmtp_proto::types::OrphanedEnvelope;
 
 /// Internal struct for flat query results before grouping
-#[derive(Debug, QueryableByName)]
+#[derive(Debug)]
+#[cfg_attr(feature = "sync", derive(QueryableByName))]
 pub(super) struct IceboxWithDep {
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
     pub originator_id: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
     pub sequence_id: i64,
-    #[diesel(sql_type = diesel::sql_types::Binary)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
     group_id: *const [u8],
-    #[diesel(sql_type = diesel::sql_types::Binary)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
     envelope_payload: *const [u8],
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
     pub dependency_originator_id: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
     pub dependency_sequence_id: i64,
 }
 

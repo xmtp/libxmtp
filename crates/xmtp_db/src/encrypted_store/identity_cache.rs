@@ -1,13 +1,24 @@
+#[cfg(feature = "sync")]
 use super::schema::identity_cache;
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, Sqlite};
-use crate::{DbConnection, StorageError};
+#[cfg(feature = "sync")]
+use crate::DbConnection;
+use crate::StorageError;
 use crate::{Store, impl_fetch, impl_store};
+#[cfg(feature = "sync")]
 use diesel::backend::Backend;
+#[cfg(feature = "sync")]
 use diesel::deserialize::{self, FromSql, FromSqlRow};
+#[cfg(feature = "sync")]
 use diesel::expression::AsExpression;
+#[cfg(feature = "sync")]
 use diesel::serialize::{IsNull, Output, ToSql};
+#[cfg(feature = "sync")]
 use diesel::sql_types::Integer;
+#[cfg(feature = "sync")]
 use diesel::{Insertable, Queryable};
+#[cfg(feature = "sync")]
 use diesel::{prelude::*, serialize};
 use serde::{Deserialize, Serialize};
 use std::any::type_name;
@@ -15,9 +26,10 @@ use std::collections::HashMap;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
-#[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
-#[diesel(table_name = identity_cache)]
-#[diesel()]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = identity_cache))]
+#[cfg_attr(feature = "sync", diesel())]
 pub struct IdentityCache {
     inbox_id: String,
     identity: String,
@@ -25,8 +37,9 @@ pub struct IdentityCache {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 /// Type of identity stored
 pub enum StoredIdentityKind {
     Ethereum = 1,
@@ -82,7 +95,9 @@ impl From<StoredIdentityKind> for IdentifierKind {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_store!(IdentityCache, identity_cache);
+#[cfg(feature = "sync")]
 impl_fetch!(IdentityCache, identity_cache);
 
 #[maybe_async::maybe_async(AFIT)]
@@ -165,6 +180,7 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for StoredIdentityKind
 where
     i32: ToSql<Integer, Sqlite>,
@@ -175,6 +191,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for StoredIdentityKind
 where
     i32: FromSql<Integer, Sqlite>,

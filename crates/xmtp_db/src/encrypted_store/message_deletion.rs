@@ -1,24 +1,21 @@
+#[cfg(feature = "sync")]
 use super::ConnectionExt;
+#[cfg(feature = "sync")]
 use crate::schema::message_deletions::dsl;
+#[cfg(feature = "sync")]
 use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::types::GroupId;
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = message_deletions)]
-#[diesel(primary_key(id))]
+#[cfg_attr(feature = "sync", diesel(table_name = message_deletions))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 /// Represents a deletion record for a message in a group conversation
 pub struct StoredMessageDeletion {
     /// The ID of the DeleteMessage in the group_messages table
@@ -35,7 +32,9 @@ pub struct StoredMessageDeletion {
     pub deleted_at_ns: i64,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(StoredMessageDeletion, message_deletions);
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(StoredMessageDeletion, message_deletions);
 
 /// Trait for querying message deletions

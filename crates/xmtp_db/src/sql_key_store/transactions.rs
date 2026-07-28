@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "sync")]
 use crate::DbConnection;
 use crate::TransactionOutcome;
 use crate::TransactionOutcome::{Continue, Rollback};
@@ -22,6 +23,7 @@ impl<'a> MutableTransactionConnection<'a> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where

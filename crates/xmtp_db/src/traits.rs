@@ -1,3 +1,4 @@
+#[cfg(feature = "sync")]
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
@@ -11,6 +12,7 @@ use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
 /// this must only be used within transactions.
+#[cfg(feature = "sync")]
 #[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
 pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
@@ -60,6 +62,7 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
+#[cfg(feature = "sync")]
 pub trait IntoConnection {
     type Connection: ConnectionExt;
     fn into_connection(self) -> Self::Connection;
@@ -142,4 +145,5 @@ impl<T: ?Sized> DbQuery for T where
 {
 }
 
+#[cfg(feature = "sync")]
 pub use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;

@@ -1,8 +1,13 @@
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection};
 use crate::icebox::types::{IceboxOrphans, IceboxWithDep};
+#[cfg(feature = "sync")]
 use crate::schema::icebox::dsl;
+#[cfg(feature = "sync")]
 use crate::schema::icebox_dependencies;
+#[cfg(feature = "sync")]
 use crate::{impl_store, schema::icebox};
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -12,21 +17,14 @@ use xmtp_proto::types::{
 
 mod types;
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = icebox)]
-#[diesel(primary_key(originator_id, sequence_id))]
-#[diesel(belongs_to(crate::group::StoredGroup, foreign_key = group_id))]
+#[cfg_attr(feature = "sync", diesel(table_name = icebox))]
+#[cfg_attr(feature = "sync", diesel(primary_key(originator_id, sequence_id)))]
+#[cfg_attr(feature = "sync", diesel(belongs_to(crate::group::StoredGroup, foreign_key = group_id)))]
 pub struct Icebox {
     pub originator_id: i64,
     pub sequence_id: i64,
@@ -34,27 +32,24 @@ pub struct Icebox {
     pub envelope_payload: Vec<u8>,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(Icebox, icebox);
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Eq,
-    PartialEq,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[diesel(table_name = icebox_dependencies)]
-#[diesel(primary_key(
-    envelope_originator_id,
-    envelope_sequence_id,
-    dependency_originator_id,
-    dependency_sequence_id
-))]
+#[cfg_attr(feature = "sync", diesel(table_name = icebox_dependencies))]
+#[cfg_attr(
+    feature = "sync",
+    diesel(primary_key(
+        envelope_originator_id,
+        envelope_sequence_id,
+        dependency_originator_id,
+        dependency_sequence_id
+    ))
+)]
 pub struct IceboxDependency {
     pub envelope_originator_id: i64,
     pub envelope_sequence_id: i64,
@@ -62,6 +57,7 @@ pub struct IceboxDependency {
     pub dependency_sequence_id: i64,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(IceboxDependency, icebox_dependencies);
 
 #[maybe_async::maybe_async(AFIT)]
@@ -122,6 +118,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> DbConnection<C> {
     fn do_icebox_query(
         &self,

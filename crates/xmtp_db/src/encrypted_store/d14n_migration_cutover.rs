@@ -1,14 +1,20 @@
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
     schema::d14n_migration_cutover::{self, dsl},
 };
 use crate::StorageError;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 
-#[derive(Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone)]
-#[diesel(table_name = d14n_migration_cutover)]
-#[diesel(primary_key(id))]
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Identifiable, Insertable, Queryable, AsChangeset)
+)]
+#[cfg_attr(feature = "sync", diesel(table_name = d14n_migration_cutover))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 pub struct StoredMigrationCutover {
     pub id: i32,
     pub cutover_ns: i64,

@@ -1,13 +1,15 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
+use super::consent_record::ConsentState;
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt, Sqlite,
-    consent_record::ConsentState,
     db_connection::DbConnection,
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
 use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::{Builder, UninitializedFieldError};
+#[cfg(feature = "sync")]
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -26,27 +28,19 @@ pub use dms::QueryDms;
 pub use version::QueryGroupVersion;
 use xmtp_proto::types::{Cursor, GroupId};
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Insertable,
-    Identifiable,
-    Queryable,
-    Builder,
-    Selectable,
-    QueryableByName,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Insertable, Identifiable, Queryable, Selectable, QueryableByName)
 )]
-#[diesel(table_name = groups)]
-#[diesel(primary_key(id))]
-#[diesel(check_for_backend(Sqlite))]
+#[cfg_attr(feature = "sync", diesel(table_name = groups))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sync", diesel(check_for_backend(Sqlite)))]
 #[builder(
     setter(into),
     build_fn(error = "StorageError", validate = "Self::validate")
 )]
-#[derive(AsChangeset)]
+#[cfg_attr(feature = "sync", derive(AsChangeset))]
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
@@ -143,38 +137,43 @@ impl StoredGroupBuilder {
 }
 
 /// A subset of the group table for fetching the commit log public key
-#[derive(Queryable)]
-#[diesel(table_name = groups)]
+#[cfg_attr(feature = "sync", derive(Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = groups))]
 pub struct StoredGroupCommitLogPublicKey {
     pub id: GroupId,
     pub commit_log_public_key: Option<Vec<u8>>,
 }
 
 /// A struct for fetching groups that need readd requests with their latest epoch
-#[derive(Debug, Clone, Queryable, QueryableByName)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, QueryableByName))]
 pub struct StoredGroupForReaddRequest {
-    #[diesel(sql_type = diesel::sql_types::Binary)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
     pub group_id: GroupId,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>))]
     pub latest_commit_sequence_id: Option<i64>,
 }
 
 /// A struct for fetching groups that need to respond to readd requests
-#[derive(Debug, Clone, Queryable, QueryableByName)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, QueryableByName))]
 pub struct StoredGroupForRespondingReadds {
-    #[diesel(sql_type = diesel::sql_types::Binary)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
     pub group_id: GroupId,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>))]
     pub dm_id: Option<String>,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
     pub conversation_type: ConversationType,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
     pub created_at_ns: i64,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
+#[cfg(feature = "sync")]
 impl_fetch!(StoredGroup, groups, GroupId);
+#[cfg(feature = "sync")]
 impl_store!(StoredGroup, groups);
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(StoredGroup, groups);
 
 impl StoredGroupBuilder {
@@ -1300,8 +1299,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
     /// User is allowed to interact with this Group
@@ -1316,6 +1316,7 @@ pub enum GroupMembershipState {
     PendingRemove = 5,
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for GroupMembershipState
 where
     i32: ToSql<Integer, Sqlite>,
@@ -1326,6 +1327,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for GroupMembershipState
 where
     i32: FromSql<Integer, Sqlite>,
@@ -1343,8 +1345,9 @@ where
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum ConversationType {
     Group = 1,
     Dm = 2,
@@ -1368,6 +1371,7 @@ impl ConversationType {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for ConversationType
 where
     i32: ToSql<Integer, Sqlite>,
@@ -1378,6 +1382,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for ConversationType
 where
     i32: FromSql<Integer, Sqlite>,

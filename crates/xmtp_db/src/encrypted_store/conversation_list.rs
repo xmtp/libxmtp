@@ -1,18 +1,25 @@
+#[cfg(feature = "sync")]
 use super::ConnectionExt;
+#[cfg(feature = "sync")]
 use super::schema::conversation_list::dsl::conversation_list;
+#[cfg(feature = "sync")]
+use crate::DbConnection;
+use crate::StorageError;
 use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-use crate::{DbConnection, StorageError};
+#[cfg(feature = "sync")]
 use diesel::dsl::sql;
+#[cfg(feature = "sync")]
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Queryable, Debug, Clone, Deserialize, Serialize)]
-#[diesel(table_name = conversation_list)]
-#[diesel(primary_key(id))]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "sync", derive(Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = conversation_list))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 /// Combined view of a group and its messages, now named `conversation_list`.
 pub struct ConversationListItem {
     /// group_id

@@ -1,5 +1,9 @@
-use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_log::dsl};
+use super::remote_commit_log::CommitResult;
+#[cfg(feature = "sync")]
+use super::{DbConnection, schema::local_commit_log::dsl};
+#[cfg(feature = "sync")]
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
+#[cfg(feature = "sync")]
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
@@ -38,8 +42,9 @@ impl std::fmt::Display for CommitType {
     }
 }
 
-#[derive(Insertable, Debug, Clone)]
-#[diesel(table_name = local_commit_log)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
 pub struct NewLocalCommitLog {
     pub group_id: GroupId,
     pub commit_sequence_id: i64,
@@ -53,9 +58,10 @@ pub struct NewLocalCommitLog {
     pub commit_type: Option<String>,
 }
 
-#[derive(Queryable, Clone)]
-#[diesel(table_name = local_commit_log)]
-#[diesel(primary_key(id))]
+#[derive(Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 pub struct LocalCommitLog {
     pub rowid: i32,
     pub group_id: GroupId,
@@ -105,6 +111,7 @@ impl From<CommitResult> for i32 {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_store!(NewLocalCommitLog, local_commit_log);
 
 impl std::fmt::Debug for LocalCommitLog {

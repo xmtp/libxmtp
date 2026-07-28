@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::{
     backend::Backend,
     connection::DefaultLoadingMode,
@@ -15,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
 use xmtp_proto::types::{Cursor, GroupId};
 
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt, Sqlite,
     db_connection::DbConnection,
@@ -32,19 +34,9 @@ pub use types::*;
 pub type ID = i32;
 
 #[repr(i32)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    AsExpression,
-    FromSqlRow,
-    Serialize,
-    Deserialize,
-    strum::EnumIter,
-)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::EnumIter)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum IntentKind {
     SendMessage = 1,
     KeyUpdate = 2,
@@ -122,8 +114,9 @@ impl std::fmt::Display for IntentKind {
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum IntentState {
     ToPublish = 1,
     Published = 2,
@@ -132,9 +125,10 @@ pub enum IntentState {
     Processed = 5,
 }
 
-#[derive(Queryable, Identifiable, PartialEq, Clone)]
-#[diesel(table_name = group_intents)]
-#[diesel(primary_key(id))]
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
+#[cfg_attr(feature = "sync", diesel(table_name = group_intents))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 pub struct StoredGroupIntent {
     pub id: ID,
     pub kind: IntentKind,
@@ -191,8 +185,10 @@ impl std::fmt::Debug for StoredGroupIntent {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_fetch!(StoredGroupIntent, group_intents, ID);
 
+#[cfg(feature = "sync")]
 impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
@@ -204,8 +200,9 @@ impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
 /// NewGroupIntent is the data needed to create a new group intent.
 /// Do not use this struct directly outside of the storage module.
 /// Use the `queue_intent` method on `MlsGroup` instead.
-#[derive(Insertable, Debug, PartialEq, Clone, Builder)]
-#[diesel(table_name = group_intents)]
+#[derive(Debug, PartialEq, Clone, Builder)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = group_intents))]
 #[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct NewGroupIntent {
     pub kind: IntentKind,
@@ -216,6 +213,7 @@ pub struct NewGroupIntent {
     pub state: IntentState,
 }
 
+#[cfg(feature = "sync")]
 impl_store!(NewGroupIntent, group_intents);
 
 impl NewGroupIntent {
@@ -689,6 +687,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for IntentKind
 where
     i32: ToSql<Integer, Sqlite>,
@@ -699,6 +698,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for IntentKind
 where
     i32: FromSql<Integer, Sqlite>,
@@ -722,6 +722,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for IntentState
 where
     i32: ToSql<Integer, Sqlite>,
@@ -732,6 +733,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for IntentState
 where
     i32: FromSql<Integer, Sqlite>,

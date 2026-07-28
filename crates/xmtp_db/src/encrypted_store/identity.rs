@@ -1,7 +1,12 @@
+use crate::StorageError;
+#[cfg(feature = "sync")]
 use crate::encrypted_store::schema::identity;
+#[cfg(feature = "sync")]
 use crate::schema::identity::dsl;
-use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
+#[cfg(feature = "sync")]
+use crate::{ConnectionExt, DbConnection, impl_fetch, impl_store};
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
@@ -9,8 +14,9 @@ use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 
 /// Identity of this installation
 /// There can only be one.
-#[derive(Insertable, Queryable, Debug, Clone, Builder, Serialize, Deserialize)]
-#[diesel(table_name = identity)]
+#[derive(Debug, Clone, Builder, Serialize, Deserialize)]
+#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = identity))]
 #[builder(setter(into), build_fn(error = "crate::StorageError"))]
 pub struct StoredIdentity {
     pub inbox_id: String,
@@ -25,7 +31,9 @@ pub struct StoredIdentity {
     pub registration_cursor_sequence_id: Option<i64>,
 }
 
+#[cfg(feature = "sync")]
 impl_fetch!(StoredIdentity, identity);
+#[cfg(feature = "sync")]
 impl_store!(StoredIdentity, identity);
 
 impl StoredIdentity {

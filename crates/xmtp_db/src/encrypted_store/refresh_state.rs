@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[cfg(feature = "sync")]
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -11,9 +12,11 @@ use diesel::{
 use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
 
+#[cfg(feature = "sync")]
 allow_columns_to_appear_in_same_group_by_clause!(
     super::schema::identity_updates::originator_id,
     super::schema::identity_updates::sequence_id,
@@ -22,8 +25,9 @@ allow_columns_to_appear_in_same_group_by_clause!(
 );
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum EntityKind {
     Welcome = 1,
     ApplicationMessage = 2,       // Application messages (originator 10)
@@ -69,6 +73,7 @@ impl std::fmt::Display for EntityKind {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for EntityKind
 where
     i32: ToSql<Integer, Sqlite>,
@@ -79,6 +84,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for EntityKind
 where
     i32: FromSql<Integer, Sqlite>,
@@ -97,9 +103,13 @@ where
     }
 }
 
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
-#[diesel(table_name = refresh_state)]
-#[diesel(primary_key(entity_id, entity_kind, originator_id))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = refresh_state))]
+#[cfg_attr(
+    feature = "sync",
+    diesel(primary_key(entity_id, entity_kind, originator_id))
+)]
 pub struct RefreshState {
     pub entity_id: Vec<u8>,
     pub entity_kind: EntityKind,
@@ -107,6 +117,7 @@ pub struct RefreshState {
     pub originator_id: i32,
 }
 
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(RefreshState, refresh_state);
 
 /// Helper function to convert rows of (entity_id, originator_id, sequence_id) into a HashMap

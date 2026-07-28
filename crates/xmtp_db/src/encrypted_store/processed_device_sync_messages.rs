@@ -1,15 +1,16 @@
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt, Sqlite,
     db_connection::DbConnection,
-    group::ConversationType,
-    group_message::StoredGroupMessage,
     schema::{
         group_messages::dsl as group_messages_dsl,
         groups::dsl as groups_dsl,
         processed_device_sync_messages::{self, dsl},
     },
 };
+use super::{group::ConversationType, group_message::StoredGroupMessage};
 use crate::{StorageError, impl_store, impl_store_or_ignore};
+#[cfg(feature = "sync")]
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -22,10 +23,9 @@ use serde::{Deserialize, Serialize};
 
 /// The state of a device sync message processing
 #[repr(i32)]
-#[derive(
-    Debug, Default, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow,
-)]
-#[diesel(sql_type = Integer)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
 pub enum DeviceSyncProcessingState {
     /// Message is pending processing
     #[default]
@@ -36,6 +36,7 @@ pub enum DeviceSyncProcessingState {
     Failed = 2,
 }
 
+#[cfg(feature = "sync")]
 impl ToSql<Integer, Sqlite> for DeviceSyncProcessingState
 where
     i32: ToSql<Integer, Sqlite>,
@@ -46,6 +47,7 @@ where
     }
 }
 
+#[cfg(feature = "sync")]
 impl FromSql<Integer, Sqlite> for DeviceSyncProcessingState
 where
     i32: FromSql<Integer, Sqlite>,
@@ -60,9 +62,10 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable)]
-#[diesel(table_name = processed_device_sync_messages)]
-#[diesel(primary_key(message_id))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = processed_device_sync_messages))]
+#[cfg_attr(feature = "sync", diesel(primary_key(message_id)))]
 pub struct StoredProcessedDeviceSyncMessages {
     pub message_id: Vec<u8>,
     /// Number of processing attempts remaining
@@ -82,10 +85,12 @@ impl StoredProcessedDeviceSyncMessages {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_store!(
     StoredProcessedDeviceSyncMessages,
     processed_device_sync_messages
 );
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(
     StoredProcessedDeviceSyncMessages,
     processed_device_sync_messages

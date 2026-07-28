@@ -3,18 +3,21 @@ use std::collections::HashMap;
 use crate::StorageError;
 use crate::impl_store;
 
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::{dsl::max, prelude::*};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq, Builder)]
-#[diesel(table_name = identity_updates)]
-#[diesel(primary_key(inbox_id, sequence_id))]
+#[derive(Debug, Clone, PartialEq, Eq, Builder)]
+#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sync", diesel(table_name = identity_updates))]
+#[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, sequence_id)))]
 #[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct StoredIdentityUpdate {
     pub inbox_id: String,
@@ -46,6 +49,7 @@ impl StoredIdentityUpdate {
     }
 }
 
+#[cfg(feature = "sync")]
 impl_store!(StoredIdentityUpdate, identity_updates);
 
 #[maybe_async::maybe_async(AFIT)]

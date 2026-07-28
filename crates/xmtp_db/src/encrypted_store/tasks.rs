@@ -1,15 +1,18 @@
+#[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::tasks};
 use crate::StorageError;
 use derive_builder::Builder;
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use prost::Message;
 use xmtp_common::{NS_IN_DAY, NS_IN_SEC, time::now_ns};
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
-#[derive(Queryable, Identifiable, Debug, Clone)]
-#[diesel(table_name = tasks)]
-#[diesel(primary_key(id))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
+#[cfg_attr(feature = "sync", diesel(table_name = tasks))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 pub struct Task {
     pub id: i32,
     pub originating_message_sequence_id: i64,
@@ -27,8 +30,9 @@ pub struct Task {
     pub data: Vec<u8>,
 }
 
-#[derive(Insertable, Debug, PartialEq, Clone, Builder)]
-#[diesel(table_name = tasks)]
+#[derive(Debug, PartialEq, Clone, Builder)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = tasks))]
 #[builder(build_fn(skip))]
 pub struct NewTask {
     pub originating_message_sequence_id: i64,

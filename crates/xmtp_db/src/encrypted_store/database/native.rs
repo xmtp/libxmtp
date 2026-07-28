@@ -4,9 +4,12 @@ mod sqlcipher_connection;
 use crate::StorageError;
 use crate::database::instrumentation::TestInstrumentation;
 /// Native SQLite connection using SqlCipher
+#[cfg(feature = "sync")]
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use arc_swap::ArcSwapOption;
+#[cfg(feature = "sync")]
 use diesel::sqlite::SqliteConnection;
+#[cfg(feature = "sync")]
 use diesel::{
     Connection,
     connection::SimpleConnection,
@@ -413,6 +416,7 @@ pub struct EphemeralDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
 }
 
+#[cfg(feature = "sync")]
 impl std::fmt::Debug for EphemeralDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -423,6 +427,7 @@ impl std::fmt::Debug for EphemeralDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl EphemeralDbConnection {
     pub fn new() -> Result<Self, PlatformStorageError> {
         let mut c = SqliteConnection::establish(":memory:")?;
@@ -447,6 +452,7 @@ impl EphemeralDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for EphemeralDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -486,6 +492,7 @@ pub struct SingleDbConnection {
     customizer: Box<dyn XmtpConnection>,
 }
 
+#[cfg(feature = "sync")]
 impl std::fmt::Debug for SingleDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Use `try_lock`: the mutex is non-reentrant, so formatting `{:?}` from
@@ -505,6 +512,7 @@ impl std::fmt::Debug for SingleDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl SingleDbConnection {
     fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
         let StorageOption::Persistent(path) = customizer.options() else {
@@ -569,6 +577,7 @@ impl SingleDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for SingleDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -602,6 +611,7 @@ pub struct NativeDbConnection {
     min_pool_size: u32,
 }
 
+#[cfg(feature = "sync")]
 impl std::fmt::Debug for NativeDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -613,6 +623,7 @@ impl std::fmt::Debug for NativeDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl NativeDbConnection {
     fn new(
         customizer: Box<dyn XmtpConnection>,
@@ -651,6 +662,7 @@ impl NativeDbConnection {
     }
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for NativeDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where

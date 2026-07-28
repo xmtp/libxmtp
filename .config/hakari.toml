@@ -52,6 +52,14 @@ third-party = [
   # the async track's traits to the blocking shape in every build -- the async
   # track would silently cease to exist.
   { name = "maybe-async" },
+  # diesel is the sync track's driver. Unifying it into the workspace-hack puts
+  # it (and through it libsqlite3-sys) into *every* member's graph, which
+  # silently undoes `xmtp_db`'s `sync`-gating of diesel and puts a SQLite driver
+  # back into server builds. Same reasoning as libsqlite3-sys above.
+  # (git source must be spelled out -- these are patched to the ephemerahq fork)
+  { name = "diesel", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
+  { name = "diesel_derives", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
+  { name = "diesel_migrations", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
   # Same rationale as libsqlite3-sys: sqlx is the servers-only storage driver, and
   # unifying it would compile a Postgres client into every native member,
   # including the mobile bindings, which have no use for it.
@@ -78,6 +86,14 @@ third-party = [
   # the async track's traits to the blocking shape in every build -- the async
   # track would silently cease to exist.
   { name = "maybe-async" },
+  # diesel is the sync track's driver. Unifying it into the workspace-hack puts
+  # it (and through it libsqlite3-sys) into *every* member's graph, which
+  # silently undoes `xmtp_db`'s `sync`-gating of diesel and puts a SQLite driver
+  # back into server builds. Same reasoning as libsqlite3-sys above.
+  # (git source must be spelled out -- these are patched to the ephemerahq fork)
+  { name = "diesel", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
+  { name = "diesel_derives", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
+  { name = "diesel_migrations", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
   # Same rationale as libsqlite3-sys: sqlx is the servers-only storage driver, and
   # unifying it would compile a Postgres client into every native member,
   # including the mobile bindings, which have no use for it.

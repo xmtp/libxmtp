@@ -1,16 +1,20 @@
+#[cfg(feature = "sync")]
 use super::{
     ConnectionExt,
     schema::user_preferences::{self, dsl},
 };
 use crate::{StorageError, Store};
+#[cfg(feature = "sync")]
 use diesel::{insert_into, prelude::*};
 use xmtp_common::time::now_ns;
 
-#[derive(
-    Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(
+    feature = "sync",
+    derive(Identifiable, Insertable, Queryable, AsChangeset)
 )]
-#[diesel(table_name = user_preferences)]
-#[diesel(primary_key(id))]
+#[cfg_attr(feature = "sync", diesel(table_name = user_preferences))]
+#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 pub struct StoredUserPreferences {
     pub id: i32,
     /// HMAC key root

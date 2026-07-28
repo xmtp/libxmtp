@@ -16,6 +16,7 @@ use mockall::mock;
 use parking_lot::Mutex;
 
 use crate::pending_remove::QueryPendingRemove;
+#[cfg(feature = "sync")]
 use crate::{ConnectionError, ConnectionExt};
 
 pub type MockDb = MockDbQuery;
@@ -38,6 +39,7 @@ impl AsRef<MockConnection> for MockConnection {
 }
 
 // TODO: We should use diesels test transaction
+#[cfg(feature = "sync")]
 impl ConnectionExt for MockConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -863,6 +865,7 @@ mock! {
 
 }
 
+#[cfg(feature = "sync")]
 impl ConnectionExt for MockDbQuery {
     fn raw_query<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where

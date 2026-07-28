@@ -1,21 +1,24 @@
-use super::{
-    ConnectionExt, StorageError, db_connection::DbConnection, schema::key_package_history,
-};
+#[cfg(feature = "sync")]
+use super::{ConnectionExt, db_connection::DbConnection, schema::key_package_history};
+use crate::StorageError;
 use crate::{StoreOrIgnore, impl_store_or_ignore};
+#[cfg(feature = "sync")]
 use diesel::prelude::*;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::KEYS_EXPIRATION_INTERVAL_NS;
 
-#[derive(Insertable, Debug, Clone)]
-#[diesel(table_name = key_package_history)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Insertable))]
+#[cfg_attr(feature = "sync", diesel(table_name = key_package_history))]
 pub struct NewKeyPackageHistoryEntry {
     pub key_package_hash_ref: Vec<u8>,
     pub post_quantum_public_key: Option<Vec<u8>>,
     pub created_at_ns: i64,
 }
 
-#[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = key_package_history)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sync", derive(Queryable, Selectable))]
+#[cfg_attr(feature = "sync", diesel(table_name = key_package_history))]
 pub struct StoredKeyPackageHistoryEntry {
     pub id: i32,
     pub key_package_hash_ref: Vec<u8>,
@@ -24,6 +27,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub post_quantum_public_key: Option<Vec<u8>>,
 }
 
+#[cfg(feature = "sync")]
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
 #[maybe_async::maybe_async(AFIT)]
