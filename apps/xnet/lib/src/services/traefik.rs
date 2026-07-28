@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use bollard::{
     Docker,
     container::NetworkingConfig,
-    models::{ContainerCreateBody, EndpointSettings, HostConfig, Mount, MountTypeEnum},
+    models::{ContainerCreateBody, EndpointSettings, HostConfig, Mount, MountType},
     query_parameters::CreateContainerOptionsBuilder,
 };
 use bon::Builder;
@@ -171,14 +171,14 @@ impl Traefik {
                         Mount {
                             target: Some("/etc/traefik/traefik.yml".to_string()),
                             source: Some(self.static_config_path.clone()),
-                            typ: Some(MountTypeEnum::BIND),
+                            typ: Some(MountType::BIND),
                             read_only: Some(true),
                             ..Default::default()
                         },
                         Mount {
                             target: Some("/etc/traefik/dynamic.yml".to_string()),
                             source: Some(self.dynamic_config_path.clone()),
-                            typ: Some(MountTypeEnum::BIND),
+                            typ: Some(MountType::BIND),
                             read_only: Some(false),
                             ..Default::default()
                         },

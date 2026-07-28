@@ -348,7 +348,7 @@ mod lib_tests {
     }
 
     // Execute once before any tests are run
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn _setup() {
         let _ = fdlimit::raise_fd_limit();
     }

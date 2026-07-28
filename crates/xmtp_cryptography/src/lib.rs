@@ -20,7 +20,7 @@ pub type Secret = tls_codec::SecretVLBytes; // Byte array with ZeroizeOnDrop
 // ignored, so it is safe to call even when a host process pre-installs its own provider.
 //
 // This is exposed publicly and must be called explicitly from binding entry points because
-// the `#[ctor::ctor]` below does not run on Apple platforms: `ctor` relies on the
+// the `#[ctor::ctor(unsafe)]` below does not run on Apple platforms: `ctor` relies on the
 // `__DATA,__mod_init_func` Mach-O link section, which Apple no longer supports. When
 // `libxmtpv3.a` is statically linked into a Swift binary the constructor record is orphaned
 // and never fires, leaving the provider uninstalled and causing `reqwest` (rustls-no-provider)
@@ -35,7 +35,7 @@ pub fn install_crypto_provider() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn install_rustls_crypto_provider() {
     install_crypto_provider();
 }

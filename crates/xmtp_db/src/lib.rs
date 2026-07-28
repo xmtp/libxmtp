@@ -107,7 +107,7 @@ where
 pub async fn init_sqlite() {
     // This is a no-op for wasm32
 }
-#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn test_setup() {
     xmtp_common::logger();

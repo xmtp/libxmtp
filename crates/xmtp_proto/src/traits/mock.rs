@@ -6,7 +6,7 @@ impl Endpoint for TestEndpoint {
     type Output = ();
 
     fn grpc_endpoint(&self) -> std::borrow::Cow<'static, str> {
-        Cow::Borrowed("")
+        Cow::Borrowed("/test.mock/TestEndpoint")
     }
 
     fn body(&self) -> Result<bytes::Bytes, crate::api::BodyError> {
@@ -101,6 +101,6 @@ mod tests {
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_empty_string() {
         let endpoint = TestEndpoint;
-        assert_eq!(endpoint.grpc_endpoint(), "");
+        assert_eq!(endpoint.grpc_endpoint(), "/test.mock/TestEndpoint");
     }
 }
