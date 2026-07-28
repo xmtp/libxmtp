@@ -100,9 +100,6 @@ mkShell (
         jdk17
         kotlin-language-server
 
-        # Swift
-        swiftformat
-
         # Misc dev
         mktemp
         diesel-cli
@@ -122,9 +119,11 @@ mkShell (
       ++ lib.optionals androidEnv.hasEmulator [
         androidEnv.emulator
       ]
-      # Darwin-specific
+      # Darwin-specific. Swift tooling lives here because on Linux it pulls
+      # the full Swift toolchain, which is broken/uncached in current nixpkgs.
       ++ lib.optionals isDarwin [
         darwin.cctools
+        swiftformat
         swiftlint
       ];
 

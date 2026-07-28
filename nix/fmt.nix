@@ -73,9 +73,14 @@
             "-e"
             "SC2181"
           ];
-          # nicklockwood/swiftformat — not bundled in treefmt-nix's program
-          # list (only apple/swift-format is, and that one is broken).
-          # Settings live in .swiftformat at repo root.
+        }
+        # nicklockwood/swiftformat — not bundled in treefmt-nix's program
+        # list (only apple/swift-format is, and that one is broken).
+        # Settings live in .swiftformat at repo root.
+        # Darwin-only: on Linux it needs the full Swift toolchain, which is
+        # broken/uncached in current nixpkgs (clang 16 rejects the stdenv's
+        # -mtls-dialect=gnu2), so Swift formatting is checked on macOS only.
+        // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
           swiftformat = {
             command = "${pkgs.swiftformat}/bin/swiftformat";
             includes = [ "*.swift" ];
