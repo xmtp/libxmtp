@@ -25,11 +25,6 @@ let
       binary = "swiftformat_linux_aarch64";
       hash = "sha256-N0sZdQgpcKwXybMHY528ChSGVkNM1hLP8GlX4nkCDzQ=";
     };
-    x86_64-darwin = {
-      asset = "swiftformat.zip";
-      binary = "swiftformat";
-      hash = "sha256-fLHLH64EkyBHxwFUQcVDhI6OYOFXLYCNCA4KHxZhEUo=";
-    };
     aarch64-darwin = {
       asset = "swiftformat.zip";
       binary = "swiftformat";
