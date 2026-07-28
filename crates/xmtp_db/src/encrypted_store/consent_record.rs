@@ -357,6 +357,240 @@ pub enum ConsentType {
     InboxId = 2,
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    const COLUMNS: &str = "entity_type, state, entity, consented_at_ns";
+
+    /// Upsert that only moves `state`, matching the sync track's
+    /// `do_update().set(state.eq(excluded(state)))` — `consented_at_ns` on an
+    /// existing row is left alone.
+    const UPSERT: &str = "INSERT INTO consent_records (entity_type, state, entity, consented_at_ns) \
+                          VALUES ($1, $2, $3, $4) \
+                          ON CONFLICT (entity_type, entity) DO UPDATE SET state = excluded.state";
+
+    fn record(row: &sqlx::postgres::PgRow) -> Result<StoredConsentRecord, crate::ConnectionError> {
+        Ok(StoredConsentRecord {
+            entity_type: row.try_get(0)?,
+            state: row.try_get(1)?,
+            entity: row.try_get(2)?,
+            consented_at_ns: row.try_get(3)?,
+        })
+    }
+
+    async fn get(
+        db: &PgDb,
+        entity: &str,
+        entity_type: ConsentType,
+    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+        let mut c = db.conn().await?;
+        let row = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM consent_records WHERE entity = $1 AND entity_type = $2"
+        ))
+        .bind(entity)
+        .bind(entity_type)
+        .fetch_optional(&mut *c)
+        .await?;
+        row.as_ref().map(record).transpose()
+    }
+
+    impl QueryConsentRecord for PgDb {
+        async fn get_consent_record(
+            &self,
+            entity: String,
+            entity_type: ConsentType,
+        ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+            get(self, &entity, entity_type).await
+        }
+
+        async fn consent_records(
+            &self,
+        ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM consent_records"))
+                .fetch_all(&mut *c)
+                .await?;
+            rows.iter().map(record).collect()
+        }
+
+        async fn consent_records_paged(
+            &self,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM consent_records \
+                 ORDER BY entity_type, entity LIMIT $1 OFFSET $2"
+            ))
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(record).collect()
+        }
+
+        /// Returns whether the store now reflects `record` — true if it was
+        /// inserted, or replaced an older one; false if an equal or newer record
+        /// was already there.
+        ///
+        /// Runs atomically, unlike the sync track: the read-back and conditional
+        /// replace are separate statements, and on a server two clients can race
+        /// between them.
+        async fn insert_newer_consent_record(
+            &self,
+            new: StoredConsentRecord,
+        ) -> Result<bool, crate::ConnectionError> {
+            self.atomic(async |db| {
+                let existing = get(db, &new.entity, new.entity_type).await?;
+                let Some(old) = existing else {
+                    let mut c = db.conn().await?;
+                    sqlx::query(UPSERT)
+                        .bind(new.entity_type)
+                        .bind(new.state)
+                        .bind(&new.entity)
+                        .bind(new.consented_at_ns)
+                        .execute(&mut *c)
+                        .await?;
+                    return Ok(true);
+                };
+
+                // `PartialEq` here ignores `consented_at_ns` on purpose: an
+                // identical decision restated later is not a change.
+                if old == new {
+                    return Ok(false);
+                }
+
+                let should_replace = old.consented_at_ns < new.consented_at_ns;
+                if should_replace {
+                    let mut c = db.conn().await?;
+                    sqlx::query(UPSERT)
+                        .bind(new.entity_type)
+                        .bind(new.state)
+                        .bind(&new.entity)
+                        .bind(new.consented_at_ns)
+                        .execute(&mut *c)
+                        .await?;
+                }
+                Ok(should_replace)
+            })
+            .await
+        }
+
+        /// Upserts every record and returns the subset that was new or changed.
+        async fn insert_or_replace_consent_records(
+            &self,
+            records: &[StoredConsentRecord],
+        ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+            if records.is_empty() {
+                return Ok(vec![]);
+            }
+
+            self.atomic(async |db| {
+                // Which of these already exist, matched on the (entity_type,
+                // entity) primary key as a pair rather than column-wise.
+                let (types, entities): (Vec<ConsentType>, Vec<&str>) = records
+                    .iter()
+                    .map(|r| (r.entity_type, r.entity.as_str()))
+                    .unzip();
+                let types: Vec<i32> = types.iter().map(|t| *t as i32).collect();
+
+                let existing: Vec<StoredConsentRecord> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(&format!(
+                        "SELECT {COLUMNS} FROM consent_records \
+                         WHERE (entity_type, entity) IN \
+                               (SELECT * FROM UNNEST($1::int4[], $2::text[]))"
+                    ))
+                    .bind(&types)
+                    .bind(&entities)
+                    .fetch_all(&mut *c)
+                    .await?;
+                    rows.iter().map(record).collect::<Result<_, _>>()?
+                };
+
+                let changed: Vec<_> = records
+                    .iter()
+                    .filter(|r| !existing.contains(r))
+                    .cloned()
+                    .collect();
+
+                let mut c = db.conn().await?;
+                for r in records {
+                    sqlx::query(UPSERT)
+                        .bind(r.entity_type)
+                        .bind(r.state)
+                        .bind(&r.entity)
+                        .bind(r.consented_at_ns)
+                        .execute(&mut *c)
+                        .await?;
+                }
+                Ok(changed)
+            })
+            .await
+        }
+
+        /// `None` when the record was inserted; `Some(existing)` when one was
+        /// already there. The caller uses the distinction to detect a conflict,
+        /// so the insert and the read-back must not race.
+        async fn maybe_insert_consent_record_return_existing(
+            &self,
+            new: &StoredConsentRecord,
+        ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+            self.atomic(async |db| {
+                let inserted = {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO consent_records \
+                         (entity_type, state, entity, consented_at_ns) VALUES ($1, $2, $3, $4) \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(new.entity_type)
+                    .bind(new.state)
+                    .bind(&new.entity)
+                    .bind(new.consented_at_ns)
+                    .execute(&mut *c)
+                    .await?
+                    .rows_affected()
+                        > 0
+                };
+
+                if inserted {
+                    return Ok(None);
+                }
+                get(db, &new.entity, new.entity_type).await
+            })
+            .await
+        }
+
+        /// One round trip instead of the sync track's two: the group-id lookup
+        /// becomes a subquery. `encode(id, 'hex')` matches Rust's `hex::encode`
+        /// (lowercase, unpadded), which is what the entity column holds.
+        async fn find_consent_by_dm_id(
+            &self,
+            dm_id: &str,
+        ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM consent_records \
+                 WHERE entity_type = $1 \
+                   AND entity IN (SELECT encode(id, 'hex') FROM groups WHERE dm_id = $2) \
+                 ORDER BY consented_at_ns DESC"
+            ))
+            .bind(ConsentType::ConversationId)
+            .bind(dm_id)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(record).collect()
+        }
+    }
+}
+
 crate::impl_sql_int_enum!(ConsentType {
     ConversationId = 1,
     InboxId = 2,

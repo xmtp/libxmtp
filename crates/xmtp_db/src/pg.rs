@@ -101,6 +101,26 @@ impl PgDb {
         matches!(&*self.exec, PgExec::Tx(_))
     }
 
+    /// Run `f` atomically, joining the caller's transaction if there is one.
+    ///
+    /// [`Self::transaction`] deliberately rejects nesting, which is right for a
+    /// caller that means "start a transaction" but wrong for a query method that
+    /// only means "these writes must land together". Such a method can be called
+    /// either standalone or from inside a larger transaction, and must work both
+    /// ways: here it opens its own, there it inherits the caller's and lets the
+    /// outer scope decide the commit.
+    pub async fn atomic<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: AsyncFnOnce(&PgDb) -> Result<T, E>,
+        E: From<ConnectionError>,
+    {
+        if self.in_transaction() {
+            f(self).await
+        } else {
+            self.transaction(f).await
+        }
+    }
+
     /// Run `f` against a handle pinned to a single connection inside a Postgres
     /// transaction, committing on `Ok` and rolling back on `Err`.
     ///

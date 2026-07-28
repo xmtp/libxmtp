@@ -88,29 +88,24 @@ impl<C: ConnectionExt> QueryKeyStoreEntry for DbConnection<C> {
 // `maybe-async/is_sync` is global, so when both are on the trait has already
 // collapsed to the blocking shape and only the diesel impl can satisfy it.
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
-mod sqlx_backend {
-    use super::{QueryKeyStoreEntry, StorageError};
-
-    pub struct SqlxDb(pub sqlx::PgPool);
-
-    impl QueryKeyStoreEntry for SqlxDb {
-        async fn insert_or_update_key_store_entry(
-            &self,
-            key: Vec<u8>,
-            value: Vec<u8>,
-        ) -> Result<(), StorageError> {
-            sqlx::query(
-                "INSERT INTO openmls_key_store (key_bytes, value_bytes) VALUES ($1, $2) \
-                 ON CONFLICT (key_bytes) DO UPDATE SET value_bytes = excluded.value_bytes",
-            )
-            .bind(key)
-            .bind(value)
-            .execute(&self.0)
-            .await
-            .map_err(|e| {
-                StorageError::Connection(crate::ConnectionError::InvalidQuery(e.to_string()))
-            })?;
-            Ok(())
-        }
+impl QueryKeyStoreEntry for crate::pg::PgDb {
+    /// Postgres has no `REPLACE INTO`; `ON CONFLICT DO UPDATE` on the primary
+    /// key is the equivalent upsert.
+    async fn insert_or_update_key_store_entry(
+        &self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query(
+            "INSERT INTO openmls_key_store (key_bytes, value_bytes) VALUES ($1, $2) \
+             ON CONFLICT (key_bytes) DO UPDATE SET value_bytes = excluded.value_bytes",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+        Ok(())
     }
 }

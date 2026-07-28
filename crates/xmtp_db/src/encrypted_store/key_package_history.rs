@@ -225,6 +225,162 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    /// Column order is fixed here and reused by every `SELECT` below, so the
+    /// positional `try_get`s cannot drift apart from the query text.
+    const COLUMNS: &str =
+        "id, key_package_hash_ref, created_at_ns, delete_at_ns, post_quantum_public_key";
+
+    fn entry(row: &sqlx::postgres::PgRow) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
+        Ok(StoredKeyPackageHistoryEntry {
+            id: row.try_get(0).map_err(crate::ConnectionError::from)?,
+            key_package_hash_ref: row.try_get(1).map_err(crate::ConnectionError::from)?,
+            created_at_ns: row.try_get(2).map_err(crate::ConnectionError::from)?,
+            delete_at_ns: row.try_get(3).map_err(crate::ConnectionError::from)?,
+            post_quantum_public_key: row.try_get(4).map_err(crate::ConnectionError::from)?,
+        })
+    }
+
+    impl QueryKeyPackageHistory for PgDb {
+        async fn store_key_package_history_entry(
+            &self,
+            key_package_hash_ref: Vec<u8>,
+            post_quantum_public_key: Option<Vec<u8>>,
+        ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
+            // Insert and read-back are two statements on two pooled connections
+            // unless they share a transaction; without one, a concurrent delete
+            // between them turns this into a spurious "not found".
+            self.atomic(async |db| {
+                {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO key_package_history \
+                         (key_package_hash_ref, post_quantum_public_key, created_at_ns) \
+                         VALUES ($1, $2, $3) ON CONFLICT (key_package_hash_ref) DO NOTHING",
+                    )
+                    .bind(&key_package_hash_ref)
+                    .bind(&post_quantum_public_key)
+                    .bind(now_ns())
+                    .execute(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                }
+                // Read back rather than using RETURNING: on a conflict the insert
+                // yields no row, and the sync track's contract is to return the
+                // *existing* entry in that case.
+                db.find_key_package_history_entry_by_hash_ref(key_package_hash_ref)
+                    .await
+            })
+            .await
+        }
+
+        /// A missing entry is an error, matching the diesel impl's `first()`.
+        async fn find_key_package_history_entry_by_hash_ref(
+            &self,
+            hash_ref: Vec<u8>,
+        ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM key_package_history WHERE key_package_hash_ref = $1"
+            ))
+            .bind(hash_ref)
+            .fetch_one(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            entry(&row)
+        }
+
+        async fn find_key_package_history_entries_before_id(
+            &self,
+            id: i32,
+        ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM key_package_history WHERE id < $1"
+            ))
+            .bind(id)
+            .fetch_all(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            rows.iter().map(entry).collect()
+        }
+
+        async fn mark_key_package_before_id_to_be_deleted(
+            &self,
+            id: i32,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            // `delete_at_ns IS NULL` keeps this idempotent: an entry already
+            // marked keeps its original deadline instead of being pushed out.
+            sqlx::query(
+                "UPDATE key_package_history SET delete_at_ns = $1 \
+                 WHERE id < $2 AND delete_at_ns IS NULL",
+            )
+            .bind(now_ns() + KEYS_EXPIRATION_INTERVAL_NS)
+            .bind(id)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn get_expired_key_packages(
+            &self,
+        ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM key_package_history WHERE delete_at_ns <= $1"
+            ))
+            .bind(now_ns())
+            .fetch_all(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            rows.iter().map(entry).collect()
+        }
+
+        async fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
+            let mut c = self.conn().await?;
+            // An aggregate with no GROUP BY always returns exactly one row, so
+            // `fetch_one` is right even when nothing is marked — the value is
+            // then NULL, which is the `None` callers expect.
+            let row = sqlx::query(
+                "SELECT MIN(delete_at_ns) FROM key_package_history WHERE delete_at_ns IS NOT NULL",
+            )
+            .fetch_one(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(row.try_get(0).map_err(crate::ConnectionError::from)?)
+        }
+
+        async fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("DELETE FROM key_package_history WHERE id <= $1")
+                .bind(id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query("DELETE FROM key_package_history WHERE id = $1")
+                .bind(id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;

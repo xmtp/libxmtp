@@ -128,6 +128,62 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         Ok(result)
     }
 }
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl QueryPendingRemove for crate::pg::PgDb {
+    async fn get_pending_remove_users(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Vec<String>, crate::ConnectionError> {
+        use sqlx::Row;
+        let mut c = self.conn().await?;
+        let rows = sqlx::query("SELECT inbox_id FROM pending_remove WHERE group_id = $1")
+            .bind(group_id)
+            .fetch_all(&mut *c)
+            .await?;
+        rows.into_iter()
+            .map(|row| row.try_get(0).map_err(Into::into))
+            .collect()
+    }
+
+    async fn get_user_pending_remove_status(
+        &self,
+        group_id: &GroupId,
+        inbox_id: &str,
+    ) -> Result<bool, crate::ConnectionError> {
+        use sqlx::Row;
+        let mut c = self.conn().await?;
+        let row = sqlx::query(
+            "SELECT EXISTS(SELECT 1 FROM pending_remove WHERE group_id = $1 AND inbox_id = $2)",
+        )
+        .bind(group_id)
+        .bind(inbox_id)
+        .fetch_one(&mut *c)
+        .await?;
+        Ok(row.try_get(0)?)
+    }
+
+    async fn delete_pending_remove_users(
+        &self,
+        group_id: &GroupId,
+        inbox_ids: Vec<String>,
+    ) -> Result<usize, crate::ConnectionError> {
+        let mut c = self.conn().await?;
+        // `= ANY($2)` rather than an `IN` list built by hand: one prepared
+        // statement regardless of how many ids are passed, and an empty slice
+        // correctly matches nothing.
+        let deleted =
+            sqlx::query("DELETE FROM pending_remove WHERE group_id = $1 AND inbox_id = ANY($2)")
+                .bind(group_id)
+                .bind(&inbox_ids)
+                .execute(&mut *c)
+                .await?
+                .rows_affected();
+        Ok(deleted as usize)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::GroupId;

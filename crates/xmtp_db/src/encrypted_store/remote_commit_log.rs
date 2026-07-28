@@ -203,3 +203,80 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         })
     }
 }
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    const COLUMNS: &str = "rowid, log_sequence_id, group_id, commit_sequence_id, \
+                           commit_result, applied_epoch_number, applied_epoch_authenticator";
+
+    fn log(row: &sqlx::postgres::PgRow) -> Result<RemoteCommitLog, crate::ConnectionError> {
+        Ok(RemoteCommitLog {
+            rowid: row.try_get(0)?,
+            log_sequence_id: row.try_get(1)?,
+            group_id: row.try_get(2)?,
+            commit_sequence_id: row.try_get(3)?,
+            commit_result: row.try_get(4)?,
+            applied_epoch_number: row.try_get(5)?,
+            applied_epoch_authenticator: row.try_get(6)?,
+        })
+    }
+
+    impl QueryRemoteCommitLog for PgDb {
+        async fn get_latest_remote_log_for_group(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM remote_commit_log WHERE group_id = $1 \
+                 ORDER BY log_sequence_id DESC LIMIT 1"
+            ))
+            .bind(group_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(log).transpose()
+        }
+
+        async fn get_remote_commit_log_after_cursor(
+            &self,
+            group_id: &GroupId,
+            after_cursor: i64,
+            order: RemoteCommitLogOrder,
+        ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+            // `rowid` is a 32-bit serial, so a cursor past i32::MAX cannot name a
+            // real row. The sync track reports this as a query-builder error;
+            // there is no diesel error type here, so it surfaces as InvalidQuery.
+            if after_cursor > i32::MAX as i64 {
+                return Err(crate::ConnectionError::InvalidQuery(
+                    "Cursor value exceeds i32::MAX".into(),
+                ));
+            }
+            let after_cursor = after_cursor as i32;
+
+            // The two orderings are separate literals rather than an interpolated
+            // direction: the sort key never comes from a caller-supplied string.
+            let sql = format!(
+                "SELECT {COLUMNS} FROM remote_commit_log \
+                 WHERE group_id = $1 AND rowid > $2 AND commit_sequence_id <> 0 ORDER BY rowid {}",
+                match order {
+                    RemoteCommitLogOrder::AscendingByRowid => "ASC",
+                    RemoteCommitLogOrder::DescendingByRowid => "DESC",
+                }
+            );
+
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&sql)
+                .bind(group_id)
+                .bind(after_cursor)
+                .fetch_all(&mut *c)
+                .await?;
+            rows.iter().map(log).collect()
+        }
+    }
+}

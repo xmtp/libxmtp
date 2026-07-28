@@ -7474,6 +7474,7 @@ dependencies = [
 name = "xmtp_db_pg_tests"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "sqlx",
  "tokio",
  "xmtp_common",

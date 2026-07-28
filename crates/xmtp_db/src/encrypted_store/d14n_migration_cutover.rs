@@ -109,6 +109,69 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl QueryMigrationCutover for crate::pg::PgDb {
+    /// The migration seeds row 1, so the `unwrap_or_default` here is a fallback
+    /// for a database that predates it rather than the normal path.
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
+        use sqlx::Row;
+        let mut c = self.conn().await?;
+        let row = sqlx::query(
+            "SELECT id, cutover_ns, last_checked_ns, has_migrated \
+             FROM d14n_migration_cutover LIMIT 1",
+        )
+        .fetch_optional(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        let Some(row) = row else {
+            return Ok(StoredMigrationCutover::default());
+        };
+        Ok(StoredMigrationCutover {
+            id: row.try_get(0).map_err(crate::ConnectionError::from)?,
+            cutover_ns: row.try_get(1).map_err(crate::ConnectionError::from)?,
+            last_checked_ns: row.try_get(2).map_err(crate::ConnectionError::from)?,
+            has_migrated: row.try_get(3).map_err(crate::ConnectionError::from)?,
+        })
+    }
+
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query("UPDATE d14n_migration_cutover SET cutover_ns = $1 WHERE id = 1")
+            .bind(cutover_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
+        Ok(self.get_migration_cutover().await?.last_checked_ns)
+    }
+
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query("UPDATE d14n_migration_cutover SET last_checked_ns = $1 WHERE id = 1")
+            .bind(last_checked_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query("UPDATE d14n_migration_cutover SET has_migrated = $1 WHERE id = 1")
+            .bind(has_migrated)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

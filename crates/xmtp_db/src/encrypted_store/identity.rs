@@ -253,6 +253,185 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use crate::tasks::NewTask;
+
+    /// `INSERT OR IGNORE` on a `NewTask`. `data_hash` carries the table's UNIQUE
+    /// constraint, so a duplicate enqueue is a no-op — which is what makes
+    /// repeated nudges coalesce instead of piling up.
+    async fn insert_task_or_ignore(
+        conn: &mut sqlx::PgConnection,
+        task: &NewTask,
+    ) -> Result<(), crate::ConnectionError> {
+        sqlx::query(
+            "INSERT INTO tasks ( \
+                 originating_message_sequence_id, originating_message_originator_id, \
+                 created_at_ns, expires_at_ns, attempts, max_attempts, \
+                 last_attempted_at_ns, backoff_scaling_factor, max_backoff_duration_ns, \
+                 initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data \
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) \
+             ON CONFLICT (data_hash) DO NOTHING",
+        )
+        .bind(task.originating_message_sequence_id)
+        .bind(task.originating_message_originator_id)
+        .bind(task.created_at_ns)
+        .bind(task.expires_at_ns)
+        .bind(task.attempts)
+        .bind(task.max_attempts)
+        .bind(task.last_attempted_at_ns)
+        .bind(task.backoff_scaling_factor)
+        .bind(task.max_backoff_duration_ns)
+        .bind(task.initial_backoff_duration_ns)
+        .bind(task.next_attempt_at_ns)
+        .bind(&task.data_hash)
+        .bind(&task.data)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// The body of `queue_key_rotation_with_nudge`, factored out so it can run
+    /// either inside a transaction this method opens or inside one the caller
+    /// already holds.
+    async fn nudge(
+        db: &PgDb,
+        rotation_task_hash: &crate::tasks::TaskDataHash,
+        rotation_seed: NewTask,
+    ) -> Result<(), StorageError> {
+        use sqlx::Row;
+        use xmtp_proto::xmtp::mls::database::{PullInDeadline, Task as TaskProto, task::Task};
+
+        let mut c = db.conn().await?;
+        let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+
+        sqlx::query(
+            "UPDATE identity SET next_key_package_rotation_ns = $1 \
+             WHERE next_key_package_rotation_ns > $1 OR next_key_package_rotation_ns IS NULL",
+        )
+        .bind(rotate_at_ns)
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        // Read back inside the tx: the column is stable between rotations, so
+        // repeat calls produce byte-identical pull-ins that coalesce.
+        let row = sqlx::query("SELECT next_key_package_rotation_ns FROM identity LIMIT 1")
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+
+        // Pre-registration (no identity row): match the diesel path's
+        // zero-rows-matched no-op instead of erroring; nothing to rotate yet.
+        let Some(row) = row else {
+            return Ok(());
+        };
+        let deadline: Option<i64> = row.try_get(0).map_err(crate::ConnectionError::from)?;
+
+        // Ensure the pull-in's target exists (no-op when already seeded): a
+        // client whose startup seeding never ran must not enqueue a
+        // dropped-on-miss nudge.
+        insert_task_or_ignore(&mut c, &rotation_seed).await?;
+
+        let pull_in = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .expires_at_ns(crate::tasks::NEVER_EXPIRES)
+            .max_attempts(i32::MAX)
+            .build(TaskProto {
+                task: Some(Task::PullInDeadline(PullInDeadline {
+                    target_data_hash: rotation_task_hash.to_vec(),
+                    not_later_than_ns: deadline.unwrap_or(rotate_at_ns),
+                })),
+            })?;
+        insert_task_or_ignore(&mut c, &pull_in).await?;
+        Ok(())
+    }
+
+    impl QueryIdentity for PgDb {
+        async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+            let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+            let mut c = self.conn().await?;
+            // NULL (migrated DBs) counts as unscheduled: initialize it here so
+            // the debounce applies and nudge payloads stay stable (coalescing).
+            sqlx::query(
+                "UPDATE identity SET next_key_package_rotation_ns = $1 \
+                 WHERE next_key_package_rotation_ns > $1 OR next_key_package_rotation_ns IS NULL",
+            )
+            .bind(rotate_at_ns)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn queue_key_rotation_with_nudge(
+            &self,
+            rotation_task_hash: &crate::tasks::TaskDataHash,
+            rotation_seed: NewTask,
+        ) -> Result<(), StorageError> {
+            // The column update and both task inserts must land together.
+            self.atomic(async |db| nudge(db, rotation_task_hash, rotation_seed).await)
+                .await
+        }
+
+        async fn reset_key_package_rotation_queue(
+            &self,
+            rotation_interval_ns: i64,
+        ) -> Result<(), StorageError> {
+            let now = now_ns();
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "UPDATE identity SET next_key_package_rotation_ns = $1 \
+                 WHERE next_key_package_rotation_ns IS NULL \
+                    OR next_key_package_rotation_ns <= $2",
+            )
+            .bind(now + rotation_interval_ns)
+            .bind(now)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+            Ok(match self.rotation_column().await? {
+                // No identity row (pre-registration): nothing to rotate yet.
+                None => false,
+                // NULL column on an existing row: rotation is due now.
+                Some(None) => true,
+                Some(Some(rotate_at)) => now_ns() >= rotate_at,
+            })
+        }
+
+        async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+            Ok(self.rotation_column().await?.flatten())
+        }
+    }
+
+    impl PgDb {
+        /// `next_key_package_rotation_ns` as stored: the outer `Option` is "does
+        /// an identity row exist", the inner one is the nullable column. Callers
+        /// that collapse the two lose the pre-registration case.
+        async fn rotation_column(&self) -> Result<Option<Option<i64>>, StorageError> {
+            use sqlx::Row;
+            let mut c = self.conn().await?;
+            let row = sqlx::query("SELECT next_key_package_rotation_ns FROM identity LIMIT 1")
+                .fetch_optional(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            row.map(|r| r.try_get(0))
+                .transpose()
+                .map_err(crate::ConnectionError::from)
+                .map_err(Into::into)
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::StoredIdentity;

@@ -159,6 +159,106 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl QueryAssociationStateCache for crate::pg::PgDb {
+    /// `store_or_ignore` on the sync track is SQLite's `INSERT OR IGNORE`;
+    /// `ON CONFLICT DO NOTHING` is the Postgres equivalent. An existing row is
+    /// left as-is rather than overwritten — association state for a given
+    /// (inbox_id, sequence_id) is immutable, so a second write is redundant.
+    async fn write_to_cache(
+        &self,
+        inbox_id: String,
+        sequence_id: i64,
+        state: AssociationStateProto,
+    ) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query(
+            "INSERT INTO association_state (inbox_id, sequence_id, state) \
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        )
+        .bind(&inbox_id)
+        .bind(sequence_id)
+        .bind(state.encode_to_vec())
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        tracing::debug!(
+            "Wrote association state to cache: {} {}",
+            inbox_id,
+            sequence_id
+        );
+        Ok(())
+    }
+
+    async fn read_from_cache<A: AsRef<str>>(
+        &self,
+        inbox_id: A,
+        sequence_id: i64,
+    ) -> Result<Option<AssociationStateProto>, StorageError> {
+        use sqlx::Row;
+        let inbox_id = inbox_id.as_ref();
+
+        let mut c = self.conn().await?;
+        let row = sqlx::query(
+            "SELECT state FROM association_state WHERE inbox_id = $1 AND sequence_id = $2",
+        )
+        .bind(inbox_id)
+        .bind(sequence_id)
+        .fetch_optional(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        tracing::debug!(
+            "Loaded association state from cache: {} {}",
+            inbox_id,
+            sequence_id
+        );
+        let state: Vec<u8> = row.try_get(0).map_err(crate::ConnectionError::from)?;
+        Ok(Some(AssociationStateProto::decode(state.as_slice())?))
+    }
+
+    async fn batch_read_from_cache(
+        &self,
+        identifiers: Vec<(String, i64)>,
+    ) -> Result<Vec<AssociationStateProto>, StorageError> {
+        use sqlx::Row;
+        // Same guard as the diesel impl: with no identifiers the OR-chain there
+        // degenerates to an unfiltered query that would load the whole table.
+        if identifiers.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // The pairs go over as two parallel arrays zipped back together by
+        // `UNNEST`, so this stays one prepared statement no matter how many
+        // identifiers are asked for.
+        let (inbox_ids, sequence_ids): (Vec<String>, Vec<i64>) = identifiers.into_iter().unzip();
+
+        let mut c = self.conn().await?;
+        let rows = sqlx::query(
+            "SELECT state FROM association_state \
+             WHERE (inbox_id, sequence_id) IN (SELECT * FROM UNNEST($1::text[], $2::int8[]))",
+        )
+        .bind(&inbox_ids)
+        .bind(&sequence_ids)
+        .fetch_all(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        rows.into_iter()
+            .map(|row| {
+                let state: Vec<u8> = row.try_get(0).map_err(crate::ConnectionError::from)?;
+                Ok(AssociationStateProto::decode(state.as_slice())?)
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

@@ -170,6 +170,106 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    const COLUMNS: &str = "id, group_id, deleted_message_id, deleted_by_inbox_id, \
+                           is_super_admin_deletion, deleted_at_ns";
+
+    fn deletion(
+        row: &sqlx::postgres::PgRow,
+    ) -> Result<StoredMessageDeletion, crate::ConnectionError> {
+        Ok(StoredMessageDeletion {
+            id: row.try_get(0)?,
+            group_id: row.try_get(1)?,
+            deleted_message_id: row.try_get(2)?,
+            deleted_by_inbox_id: row.try_get(3)?,
+            is_super_admin_deletion: row.try_get(4)?,
+            deleted_at_ns: row.try_get(5)?,
+        })
+    }
+
+    impl QueryMessageDeletion for PgDb {
+        async fn get_message_deletion(
+            &self,
+            id: &[u8],
+        ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM message_deletions WHERE id = $1"
+            ))
+            .bind(id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(deletion).transpose()
+        }
+
+        async fn get_deletion_by_deleted_message_id(
+            &self,
+            deleted_message_id: &[u8],
+        ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM message_deletions WHERE deleted_message_id = $1"
+            ))
+            .bind(deleted_message_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(deletion).transpose()
+        }
+
+        async fn get_deletions_for_messages(
+            &self,
+            message_ids: Vec<Vec<u8>>,
+        ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
+            if message_ids.is_empty() {
+                return Ok(vec![]);
+            }
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM message_deletions WHERE deleted_message_id = ANY($1)"
+            ))
+            .bind(&message_ids)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(deletion).collect()
+        }
+
+        async fn get_group_deletions(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM message_deletions WHERE group_id = $1"
+            ))
+            .bind(group_id)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(deletion).collect()
+        }
+
+        async fn is_message_deleted(
+            &self,
+            message_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(
+                "SELECT EXISTS(SELECT 1 FROM message_deletions WHERE deleted_message_id = $1)",
+            )
+            .bind(message_id)
+            .fetch_one(&mut *c)
+            .await?;
+            Ok(row.try_get(0)?)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

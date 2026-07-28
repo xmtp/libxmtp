@@ -440,6 +440,301 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    const COLUMNS: &str = "entity_id, entity_kind, sequence_id, originator_id";
+
+    fn state(row: &sqlx::postgres::PgRow) -> Result<RefreshState, crate::ConnectionError> {
+        Ok(RefreshState {
+            entity_id: row.try_get(0)?,
+            entity_kind: row.try_get(1)?,
+            sequence_id: row.try_get(2)?,
+            originator_id: row.try_get(3)?,
+        })
+    }
+
+    fn kinds_as_i32(entities: &[EntityKind]) -> Vec<i32> {
+        entities.iter().map(|k| *k as i32).collect()
+    }
+
+    impl QueryRefreshState for PgDb {
+        async fn get_refresh_state<EntityId: AsRef<[u8]>>(
+            &self,
+            entity_id: EntityId,
+            entity_kind: EntityKind,
+            originator_id: u32,
+        ) -> Result<Option<RefreshState>, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM refresh_state \
+                 WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = $3"
+            ))
+            .bind(entity_id.as_ref())
+            .bind(entity_kind)
+            .bind(originator_id as i32)
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(row.as_ref().map(state).transpose()?)
+        }
+
+        /// Reads the cursor for each originator, seeding a zero row for any that
+        /// has none, and returns one cursor per requested originator **in the
+        /// order asked for**. Callers index the result positionally.
+        async fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+            &self,
+            id: Id,
+            entity_kind: EntityKind,
+            originator_ids: &[u32],
+        ) -> Result<Vec<Cursor>, StorageError> {
+            let id_ref = id.as_ref();
+            let wanted: Vec<i32> = originator_ids.iter().map(|o| *o as i32).collect();
+
+            // Read-then-seed across two statements, so they share a transaction.
+            self.atomic(async |db| {
+                let found: Vec<RefreshState> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(&format!(
+                        "SELECT {COLUMNS} FROM refresh_state \
+                         WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = ANY($3)"
+                    ))
+                    .bind(id_ref)
+                    .bind(entity_kind)
+                    .bind(&wanted)
+                    .fetch_all(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                    rows.iter()
+                        .map(state)
+                        .collect::<Result<_, crate::ConnectionError>>()?
+                };
+
+                let state_map: HashMap<u32, &RefreshState> = found
+                    .iter()
+                    .map(|s| (s.originator_id as u32, s))
+                    .collect();
+
+                // Seed the originators with no row yet, in one statement rather
+                // than one per missing originator.
+                let missing: Vec<i32> = originator_ids
+                    .iter()
+                    .filter(|o| !state_map.contains_key(o))
+                    .map(|o| *o as i32)
+                    .collect();
+                if !missing.is_empty() {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id) \
+                         SELECT $1, $2, 0, o FROM UNNEST($3::int4[]) AS o \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(id_ref)
+                    .bind(entity_kind)
+                    .bind(&missing)
+                    .execute(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                }
+
+                Ok(originator_ids
+                    .iter()
+                    .map(|o| match state_map.get(o) {
+                        Some(s) => Cursor::new(s.sequence_id as u64, s.originator_id as u32),
+                        None => Cursor::new(0, *o),
+                    })
+                    .collect())
+            })
+            .await
+        }
+
+        /// Unlike the sync track this issues a single query: SQLite's 999-bind
+        /// ceiling forces that impl to chunk the id list, but Postgres takes the
+        /// whole set as one array parameter.
+        async fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+            &self,
+            ids: &[Id],
+            entities: &[EntityKind],
+        ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
+            if ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let id_refs: Vec<&[u8]> = ids.iter().map(|id| id.as_ref()).collect();
+
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(
+                "SELECT entity_id, originator_id, MAX(sequence_id) FROM refresh_state \
+                 WHERE entity_kind = ANY($1) AND entity_id = ANY($2) \
+                 GROUP BY entity_id, originator_id",
+            )
+            .bind(kinds_as_i32(entities))
+            .bind(&id_refs)
+            .fetch_all(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+
+            let rows: Vec<(Vec<u8>, i32, Option<i64>)> = rows
+                .iter()
+                .map(|r| {
+                    Ok((
+                        r.try_get(0)?,
+                        r.try_get(1)?,
+                        r.try_get::<Option<i64>, _>(2)?,
+                    ))
+                })
+                .collect::<Result<_, crate::ConnectionError>>()?;
+            Ok(rows_to_global_cursor_map(rows))
+        }
+
+        /// Advances the cursor, never rewinds it. The `WHERE` on the `DO UPDATE`
+        /// is what makes that atomic: a stale writer's row is rejected by the
+        /// database rather than by a read-then-compare that could race.
+        /// `false` means the stored cursor was already at or past this one.
+        async fn update_cursor<Id: AsRef<[u8]>>(
+            &self,
+            entity_id: Id,
+            entity_kind: EntityKind,
+            cursor: Cursor,
+        ) -> Result<bool, StorageError> {
+            let mut c = self.conn().await?;
+            let updated = sqlx::query(
+                "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id) \
+                 VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT (entity_id, entity_kind, originator_id) DO UPDATE \
+                 SET sequence_id = excluded.sequence_id \
+                 WHERE refresh_state.sequence_id < excluded.sequence_id",
+            )
+            .bind(entity_id.as_ref())
+            .bind(entity_kind)
+            .bind(cursor.sequence_id as i64)
+            .bind(cursor.originator_id as i32)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+            Ok(updated >= 1)
+        }
+
+        /// One round trip for the whole batch. The sync track loops
+        /// `get_last_cursor_for_originator` per conversation, which would be 2N
+        /// network calls here; conversations with no row still come back as a
+        /// zero cursor, and are seeded in the same pass.
+        ///
+        /// Errors propagate rather than collapsing to a default cursor as the
+        /// sync path's `unwrap_or_default()` does — a failed read must not be
+        /// indistinguishable from "no progress yet".
+        async fn get_remote_log_cursors(
+            &self,
+            conversation_ids: &[&[u8]],
+        ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
+            if conversation_ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let originator = Originators::REMOTE_COMMIT_LOG;
+
+            self.atomic(async |db| {
+                let found: HashMap<Vec<u8>, i64> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(
+                        "SELECT entity_id, sequence_id FROM refresh_state \
+                         WHERE entity_kind = $1 AND originator_id = $2 AND entity_id = ANY($3)",
+                    )
+                    .bind(EntityKind::CommitLogDownload)
+                    .bind(originator as i32)
+                    .bind(conversation_ids)
+                    .fetch_all(&mut *c)
+                    .await?;
+                    rows.iter()
+                        .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+                        .collect::<Result<_, crate::ConnectionError>>()?
+                };
+
+                let missing: Vec<&[u8]> = conversation_ids
+                    .iter()
+                    .filter(|id| !found.contains_key(**id))
+                    .copied()
+                    .collect();
+                if !missing.is_empty() {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id) \
+                         SELECT e, $1, 0, $2 FROM UNNEST($3::bytea[]) AS e \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(EntityKind::CommitLogDownload)
+                    .bind(originator as i32)
+                    .bind(&missing)
+                    .execute(&mut *c)
+                    .await?;
+                }
+
+                Ok(conversation_ids
+                    .iter()
+                    .map(|id| {
+                        let seq = found.get(*id).copied().unwrap_or(0);
+                        (id.to_vec(), Cursor::new(seq as u64, originator))
+                    })
+                    .collect())
+            })
+            .await
+        }
+
+        async fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+            &self,
+            entity_id: Id,
+            entities: &[EntityKind],
+            originators: Option<&[&OriginatorId]>,
+        ) -> Result<GlobalCursor, StorageError> {
+            // Each entity kind uses a dedicated originator, so grouping by
+            // originator and taking MAX is unambiguous.
+            let mut sql = String::from(
+                "SELECT originator_id, MAX(sequence_id) FROM refresh_state \
+                 WHERE entity_id = $1 AND entity_kind = ANY($2)",
+            );
+            if originators.is_some() {
+                sql.push_str(" AND originator_id = ANY($3)");
+            }
+            sql.push_str(" GROUP BY originator_id");
+
+            let mut query = sqlx::query(&sql)
+                .bind(entity_id.as_ref())
+                .bind(kinds_as_i32(entities));
+            if let Some(oids) = originators {
+                let ids: Vec<i32> = oids.iter().map(|o| **o as i32).collect();
+                query = query.bind(ids);
+            }
+
+            let mut c = self.conn().await?;
+            let rows = query
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+
+            let pairs: Vec<(u32, Option<i64>)> = rows
+                .iter()
+                .map(|r| {
+                    Ok((
+                        r.try_get::<i32, _>(0)? as u32,
+                        r.try_get::<Option<i64>, _>(1)?,
+                    ))
+                })
+                .collect::<Result<_, crate::ConnectionError>>()?;
+
+            // A NULL MAX means the group had no non-null sequence_id; drop it
+            // rather than reporting a cursor of 0.
+            Ok(pairs
+                .into_iter()
+                .filter_map(|(orig, seq)| seq.map(|s| (orig, s as u64)))
+                .collect())
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

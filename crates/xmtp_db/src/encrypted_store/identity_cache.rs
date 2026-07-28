@@ -176,6 +176,70 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl QueryIdentityCache for crate::pg::PgDb {
+    async fn fetch_cached_inbox_ids(
+        &self,
+        identifiers: &[(Address, StoredIdentityKind)],
+    ) -> Result<HashMap<String, String>, StorageError> {
+        use sqlx::Row;
+        // The diesel impl builds an OR-chain; with no identifiers that chain is
+        // empty and the query degenerates to loading the whole table. Guard it.
+        if identifiers.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Two parallel arrays zipped back by `UNNEST`: matches on the
+        // (identity, kind) *pair*, in one prepared statement.
+        let (identities, kinds): (Vec<&str>, Vec<i32>) = identifiers
+            .iter()
+            .map(|(addr, kind)| (addr.as_str(), i32::from(kind)))
+            .unzip();
+
+        let mut c = self.conn().await?;
+        let rows = sqlx::query(
+            "SELECT identity, inbox_id FROM identity_cache \
+             WHERE (identity, identity_kind) IN (SELECT * FROM UNNEST($1::text[], $2::int4[]))",
+        )
+        .bind(&identities)
+        .bind(&kinds)
+        .fetch_all(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+
+        rows.into_iter()
+            .map(|row| {
+                let identity: String = row.try_get(0).map_err(crate::ConnectionError::from)?;
+                let inbox_id: String = row.try_get(1).map_err(crate::ConnectionError::from)?;
+                Ok((identity, inbox_id))
+            })
+            .collect()
+    }
+
+    /// Plain `INSERT`, matching the sync track's `store`: caching the same
+    /// identity twice is a primary-key violation, not a silent overwrite.
+    async fn cache_inbox_id<S: ToString>(
+        &self,
+        kind: StoredIdentityKind,
+        identity: String,
+        inbox_id: S,
+    ) -> Result<(), StorageError> {
+        let mut c = self.conn().await?;
+        sqlx::query(
+            "INSERT INTO identity_cache (inbox_id, identity, identity_kind) VALUES ($1, $2, $3)",
+        )
+        .bind(inbox_id.to_string())
+        .bind(identity)
+        .bind(kind)
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+}
+
 crate::impl_sql_int_enum!(StoredIdentityKind {
     Ethereum = 1,
     Passkey = 2,

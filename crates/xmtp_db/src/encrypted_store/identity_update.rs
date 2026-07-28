@@ -230,6 +230,163 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    const COLUMNS: &str = "inbox_id, sequence_id, server_timestamp_ns, payload, originator_id";
+
+    fn update(row: &sqlx::postgres::PgRow) -> Result<StoredIdentityUpdate, crate::ConnectionError> {
+        Ok(StoredIdentityUpdate {
+            inbox_id: row.try_get(0)?,
+            sequence_id: row.try_get(1)?,
+            server_timestamp_ns: row.try_get(2)?,
+            payload: row.try_get(3)?,
+            originator_id: row.try_get(4)?,
+        })
+    }
+
+    impl QueryIdentityUpdates for PgDb {
+        /// Exclusive on `from_sequence_id`, inclusive on `to_sequence_id`.
+        ///
+        /// The bounds are optional, so they are applied as `$n IS NULL OR ...`
+        /// rather than by assembling the SQL conditionally: one statement text,
+        /// one prepared plan, whichever bounds the caller supplies.
+        async fn get_identity_updates<InboxId: AsRef<str>>(
+            &self,
+            inbox_id: InboxId,
+            from_sequence_id: Option<i64>,
+            to_sequence_id: Option<i64>,
+        ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM identity_updates WHERE inbox_id = $1 \
+                   AND ($2::int8 IS NULL OR sequence_id > $2) \
+                   AND ($3::int8 IS NULL OR sequence_id <= $3) \
+                 ORDER BY sequence_id ASC"
+            ))
+            .bind(inbox_id.as_ref())
+            .bind(from_sequence_id)
+            .bind(to_sequence_id)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(update).collect()
+        }
+
+        /// Batch insert, ignoring rows already present.
+        ///
+        /// The whole batch goes over as five parallel arrays zipped by `UNNEST`,
+        /// so it stays one statement and one round trip no matter how many
+        /// updates there are — the sync track's multi-row `VALUES` would hit
+        /// Postgres' 65535-parameter ceiling at ~13k updates.
+        async fn insert_or_ignore_identity_updates(
+            &self,
+            updates: &[StoredIdentityUpdate],
+        ) -> Result<(), crate::ConnectionError> {
+            if updates.is_empty() {
+                return Ok(());
+            }
+            let mut inbox_ids = Vec::with_capacity(updates.len());
+            let mut sequence_ids = Vec::with_capacity(updates.len());
+            let mut timestamps = Vec::with_capacity(updates.len());
+            let mut payloads = Vec::with_capacity(updates.len());
+            let mut originators = Vec::with_capacity(updates.len());
+            for u in updates {
+                inbox_ids.push(u.inbox_id.as_str());
+                sequence_ids.push(u.sequence_id);
+                timestamps.push(u.server_timestamp_ns);
+                payloads.push(u.payload.as_slice());
+                originators.push(u.originator_id);
+            }
+
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "INSERT INTO identity_updates \
+                 (inbox_id, sequence_id, server_timestamp_ns, payload, originator_id) \
+                 SELECT * FROM UNNEST($1::text[], $2::int8[], $3::int8[], $4::bytea[], $5::int4[]) \
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(&inbox_ids)
+            .bind(&sequence_ids)
+            .bind(&timestamps)
+            .bind(&payloads)
+            .bind(&originators)
+            .execute(&mut *c)
+            .await?;
+            Ok(())
+        }
+
+        /// An inbox with no updates is an error, matching the diesel impl's
+        /// `first()` — callers treat "unknown inbox" as distinct from sequence 0.
+        async fn get_latest_sequence_id_for_inbox(
+            &self,
+            inbox_id: &str,
+        ) -> Result<i64, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(
+                "SELECT sequence_id FROM identity_updates WHERE inbox_id = $1 \
+                 ORDER BY sequence_id DESC LIMIT 1",
+            )
+            .bind(inbox_id)
+            .fetch_one(&mut *c)
+            .await?;
+            Ok(row.try_get(0)?)
+        }
+
+        async fn get_latest_sequence_id(
+            &self,
+            inbox_ids: &[&str],
+        ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
+            if inbox_ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(
+                "SELECT inbox_id, MAX(sequence_id) FROM identity_updates \
+                 WHERE inbox_id = ANY($1) GROUP BY inbox_id",
+            )
+            .bind(inbox_ids)
+            .fetch_all(&mut *c)
+            .await?;
+
+            let pairs: Vec<(String, Option<i64>)> = rows
+                .iter()
+                .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+                .collect::<Result<_, crate::ConnectionError>>()?;
+            // An aggregate over a present group is never NULL here, but the type
+            // is nullable; drop rather than coerce.
+            Ok(pairs
+                .into_iter()
+                .filter_map(|(id, seq)| seq.map(|s| (id, s)))
+                .collect())
+        }
+
+        async fn count_inbox_updates(
+            &self,
+            inbox_ids: &[&str],
+        ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
+            if inbox_ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(
+                "SELECT inbox_id, COUNT(*) FROM identity_updates \
+                 WHERE inbox_id = ANY($1) GROUP BY inbox_id",
+            )
+            .bind(inbox_ids)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter()
+                .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+                .collect()
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::{Store, test_utils::with_connection};
