@@ -3,6 +3,12 @@ name: Release Notes
 on:
   push:
     branches: ["release/**"]
+  workflow_dispatch:
+    inputs:
+      release-branch:
+        description: "Release branch name (e.g. release/1.2.0)"
+        required: false
+        type: string
   workflow_call:
     inputs:
       release-branch:
@@ -15,7 +21,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # claude-code-action rejects push-triggered runs ("Unsupported event
+  # type: push"), so convert the push into a workflow_dispatch of this
+  # same workflow. GITHUB_TOKEN-created workflow_dispatch events are
+  # exempt from Actions' recursion prevention, and the dispatched run
+  # (a supported event type) does the real work below.
+  redispatch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Redispatch as workflow_dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          gh workflow run release-notes.yml \
+            --repo "${{ github.repository }}" \
+            --ref "$BRANCH" \
+            -f release-branch="$BRANCH"
+
   update-release-notes:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
