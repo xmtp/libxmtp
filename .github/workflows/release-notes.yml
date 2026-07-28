@@ -101,6 +101,8 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 15"
+          # The redispatch shim initiates runs as github-actions[bot]
+          allowed_bots: "github-actions"
           prompt: |
             You are drafting release notes for a software SDK. The audience is end users
             of this SDK, not contributors to this repo.
@@ -179,6 +181,8 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 15"
+          # The redispatch shim initiates runs as github-actions[bot]
+          allowed_bots: "github-actions"
           prompt: |
             You are reviewing release notes for a software SDK. The audience is end users
             of this SDK, not contributors to this repo.
