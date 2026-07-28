@@ -278,6 +278,42 @@ where
     }
 }
 
+// --- sqlx (Postgres) ---------------------------------------------------------
+//
+// The diesel impls above are `Binary`/`Sqlite`; these are the BYTEA equivalents
+// for libxmtp's async storage track. Both route through `TryFrom<Vec<u8>>`, so a
+// stored value that is not exactly 16 bytes is rejected identically on either
+// backend rather than silently truncating.
+
+#[cfg(feature = "sqlx")]
+impl sqlx::Type<sqlx::Postgres> for GroupId {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <Vec<u8> as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <Vec<u8> as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl sqlx::Encode<'_, sqlx::Postgres> for GroupId {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&[u8] as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.0.as_slice(), buf)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for GroupId {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let bytes = <&[u8] as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(GroupId::try_from(bytes)?)
+    }
+}
+
 // --- Generate (test-only) ----------------------------------------------------
 
 xmtp_common::if_test! {

@@ -11338,6 +11338,7 @@ dependencies = [
  "rstest",
  "serde",
  "smallvec",
+ "sqlx",
  "thiserror 2.0.18",
  "tokio",
  "tonic",

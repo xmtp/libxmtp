@@ -130,6 +130,10 @@ serde_json = { version = "1.0", default-features = false }
 serde_path_to_error = "0.1"
 # must stay on this version for compatibility with ed25519_dalek
 sha2 = "0.10.9"
+# Async storage track. Postgres only, deliberately: sqlx-sqlite pins
+# libsqlite3-sys ^0.30 while diesel needs ^0.35, and both set `links = "sqlite3"`
+# -- cargo permits one such package per graph. Never enabled on wasm.
+sqlx = { version = "0.8.6", default-features = false }
 strum = { version = "0.27", features = ["derive"] }
 syn = { version = "2.0", features = [
   "parsing",

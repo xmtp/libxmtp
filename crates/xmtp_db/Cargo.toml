@@ -63,7 +63,7 @@ zeroize.workspace = true
 # diesel here needs ^0.35, and both set `links = "sqlite3"` — cargo permits only
 # one such package per graph. SQLite therefore stays exclusively on the diesel
 # (sync) track, which is also the only track wasm can use.
-sqlx = { version = "0.8.6", optional = true, default-features = false, features = [
+sqlx = { workspace = true, optional = true, features = [
   "postgres",
   "runtime-tokio",
 ] }
@@ -97,11 +97,14 @@ futures.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 xmtp_cryptography.workspace = true
-# `default-features = false` deliberately: this self dev-dependency exists only
-# to switch `test-utils` on for the test targets. Letting it pull the default
-# `sync` feature would unify `sync` with `async` whenever the async track is
-# under test, and `maybe-async/is_sync` is a global switch -- the trait would
-# collapse to the blocking shape while the sqlx impls stayed `async fn`.
+# Switches `test-utils` on for the test targets (needed by `tests/` and the
+# `db_init_latency` bench, which `cfg(test)` alone does not cover).
+#
+# Do NOT add `default-features = false` here to try to test the async track:
+# differing features make cargo build a *second instance* of xmtp_db, and both
+# instances then define `impl RetryableError<Mls> for diesel::result::Error` on a
+# shared upstream type, so every `retryable!` call becomes ambiguous (E0283).
+# Runtime-testing the sqlx impls needs a separate crate instead.
 xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -117,7 +120,7 @@ default = ["sync"]
 # cannot target wasm32-unknown-unknown). `async` is sqlx and is what servers
 # use. maybe-async/is_sync is a global switch, so exactly one may be enabled.
 sync = ["maybe-async/is_sync"]
-async = ["dep:sqlx", "dep:tokio"]
+async = ["dep:sqlx", "dep:tokio", "xmtp_proto/sqlx"]
 update-schema = ["dep:toml"]
 # Enables the latency-injecting SQLite VFS used by the disk-latency benchmarks.
 bench = []

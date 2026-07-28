@@ -47,6 +47,15 @@ third-party = [
   # which would drag openssl-sys/openssl into builds (e.g. mls-validation-service)
   # that have no need for SQLite.
   { name = "libsqlite3-sys" },
+  # `maybe-async`'s `is_sync` feature selects xmtp_db's storage track. Unifying it
+  # into the workspace-hack would turn `is_sync` on for every member, collapsing
+  # the async track's traits to the blocking shape in every build -- the async
+  # track would silently cease to exist.
+  { name = "maybe-async" },
+  # Same rationale as libsqlite3-sys: sqlx is the servers-only storage driver, and
+  # unifying it would compile a Postgres client into every native member,
+  # including the mobile bindings, which have no use for it.
+  { name = "sqlx" },
 ]
 
 [final-excludes]
@@ -64,4 +73,13 @@ third-party = [
   { name = "uniffi" },
   { name = "wasm-bindgen" },
   { name = "libsqlite3-sys" },
+  # `maybe-async`'s `is_sync` feature selects xmtp_db's storage track. Unifying it
+  # into the workspace-hack would turn `is_sync` on for every member, collapsing
+  # the async track's traits to the blocking shape in every build -- the async
+  # track would silently cease to exist.
+  { name = "maybe-async" },
+  # Same rationale as libsqlite3-sys: sqlx is the servers-only storage driver, and
+  # unifying it would compile a Postgres client into every native member,
+  # including the mobile bindings, which have no use for it.
+  { name = "sqlx" },
 ]
