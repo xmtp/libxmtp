@@ -100,7 +100,9 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 15"
+          # Budget for six SDK note files: each needs a diff, a log, and a
+          # full draft, plus the final commit. 15 was exhausted mid-draft.
+          claude_args: "--max-turns 50"
           # The redispatch shim initiates runs as github-actions[bot]
           allowed_bots: "github-actions"
           prompt: |
@@ -180,7 +182,9 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 15"
+          # Budget for six SDK note files: each needs a diff, a log, and a
+          # full draft, plus the final commit. 15 was exhausted mid-draft.
+          claude_args: "--max-turns 50"
           # The redispatch shim initiates runs as github-actions[bot]
           allowed_bots: "github-actions"
           prompt: |
