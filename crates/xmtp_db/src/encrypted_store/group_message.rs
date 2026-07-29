@@ -35,7 +35,8 @@ pub mod messages_newer_than_tests;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
+#[xmtp(table = "group_messages")]
 #[cfg_attr(feature = "sync", derive(Queryable, Selectable, Identifiable))]
 #[cfg_attr(feature = "sync", diesel(table_name = group_messages))]
 #[cfg_attr(feature = "sync", diesel(primary_key(id)))]

@@ -281,3 +281,77 @@ pub(super) mod tests {
         })
     }
 }
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+///
+/// `query_as` decodes straight into `StoredGroup` through the `FromRow` that
+/// `#[derive(PgModel)]` emits, so there is no row mapper here to fall out of
+/// step with the column list.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+
+    impl QueryDms for PgDb {
+        /// The group itself if it is not a DM; otherwise the most recently
+        /// active group sharing its `dm_id` -- that is the "stitched" DM.
+        ///
+        /// One statement rather than the sync path's two: the `dm_id` lookup is
+        /// a subquery, and `COALESCE(dm_id, encode(id,'hex'))` makes a non-DM
+        /// match only itself. `NULLS LAST` matters -- Postgres sorts NULLs first
+        /// on DESC, so a never-used DM would otherwise beat one with messages.
+        async fn fetch_stitched(
+            &self,
+            key: &GroupId,
+        ) -> Result<Option<StoredGroup>, ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups \
+                 WHERE COALESCE(dm_id, encode(id, 'hex')) = \
+                       (SELECT COALESCE(dm_id, encode(id, 'hex')) FROM groups WHERE id = $1) \
+                 ORDER BY last_message_ns DESC NULLS LAST LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(key)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        async fn find_active_dm_group<M>(
+            &self,
+            members: M,
+        ) -> Result<Option<StoredGroup>, ConnectionError>
+        where
+            M: std::fmt::Display,
+        {
+            let sql = format!(
+                "SELECT {} FROM groups WHERE dm_id = $1 AND membership_state <> $2 \
+                 ORDER BY last_message_ns DESC NULLS LAST LIMIT 1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(members.to_string())
+                .bind(GroupMembershipState::Restored)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        /// Empty when the group is not a DM, matching the sync path: the
+        /// subquery yields NULL and `dm_id = NULL` matches nothing.
+        async fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM groups \
+                 WHERE dm_id = (SELECT dm_id FROM groups WHERE id = $1) AND id <> $1",
+                StoredGroup::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroup>(&sql)
+                .bind(group_id)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+    }
+}

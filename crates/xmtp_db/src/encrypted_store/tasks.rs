@@ -363,6 +363,243 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+pub(crate) mod pg {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    /// Insert columns, in the order [`bind_new`] binds them.
+    const INSERT_COLUMNS: &str = "originating_message_sequence_id, \
+         originating_message_originator_id, created_at_ns, expires_at_ns, attempts, max_attempts, \
+         last_attempted_at_ns, backoff_scaling_factor, max_backoff_duration_ns, \
+         initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data";
+    const INSERT_PLACEHOLDERS: &str = "$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13";
+
+    /// Every column of `tasks`, in the order [`task`] reads them. `id` first,
+    /// then the insert columns.
+    const COLUMNS: &str = "id, originating_message_sequence_id, \
+         originating_message_originator_id, created_at_ns, expires_at_ns, attempts, max_attempts, \
+         last_attempted_at_ns, backoff_scaling_factor, max_backoff_duration_ns, \
+         initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data";
+
+    fn bind_new<'q>(
+        q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+        t: &'q NewTask,
+    ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+        q.bind(t.originating_message_sequence_id)
+            .bind(t.originating_message_originator_id)
+            .bind(t.created_at_ns)
+            .bind(t.expires_at_ns)
+            .bind(t.attempts)
+            .bind(t.max_attempts)
+            .bind(t.last_attempted_at_ns)
+            .bind(t.backoff_scaling_factor)
+            .bind(t.max_backoff_duration_ns)
+            .bind(t.initial_backoff_duration_ns)
+            .bind(t.next_attempt_at_ns)
+            .bind(&t.data_hash)
+            .bind(&t.data)
+    }
+
+    pub(crate) fn task(row: &sqlx::postgres::PgRow) -> Result<Task, crate::ConnectionError> {
+        Ok(Task {
+            id: row.try_get(0)?,
+            originating_message_sequence_id: row.try_get(1)?,
+            originating_message_originator_id: row.try_get(2)?,
+            created_at_ns: row.try_get(3)?,
+            expires_at_ns: row.try_get(4)?,
+            attempts: row.try_get(5)?,
+            max_attempts: row.try_get(6)?,
+            last_attempted_at_ns: row.try_get(7)?,
+            backoff_scaling_factor: row.try_get(8)?,
+            max_backoff_duration_ns: row.try_get(9)?,
+            initial_backoff_duration_ns: row.try_get(10)?,
+            next_attempt_at_ns: row.try_get(11)?,
+            data_hash: row.try_get(12)?,
+            data: row.try_get(13)?,
+        })
+    }
+
+    /// `INSERT OR IGNORE` for a task. Shared with `QueryIdentity`'s rotation
+    /// nudge, which enqueues through the same table.
+    ///
+    /// `data_hash` carries the table's UNIQUE constraint, so a payload-identical
+    /// duplicate is a no-op — that is what makes repeated enqueues coalesce.
+    pub(crate) async fn insert_or_ignore(
+        conn: &mut sqlx::PgConnection,
+        t: &NewTask,
+    ) -> Result<(), crate::ConnectionError> {
+        let sql = format!(
+            "INSERT INTO tasks ({INSERT_COLUMNS}) VALUES ({INSERT_PLACEHOLDERS}) \
+             ON CONFLICT DO NOTHING"
+        );
+        bind_new(sqlx::query(&sql), t).execute(conn).await?;
+        Ok(())
+    }
+
+    impl QueryTasks for PgDb {
+        async fn create_task(&self, t: NewTask) -> Result<Task, StorageError> {
+            let sql = format!(
+                "INSERT INTO tasks ({INSERT_COLUMNS}) VALUES ({INSERT_PLACEHOLDERS}) \
+                 RETURNING {COLUMNS}"
+            );
+            let mut c = self.conn().await?;
+            let row = bind_new(sqlx::query(&sql), &t)
+                .fetch_one(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(task(&row)?)
+        }
+
+        async fn create_or_ignore_task(&self, t: NewTask) -> Result<(), StorageError> {
+            // A single INSERT ... ON CONFLICT DO NOTHING is atomic on its own.
+            let mut c = self.conn().await?;
+            insert_or_ignore(&mut c, &t).await?;
+            Ok(())
+        }
+
+        /// Postgres has no two-argument scalar `MIN`; `LEAST` is the equivalent.
+        /// (SQLite overloads `MIN` for both the aggregate and the scalar form,
+        /// which is what the diesel impl relies on.)
+        async fn pull_in_task_deadline(
+            &self,
+            target_data_hash: &TaskDataHash,
+            at_ns: i64,
+        ) -> Result<bool, StorageError> {
+            let mut c = self.conn().await?;
+            let matched = sqlx::query(
+                "UPDATE tasks SET next_attempt_at_ns = LEAST(next_attempt_at_ns, $1) \
+                 WHERE data_hash = $2",
+            )
+            .bind(at_ns)
+            .bind(target_data_hash.as_ref())
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+            Ok(matched > 0)
+        }
+
+        async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM tasks"))
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+            Ok(rows
+                .iter()
+                .map(task)
+                .collect::<Result<_, crate::ConnectionError>>()?)
+        }
+
+        async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM tasks ORDER BY next_attempt_at_ns LIMIT 1"
+            ))
+            .fetch_optional(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(row.as_ref().map(task).transpose()?)
+        }
+
+        async fn upsert_pending_self_remove_task(
+            &self,
+            group_id: &GroupId,
+            t: NewTask,
+        ) -> Result<(), StorageError> {
+            let now = now_ns();
+            self.atomic(async |db| {
+                // Clear only DEAD rows for this group (expired or attempts
+                // exhausted), then insert-or-ignore. A LIVE row is left alone:
+                // deleting it would reset the TaskRunner's backoff, resurrecting
+                // an intentionally-delayed task, and could race the worker into
+                // calling update_task on a now-deleted id. The new task carries
+                // the same data (group_id only), so the unique data_hash
+                // constraint dedups it against any live row; clearing dead rows
+                // first frees that hash so a fresh retry can take over.
+                //
+                // The self-remove match is decided in Rust because it depends on
+                // decoding the task protobuf, which SQL cannot inspect.
+                let dead: Vec<i32> = {
+                    let mut c = db.conn().await?;
+                    let rows = sqlx::query(
+                        "SELECT id, attempts, max_attempts, expires_at_ns, data FROM tasks \
+                         WHERE expires_at_ns < $1 OR attempts >= max_attempts",
+                    )
+                    .bind(now)
+                    .fetch_all(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+
+                    rows.iter()
+                        .filter_map(|row| {
+                            let id: i32 = row.try_get(0).ok()?;
+                            let data: Vec<u8> = row.try_get(4).ok()?;
+                            let is_self_remove = matches!(
+                                TaskProto::decode(data.as_slice()).ok().and_then(|t| t.task),
+                                Some(TaskKind::ProcessPendingSelfRemove(p))
+                                    if p.group_id == group_id.as_slice()
+                            );
+                            is_self_remove.then_some(id)
+                        })
+                        .collect()
+                };
+
+                let mut c = db.conn().await?;
+                if !dead.is_empty() {
+                    sqlx::query("DELETE FROM tasks WHERE id = ANY($1)")
+                        .bind(&dead)
+                        .execute(&mut *c)
+                        .await
+                        .map_err(crate::ConnectionError::from)?;
+                }
+                insert_or_ignore(&mut c, &t).await?;
+                Ok(())
+            })
+            .await
+        }
+
+        /// Errors when `id` does not exist, matching the diesel impl's
+        /// `get_result()` — the TaskRunner treats a vanished task as a bug.
+        async fn update_task(
+            &self,
+            id: i32,
+            attempts: i32,
+            last_attempted_at_ns: i64,
+            next_attempt_at_ns: i64,
+        ) -> Result<Task, StorageError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "UPDATE tasks SET attempts = $1, last_attempted_at_ns = $2, \
+                 next_attempt_at_ns = $3 WHERE id = $4 RETURNING {COLUMNS}"
+            ))
+            .bind(attempts)
+            .bind(last_attempted_at_ns)
+            .bind(next_attempt_at_ns)
+            .bind(id)
+            .fetch_one(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(task(&row)?)
+        }
+
+        async fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
+            let mut c = self.conn().await?;
+            let deleted = sqlx::query("DELETE FROM tasks WHERE id = $1")
+                .bind(id)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?
+                .rows_affected();
+            Ok(deleted == 1)
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

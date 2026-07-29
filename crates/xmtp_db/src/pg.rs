@@ -175,3 +175,32 @@ impl PgDb {
 // this crate has `sync` on via the self dev-dependency, so they would be compiled
 // out. That crate depends on xmtp_db from outside and exercises the real
 // `--no-default-features --features async` build.
+
+/// A struct that maps onto a Postgres table or view, as emitted by
+/// `#[derive(xmtp_macro::PgModel)]`.
+///
+/// The async track has no `diesel::table!` equivalent, so this is where a
+/// model's column list lives. Implementations are generated from the struct's
+/// fields, never written by hand -- writing one by hand would reintroduce
+/// exactly the drift the derive exists to prevent.
+pub trait PgModel: Sized + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {
+    /// The table (or view) these columns belong to.
+    const TABLE: &'static str;
+    /// Every column, in field order.
+    const COLUMNS: &'static [&'static str];
+
+    /// `COLUMNS` as a select list: `"id, created_at_ns, ..."`.
+    fn select_columns() -> String {
+        Self::COLUMNS.join(", ")
+    }
+
+    /// `COLUMNS` qualified with a table alias, for queries that join:
+    /// `"m.id, m.created_at_ns, ..."`.
+    fn select_columns_for(alias: &str) -> String {
+        Self::COLUMNS
+            .iter()
+            .map(|c| format!("{alias}.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}

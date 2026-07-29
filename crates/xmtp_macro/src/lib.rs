@@ -6,6 +6,7 @@ mod builders;
 mod error_code;
 mod log_macros;
 mod logging;
+mod pg_model;
 mod span_macro;
 mod test_macro;
 mod timeout_macro;
@@ -286,4 +287,35 @@ pub fn err_span(
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     span_macro::err_span(attr, body)
+}
+
+/// Derives the async storage track's Postgres row mapping: a `PgModel` impl
+/// carrying the table name and column list, and a `sqlx::FromRow` that decodes
+/// **by column name**.
+///
+/// The sync track gets the same information from `diesel::table!` and its
+/// `Queryable`/`Insertable` derives; the async track has no schema module, so
+/// this supplies it. Both read the same struct fields, so the two column lists
+/// cannot drift — only the table name is restated.
+///
+/// ```ignore
+/// #[derive(PgModel)]
+/// #[xmtp(table = "groups")]
+/// pub struct StoredGroup {
+///     pub id: GroupId,
+///     pub created_at_ns: i64,
+///     #[xmtp(rename = "kind")]
+///     pub message_kind: GroupMessageKind,
+///     #[xmtp(skip)]
+///     pub not_a_column: Option<i32>,
+/// }
+/// ```
+///
+/// Generated items are gated on `feature = "async"`, so the derive is inert on
+/// the sync-only builds that wasm and mobile use.
+#[proc_macro_derive(PgModel, attributes(xmtp))]
+pub fn pg_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    pg_model::derive_pg_model(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }

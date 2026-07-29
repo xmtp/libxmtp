@@ -35,6 +35,8 @@ use xmtp_proto::types::{Cursor, GroupId};
     build_fn(error = "StorageError", validate = "Self::validate")
 )]
 #[cfg_attr(feature = "sync", derive(AsChangeset))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "groups")]
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator

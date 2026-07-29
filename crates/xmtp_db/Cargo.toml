@@ -39,6 +39,9 @@ futures = { workspace = true, optional = true }
 hex.workspace = true
 itertools.workspace = true
 maybe-async.workspace = true
+# `PgModel` derive. A proc macro, so it costs nothing at runtime and pulls in no
+# storage driver; the items it emits are gated on `async` in the derive itself.
+xmtp_macro = { path = "../xmtp_macro" }
 mockall = { workspace = true, optional = true }
 openmls.workspace = true
 openmls_basic_credential.workspace = true

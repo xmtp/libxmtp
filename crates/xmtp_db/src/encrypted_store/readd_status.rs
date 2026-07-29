@@ -808,3 +808,165 @@ mod tests {
         })
     }
 }
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use sqlx::Row;
+
+    const COLUMNS: &str =
+        "group_id, installation_id, requested_at_sequence_id, responded_at_sequence_id";
+
+    fn status(row: &sqlx::postgres::PgRow) -> Result<ReaddStatus, crate::ConnectionError> {
+        Ok(ReaddStatus {
+            group_id: row.try_get(0)?,
+            installation_id: row.try_get(1)?,
+            requested_at_sequence_id: row.try_get(2)?,
+            responded_at_sequence_id: row.try_get(3)?,
+        })
+    }
+
+    impl QueryReaddStatus for PgDb {
+        async fn get_readd_status(
+            &self,
+            group_id: &GroupId,
+            installation_id: &[u8],
+        ) -> Result<Option<ReaddStatus>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let row = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM readd_status \
+                 WHERE group_id = $1 AND installation_id = $2"
+            ))
+            .bind(group_id)
+            .bind(installation_id)
+            .fetch_optional(&mut *c)
+            .await?;
+            row.as_ref().map(status).transpose()
+        }
+
+        async fn is_awaiting_readd(
+            &self,
+            group_id: &GroupId,
+            installation_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError> {
+            let readd_status = self.get_readd_status(group_id, installation_id).await?;
+            if let Some(readd_status) = readd_status
+                && let Some(requested_at) = readd_status.requested_at_sequence_id
+                && requested_at >= readd_status.responded_at_sequence_id.unwrap_or(0)
+            {
+                return Ok(true);
+            }
+            Ok(false)
+        }
+
+        /// Monotonic: the stored sequence id only ever moves forward. The guard
+        /// lives in the `DO UPDATE ... WHERE` so a stale writer is rejected by
+        /// the engine rather than by a racy read-then-compare.
+        async fn update_requested_at_sequence_id(
+            &self,
+            group_id: &GroupId,
+            installation_id: &[u8],
+            sequence_id: i64,
+        ) -> Result<(), crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "INSERT INTO readd_status \
+                 (group_id, installation_id, requested_at_sequence_id, responded_at_sequence_id) \
+                 VALUES ($1, $2, $3, NULL) \
+                 ON CONFLICT (group_id, installation_id) DO UPDATE \
+                 SET requested_at_sequence_id = $3 \
+                 WHERE readd_status.requested_at_sequence_id IS NULL \
+                    OR readd_status.requested_at_sequence_id < $3",
+            )
+            .bind(group_id)
+            .bind(installation_id)
+            .bind(sequence_id)
+            .execute(&mut *c)
+            .await?;
+            Ok(())
+        }
+
+        async fn update_responded_at_sequence_id(
+            &self,
+            group_id: &GroupId,
+            installation_id: &[u8],
+            sequence_id: i64,
+        ) -> Result<(), crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "INSERT INTO readd_status \
+                 (group_id, installation_id, requested_at_sequence_id, responded_at_sequence_id) \
+                 VALUES ($1, $2, NULL, $3) \
+                 ON CONFLICT (group_id, installation_id) DO UPDATE \
+                 SET responded_at_sequence_id = $3 \
+                 WHERE readd_status.responded_at_sequence_id IS NULL \
+                    OR readd_status.responded_at_sequence_id < $3",
+            )
+            .bind(group_id)
+            .bind(installation_id)
+            .bind(sequence_id)
+            .execute(&mut *c)
+            .await?;
+            Ok(())
+        }
+
+        async fn delete_other_readd_statuses(
+            &self,
+            group_id: &GroupId,
+            self_installation_id: &[u8],
+        ) -> Result<(), crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            sqlx::query("DELETE FROM readd_status WHERE group_id = $1 AND installation_id <> $2")
+                .bind(group_id)
+                .bind(self_installation_id)
+                .execute(&mut *c)
+                .await?;
+            Ok(())
+        }
+
+        async fn delete_readd_statuses(
+            &self,
+            group_id: &GroupId,
+            installation_ids: HashSet<Vec<u8>>,
+        ) -> Result<(), crate::ConnectionError> {
+            if installation_ids.is_empty() {
+                return Ok(());
+            }
+            let ids: Vec<Vec<u8>> = installation_ids.into_iter().collect();
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "DELETE FROM readd_status WHERE group_id = $1 AND installation_id = ANY($2)",
+            )
+            .bind(group_id)
+            .bind(&ids)
+            .execute(&mut *c)
+            .await?;
+            Ok(())
+        }
+
+        /// Other installations whose readd request has not been answered:
+        /// requested at or after the last response, or never responded to.
+        async fn get_readds_awaiting_response(
+            &self,
+            group_id: &GroupId,
+            self_installation_id: &[u8],
+        ) -> Result<Vec<ReaddStatus>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {COLUMNS} FROM readd_status \
+                 WHERE group_id = $1 AND installation_id <> $2 \
+                   AND requested_at_sequence_id IS NOT NULL \
+                   AND (requested_at_sequence_id >= responded_at_sequence_id \
+                        OR responded_at_sequence_id IS NULL)"
+            ))
+            .bind(group_id)
+            .bind(self_installation_id)
+            .fetch_all(&mut *c)
+            .await?;
+            rows.iter().map(status).collect()
+        }
+    }
+}

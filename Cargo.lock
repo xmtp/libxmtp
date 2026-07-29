@@ -11120,6 +11120,7 @@ dependencies = [
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
+ "xmtp_macro",
  "xmtp_proto",
  "zeroize",
 ]

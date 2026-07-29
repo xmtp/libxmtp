@@ -261,40 +261,6 @@ mod pg_impl {
     use crate::pg::PgDb;
     use crate::tasks::NewTask;
 
-    /// `INSERT OR IGNORE` on a `NewTask`. `data_hash` carries the table's UNIQUE
-    /// constraint, so a duplicate enqueue is a no-op — which is what makes
-    /// repeated nudges coalesce instead of piling up.
-    async fn insert_task_or_ignore(
-        conn: &mut sqlx::PgConnection,
-        task: &NewTask,
-    ) -> Result<(), crate::ConnectionError> {
-        sqlx::query(
-            "INSERT INTO tasks ( \
-                 originating_message_sequence_id, originating_message_originator_id, \
-                 created_at_ns, expires_at_ns, attempts, max_attempts, \
-                 last_attempted_at_ns, backoff_scaling_factor, max_backoff_duration_ns, \
-                 initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data \
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) \
-             ON CONFLICT (data_hash) DO NOTHING",
-        )
-        .bind(task.originating_message_sequence_id)
-        .bind(task.originating_message_originator_id)
-        .bind(task.created_at_ns)
-        .bind(task.expires_at_ns)
-        .bind(task.attempts)
-        .bind(task.max_attempts)
-        .bind(task.last_attempted_at_ns)
-        .bind(task.backoff_scaling_factor)
-        .bind(task.max_backoff_duration_ns)
-        .bind(task.initial_backoff_duration_ns)
-        .bind(task.next_attempt_at_ns)
-        .bind(&task.data_hash)
-        .bind(&task.data)
-        .execute(conn)
-        .await?;
-        Ok(())
-    }
-
     /// The body of `queue_key_rotation_with_nudge`, factored out so it can run
     /// either inside a transaction this method opens or inside one the caller
     /// already holds.
@@ -335,7 +301,7 @@ mod pg_impl {
         // Ensure the pull-in's target exists (no-op when already seeded): a
         // client whose startup seeding never ran must not enqueue a
         // dropped-on-miss nudge.
-        insert_task_or_ignore(&mut c, &rotation_seed).await?;
+        crate::tasks::pg::insert_or_ignore(&mut c, &rotation_seed).await?;
 
         let pull_in = NewTask::builder()
             .originating_message_sequence_id(0)
@@ -348,7 +314,7 @@ mod pg_impl {
                     not_later_than_ns: deadline.unwrap_or(rotate_at_ns),
                 })),
             })?;
-        insert_task_or_ignore(&mut c, &pull_in).await?;
+        crate::tasks::pg::insert_or_ignore(&mut c, &pull_in).await?;
         Ok(())
     }
 

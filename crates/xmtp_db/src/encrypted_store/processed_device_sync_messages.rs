@@ -228,6 +228,123 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
     }
 }
 
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+    use sqlx::Row;
+
+    impl QueryDeviceSyncMessages for PgDb {
+        /// Sync-group messages with no processing record yet, or one still
+        /// `Pending`. A message that failed permanently is excluded.
+        async fn unprocessed_sync_group_messages(
+            &self,
+        ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+            let sql = format!(
+                "SELECT {} FROM group_messages m \
+                 JOIN groups g ON m.group_id = g.id \
+                 LEFT JOIN processed_device_sync_messages p ON p.message_id = m.id \
+                 WHERE g.conversation_type = $1 AND (p.message_id IS NULL OR p.state = $2)",
+                StoredGroupMessage::select_columns_for("m")
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(ConversationType::Sync)
+                .bind(DeviceSyncProcessingState::Pending)
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?)
+        }
+
+        async fn sync_group_messages_paged(
+            &self,
+            offset: i64,
+            limit: i64,
+        ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+            let sql = format!(
+                "SELECT {} FROM group_messages m \
+                 JOIN groups g ON m.group_id = g.id \
+                 WHERE g.conversation_type = $1 \
+                 ORDER BY m.sent_at_ns DESC LIMIT $2 OFFSET $3",
+                StoredGroupMessage::select_columns_for("m")
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(ConversationType::Sync)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?)
+        }
+
+        async fn mark_device_sync_msg_as_processed(
+            &self,
+            message_id: &[u8],
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "INSERT INTO processed_device_sync_messages (message_id, attempts, state) \
+                 VALUES ($1, 0, $2) \
+                 ON CONFLICT (message_id) DO UPDATE SET state = $2",
+            )
+            .bind(message_id)
+            .bind(DeviceSyncProcessingState::Processed)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        /// Bumps the attempt counter and returns the new value, flipping the
+        /// record to `Failed` once it reaches `max_attempts`.
+        ///
+        /// `RETURNING` folds the upsert and the read-back into one statement, so
+        /// the count returned is exactly the one this call produced — a separate
+        /// SELECT could observe another worker's increment.
+        async fn increment_device_sync_msg_attempt(
+            &self,
+            message_id: &[u8],
+            max_attempts: i32,
+        ) -> Result<i32, StorageError> {
+            self.atomic(async |db| {
+                let attempts: i32 = {
+                    let mut c = db.conn().await?;
+                    let row = sqlx::query(
+                        "INSERT INTO processed_device_sync_messages (message_id, attempts, state) \
+                         VALUES ($1, 1, $2) \
+                         ON CONFLICT (message_id) DO UPDATE \
+                         SET attempts = processed_device_sync_messages.attempts + 1 \
+                         RETURNING attempts",
+                    )
+                    .bind(message_id)
+                    .bind(DeviceSyncProcessingState::Pending)
+                    .fetch_one(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                    row.try_get(0).map_err(crate::ConnectionError::from)?
+                };
+
+                if attempts >= max_attempts {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "UPDATE processed_device_sync_messages SET state = $1 WHERE message_id = $2",
+                    )
+                    .bind(DeviceSyncProcessingState::Failed)
+                    .bind(message_id)
+                    .execute(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                }
+                Ok(attempts)
+            })
+            .await
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
