@@ -3,6 +3,10 @@ name: Release Notes
 on:
   push:
     branches: ["release/**"]
+    # Notes-only pushes (e.g. merging the drafter's own PR) must not
+    # retrigger drafting — that redrafts the redraft, forever (#3919/#3920).
+    paths-ignore:
+      - "docs/release-notes/**"
   workflow_dispatch:
     inputs:
       release-branch:
