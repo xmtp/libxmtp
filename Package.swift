@@ -31,8 +31,8 @@ var packageTargets: [Target] = [
         : .binaryTarget(
             name: "LibXMTPSwiftFFI",
             url:
-            "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-b8bed44/LibXMTPSwiftFFI.zip",
-            checksum: "6cd91e456c494f38e71f0ec7786d9ff11f0dcb81b476a2f01e5b43ad3a68fe74"
+            "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-ddeab1f/LibXMTPSwiftFFI.zip",
+            checksum: "db93c60ec10d91f076eedc47c6cba6afe599879f8219d98c72e7367691255c09"
         ),
     .target(
         name: "XMTPiOS",
@@ -68,8 +68,8 @@ if includeDynamicTarget {
             : .binaryTarget(
                 name: "LibXMTPSwiftFFIDynamic",
                 url:
-                "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-b8bed44/LibXMTPSwiftFFIDynamic.zip",
-                checksum: "93c57d1cde0532c42e5a781772701424e50ae1f177f9216a325f625c3ab8c00f"
+                "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-ddeab1f/LibXMTPSwiftFFIDynamic.zip",
+                checksum: "80be7eac6ef9cded7ed4af5b833db6aa43c75f6e34d10611a54c60a52bd5bb11"
             ),
         at: 1
     )
