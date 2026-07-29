@@ -111,7 +111,6 @@ let
       export CC="$_XCODE_CLANG"
       export CXX="$_XCODE_CLANGXX"
       export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
-      export CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
     ''
     + lib.optionalString (isIosTarget target) ''
       _IOS_SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"
