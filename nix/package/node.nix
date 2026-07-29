@@ -81,11 +81,8 @@ rust.napiBuild (
     '';
   }
   // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
-    # sigtool provides `codesign` on PATH for the postFixup re-sign.
-    # See https://github.com/xmtp/libxmtp/issues/3513.
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       darwin.autoSignDarwinBinariesHook
-      darwin.sigtool
     ];
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
@@ -108,10 +105,11 @@ rust.napiBuild (
           install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$NODE_LIB"
         done
 
-      # install_name_tool invalidates the ad-hoc signature applied by
-      # darwin.autoSignDarwinBinariesHook; re-sign so the .node loads under
-      # Gatekeeper on end-user macOS hosts.
-      codesign --force --sign - "$NODE_LIB"
+      # install_name_tool invalidates the ad-hoc signature; re-sign with the
+      # `sign` function from signingUtils (sourced via autoSignDarwinBinariesHook),
+      # which sets CODESIGN_ALLOCATE — bare sigtool codesign aborts now that
+      # nixpkgs' darwin stdenv no longer puts cctools on PATH. See #3513.
+      sign "$NODE_LIB"
 
       # Assert no /nix/store references remain — guards against silent
       # no-ops in the rewrites above and catches the 1.10.0 regression.
