@@ -66,8 +66,10 @@ jobs:
         env:
           BRANCH: ${{ inputs.release-branch || github.ref_name }}
         run: |
-          if ! echo "$BRANCH" | grep -qE '^release/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-            echo "::error::Invalid branch name format: $BRANCH (expected release/X.Y.Z)"
+          # Two branch shapes exist: pipeline-created release/X.Y.Z and
+          # long-lived maintenance lines like release/v1.11 (patch optional).
+          if ! echo "$BRANCH" | grep -qE '^release/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid branch name format: $BRANCH (expected release/X.Y.Z or release/vX.Y)"
             exit 1
           fi
 
@@ -76,7 +78,10 @@ jobs:
         env:
           BRANCH: ${{ inputs.release-branch || github.ref_name }}
         run: |
+          # Label-only downstream (commit messages, PR titles, suggestion
+          # branch name) — a partial version like "1.11" is fine.
           VERSION="${BRANCH#release/}"
+          VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "Detected release version: $VERSION from branch: $BRANCH"
