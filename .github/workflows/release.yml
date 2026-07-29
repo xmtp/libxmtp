@@ -254,7 +254,10 @@ jobs:
             echo "No PR found for branch $BRANCH targeting main"
             exit 1
           fi
-          gh pr merge "$PR_NUMBER" --merge --delete-branch
+          # main's ruleset allows squash merges only — --merge always fails
+          # ("base branch policy prohibits the merge", 1.11.0 postmortem).
+          # Keep the branch: release/v* branches are long-lived maintenance lines.
+          gh pr merge "$PR_NUMBER" --squash
 
   # Nightly blocking + non-nightly compatibility rely on the `if` pattern shared
   # by the release-* jobs and this hub job:
