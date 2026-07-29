@@ -1417,7 +1417,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "async-trait",
  "bindings_node",
@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm_macros"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3018,7 +3018,7 @@ dependencies = [
 
 [[package]]
 name = "error_glossary"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "clap",
  "syn 2.0.119",
@@ -5289,7 +5289,7 @@ dependencies = [
 
 [[package]]
 name = "keepalive-probe"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5947,7 +5947,7 @@ dependencies = [
 
 [[package]]
 name = "mls_validation_service"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -10453,7 +10453,7 @@ dependencies = [
 
 [[package]]
 name = "xdbg"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
@@ -10518,7 +10518,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-db-tools"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "anyhow",
  "clap",
@@ -10650,7 +10650,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "async-trait",
  "chrono",
@@ -10676,7 +10676,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -10717,7 +10717,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "async-trait",
  "futures",
@@ -10750,7 +10750,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -10779,7 +10779,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -10814,7 +10814,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "openmls",
  "xmtp-workspace-hack",
@@ -10824,7 +10824,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "aes-gcm",
  "base64 0.23.0",
@@ -10845,7 +10845,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy",
  "bincode",
@@ -10874,7 +10874,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "arc-swap",
  "ascii_table",
@@ -10923,7 +10923,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -10959,7 +10959,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_logging"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "console_error_panic_hook",
  "opentelemetry",
@@ -10981,7 +10981,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -10994,7 +10994,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -11078,7 +11078,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "bon",
  "const-hex",
@@ -11105,7 +11105,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "async-trait",
  "bincode",
@@ -11150,7 +11150,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -11189,7 +11189,7 @@ dependencies = [
 
 [[package]]
 name = "xnet-cli"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "clap",
  "color-eyre",
@@ -11201,7 +11201,7 @@ dependencies = [
 
 [[package]]
 name = "xnet-lib"
-version = "1.11.0"
+version = "1.12.0-dev"
 dependencies = [
  "alloy",
  "ascii_table",
