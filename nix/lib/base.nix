@@ -47,7 +47,11 @@ let
       perl
       zlib
     ]
-    ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ];
+    ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ]
+    # crane#1059 stopped adding toolchain cc's to nativeBuildInputs; restore the
+    # build-platform cc so its setup hook feeds build-role NIX_LDFLAGS (-liconv
+    # for darwin build scripts) and keeps unprefixed `cc` on PATH (aws-lc-sys).
+    ++ lib.optionals (stdenv.buildPlatform != stdenv.hostPlatform) [ pkgsBuildHost.stdenv.cc ];
     # these inputs do get cross compiled
     buildInputs = [
       zstd
