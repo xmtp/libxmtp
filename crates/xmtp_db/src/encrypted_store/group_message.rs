@@ -1460,3 +1460,694 @@ fn group_id_filter(
             .select(groups_dsl::id),
     )
 }
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+    use sqlx::postgres::PgArguments;
+    use sqlx::query::QueryAs;
+
+    /// The `MsgQueryArgs` predicate set, as `$1..$10` in bind order.
+    ///
+    /// The sync path applies these with the `apply_message_filters!` macro over a
+    /// boxed diesel query; here each optional filter is `$n IS NULL OR ...` so
+    /// one statement text and one bind order serve every combination. `$10` is
+    /// "now", for the always-on expired-message exclusion.
+    const MSG_FILTERS: &str = "($1::bigint IS NULL OR sent_at_ns > $1) \
+         AND ($2::bigint IS NULL OR sent_at_ns < $2) \
+         AND ($3::int4 IS NULL OR kind = $3) \
+         AND ($4::int4 IS NULL OR delivery_status = $4) \
+         AND ($5::int4[] IS NULL OR content_type = ANY($5)) \
+         AND ($6::int4[] IS NULL OR content_type <> ALL($6)) \
+         AND ($7::text[] IS NULL OR sender_inbox_id <> ALL($7)) \
+         AND ($8::bigint IS NULL OR inserted_at_ns > $8) \
+         AND ($9::bigint IS NULL OR inserted_at_ns < $9) \
+         AND (expire_at_ns IS NULL OR expire_at_ns > $10)";
+
+    /// The values [`MSG_FILTERS`] binds, owned so they outlive the query.
+    ///
+    /// Arrays of the `#[repr(i32)]` enums have no `PgHasArrayType`, so they are
+    /// converted here rather than at each call site.
+    struct MsgFilters {
+        sent_after_ns: Option<i64>,
+        sent_before_ns: Option<i64>,
+        kind: Option<i32>,
+        delivery_status: Option<i32>,
+        content_types: Option<Vec<i32>>,
+        exclude_content_types: Option<Vec<i32>>,
+        exclude_sender_inbox_ids: Option<Vec<String>>,
+        inserted_after_ns: Option<i64>,
+        inserted_before_ns: Option<i64>,
+        now_ns: i64,
+    }
+
+    fn as_ints(types: &Option<Vec<ContentType>>) -> Option<Vec<i32>> {
+        types
+            .as_ref()
+            .map(|types| types.iter().map(|t| *t as i32).collect())
+    }
+
+    impl MsgFilters {
+        fn new(args: &MsgQueryArgs) -> Self {
+            Self {
+                sent_after_ns: args.sent_after_ns,
+                sent_before_ns: args.sent_before_ns,
+                kind: args.kind.map(|k| k as i32),
+                delivery_status: args.delivery_status.map(|s| s as i32),
+                content_types: as_ints(&args.content_types),
+                exclude_content_types: as_ints(&args.exclude_content_types),
+                exclude_sender_inbox_ids: args.exclude_sender_inbox_ids.clone(),
+                inserted_after_ns: args.inserted_after_ns,
+                inserted_before_ns: args.inserted_before_ns,
+                now_ns: now_ns(),
+            }
+        }
+
+        /// Binds `$1..$10`. The caller's own parameters start at `$11`.
+        fn bind<'q, O>(
+            &'q self,
+            query: QueryAs<'q, sqlx::Postgres, O, PgArguments>,
+        ) -> QueryAs<'q, sqlx::Postgres, O, PgArguments> {
+            query
+                .bind(self.sent_after_ns)
+                .bind(self.sent_before_ns)
+                .bind(self.kind)
+                .bind(self.delivery_status)
+                .bind(self.content_types.as_deref())
+                .bind(self.exclude_content_types.as_deref())
+                .bind(self.exclude_sender_inbox_ids.as_deref())
+                .bind(self.inserted_after_ns)
+                .bind(self.inserted_before_ns)
+                .bind(self.now_ns)
+        }
+    }
+
+    /// Messages belonging to the group bound at `$n`, or to any group stitched to
+    /// it by a shared `dm_id`. Mirrors the sync path's `group_id_filter`: a
+    /// non-DM group has a NULL `dm_id`, `dm_id IN (NULL)` matches nothing, and
+    /// only the `id = $n` arm applies.
+    fn stitched_group_filter(n: usize) -> String {
+        format!(
+            "group_id IN (SELECT id FROM groups \
+             WHERE id = ${n} OR dm_id IN (SELECT dm_id FROM groups WHERE id = ${n}))"
+        )
+    }
+
+    /// Both sort columns are NOT NULL, so neither ordering needs NULLS LAST. The
+    /// `rowid` tie-break is the same one the sync path adds so the index gets
+    /// used; Postgres has no implicit rowid, and `migrations_pg` materializes the
+    /// column for exactly this.
+    fn message_order(args: &MsgQueryArgs) -> &'static str {
+        match (
+            args.sort_by.clone().unwrap_or_default(),
+            args.direction.clone().unwrap_or_default(),
+        ) {
+            (SortBy::SentAt, SortDirection::Ascending) => "sent_at_ns ASC, rowid ASC",
+            (SortBy::SentAt, SortDirection::Descending) => "sent_at_ns DESC, rowid DESC",
+            (SortBy::InsertedAt, SortDirection::Ascending) => "inserted_at_ns ASC, rowid ASC",
+            (SortBy::InsertedAt, SortDirection::Descending) => "inserted_at_ns DESC, rowid DESC",
+        }
+    }
+
+    fn sent_at_order(direction: &SortDirection) -> &'static str {
+        match direction {
+            SortDirection::Ascending => "sent_at_ns ASC",
+            SortDirection::Descending => "sent_at_ns DESC",
+        }
+    }
+
+    fn owned_ids(ids: &[&[u8]]) -> Vec<Vec<u8>> {
+        ids.iter().map(|id| id.to_vec()).collect()
+    }
+
+    /// The body of `get_group_messages`, against a caller-supplied connection.
+    ///
+    /// Split out so `get_group_messages_with_reactions` can run it and its
+    /// reactions query on one connection, the way the sync path does, instead of
+    /// acquiring twice.
+    async fn fetch_group_messages(
+        conn: &mut sqlx::PgConnection,
+        group_id: &GroupId,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        let filters = MsgFilters::new(args);
+        let sql = format!(
+            "SELECT {cols} FROM group_messages WHERE {group} AND {MSG_FILTERS} \
+             ORDER BY {order} LIMIT $12::bigint",
+            cols = StoredGroupMessage::select_columns(),
+            group = stitched_group_filter(11),
+            order = message_order(args),
+        );
+        let query = sqlx::query_as::<_, StoredGroupMessage>(&sql);
+        Ok(filters
+            .bind(query)
+            .bind(group_id)
+            .bind(args.limit)
+            .fetch_all(conn)
+            .await?)
+    }
+
+    impl QueryGroupMessage for PgDb {
+        async fn get_group_messages(
+            &self,
+            group_id: &GroupId,
+            args: &MsgQueryArgs,
+        ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            fetch_group_messages(&mut c, group_id, args).await
+        }
+
+        async fn count_group_messages(
+            &self,
+            group_id: &GroupId,
+            args: &MsgQueryArgs,
+        ) -> Result<i64, crate::ConnectionError> {
+            // One connection for the conversation-type probe and the count, as
+            // the sync path has.
+            let mut c = self.conn().await?;
+
+            let is_dm: ConversationType =
+                sqlx::query_scalar("SELECT conversation_type FROM groups WHERE id = $1")
+                    .bind(group_id)
+                    .fetch_one(&mut *c)
+                    .await?;
+            let is_dm = is_dm == ConversationType::Dm;
+
+            let include_group_updated = args
+                .content_types
+                .as_ref()
+                .map(|types| types.contains(&ContentType::GroupUpdated))
+                .unwrap_or(false);
+
+            // DMs accumulate duplicate GroupUpdated messages that the listing
+            // path dedupes after the fact. A count cannot, so they are excluded
+            // outright unless asked for.
+            let excluded =
+                (is_dm && !include_group_updated).then_some(ContentType::GroupUpdated as i32);
+
+            let filters = MsgFilters::new(args);
+            let sql = format!(
+                "SELECT COUNT(*) FROM group_messages \
+                 WHERE {group} AND ($12::int4 IS NULL OR content_type <> $12) AND {MSG_FILTERS}",
+                group = stitched_group_filter(11),
+            );
+            let query = sqlx::query_as::<_, (i64,)>(&sql);
+            let (count,) = filters
+                .bind(query)
+                .bind(group_id)
+                .bind(excluded)
+                .fetch_one(&mut *c)
+                .await?;
+            Ok(count)
+        }
+
+        /// `sequence_id` is NOT NULL in the Postgres schema, so the sync path's
+        /// `is_not_null()` guard has no analogue and is dropped.
+        async fn missing_messages(
+            &self,
+            group_id: &GroupId,
+            sequence_ids: &[u64],
+        ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+            let sequence_ids: Vec<i64> = sequence_ids.iter().map(|id| *id as i64).collect();
+            let sql = format!(
+                "SELECT {} FROM group_messages \
+                 WHERE group_id = $1 AND sequence_id <> ALL($2::bigint[]) AND kind = $3 \
+                 ORDER BY sequence_id ASC",
+                StoredGroupMessage::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(group_id)
+                .bind(&sequence_ids)
+                .bind(GroupMessageKind::Application)
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        async fn group_messages_paged(
+            &self,
+            args: &MsgQueryArgs,
+            offset: i64,
+        ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+            let MsgQueryArgs {
+                sent_after_ns,
+                sent_before_ns,
+                limit,
+                exclude_disappearing,
+                ..
+            } = args;
+
+            // `exclude_disappearing` drops every message with an expiry;
+            // otherwise only the already-expired ones are hidden, which needs a
+            // "now" bind the other arm has no use for.
+            let expiry = if *exclude_disappearing {
+                "m.expire_at_ns IS NULL"
+            } else {
+                "(m.expire_at_ns IS NULL OR m.expire_at_ns > $7)"
+            };
+            let sql = format!(
+                "SELECT {cols} FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id \
+                 WHERE g.conversation_type <> ALL($1::int4[]) \
+                   AND m.kind = $2 \
+                   AND ($3::bigint IS NULL OR m.sent_at_ns > $3) \
+                   AND ($4::bigint IS NULL OR m.sent_at_ns <= $4) \
+                   AND {expiry} \
+                 ORDER BY m.id LIMIT $5 OFFSET $6",
+                cols = StoredGroupMessage::select_columns_for("m"),
+            );
+
+            let virtual_types: Vec<i32> = ConversationType::virtual_types()
+                .into_iter()
+                .map(|t| t as i32)
+                .collect();
+            let mut query = sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(virtual_types)
+                .bind(GroupMessageKind::Application)
+                .bind(sent_after_ns)
+                .bind(sent_before_ns)
+                .bind(limit.unwrap_or(100))
+                .bind(offset);
+            if !*exclude_disappearing {
+                query = query.bind(now_ns());
+            }
+
+            let mut c = self.conn().await?;
+            Ok(query.fetch_all(&mut *c).await?)
+        }
+
+        async fn get_group_messages_with_reactions(
+            &self,
+            group_id: &GroupId,
+            args: &MsgQueryArgs,
+        ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
+            // Reactions are fetched separately below, so they must not also come
+            // back in the main list.
+            let mut modified_args = args.clone();
+            modified_args.content_types = match args.content_types.clone() {
+                Some(mut content_types) => {
+                    content_types.retain(|content_type| *content_type != ContentType::Reaction);
+                    Some(content_types)
+                }
+                None => Some(vec![
+                    ContentType::Text,
+                    ContentType::GroupMembershipChange,
+                    ContentType::GroupUpdated,
+                    ContentType::ReadReceipt,
+                    ContentType::Reply,
+                    ContentType::Attachment,
+                    ContentType::RemoteAttachment,
+                    ContentType::TransactionReference,
+                    ContentType::Unknown,
+                ]),
+            };
+
+            let mut c = self.conn().await?;
+            let messages = fetch_group_messages(&mut c, group_id, &modified_args).await?;
+
+            let message_ids: Vec<Vec<u8>> = messages.iter().map(|m| m.id.clone()).collect();
+            let sql = format!(
+                "SELECT {cols} FROM group_messages \
+                 WHERE {group} AND reference_id IS NOT NULL AND reference_id = ANY($2::bytea[]) \
+                 ORDER BY {order}",
+                cols = StoredGroupMessage::select_columns(),
+                group = stitched_group_filter(1),
+                order = sent_at_order(args.direction.as_ref().unwrap_or(&SortDirection::Ascending)),
+            );
+            let reactions = sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(group_id)
+                .bind(&message_ids)
+                .fetch_all(&mut *c)
+                .await?;
+
+            let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> =
+                HashMap::new();
+            for reaction in reactions {
+                if let Some(reference_id) = &reaction.reference_id {
+                    reactions_by_reference
+                        .entry(reference_id.clone())
+                        .or_default()
+                        .push(reaction);
+                }
+            }
+
+            Ok(messages
+                .into_iter()
+                .map(|message| StoredGroupMessageWithReactions {
+                    reactions: reactions_by_reference
+                        .remove(&message.id)
+                        .unwrap_or_default(),
+                    message,
+                })
+                .collect())
+        }
+
+        async fn get_inbound_relations(
+            &self,
+            group_id: &GroupId,
+            message_ids: &[&[u8]],
+            relation_query: RelationQuery,
+        ) -> Result<InboundRelations, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {cols} FROM group_messages \
+                 WHERE {group} AND reference_id IS NOT NULL AND reference_id = ANY($2::bytea[]) \
+                   AND ($3::int4[] IS NULL OR content_type = ANY($3)) \
+                 ORDER BY {order} LIMIT $4::bigint",
+                cols = StoredGroupMessage::select_columns(),
+                group = stitched_group_filter(1),
+                order = sent_at_order(&relation_query.direction),
+            );
+            let mut c = self.conn().await?;
+            let relations = sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(group_id)
+                .bind(owned_ids(message_ids))
+                .bind(as_ints(&relation_query.content_types))
+                .bind(relation_query.limit)
+                .fetch_all(&mut *c)
+                .await?;
+
+            let mut inbound: InboundRelations = HashMap::new();
+            for relation in relations {
+                if let Some(reference_id) = &relation.reference_id {
+                    inbound
+                        .entry(reference_id.clone())
+                        .or_default()
+                        .push(relation);
+                }
+            }
+            Ok(inbound)
+        }
+
+        async fn get_outbound_relations(
+            &self,
+            group_id: &GroupId,
+            reference_ids: &[&[u8]],
+        ) -> Result<OutboundRelations, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {cols} FROM group_messages WHERE {group} AND id = ANY($2::bytea[])",
+                cols = StoredGroupMessage::select_columns(),
+                group = stitched_group_filter(1),
+            );
+            let mut c = self.conn().await?;
+            let referenced = sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(group_id)
+                .bind(owned_ids(reference_ids))
+                .fetch_all(&mut *c)
+                .await?;
+
+            Ok(referenced
+                .into_iter()
+                .map(|message| (message.id.clone(), message))
+                .collect())
+        }
+
+        async fn get_inbound_relation_counts(
+            &self,
+            group_id: &GroupId,
+            message_ids: &[&[u8]],
+            relation_query: RelationQuery,
+        ) -> Result<RelationCounts, crate::ConnectionError> {
+            // `reference_id` decodes as non-null because the filter guarantees it.
+            let sql = format!(
+                "SELECT reference_id, COUNT(*) FROM group_messages \
+                 WHERE {group} AND reference_id IS NOT NULL AND reference_id = ANY($2::bytea[]) \
+                   AND ($3::int4[] IS NULL OR content_type = ANY($3)) \
+                 GROUP BY reference_id",
+                group = stitched_group_filter(1),
+            );
+            let mut c = self.conn().await?;
+            let counts: Vec<(Vec<u8>, i64)> = sqlx::query_as(&sql)
+                .bind(group_id)
+                .bind(owned_ids(message_ids))
+                .bind(as_ints(&relation_query.content_types))
+                .fetch_all(&mut *c)
+                .await?;
+
+            Ok(counts
+                .into_iter()
+                .map(|(reference_id, count)| (reference_id, count as usize))
+                .collect())
+        }
+
+        /// `MAX` over a NOT NULL column within a group is never NULL, so unlike
+        /// the sync path there is nothing to filter out afterwards.
+        async fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
+            &self,
+            group_id: Id,
+            allowed_content_types: &[ContentType],
+        ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT sender_inbox_id, MAX(sent_at_ns) FROM group_messages \
+                 WHERE {group} AND content_type = ANY($2::int4[]) \
+                 GROUP BY sender_inbox_id",
+                group = stitched_group_filter(1),
+            );
+            let types: Vec<i32> = allowed_content_types.iter().map(|t| *t as i32).collect();
+            let mut c = self.conn().await?;
+            let rows: Vec<(String, i64)> = sqlx::query_as(&sql)
+                .bind(group_id.as_ref())
+                .bind(&types)
+                .fetch_all(&mut *c)
+                .await?;
+            Ok(rows.into_iter().collect())
+        }
+
+        async fn get_group_message<MessageId: AsRef<[u8]>>(
+            &self,
+            id: MessageId,
+        ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM group_messages WHERE id = $1",
+                StoredGroupMessage::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(id.as_ref())
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        /// The read/write connection split is a sync-track concept (one SQLite
+        /// writer, many readers); a Postgres pool has no such distinction, so
+        /// this is `get_group_message`.
+        async fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+            &self,
+            id: MessageId,
+        ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+            self.get_group_message(id).await
+        }
+
+        async fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
+            &self,
+            group_id: Id,
+            timestamp: i64,
+        ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM group_messages WHERE group_id = $1 AND sent_at_ns = $2 LIMIT 1",
+                StoredGroupMessage::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(group_id.as_ref())
+                .bind(timestamp)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        async fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
+            &self,
+            group_id: Id,
+            cursor: Cursor,
+        ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM group_messages \
+                 WHERE group_id = $1 AND sequence_id = $2 AND originator_id = $3 LIMIT 1",
+                StoredGroupMessage::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(group_id.as_ref())
+                .bind(cursor.sequence_id as i64)
+                .bind(cursor.originator_id as i64)
+                .fetch_optional(&mut *c)
+                .await?)
+        }
+
+        async fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+            &self,
+            msg_id: &MessageId,
+            timestamp: u64,
+            cursor: Cursor,
+            message_expire_at_ns: Option<i64>,
+        ) -> Result<usize, crate::ConnectionError> {
+            tracing::info!(
+                "Message [{}] published with cursor = {}",
+                hex::encode(msg_id),
+                cursor
+            );
+            let mut c = self.conn().await?;
+            let updated = sqlx::query(
+                "UPDATE group_messages SET delivery_status = $1, sent_at_ns = $2, \
+                 sequence_id = $3, originator_id = $4, expire_at_ns = $5 WHERE id = $6",
+            )
+            .bind(DeliveryStatus::Published)
+            .bind(timestamp as i64)
+            .bind(cursor.sequence_id as i64)
+            .bind(cursor.originator_id as i64)
+            .bind(message_expire_at_ns)
+            .bind(msg_id.as_ref())
+            .execute(&mut *c)
+            .await?
+            .rows_affected();
+            Ok(updated as usize)
+        }
+
+        async fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+            &self,
+            msg_id: &MessageId,
+        ) -> Result<usize, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let updated =
+                sqlx::query("UPDATE group_messages SET delivery_status = $1 WHERE id = $2")
+                    .bind(DeliveryStatus::Failed)
+                    .bind(msg_id.as_ref())
+                    .execute(&mut *c)
+                    .await?
+                    .rows_affected();
+            Ok(updated as usize)
+        }
+
+        async fn delete_expired_messages(
+            &self,
+        ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+            let sql = format!(
+                "DELETE FROM group_messages \
+                 WHERE delivery_status = $1 AND kind = $2 \
+                   AND expire_at_ns IS NOT NULL AND expire_at_ns <= $3 \
+                 RETURNING {}",
+                StoredGroupMessage::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
+                .bind(DeliveryStatus::Published)
+                .bind(GroupMessageKind::Application)
+                .bind(now_ns())
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        /// A true aggregate `MIN` -- not the two-argument scalar `MIN(a, b)` that
+        /// SQLite has and Postgres spells `LEAST`. With no GROUP BY it always
+        /// returns one row, NULL when nothing matches.
+        async fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_scalar(
+                "SELECT MIN(expire_at_ns) FROM group_messages \
+                 WHERE delivery_status = $1 AND kind = $2 AND expire_at_ns IS NOT NULL",
+            )
+            .bind(DeliveryStatus::Published)
+            .bind(GroupMessageKind::Application)
+            .fetch_one(&mut *c)
+            .await?)
+        }
+
+        async fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+            &self,
+            message_id: MessageId,
+        ) -> Result<usize, crate::ConnectionError> {
+            let mut c = self.conn().await?;
+            let deleted = sqlx::query("DELETE FROM group_messages WHERE id = $1")
+                .bind(message_id.as_ref())
+                .execute(&mut *c)
+                .await?
+                .rows_affected();
+            Ok(deleted as usize)
+        }
+
+        /// One statement for every group, where the sync path builds a tree of
+        /// boxed `OR`s and chunks into batches of 100 to stay under SQLite's bind
+        /// ceiling. Postgres takes the whole set as four array parameters.
+        ///
+        /// Per group with a cursor, the sync predicate is "some known originator
+        /// is behind, or the originator is unknown". Its contrapositive is the
+        /// single `NOT EXISTS` below: no cursor entry for this message's
+        /// originator is at or ahead of it.
+        async fn messages_newer_than(
+            &self,
+            cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+        ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
+            let mut uncursored: Vec<Vec<u8>> = Vec::new();
+            let mut cursored: Vec<Vec<u8>> = Vec::new();
+            let (mut group_ids, mut originator_ids, mut sequence_ids) =
+                (Vec::new(), Vec::new(), Vec::new());
+
+            for (group_id, global_cursor) in cursors_by_group {
+                if global_cursor.is_empty() {
+                    uncursored.push(group_id.clone());
+                    continue;
+                }
+                cursored.push(group_id.clone());
+                for (originator_id, sequence_id) in global_cursor.iter() {
+                    group_ids.push(group_id.clone());
+                    originator_ids.push(*originator_id as i64);
+                    sequence_ids.push(*sequence_id as i64);
+                }
+            }
+
+            let mut c = self.conn().await?;
+            let rows: Vec<(GroupId, i64, i64)> = sqlx::query_as(
+                "SELECT m.group_id, m.originator_id, m.sequence_id FROM group_messages m \
+                 WHERE m.group_id = ANY($1::bytea[]) \
+                    OR (m.group_id = ANY($2::bytea[]) AND NOT EXISTS ( \
+                          SELECT 1 FROM UNNEST($3::bytea[], $4::bigint[], $5::bigint[]) \
+                                       AS seen(group_id, originator_id, sequence_id) \
+                          WHERE seen.group_id = m.group_id \
+                            AND seen.originator_id = m.originator_id \
+                            AND m.sequence_id <= seen.sequence_id))",
+            )
+            .bind(&uncursored)
+            .bind(&cursored)
+            .bind(&group_ids)
+            .bind(&originator_ids)
+            .bind(&sequence_ids)
+            .fetch_all(&mut *c)
+            .await?;
+
+            Ok(rows
+                .into_iter()
+                .map(|(group_id, originator_id, sequence_id)| {
+                    (
+                        group_id,
+                        Cursor::new(sequence_id as u64, originator_id as u32),
+                    )
+                })
+                .collect())
+        }
+
+        async fn clear_messages(
+            &self,
+            group_ids: Option<&[GroupId]>,
+            retention_days: Option<u32>,
+        ) -> Result<usize, crate::ConnectionError> {
+            let group_ids: Option<Vec<Vec<u8>>> =
+                group_ids.map(|ids| ids.iter().map(|id| id.to_vec()).collect());
+            let cutoff_ns = retention_days
+                .map(|days| now_ns().saturating_sub(NS_IN_DAY.saturating_mul(i64::from(days))));
+
+            let mut c = self.conn().await?;
+            let deleted = sqlx::query(
+                "DELETE FROM group_messages \
+                 WHERE ($1::bytea[] IS NULL OR group_id = ANY($1)) \
+                   AND ($2::bigint IS NULL OR sent_at_ns < $2)",
+            )
+            .bind(&group_ids)
+            .bind(cutoff_ns)
+            .execute(&mut *c)
+            .await?
+            .rows_affected();
+            Ok(deleted as usize)
+        }
+    }
+}
