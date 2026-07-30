@@ -120,7 +120,8 @@ pub enum IntentState {
     Processed = 5,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, xmtp_macro::PgModel)]
+#[xmtp(table = "group_intents")]
 #[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
 #[cfg_attr(feature = "sync", diesel(table_name = group_intents))]
 #[cfg_attr(feature = "sync", diesel(primary_key(id)))]
@@ -1215,5 +1216,306 @@ pub(crate) mod tests {
             assert_eq!(results[0].kind, IntentKind::BootstrapMigration);
             assert_eq!(format!("{}", results[0].kind), "BootstrapMigration");
         })
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::encrypted_store::refresh_state::EntityKind;
+    use crate::pg::{PgDb, PgModel};
+
+    /// Arrays of the `#[repr(i32)]` enums have no `PgHasArrayType`, so a filter
+    /// list is converted to the integers the column stores before binding.
+    fn as_ints<T: Copy>(values: &Option<Vec<T>>, to_int: impl Fn(T) -> i32) -> Option<Vec<i32>> {
+        values
+            .as_ref()
+            .map(|values| values.iter().map(|v| to_int(*v)).collect())
+    }
+
+    impl QueryGroupIntent for PgDb {
+        async fn insert_group_intent(
+            &self,
+            to_save: NewGroupIntent,
+        ) -> Result<StoredGroupIntent, crate::ConnectionError> {
+            let sql = format!(
+                "INSERT INTO group_intents (kind, group_id, data, should_push, state) \
+                 VALUES ($1, $2, $3, $4, $5) RETURNING {}",
+                StoredGroupIntent::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupIntent>(&sql)
+                .bind(to_save.kind)
+                .bind(to_save.group_id)
+                .bind(&to_save.data)
+                .bind(to_save.should_push)
+                .bind(to_save.state)
+                .fetch_one(&mut *c)
+                .await?)
+        }
+
+        async fn find_group_intents<Id: AsRef<[u8]>>(
+            &self,
+            group_id: Id,
+            allowed_states: Option<Vec<IntentState>>,
+            allowed_kinds: Option<Vec<IntentKind>>,
+        ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
+            let sql = format!(
+                "SELECT {} FROM group_intents \
+                 WHERE group_id = $1 \
+                   AND ($2::int4[] IS NULL OR state = ANY($2)) \
+                   AND ($3::int4[] IS NULL OR kind = ANY($3)) \
+                 ORDER BY id ASC",
+                StoredGroupIntent::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupIntent>(&sql)
+                .bind(group_id.as_ref())
+                .bind(as_ints(&allowed_states, |s| s as i32))
+                .bind(as_ints(&allowed_kinds, |k| k as i32))
+                .fetch_all(&mut *c)
+                .await?)
+        }
+
+        /// Publishing is idempotent: an intent already past `ToPublish` is left
+        /// alone and reported as success, and only a *missing* intent is an
+        /// error. Telling those two apart needs the row's existence as well as
+        /// the update's outcome, which the sync path gets from a second query.
+        ///
+        /// Here both come back from one statement. A data-modifying CTE and the
+        /// query around it share a snapshot, so the `EXISTS` below sees the row
+        /// as it was before the update -- which is exactly what "did this intent
+        /// exist at all?" means, and leaves no window for a concurrent delete to
+        /// turn an already-published intent into a spurious NotFound.
+        async fn set_group_intent_published(
+            &self,
+            intent_id: ID,
+            payload_hash: &[u8],
+            post_commit_data: Option<Vec<u8>>,
+            staged_commit: Option<Vec<u8>>,
+            published_in_epoch: i64,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            let (applied, found): (bool, bool) = sqlx::query_as(
+                "WITH published AS ( \
+                     UPDATE group_intents \
+                        SET state = $2, payload_hash = $3, post_commit_data = $4, \
+                            staged_commit = $5, published_in_epoch = $6 \
+                      WHERE id = $1 AND state = $7 \
+                     RETURNING id) \
+                 SELECT EXISTS (SELECT 1 FROM published), \
+                        EXISTS (SELECT 1 FROM group_intents WHERE id = $1)",
+            )
+            .bind(intent_id)
+            .bind(IntentState::Published)
+            .bind(payload_hash)
+            .bind(&post_commit_data)
+            .bind(&staged_commit)
+            .bind(published_in_epoch)
+            // The state machine allows only ToPublish -> Published.
+            .bind(IntentState::ToPublish)
+            .fetch_one(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+
+            if applied || found {
+                Ok(())
+            } else {
+                Err(NotFound::IntentForToPublish(intent_id).into())
+            }
+        }
+
+        async fn set_group_intent_committed(
+            &self,
+            intent_id: ID,
+            cursor: Cursor,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            let rows_changed = sqlx::query(
+                "UPDATE group_intents SET state = $2, sequence_id = $3, originator_id = $4 \
+                 WHERE id = $1 AND state = $5",
+            )
+            .bind(intent_id)
+            .bind(IntentState::Committed)
+            .bind(cursor.sequence_id as i64)
+            .bind(cursor.originator_id as i64)
+            // The state machine allows only Published -> Committed.
+            .bind(IntentState::Published)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+
+            // Nothing matched: either the id or the state was wrong.
+            if rows_changed == 0 {
+                return Err(NotFound::IntentForCommitted(intent_id).into());
+            }
+            Ok(())
+        }
+
+        async fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
+            self.set_intent_state(intent_id, IntentState::Processed)
+                .await
+        }
+
+        async fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            let rows_changed = sqlx::query(
+                "UPDATE group_intents \
+                    SET state = $2, payload_hash = NULL, post_commit_data = NULL, \
+                        published_in_epoch = NULL, staged_commit = NULL \
+                  WHERE id = $1 AND state = $3",
+            )
+            .bind(intent_id)
+            .bind(IntentState::ToPublish)
+            // The state machine allows only Published -> ToPublish.
+            .bind(IntentState::Published)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?
+            .rows_affected();
+
+            if rows_changed == 0 {
+                return Err(NotFound::IntentForPublish(intent_id).into());
+            }
+            Ok(())
+        }
+
+        async fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
+            self.set_intent_state(intent_id, IntentState::Error).await
+        }
+
+        async fn find_group_intent_by_payload_hash(
+            &self,
+            payload_hash: &[u8],
+        ) -> Result<Option<StoredGroupIntent>, StorageError> {
+            let sql = format!(
+                "SELECT {} FROM group_intents WHERE payload_hash = $1 LIMIT 1",
+                StoredGroupIntent::select_columns()
+            );
+            let mut c = self.conn().await?;
+            Ok(sqlx::query_as::<_, StoredGroupIntent>(&sql)
+                .bind(payload_hash)
+                .fetch_optional(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?)
+        }
+
+        async fn find_dependant_commits<P: AsRef<[u8]>>(
+            &self,
+            payload_hashes: &[P],
+        ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
+            let hashes: Vec<Vec<u8>> = payload_hashes
+                .iter()
+                .map(|hash| hash.as_ref().to_vec())
+                .collect();
+
+            // `payload_hash` decodes as non-null: `NULL = ANY(...)` is NULL, so
+            // an unpublished intent can never match.
+            let mut c = self.conn().await?;
+            let rows: Vec<(Vec<u8>, i64, i32, GroupId)> = sqlx::query_as(
+                "SELECT gi.payload_hash, rs.sequence_id, rs.originator_id, gi.group_id \
+                 FROM group_intents gi \
+                 INNER JOIN refresh_state rs \
+                         ON rs.entity_id = gi.group_id AND rs.entity_kind = $2 \
+                 WHERE gi.payload_hash = ANY($1::bytea[])",
+            )
+            .bind(&hashes)
+            .bind(EntityKind::CommitMessage)
+            .fetch_all(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+
+            let mut grouped: HashMap<PayloadHash, Vec<IntentDependency>> = HashMap::new();
+            for (hash, sequence_id, originator_id, group_id) in rows {
+                grouped
+                    .entry(PayloadHash::from(hash))
+                    .or_default()
+                    .push(IntentDependency {
+                        cursor: Cursor::new(sequence_id as u64, originator_id as u32),
+                        group_id,
+                    });
+            }
+
+            grouped
+                .into_iter()
+                .map(|(hash, mut dependencies)| {
+                    // One commit-message refresh state per group; more than one
+                    // means the same payload hash reached two of them.
+                    if dependencies.len() > 1 {
+                        return Err(GroupIntentError::MoreThanOneDependency {
+                            payload_hash: hash.clone(),
+                            cursors: dependencies.iter().map(|d| d.cursor).collect(),
+                            group_id: dependencies[0].group_id,
+                        }
+                        .into());
+                    }
+                    let dependency = dependencies
+                        .pop()
+                        .ok_or_else(|| GroupIntentError::NoDependencyFound { hash: hash.clone() })
+                        .map_err(StorageError::from)?;
+                    Ok::<_, StorageError>((hash, dependency))
+                })
+                .collect()
+        }
+
+        async fn increment_intent_publish_attempt_count(
+            &self,
+            intent_id: ID,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            sqlx::query(
+                "UPDATE group_intents SET publish_attempts = publish_attempts + 1 WHERE id = $1",
+            )
+            .bind(intent_id)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+            Ok(())
+        }
+
+        /// `atomic()` because the two writes are one outcome: an intent marked
+        /// failed while its message still looks publishable would be retried
+        /// forever.
+        async fn set_group_intent_error_and_fail_msg(
+            &self,
+            intent: &StoredGroupIntent,
+            msg_id: Option<Vec<u8>>,
+        ) -> Result<(), StorageError> {
+            self.atomic(async |db| {
+                db.set_group_intent_error(intent.id).await?;
+                if let Some(id) = msg_id {
+                    db.set_delivery_status_to_failed(&id).await?;
+                }
+                Ok(())
+            })
+            .await
+        }
+    }
+
+    impl PgDb {
+        /// The two unguarded state transitions -- any state may move to
+        /// `Processed` or `Error`. A miss can only mean the intent is gone.
+        async fn set_intent_state(
+            &self,
+            intent_id: ID,
+            state: IntentState,
+        ) -> Result<(), StorageError> {
+            let mut c = self.conn().await?;
+            let rows_changed = sqlx::query("UPDATE group_intents SET state = $2 WHERE id = $1")
+                .bind(intent_id)
+                .bind(state)
+                .execute(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?
+                .rows_affected();
+
+            if rows_changed == 0 {
+                return Err(NotFound::IntentById(intent_id).into());
+            }
+            Ok(())
+        }
     }
 }

@@ -25,6 +25,7 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
     use xmtp_db::group::{
         StoredGroup, StoredGroupCommitLogPublicKey, StoredGroupForRespondingReadds,
     };
+    use xmtp_db::group_intent::StoredGroupIntent;
     use xmtp_db::group_message::StoredGroupMessage;
     use xmtp_db::identity_update::StoredIdentityUpdate;
     use xmtp_db::key_package_history::StoredKeyPackageHistoryEntry;
@@ -47,6 +48,7 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
         entry::<StoredGroupCommitLogPublicKey>("StoredGroupCommitLogPublicKey"),
         entry::<StoredGroupForRespondingReadds>("StoredGroupForRespondingReadds"),
         entry::<StoredGroupMessage>("StoredGroupMessage"),
+        entry::<StoredGroupIntent>("StoredGroupIntent"),
         entry::<StoredConsentRecord>("StoredConsentRecord"),
         entry::<StoredIdentityUpdate>("StoredIdentityUpdate"),
         entry::<StoredKeyPackageHistoryEntry>("StoredKeyPackageHistoryEntry"),
