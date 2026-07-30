@@ -22,7 +22,9 @@ use xmtp_db_pg_tests::fresh_db;
 /// `#[derive(PgModel)]`, add it here too.
 fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
     use xmtp_db::consent_record::StoredConsentRecord;
-    use xmtp_db::group::StoredGroup;
+    use xmtp_db::group::{
+        StoredGroup, StoredGroupCommitLogPublicKey, StoredGroupForRespondingReadds,
+    };
     use xmtp_db::group_message::StoredGroupMessage;
     use xmtp_db::identity_update::StoredIdentityUpdate;
     use xmtp_db::key_package_history::StoredKeyPackageHistoryEntry;
@@ -41,6 +43,9 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
 
     vec![
         entry::<StoredGroup>("StoredGroup"),
+        // Projections of `groups`, so their column lists are checked too.
+        entry::<StoredGroupCommitLogPublicKey>("StoredGroupCommitLogPublicKey"),
+        entry::<StoredGroupForRespondingReadds>("StoredGroupForRespondingReadds"),
         entry::<StoredGroupMessage>("StoredGroupMessage"),
         entry::<StoredConsentRecord>("StoredConsentRecord"),
         entry::<StoredIdentityUpdate>("StoredIdentityUpdate"),
