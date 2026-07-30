@@ -22,6 +22,7 @@ use xmtp_db_pg_tests::fresh_db;
 /// `#[derive(PgModel)]`, add it here too.
 fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
     use xmtp_db::consent_record::StoredConsentRecord;
+    use xmtp_db::conversation_list::ConversationListItem;
     use xmtp_db::group::{
         StoredGroup, StoredGroupCommitLogPublicKey, StoredGroupForRespondingReadds,
     };
@@ -35,6 +36,7 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
     use xmtp_db::refresh_state::RefreshState;
     use xmtp_db::remote_commit_log::RemoteCommitLog;
     use xmtp_db::tasks::Task;
+    use xmtp_db::user_preferences::StoredUserPreferences;
 
     fn entry<M: PgModel>(
         name: &'static str,
@@ -49,6 +51,8 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
         entry::<StoredGroupForRespondingReadds>("StoredGroupForRespondingReadds"),
         entry::<StoredGroupMessage>("StoredGroupMessage"),
         entry::<StoredGroupIntent>("StoredGroupIntent"),
+        // A view rather than a table; `information_schema.columns` covers both.
+        entry::<ConversationListItem>("ConversationListItem"),
         entry::<StoredConsentRecord>("StoredConsentRecord"),
         entry::<StoredIdentityUpdate>("StoredIdentityUpdate"),
         entry::<StoredKeyPackageHistoryEntry>("StoredKeyPackageHistoryEntry"),
@@ -58,6 +62,7 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
         entry::<ReaddStatus>("ReaddStatus"),
         entry::<RefreshState>("RefreshState"),
         entry::<Task>("Task"),
+        entry::<StoredUserPreferences>("StoredUserPreferences"),
     ]
 }
 

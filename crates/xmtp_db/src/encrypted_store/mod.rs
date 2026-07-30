@@ -45,7 +45,6 @@ pub mod sql_int_enum;
 #[cfg(feature = "sync")]
 pub mod store;
 pub mod tasks;
-#[cfg(feature = "sync")]
 pub mod user_preferences;
 
 #[cfg(test)]

@@ -16,7 +16,8 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, xmtp_macro::PgModel)]
+#[xmtp(table = "conversation_list")]
 #[cfg_attr(feature = "sync", derive(Queryable))]
 #[cfg_attr(feature = "sync", diesel(table_name = conversation_list))]
 #[cfg_attr(feature = "sync", diesel(primary_key(id)))]
@@ -49,6 +50,7 @@ pub struct ConversationListItem {
     /// Time in nanoseconds the message was sent.
     pub sent_at_ns: Option<i64>,
     /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
+    #[xmtp(rename = "message_kind")]
     pub kind: Option<GroupMessageKind>,
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Option<Vec<u8>>,
@@ -252,6 +254,171 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
         }
 
         Ok(conversations)
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::{PgDb, PgModel};
+
+    /// `consent_records.entity` holds a group id as lowercase hex, which is what
+    /// `encode(id, 'hex')` produces directly -- the sync path spells the same
+    /// thing `lower(hex(...))` because SQLite's `hex()` is uppercase.
+    const INNER_CONSENT_JOIN: &str =
+        "INNER JOIN consent_records c ON encode(conversation_list.id, 'hex') = c.entity";
+    /// As above, but keeping conversations with no consent record at all.
+    const LEFT_CONSENT_JOIN: &str =
+        "LEFT JOIN consent_records c ON encode(conversation_list.id, 'hex') = c.entity";
+
+    /// Keeps only the most recently active row per stitched DM.
+    ///
+    /// The view carries no `last_message_ns`, so the current row's value comes
+    /// from a correlated subquery against `groups` -- as in the sync path.
+    /// `encode(id, 'hex')` stands in for its bare `id`: both arms of a Postgres
+    /// `COALESCE` must share a type, and a `dm:a:b` string can never collide
+    /// with a hex id.
+    const LATEST_PER_DM: &str = "NOT EXISTS (
+             SELECT 1 FROM groups g2
+             WHERE COALESCE(g2.dm_id, encode(g2.id, 'hex'))
+                 = COALESCE(conversation_list.dm_id, encode(conversation_list.id, 'hex'))
+               AND (COALESCE(g2.last_message_ns, 0), g2.id)
+                 > (COALESCE((SELECT g1.last_message_ns FROM groups g1
+                               WHERE g1.id = conversation_list.id), 0),
+                    conversation_list.id)
+         )";
+
+    impl QueryConversationList for PgDb {
+        /// Same shape as `QueryGroup::find_groups`, over the `conversation_list`
+        /// view rather than `groups`: every optional filter is `$n IS NULL OR
+        /// ...` on a fixed bind order, and only the consent join varies the
+        /// query's shape, so it takes the last parameter.
+        async fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+            &self,
+            args: A,
+        ) -> Result<Vec<ConversationListItem>, StorageError> {
+            let args = args.as_ref();
+            args.validate()?;
+
+            let GroupQueryArgs {
+                allowed_states,
+                created_after_ns,
+                created_before_ns,
+                limit,
+                conversation_type,
+                consent_states,
+                include_sync_groups,
+                include_duplicate_dms,
+                last_activity_after_ns,
+                last_activity_before_ns,
+                order_by,
+                ..
+            } = args;
+
+            let default_states = [ConsentState::Allowed, ConsentState::Unknown];
+            let effective_consent_states = match consent_states {
+                Some(states) if !states.is_empty() => states.as_slice(),
+                _ => &default_states[..],
+            };
+            let includes_all = effective_consent_states.len() == 3;
+            let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+            let consent_ints: Vec<i32> =
+                effective_consent_states.iter().map(|s| *s as i32).collect();
+
+            let (join, consent_filter) = if includes_all {
+                ("", "TRUE")
+            } else if includes_unknown {
+                // The union of the sync path's `state = Unknown OR state = ANY(filtered)`
+                // is just the effective set, which is what $9 carries.
+                (
+                    LEFT_CONSENT_JOIN,
+                    "(c.state IS NULL OR c.state = ANY($9::int4[]))",
+                )
+            } else {
+                (INNER_CONSENT_JOIN, "c.state = ANY($9::int4[])")
+            };
+
+            let dedup = if *include_duplicate_dms {
+                "TRUE"
+            } else {
+                LATEST_PER_DM
+            };
+
+            // Both orderings are over NOT NULL expressions, so neither needs
+            // NULLS LAST. Note this list orders newest-first by creation, where
+            // `find_groups` orders oldest-first.
+            let order = match order_by.clone().unwrap_or_default() {
+                GroupQueryOrderBy::CreatedAt => "conversation_list.created_at_ns DESC",
+                GroupQueryOrderBy::LastActivity => {
+                    "COALESCE(conversation_list.sent_at_ns, conversation_list.created_at_ns) DESC"
+                }
+            };
+
+            let sql = format!(
+                "SELECT {cols} FROM conversation_list {join} \
+                 WHERE conversation_list.conversation_type <> ALL($1::int4[]) \
+                   AND ($2::bigint IS NULL OR conversation_list.created_at_ns > $2) \
+                   AND ($3::bigint IS NULL OR conversation_list.created_at_ns < $3) \
+                   AND ($4::bigint IS NULL \
+                        OR COALESCE(conversation_list.sent_at_ns, \
+                                    conversation_list.created_at_ns) > $4) \
+                   AND ($5::bigint IS NULL \
+                        OR COALESCE(conversation_list.sent_at_ns, \
+                                    conversation_list.created_at_ns) < $5) \
+                   AND ($6::int4 IS NULL OR conversation_list.conversation_type = $6) \
+                   AND ($7::int4[] IS NULL OR conversation_list.membership_state = ANY($7)) \
+                   AND {dedup} AND {consent_filter} \
+                 ORDER BY {order} LIMIT $8::bigint",
+                cols = ConversationListItem::select_columns_for("conversation_list"),
+            );
+
+            let virtual_types: Vec<i32> = ConversationType::virtual_types()
+                .into_iter()
+                .map(|t| t as i32)
+                .collect();
+            let mut query = sqlx::query_as::<_, ConversationListItem>(&sql)
+                .bind(virtual_types)
+                .bind(*created_after_ns)
+                .bind(*created_before_ns)
+                .bind(*last_activity_after_ns)
+                .bind(*last_activity_before_ns)
+                .bind(conversation_type.map(|t| t as i32))
+                .bind(
+                    allowed_states
+                        .as_ref()
+                        .map(|states| states.iter().map(|s| *s as i32).collect::<Vec<_>>()),
+                )
+                .bind(*limit);
+            if !includes_all {
+                query = query.bind(consent_ints);
+            }
+
+            // One connection for both statements, as the sync path has.
+            let mut c = self.conn().await?;
+            let mut conversations = query
+                .fetch_all(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
+
+            // Sync groups are excluded by the virtual-type filter above, so they
+            // are fetched separately when asked for.
+            if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
+                let sql = format!(
+                    "SELECT {} FROM conversation_list WHERE conversation_type = $1",
+                    ConversationListItem::select_columns()
+                );
+                let mut sync_groups = sqlx::query_as::<_, ConversationListItem>(&sql)
+                    .bind(ConversationType::Sync)
+                    .fetch_all(&mut *c)
+                    .await
+                    .map_err(crate::ConnectionError::from)?;
+                conversations.append(&mut sync_groups);
+            }
+
+            Ok(conversations)
+        }
     }
 }
 
