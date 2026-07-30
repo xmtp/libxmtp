@@ -36,6 +36,8 @@ impl_store!(NewRemoteCommitLog, remote_commit_log);
 #[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
 #[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
 #[cfg_attr(feature = "sync", diesel(primary_key(rowid)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "remote_commit_log")]
 pub struct RemoteCommitLog {
     pub rowid: i32,
     // The sequence ID of the log entry on the server
@@ -209,22 +211,14 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
-    const COLUMNS: &str = "rowid, log_sequence_id, group_id, commit_sequence_id, \
-                           commit_result, applied_epoch_number, applied_epoch_authenticator";
-
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn log(row: &sqlx::postgres::PgRow) -> Result<RemoteCommitLog, crate::ConnectionError> {
-        Ok(RemoteCommitLog {
-            rowid: row.try_get(0)?,
-            log_sequence_id: row.try_get(1)?,
-            group_id: row.try_get(2)?,
-            commit_sequence_id: row.try_get(3)?,
-            commit_result: row.try_get(4)?,
-            applied_epoch_number: row.try_get(5)?,
-            applied_epoch_authenticator: row.try_get(6)?,
-        })
+        use sqlx::FromRow;
+        Ok(RemoteCommitLog::from_row(row)?)
     }
 
     impl QueryRemoteCommitLog for PgDb {
@@ -234,8 +228,9 @@ mod pg_impl {
         ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM remote_commit_log WHERE group_id = $1 \
-                 ORDER BY log_sequence_id DESC LIMIT 1"
+                "SELECT {} FROM remote_commit_log WHERE group_id = $1 \
+                 ORDER BY log_sequence_id DESC LIMIT 1",
+                RemoteCommitLog::select_columns()
             ))
             .bind(group_id)
             .fetch_optional(&mut *c)
@@ -262,8 +257,9 @@ mod pg_impl {
             // The two orderings are separate literals rather than an interpolated
             // direction: the sort key never comes from a caller-supplied string.
             let sql = format!(
-                "SELECT {COLUMNS} FROM remote_commit_log \
+                "SELECT {} FROM remote_commit_log \
                  WHERE group_id = $1 AND rowid > $2 AND commit_sequence_id <> 0 ORDER BY rowid {}",
+                RemoteCommitLog::select_columns(),
                 match order {
                     RemoteCommitLogOrder::AscendingByRowid => "ASC",
                     RemoteCommitLogOrder::DescendingByRowid => "DESC",

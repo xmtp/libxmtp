@@ -83,6 +83,8 @@ crate::impl_sql_int_enum!(EntityKind {
     feature = "sync",
     diesel(primary_key(entity_id, entity_kind, originator_id))
 )]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "refresh_state")]
 pub struct RefreshState {
     pub entity_id: Vec<u8>,
     pub entity_kind: EntityKind,
@@ -445,18 +447,14 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
-    const COLUMNS: &str = "entity_id, entity_kind, sequence_id, originator_id";
-
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn state(row: &sqlx::postgres::PgRow) -> Result<RefreshState, crate::ConnectionError> {
-        Ok(RefreshState {
-            entity_id: row.try_get(0)?,
-            entity_kind: row.try_get(1)?,
-            sequence_id: row.try_get(2)?,
-            originator_id: row.try_get(3)?,
-        })
+        use sqlx::FromRow;
+        Ok(RefreshState::from_row(row)?)
     }
 
     fn kinds_as_i32(entities: &[EntityKind]) -> Vec<i32> {
@@ -472,8 +470,9 @@ mod pg_impl {
         ) -> Result<Option<RefreshState>, StorageError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM refresh_state \
-                 WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = $3"
+                "SELECT {} FROM refresh_state \
+                 WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = $3",
+                RefreshState::select_columns()
             ))
             .bind(entity_id.as_ref())
             .bind(entity_kind)
@@ -500,10 +499,8 @@ mod pg_impl {
             self.atomic(async |db| {
                 let found: Vec<RefreshState> = {
                     let mut c = db.conn().await?;
-                    let rows = sqlx::query(&format!(
-                        "SELECT {COLUMNS} FROM refresh_state \
-                         WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = ANY($3)"
-                    ))
+                    let rows = sqlx::query(&format!("SELECT {} FROM refresh_state \
+                         WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = ANY($3)", RefreshState::select_columns()))
                     .bind(id_ref)
                     .bind(entity_kind)
                     .bind(&wanted)

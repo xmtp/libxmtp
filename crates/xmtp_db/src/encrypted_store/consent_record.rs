@@ -28,6 +28,8 @@ mod convert;
 #[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
 #[cfg_attr(feature = "sync", diesel(table_name = consent_records))]
 #[cfg_attr(feature = "sync", diesel(primary_key(entity_type, entity)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "consent_records")]
 pub struct StoredConsentRecord {
     /// Enum, [`ConsentType`] representing the type of consent (conversation_id inbox_id, etc..)
     pub entity_type: ConsentType,
@@ -362,10 +364,8 @@ pub enum ConsentType {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
-
-    const COLUMNS: &str = "entity_type, state, entity, consented_at_ns";
 
     /// Upsert that only moves `state`, matching the sync track's
     /// `do_update().set(state.eq(excluded(state)))` — `consented_at_ns` on an
@@ -374,13 +374,11 @@ mod pg_impl {
                           VALUES ($1, $2, $3, $4) \
                           ON CONFLICT (entity_type, entity) DO UPDATE SET state = excluded.state";
 
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn record(row: &sqlx::postgres::PgRow) -> Result<StoredConsentRecord, crate::ConnectionError> {
-        Ok(StoredConsentRecord {
-            entity_type: row.try_get(0)?,
-            state: row.try_get(1)?,
-            entity: row.try_get(2)?,
-            consented_at_ns: row.try_get(3)?,
-        })
+        use sqlx::FromRow;
+        Ok(StoredConsentRecord::from_row(row)?)
     }
 
     async fn get(
@@ -390,7 +388,8 @@ mod pg_impl {
     ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
         let mut c = db.conn().await?;
         let row = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM consent_records WHERE entity = $1 AND entity_type = $2"
+            "SELECT {} FROM consent_records WHERE entity = $1 AND entity_type = $2",
+            StoredConsentRecord::select_columns()
         ))
         .bind(entity)
         .bind(entity_type)
@@ -412,9 +411,12 @@ mod pg_impl {
             &self,
         ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
             let mut c = self.conn().await?;
-            let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM consent_records"))
-                .fetch_all(&mut *c)
-                .await?;
+            let rows = sqlx::query(&format!(
+                "SELECT {} FROM consent_records",
+                StoredConsentRecord::select_columns()
+            ))
+            .fetch_all(&mut *c)
+            .await?;
             rows.iter().map(record).collect()
         }
 
@@ -425,8 +427,9 @@ mod pg_impl {
         ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM consent_records \
-                 ORDER BY entity_type, entity LIMIT $1 OFFSET $2"
+                "SELECT {} FROM consent_records \
+                 ORDER BY entity_type, entity LIMIT $1 OFFSET $2",
+                StoredConsentRecord::select_columns()
             ))
             .bind(limit)
             .bind(offset)
@@ -503,9 +506,10 @@ mod pg_impl {
                 let existing: Vec<StoredConsentRecord> = {
                     let mut c = db.conn().await?;
                     let rows = sqlx::query(&format!(
-                        "SELECT {COLUMNS} FROM consent_records \
+                        "SELECT {} FROM consent_records \
                          WHERE (entity_type, entity) IN \
-                               (SELECT * FROM UNNEST($1::int4[], $2::text[]))"
+                               (SELECT * FROM UNNEST($1::int4[], $2::text[]))",
+                        StoredConsentRecord::select_columns()
                     ))
                     .bind(&types)
                     .bind(&entities)
@@ -577,10 +581,11 @@ mod pg_impl {
         ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM consent_records \
+                "SELECT {} FROM consent_records \
                  WHERE entity_type = $1 \
                    AND entity IN (SELECT encode(id, 'hex') FROM groups WHERE dm_id = $2) \
-                 ORDER BY consented_at_ns DESC"
+                 ORDER BY consented_at_ns DESC",
+                StoredConsentRecord::select_columns()
             ))
             .bind(ConsentType::ConversationId)
             .bind(dm_id)

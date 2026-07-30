@@ -19,6 +19,8 @@ pub struct NewKeyPackageHistoryEntry {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "sync", derive(Queryable, Selectable))]
 #[cfg_attr(feature = "sync", diesel(table_name = key_package_history))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "key_package_history")]
 pub struct StoredKeyPackageHistoryEntry {
     pub id: i32,
     pub key_package_hash_ref: Vec<u8>,
@@ -230,22 +232,17 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
     /// Column order is fixed here and reused by every `SELECT` below, so the
     /// positional `try_get`s cannot drift apart from the query text.
-    const COLUMNS: &str =
-        "id, key_package_hash_ref, created_at_ns, delete_at_ns, post_quantum_public_key";
 
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn entry(row: &sqlx::postgres::PgRow) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        Ok(StoredKeyPackageHistoryEntry {
-            id: row.try_get(0).map_err(crate::ConnectionError::from)?,
-            key_package_hash_ref: row.try_get(1).map_err(crate::ConnectionError::from)?,
-            created_at_ns: row.try_get(2).map_err(crate::ConnectionError::from)?,
-            delete_at_ns: row.try_get(3).map_err(crate::ConnectionError::from)?,
-            post_quantum_public_key: row.try_get(4).map_err(crate::ConnectionError::from)?,
-        })
+        use sqlx::FromRow;
+        Ok(StoredKeyPackageHistoryEntry::from_row(row).map_err(crate::ConnectionError::from)?)
     }
 
     impl QueryKeyPackageHistory for PgDb {
@@ -288,7 +285,8 @@ mod pg_impl {
         ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM key_package_history WHERE key_package_hash_ref = $1"
+                "SELECT {} FROM key_package_history WHERE key_package_hash_ref = $1",
+                StoredKeyPackageHistoryEntry::select_columns()
             ))
             .bind(hash_ref)
             .fetch_one(&mut *c)
@@ -303,7 +301,8 @@ mod pg_impl {
         ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM key_package_history WHERE id < $1"
+                "SELECT {} FROM key_package_history WHERE id < $1",
+                StoredKeyPackageHistoryEntry::select_columns()
             ))
             .bind(id)
             .fetch_all(&mut *c)
@@ -336,7 +335,8 @@ mod pg_impl {
         ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM key_package_history WHERE delete_at_ns <= $1"
+                "SELECT {} FROM key_package_history WHERE delete_at_ns <= $1",
+                StoredKeyPackageHistoryEntry::select_columns()
             ))
             .bind(now_ns())
             .fetch_all(&mut *c)

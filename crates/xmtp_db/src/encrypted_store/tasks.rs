@@ -13,6 +13,8 @@ use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind}
 #[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
 #[cfg_attr(feature = "sync", diesel(table_name = tasks))]
 #[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "tasks")]
 pub struct Task {
     pub id: i32,
     pub originating_message_sequence_id: i64,
@@ -368,7 +370,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 pub(crate) mod pg {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
     /// Insert columns, in the order [`bind_new`] binds them.
@@ -380,10 +382,6 @@ pub(crate) mod pg {
 
     /// Every column of `tasks`, in the order [`task`] reads them. `id` first,
     /// then the insert columns.
-    const COLUMNS: &str = "id, originating_message_sequence_id, \
-         originating_message_originator_id, created_at_ns, expires_at_ns, attempts, max_attempts, \
-         last_attempted_at_ns, backoff_scaling_factor, max_backoff_duration_ns, \
-         initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data";
 
     fn bind_new<'q>(
         q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
@@ -404,23 +402,11 @@ pub(crate) mod pg {
             .bind(&t.data)
     }
 
-    pub(crate) fn task(row: &sqlx::postgres::PgRow) -> Result<Task, crate::ConnectionError> {
-        Ok(Task {
-            id: row.try_get(0)?,
-            originating_message_sequence_id: row.try_get(1)?,
-            originating_message_originator_id: row.try_get(2)?,
-            created_at_ns: row.try_get(3)?,
-            expires_at_ns: row.try_get(4)?,
-            attempts: row.try_get(5)?,
-            max_attempts: row.try_get(6)?,
-            last_attempted_at_ns: row.try_get(7)?,
-            backoff_scaling_factor: row.try_get(8)?,
-            max_backoff_duration_ns: row.try_get(9)?,
-            initial_backoff_duration_ns: row.try_get(10)?,
-            next_attempt_at_ns: row.try_get(11)?,
-            data_hash: row.try_get(12)?,
-            data: row.try_get(13)?,
-        })
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
+    fn task(row: &sqlx::postgres::PgRow) -> Result<Task, crate::ConnectionError> {
+        use sqlx::FromRow;
+        Ok(Task::from_row(row)?)
     }
 
     /// `INSERT OR IGNORE` for a task. Shared with `QueryIdentity`'s rotation
@@ -444,7 +430,8 @@ pub(crate) mod pg {
         async fn create_task(&self, t: NewTask) -> Result<Task, StorageError> {
             let sql = format!(
                 "INSERT INTO tasks ({INSERT_COLUMNS}) VALUES ({INSERT_PLACEHOLDERS}) \
-                 RETURNING {COLUMNS}"
+                 RETURNING {}",
+                Task::select_columns()
             );
             let mut c = self.conn().await?;
             let row = bind_new(sqlx::query(&sql), &t)
@@ -485,7 +472,7 @@ pub(crate) mod pg {
 
         async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
             let mut c = self.conn().await?;
-            let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM tasks"))
+            let rows = sqlx::query(&format!("SELECT {} FROM tasks", Task::select_columns()))
                 .fetch_all(&mut *c)
                 .await
                 .map_err(crate::ConnectionError::from)?;
@@ -498,7 +485,8 @@ pub(crate) mod pg {
         async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM tasks ORDER BY next_attempt_at_ns LIMIT 1"
+                "SELECT {} FROM tasks ORDER BY next_attempt_at_ns LIMIT 1",
+                Task::select_columns()
             ))
             .fetch_optional(&mut *c)
             .await
@@ -575,7 +563,8 @@ pub(crate) mod pg {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
                 "UPDATE tasks SET attempts = $1, last_attempted_at_ns = $2, \
-                 next_attempt_at_ns = $3 WHERE id = $4 RETURNING {COLUMNS}"
+                 next_attempt_at_ns = $3 WHERE id = $4 RETURNING {}",
+                Task::select_columns()
             ))
             .bind(attempts)
             .bind(last_attempted_at_ns)

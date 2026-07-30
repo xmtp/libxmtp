@@ -17,6 +17,8 @@ use xmtp_proto::types::GroupId;
 #[cfg_attr(feature = "sync", diesel(table_name = message_deletions))]
 #[cfg_attr(feature = "sync", diesel(primary_key(id)))]
 /// Represents a deletion record for a message in a group conversation
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "message_deletions")]
 pub struct StoredMessageDeletion {
     /// The ID of the DeleteMessage in the group_messages table
     pub id: Vec<u8>,
@@ -175,23 +177,16 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
-    const COLUMNS: &str = "id, group_id, deleted_message_id, deleted_by_inbox_id, \
-                           is_super_admin_deletion, deleted_at_ns";
-
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn deletion(
         row: &sqlx::postgres::PgRow,
     ) -> Result<StoredMessageDeletion, crate::ConnectionError> {
-        Ok(StoredMessageDeletion {
-            id: row.try_get(0)?,
-            group_id: row.try_get(1)?,
-            deleted_message_id: row.try_get(2)?,
-            deleted_by_inbox_id: row.try_get(3)?,
-            is_super_admin_deletion: row.try_get(4)?,
-            deleted_at_ns: row.try_get(5)?,
-        })
+        use sqlx::FromRow;
+        Ok(StoredMessageDeletion::from_row(row)?)
     }
 
     impl QueryMessageDeletion for PgDb {
@@ -201,7 +196,8 @@ mod pg_impl {
         ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM message_deletions WHERE id = $1"
+                "SELECT {} FROM message_deletions WHERE id = $1",
+                StoredMessageDeletion::select_columns()
             ))
             .bind(id)
             .fetch_optional(&mut *c)
@@ -215,7 +211,8 @@ mod pg_impl {
         ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM message_deletions WHERE deleted_message_id = $1"
+                "SELECT {} FROM message_deletions WHERE deleted_message_id = $1",
+                StoredMessageDeletion::select_columns()
             ))
             .bind(deleted_message_id)
             .fetch_optional(&mut *c)
@@ -232,7 +229,8 @@ mod pg_impl {
             }
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM message_deletions WHERE deleted_message_id = ANY($1)"
+                "SELECT {} FROM message_deletions WHERE deleted_message_id = ANY($1)",
+                StoredMessageDeletion::select_columns()
             ))
             .bind(&message_ids)
             .fetch_all(&mut *c)
@@ -246,7 +244,8 @@ mod pg_impl {
         ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM message_deletions WHERE group_id = $1"
+                "SELECT {} FROM message_deletions WHERE group_id = $1",
+                StoredMessageDeletion::select_columns()
             ))
             .bind(group_id)
             .fetch_all(&mut *c)

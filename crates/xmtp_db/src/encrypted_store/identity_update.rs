@@ -19,6 +19,8 @@ use diesel::{dsl::max, prelude::*};
 #[cfg_attr(feature = "sync", diesel(table_name = identity_updates))]
 #[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, sequence_id)))]
 #[builder(setter(into), build_fn(error = "StorageError"))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "identity_updates")]
 pub struct StoredIdentityUpdate {
     pub inbox_id: String,
     pub sequence_id: i64,
@@ -235,19 +237,14 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
-    const COLUMNS: &str = "inbox_id, sequence_id, server_timestamp_ns, payload, originator_id";
-
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn update(row: &sqlx::postgres::PgRow) -> Result<StoredIdentityUpdate, crate::ConnectionError> {
-        Ok(StoredIdentityUpdate {
-            inbox_id: row.try_get(0)?,
-            sequence_id: row.try_get(1)?,
-            server_timestamp_ns: row.try_get(2)?,
-            payload: row.try_get(3)?,
-            originator_id: row.try_get(4)?,
-        })
+        use sqlx::FromRow;
+        Ok(StoredIdentityUpdate::from_row(row)?)
     }
 
     impl QueryIdentityUpdates for PgDb {
@@ -264,10 +261,11 @@ mod pg_impl {
         ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM identity_updates WHERE inbox_id = $1 \
+                "SELECT {} FROM identity_updates WHERE inbox_id = $1 \
                    AND ($2::int8 IS NULL OR sequence_id > $2) \
                    AND ($3::int8 IS NULL OR sequence_id <= $3) \
-                 ORDER BY sequence_id ASC"
+                 ORDER BY sequence_id ASC",
+                StoredIdentityUpdate::select_columns()
             ))
             .bind(inbox_id.as_ref())
             .bind(from_sequence_id)

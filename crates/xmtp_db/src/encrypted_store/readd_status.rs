@@ -19,6 +19,8 @@ use xmtp_proto::types::GroupId;
 )]
 #[cfg_attr(feature = "sync", diesel(table_name = readd_status))]
 #[cfg_attr(feature = "sync", diesel(primary_key(group_id, installation_id)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "readd_status")]
 pub struct ReaddStatus {
     pub group_id: GroupId,
     pub installation_id: Vec<u8>,
@@ -814,19 +816,14 @@ mod tests {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
-    const COLUMNS: &str =
-        "group_id, installation_id, requested_at_sequence_id, responded_at_sequence_id";
-
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn status(row: &sqlx::postgres::PgRow) -> Result<ReaddStatus, crate::ConnectionError> {
-        Ok(ReaddStatus {
-            group_id: row.try_get(0)?,
-            installation_id: row.try_get(1)?,
-            requested_at_sequence_id: row.try_get(2)?,
-            responded_at_sequence_id: row.try_get(3)?,
-        })
+        use sqlx::FromRow;
+        Ok(ReaddStatus::from_row(row)?)
     }
 
     impl QueryReaddStatus for PgDb {
@@ -837,8 +834,9 @@ mod pg_impl {
         ) -> Result<Option<ReaddStatus>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM readd_status \
-                 WHERE group_id = $1 AND installation_id = $2"
+                "SELECT {} FROM readd_status \
+                 WHERE group_id = $1 AND installation_id = $2",
+                ReaddStatus::select_columns()
             ))
             .bind(group_id)
             .bind(installation_id)
@@ -956,11 +954,12 @@ mod pg_impl {
         ) -> Result<Vec<ReaddStatus>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM readd_status \
+                "SELECT {} FROM readd_status \
                  WHERE group_id = $1 AND installation_id <> $2 \
                    AND requested_at_sequence_id IS NOT NULL \
                    AND (requested_at_sequence_id >= responded_at_sequence_id \
-                        OR responded_at_sequence_id IS NULL)"
+                        OR responded_at_sequence_id IS NULL)",
+                ReaddStatus::select_columns()
             ))
             .bind(group_id)
             .bind(self_installation_id)

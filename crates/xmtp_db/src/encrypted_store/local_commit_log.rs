@@ -62,6 +62,8 @@ pub struct NewLocalCommitLog {
 #[cfg_attr(feature = "sync", derive(Queryable))]
 #[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
 #[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[derive(xmtp_macro::PgModel)]
+#[xmtp(table = "local_commit_log")]
 pub struct LocalCommitLog {
     pub rowid: i32,
     pub group_id: GroupId,
@@ -308,27 +310,14 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
-    use crate::pg::PgDb;
+    use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
 
-    const COLUMNS: &str = "rowid, group_id, commit_sequence_id, last_epoch_authenticator, \
-                           commit_result, applied_epoch_number, applied_epoch_authenticator, \
-                           error_message, sender_inbox_id, sender_installation_id, commit_type";
-
+    /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
+    /// name, from the same fields the column list comes from.
     fn log(row: &sqlx::postgres::PgRow) -> Result<LocalCommitLog, crate::ConnectionError> {
-        Ok(LocalCommitLog {
-            rowid: row.try_get(0)?,
-            group_id: row.try_get(1)?,
-            commit_sequence_id: row.try_get(2)?,
-            last_epoch_authenticator: row.try_get(3)?,
-            commit_result: row.try_get(4)?,
-            applied_epoch_number: row.try_get(5)?,
-            applied_epoch_authenticator: row.try_get(6)?,
-            error_message: row.try_get(7)?,
-            sender_inbox_id: row.try_get(8)?,
-            sender_installation_id: row.try_get(9)?,
-            commit_type: row.try_get(10)?,
-        })
+        use sqlx::FromRow;
+        Ok(LocalCommitLog::from_row(row)?)
     }
 
     impl QueryLocalCommitLog for PgDb {
@@ -338,7 +327,8 @@ mod pg_impl {
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let rows = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM local_commit_log WHERE group_id = $1 ORDER BY rowid ASC"
+                "SELECT {} FROM local_commit_log WHERE group_id = $1 ORDER BY rowid ASC",
+                LocalCommitLog::select_columns()
             ))
             .bind(group_id)
             .fetch_all(&mut *c)
@@ -365,8 +355,9 @@ mod pg_impl {
             let after_cursor = after_cursor as i32;
 
             let sql = format!(
-                "SELECT {COLUMNS} FROM local_commit_log \
+                "SELECT {} FROM local_commit_log \
                  WHERE group_id = $1 AND rowid > $2 AND commit_sequence_id <> 0 ORDER BY rowid {}",
+                LocalCommitLog::select_columns(),
                 match order {
                     LocalCommitLogOrder::AscendingByRowid => "ASC",
                     LocalCommitLogOrder::DescendingByRowid => "DESC",
@@ -388,8 +379,9 @@ mod pg_impl {
         ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let row = sqlx::query(&format!(
-                "SELECT {COLUMNS} FROM local_commit_log WHERE group_id = $1 \
-                 ORDER BY rowid DESC LIMIT 1"
+                "SELECT {} FROM local_commit_log WHERE group_id = $1 \
+                 ORDER BY rowid DESC LIMIT 1",
+                LocalCommitLog::select_columns()
             ))
             .bind(group_id)
             .fetch_optional(&mut *c)
