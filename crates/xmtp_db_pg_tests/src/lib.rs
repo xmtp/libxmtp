@@ -73,8 +73,16 @@ async fn scoped_db(schema: &str, setup_sql: Option<&str>) -> PgDb {
 }
 
 /// A `PgDb` over a namespace migrated with libxmtp's real Postgres schema.
+///
+/// The schema is applied by running `up.sql` directly rather than through
+/// `QueryMigrations::run_pending_migrations`, so the tests are pinned to the
+/// committed file. The migration runner's tracking table is then seeded to match,
+/// which keeps the two installation paths describing the same database — without
+/// it `applied_migrations()` would report nothing here and a later
+/// `run_pending_migrations()` would try to re-create every table.
 pub async fn fresh_db(test_name: &str) -> PgDb {
-    scoped_db(&format!("t_{test_name}"), Some(SCHEMA_SQL)).await
+    let setup = format!("{SCHEMA_SQL}; {}", xmtp_db::migrations::pg::baseline_sql(0));
+    scoped_db(&format!("t_{test_name}"), Some(&setup)).await
 }
 
 /// A `PgDb` over an empty namespace, for tests that only exercise the executor

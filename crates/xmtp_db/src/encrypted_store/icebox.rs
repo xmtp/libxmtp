@@ -398,18 +398,20 @@ mod pg_impl {
         let mut builders: HashMap<(i64, i64), OrphanedEnvelopeBuilder> = HashMap::new();
 
         for (originator_id, sequence_id, group_id, payload, dep_originator, dep_sequence) in rows {
-            let builder = builders.entry((originator_id, sequence_id)).or_insert_with(|| {
-                order.push((originator_id, sequence_id));
-                let mut builder = OrphanedEnvelopeBuilder::default();
-                builder
-                    .cursor(Cursor::new(
-                        sequence_id as SequenceId,
-                        originator_id as OriginatorId,
-                    ))
-                    .payload(payload)
-                    .group_id(group_id);
-                builder
-            });
+            let builder = builders
+                .entry((originator_id, sequence_id))
+                .or_insert_with(|| {
+                    order.push((originator_id, sequence_id));
+                    let mut builder = OrphanedEnvelopeBuilder::default();
+                    builder
+                        .cursor(Cursor::new(
+                            sequence_id as SequenceId,
+                            originator_id as OriginatorId,
+                        ))
+                        .payload(payload)
+                        .group_id(group_id);
+                    builder
+                });
             builder.depending_on(Cursor::new(
                 dep_sequence as SequenceId,
                 dep_originator as OriginatorId,
@@ -552,7 +554,10 @@ mod pg_impl {
         ///
         /// `ON CONFLICT DO NOTHING` also covers duplicates *within* a batch,
         /// which is why the row counts still match the sync path's.
-        async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+        async fn ice(
+            &self,
+            orphans: Vec<OrphanedEnvelope>,
+        ) -> Result<usize, crate::ConnectionError> {
             if orphans.is_empty() {
                 return Ok(0);
             }
