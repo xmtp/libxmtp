@@ -27,6 +27,7 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
         StoredGroup, StoredGroupCommitLogPublicKey, StoredGroupForRespondingReadds,
     };
     use xmtp_db::group_intent::StoredGroupIntent;
+    use xmtp_db::icebox::{Icebox, IceboxDependency};
     use xmtp_db::group_message::StoredGroupMessage;
     use xmtp_db::identity_update::StoredIdentityUpdate;
     use xmtp_db::key_package_history::StoredKeyPackageHistoryEntry;
@@ -63,6 +64,8 @@ fn models() -> Vec<(&'static str, &'static str, &'static [&'static str])> {
         entry::<RefreshState>("RefreshState"),
         entry::<Task>("Task"),
         entry::<StoredUserPreferences>("StoredUserPreferences"),
+        entry::<Icebox>("Icebox"),
+        entry::<IceboxDependency>("IceboxDependency"),
     ]
 }
 

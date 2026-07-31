@@ -1,6 +1,8 @@
 #[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection};
-use crate::icebox::types::{IceboxOrphans, IceboxWithDep};
+use crate::icebox::types::IceboxOrphans;
+#[cfg(feature = "sync")]
+use crate::icebox::types::IceboxWithDep;
 #[cfg(feature = "sync")]
 use crate::schema::icebox::dsl;
 #[cfg(feature = "sync")]
@@ -9,6 +11,7 @@ use crate::schema::icebox_dependencies;
 use crate::{impl_store, schema::icebox};
 #[cfg(feature = "sync")]
 use diesel::prelude::*;
+#[cfg(feature = "sync")]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::types::{
@@ -17,7 +20,8 @@ use xmtp_proto::types::{
 
 mod types;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
+#[xmtp(table = "icebox")]
 #[cfg_attr(
     feature = "sync",
     derive(Insertable, Identifiable, Queryable, QueryableByName)
@@ -35,7 +39,8 @@ pub struct Icebox {
 #[cfg(feature = "sync")]
 impl_store!(Icebox, icebox);
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
+#[xmtp(table = "icebox_dependencies")]
 #[cfg_attr(
     feature = "sync",
     derive(Insertable, Identifiable, Queryable, QueryableByName)
@@ -355,6 +360,296 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
             )
             .execute(conn)
         })
+    }
+}
+
+/// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
+/// why this is gated `not(feature = "sync")`.
+///
+/// The two things that made this trait "not a mechanical port" both dissolve
+/// here rather than needing a translation:
+///
+/// * the sync path interpolates the start cursors into a `VALUES` clause,
+///   because diesel's `sql_query` cannot bind a variable-length list. Postgres
+///   takes the whole set as two array parameters through `UNNEST`, so the SQL
+///   is a constant and nothing is formatted into it.
+/// * `IceboxWithDep` reads `group_id` and `envelope_payload` through raw
+///   pointers into SQLite's memory to avoid a copy inside diesel's `load_iter`.
+///   sqlx returns owned rows, so the async track decodes straight into
+///   `Vec<u8>` and the `unsafe` has nothing to buy.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+mod pg_impl {
+    use super::*;
+    use crate::pg::PgDb;
+    use std::collections::HashMap;
+
+    /// One flat `(envelope, dependency)` pair, before grouping.
+    type DependencyRow = (i64, i64, GroupId, Vec<u8>, i64, i64);
+
+    /// The recursive walk, shared by both directions: only the CTE differs.
+    ///
+    /// Both statements return the envelope columns repeated once per
+    /// dependency, so the rows are grouped back into one `OrphanedEnvelope` per
+    /// `(originator_id, sequence_id)`.
+    fn collect(rows: Vec<DependencyRow>) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+        // Insertion-ordered, so the statement's ORDER BY survives into the
+        // result. The sync path groups through a `HashMap` and loses it.
+        let mut order: Vec<(i64, i64)> = Vec::new();
+        let mut builders: HashMap<(i64, i64), OrphanedEnvelopeBuilder> = HashMap::new();
+
+        for (originator_id, sequence_id, group_id, payload, dep_originator, dep_sequence) in rows {
+            let builder = builders.entry((originator_id, sequence_id)).or_insert_with(|| {
+                order.push((originator_id, sequence_id));
+                let mut builder = OrphanedEnvelopeBuilder::default();
+                builder
+                    .cursor(Cursor::new(
+                        sequence_id as SequenceId,
+                        originator_id as OriginatorId,
+                    ))
+                    .payload(payload)
+                    .group_id(group_id);
+                builder
+            });
+            builder.depending_on(Cursor::new(
+                dep_sequence as SequenceId,
+                dep_originator as OriginatorId,
+            ));
+        }
+
+        order
+            .into_iter()
+            .filter_map(|key| builders.remove(&key))
+            .map(|builder| {
+                builder
+                    .build()
+                    .map_err(|e| crate::ConnectionError::InvalidQuery(e.to_string()))
+            })
+            .collect()
+    }
+
+    /// `(originator_ids, sequence_ids)` as the two arrays `UNNEST` pairs back up.
+    fn split(cursors: &[Cursor]) -> (Vec<i64>, Vec<i64>) {
+        cursors
+            .iter()
+            .map(|c| (c.originator_id as i64, c.sequence_id as i64))
+            .unzip()
+    }
+
+    /// Walks *towards* the dependencies of the given cursors, so the outer
+    /// `SELECT DISTINCT` is needed: the two base cases can both reach the same
+    /// envelope.
+    const PAST_DEPENDENTS: &str = "
+        WITH RECURSIVE
+        start_cursors(originator_id, sequence_id) AS (
+            SELECT * FROM UNNEST($1::bigint[], $2::bigint[])
+        ),
+        dependency_chain AS (
+            -- Base case: the specified envelopes, if they are iceboxed
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN start_cursors sc ON i.originator_id = sc.originator_id
+                                  AND i.sequence_id = sc.sequence_id
+
+            UNION
+
+            -- ...or their immediate dependencies, if they are not
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.dependency_originator_id
+                                       AND i.sequence_id = d.dependency_sequence_id
+            JOIN start_cursors sc ON d.envelope_originator_id = sc.originator_id
+                                  AND d.envelope_sequence_id = sc.sequence_id
+
+            UNION ALL
+
+            -- Recursive case: keep walking down the dependency chain
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.dependency_originator_id
+                                       AND i.sequence_id = d.dependency_sequence_id
+            JOIN dependency_chain dc ON d.envelope_originator_id = dc.originator_id
+                                     AND d.envelope_sequence_id = dc.sequence_id
+        )
+        SELECT dc.originator_id, dc.sequence_id, dc.group_id, dc.envelope_payload,
+               d.dependency_originator_id, d.dependency_sequence_id
+        FROM (SELECT DISTINCT * FROM dependency_chain) dc
+        INNER JOIN icebox_dependencies d
+            ON dc.originator_id = d.envelope_originator_id
+           AND dc.sequence_id = d.envelope_sequence_id
+        ORDER BY dc.originator_id DESC, dc.sequence_id DESC";
+
+    /// Walks *away* from the given cursors, to everything blocked behind them.
+    /// The cursors themselves are never returned, only their dependents.
+    const FUTURE_DEPENDENTS: &str = "
+        WITH RECURSIVE
+        start_cursors(originator_id, sequence_id) AS (
+            SELECT * FROM UNNEST($1::bigint[], $2::bigint[])
+        ),
+        dependency_chain AS (
+            -- Base case: everything directly depending on a starting cursor
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.envelope_originator_id
+                                       AND i.sequence_id = d.envelope_sequence_id
+            JOIN start_cursors sc ON d.dependency_originator_id = sc.originator_id
+                                  AND d.dependency_sequence_id = sc.sequence_id
+
+            UNION ALL
+
+            -- Recursive case: keep walking up the dependent chain
+            SELECT i.originator_id, i.sequence_id, i.group_id, i.envelope_payload
+            FROM icebox i
+            JOIN icebox_dependencies d ON i.originator_id = d.envelope_originator_id
+                                       AND i.sequence_id = d.envelope_sequence_id
+            JOIN dependency_chain dc ON d.dependency_originator_id = dc.originator_id
+                                     AND d.dependency_sequence_id = dc.sequence_id
+        )
+        SELECT dc.originator_id, dc.sequence_id, dc.group_id, dc.envelope_payload,
+               d.dependency_originator_id, d.dependency_sequence_id
+        FROM dependency_chain dc
+        INNER JOIN icebox_dependencies d
+            ON dc.originator_id = d.envelope_originator_id
+           AND dc.sequence_id = d.envelope_sequence_id";
+
+    impl PgDb {
+        async fn icebox_walk(
+            &self,
+            sql: &str,
+            cursors: &[Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+            if cursors.is_empty() {
+                return Ok(Vec::new());
+            }
+            let (originator_ids, sequence_ids) = split(cursors);
+            let mut c = self.conn().await?;
+            let rows: Vec<DependencyRow> = sqlx::query_as(sql)
+                .bind(&originator_ids)
+                .bind(&sequence_ids)
+                .fetch_all(&mut *c)
+                .await?;
+            collect(rows)
+        }
+    }
+
+    impl QueryIcebox for PgDb {
+        async fn past_dependents(
+            &self,
+            cursors: &[Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+            self.icebox_walk(PAST_DEPENDENTS, cursors).await
+        }
+
+        async fn future_dependents(
+            &self,
+            cursors: &[Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
+            self.icebox_walk(FUTURE_DEPENDENTS, cursors).await
+        }
+
+        /// Two bulk inserts rather than the sync path's row-at-a-time loop, and
+        /// `atomic()` for the same reason it opens a transaction: an envelope
+        /// stored without its dependency rows would look ready to process.
+        ///
+        /// `ON CONFLICT DO NOTHING` also covers duplicates *within* a batch,
+        /// which is why the row counts still match the sync path's.
+        async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+            if orphans.is_empty() {
+                return Ok(0);
+            }
+
+            let dependencies: Vec<IceboxDependency> =
+                orphans.iter().flat_map(|o| o.deps()).collect();
+            let entries: Vec<Icebox> = orphans.into_iter().map(Icebox::from).collect();
+
+            let mut originator_ids = Vec::with_capacity(entries.len());
+            let mut sequence_ids = Vec::with_capacity(entries.len());
+            // `GroupId` has no `PgHasArrayType`, so the array element type is the
+            // raw `bytea` the column already stores.
+            let mut group_ids: Vec<Vec<u8>> = Vec::with_capacity(entries.len());
+            let mut payloads = Vec::with_capacity(entries.len());
+            for entry in entries {
+                originator_ids.push(entry.originator_id);
+                sequence_ids.push(entry.sequence_id);
+                group_ids.push(entry.group_id.to_vec());
+                payloads.push(entry.envelope_payload);
+            }
+
+            let mut dep_envelope_originators = Vec::with_capacity(dependencies.len());
+            let mut dep_envelope_sequences = Vec::with_capacity(dependencies.len());
+            let mut dep_originators = Vec::with_capacity(dependencies.len());
+            let mut dep_sequences = Vec::with_capacity(dependencies.len());
+            for dep in dependencies {
+                dep_envelope_originators.push(dep.envelope_originator_id);
+                dep_envelope_sequences.push(dep.envelope_sequence_id);
+                dep_originators.push(dep.dependency_originator_id);
+                dep_sequences.push(dep.dependency_sequence_id);
+            }
+
+            self.atomic(async |db| {
+                let mut total = {
+                    let mut c = db.conn().await?;
+                    sqlx::query(
+                        "INSERT INTO icebox (originator_id, sequence_id, group_id, envelope_payload) \
+                         SELECT * FROM UNNEST($1::bigint[], $2::bigint[], $3::bytea[], $4::bytea[]) \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&originator_ids)
+                    .bind(&sequence_ids)
+                    .bind(&group_ids)
+                    .bind(&payloads)
+                    .execute(&mut *c)
+                    .await?
+                    .rows_affected()
+                };
+
+                if !dep_envelope_originators.is_empty() {
+                    let mut c = db.conn().await?;
+                    total += sqlx::query(
+                        "INSERT INTO icebox_dependencies \
+                         (envelope_originator_id, envelope_sequence_id, \
+                          dependency_originator_id, dependency_sequence_id) \
+                         SELECT * FROM UNNEST($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[]) \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&dep_envelope_originators)
+                    .bind(&dep_envelope_sequences)
+                    .bind(&dep_originators)
+                    .bind(&dep_sequences)
+                    .execute(&mut *c)
+                    .await?
+                    .rows_affected();
+                }
+
+                Ok(total as usize)
+            })
+            .await
+        }
+
+        /// `refresh_state.originator_id` is `INTEGER` and `icebox.originator_id`
+        /// is `BIGINT`; Postgres compares the two widths directly, so unlike the
+        /// sync path there is no cast.
+        async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+            use crate::encrypted_store::refresh_state::EntityKind;
+
+            let kinds: Vec<i32> = vec![
+                EntityKind::ApplicationMessage as i32,
+                EntityKind::CommitMessage as i32,
+            ];
+            let mut c = self.conn().await?;
+            let deleted = sqlx::query(
+                "DELETE FROM icebox WHERE EXISTS ( \
+                     SELECT 1 FROM refresh_state rs \
+                     WHERE rs.entity_id = icebox.group_id \
+                       AND rs.originator_id = icebox.originator_id \
+                       AND rs.sequence_id >= icebox.sequence_id \
+                       AND rs.entity_kind = ANY($1::int4[]))",
+            )
+            .bind(&kinds)
+            .execute(&mut *c)
+            .await?
+            .rows_affected();
+            Ok(deleted as usize)
+        }
     }
 }
 

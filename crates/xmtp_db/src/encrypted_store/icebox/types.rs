@@ -3,7 +3,13 @@ use crate::icebox::{Icebox, IceboxDependency};
 use diesel::QueryableByName;
 use xmtp_proto::types::OrphanedEnvelope;
 
-/// Internal struct for flat query results before grouping
+/// Internal struct for flat query results before grouping.
+///
+/// Sync track only. It exists to hand diesel's `load_iter` a borrowed view of
+/// SQLite's own memory so the row is copied exactly once; sqlx hands back owned
+/// rows, so the async track decodes straight into `Vec<u8>` and needs none of
+/// this.
+#[cfg(feature = "sync")]
 #[derive(Debug)]
 #[cfg_attr(feature = "sync", derive(QueryableByName))]
 pub(super) struct IceboxWithDep {
@@ -21,6 +27,7 @@ pub(super) struct IceboxWithDep {
     pub dependency_sequence_id: i64,
 }
 
+#[cfg(feature = "sync")]
 impl IceboxWithDep {
     pub(super) unsafe fn group_id(&self) -> Vec<u8> {
         let slice_ptr = unsafe { &*self.group_id };
