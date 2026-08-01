@@ -12,6 +12,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
+#[cfg(feature = "sync")]
 use crate::impl_fetch;
 use derive_builder::Builder;
 #[cfg(feature = "sync")]
@@ -92,6 +93,7 @@ impl StoredGroupMessage {
 }
 
 // Separate Insertable struct that excludes inserted_at_ns to let the database set it
+#[cfg(feature = "sync")]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "sync", derive(Insertable))]
 #[cfg_attr(feature = "sync", diesel(table_name = group_messages))]
@@ -117,6 +119,7 @@ struct NewStoredGroupMessage {
     pub idempotency_key: String,
 }
 
+#[cfg(feature = "sync")]
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
     fn from(msg: &StoredGroupMessage) -> Self {
         Self {
@@ -785,7 +788,10 @@ where
     }
 }
 
-// Macro to apply common message filters to any boxed query
+// Macro to apply common message filters to any boxed query.
+// Sync track only -- the async impl expresses the same predicates as one
+// `$n IS NULL OR ...` block, see `MSG_FILTERS`.
+#[cfg(feature = "sync")]
 macro_rules! apply_message_filters {
     ($query:expr, $args:expr) => {{
         let mut query = $query;

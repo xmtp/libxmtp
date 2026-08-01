@@ -11,7 +11,6 @@ use xmtp_db::group::{ConversationType, GroupMembershipState};
 use xmtp_db::group_intent::{IntentKind, IntentState};
 use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use xmtp_db::identity_cache::StoredIdentityKind;
-use xmtp_db::pg::PgDb;
 use xmtp_db::processed_device_sync_messages::DeviceSyncProcessingState;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::remote_commit_log::CommitResult;

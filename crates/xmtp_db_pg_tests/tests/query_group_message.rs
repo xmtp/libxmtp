@@ -145,9 +145,8 @@ async fn get_group_messages_applies_every_optional_filter() {
     unpublished.inserted_at_ns = 300;
     insert(&db, &unpublished).await;
 
-    let query = async |args: MsgQueryArgs| {
-        ids(&db.get_group_messages(&gid(1), &args).await.unwrap())
-    };
+    let query =
+        async |args: MsgQueryArgs| ids(&db.get_group_messages(&gid(1), &args).await.unwrap());
 
     assert_eq!(
         query(MsgQueryArgs {
@@ -536,11 +535,7 @@ async fn get_group_messages_with_reactions_excludes_reactions_from_the_main_list
 async fn inbound_relations_group_by_referenced_message() {
     let db = with_reactions("m_inbound").await;
     let inbound = db
-        .get_inbound_relations(
-            &gid(1),
-            &[&[1u8][..], &[2u8][..]],
-            RelationQuery::default(),
-        )
+        .get_inbound_relations(&gid(1), &[&[1u8][..], &[2u8][..]], RelationQuery::default())
         .await
         .unwrap();
     assert_eq!(ids(&inbound[&vec![1u8]]), vec![3, 4]);
@@ -565,11 +560,7 @@ async fn inbound_relations_group_by_referenced_message() {
 async fn inbound_relation_counts_match_the_relations() {
     let db = with_reactions("m_counts").await;
     let counts = db
-        .get_inbound_relation_counts(
-            &gid(1),
-            &[&[1u8][..], &[2u8][..]],
-            RelationQuery::default(),
-        )
+        .get_inbound_relation_counts(&gid(1), &[&[1u8][..], &[2u8][..]], RelationQuery::default())
         .await
         .unwrap();
     assert_eq!(counts[&vec![1u8]], 2);
@@ -834,7 +825,12 @@ async fn messages_newer_than_ignores_groups_not_asked_about() {
     insert(&db, &msg(1, gid(1), 10)).await;
     insert(&db, &msg(2, gid(2), 20)).await;
 
-    assert!(db.messages_newer_than(&HashMap::new()).await.unwrap().is_empty());
+    assert!(
+        db.messages_newer_than(&HashMap::new())
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let mut cursors = HashMap::new();
     cursors.insert(gid(2).to_vec(), GlobalCursor::default());

@@ -579,7 +579,9 @@ async fn rotation_and_installation_timestamps_roundtrip() {
         StorageError::NotFound(_)
     ));
     assert!(matches!(
-        db.get_installations_time_checked(&gid(2)).await.unwrap_err(),
+        db.get_installations_time_checked(&gid(2))
+            .await
+            .unwrap_err(),
         StorageError::NotFound(_)
     ));
 }
@@ -630,14 +632,18 @@ async fn fork_flags_set_and_clear() {
     assert_eq!(g.fork_details, "");
 
     assert_eq!(
-        db.get_group_commit_log_forked_status(&gid(1)).await.unwrap(),
+        db.get_group_commit_log_forked_status(&gid(1))
+            .await
+            .unwrap(),
         None
     );
     db.set_group_commit_log_forked_status(&gid(1), Some(true))
         .await
         .unwrap();
     assert_eq!(
-        db.get_group_commit_log_forked_status(&gid(1)).await.unwrap(),
+        db.get_group_commit_log_forked_status(&gid(1))
+            .await
+            .unwrap(),
         Some(true)
     );
 }

@@ -6,9 +6,9 @@
 //! It is a singleton row pinned to `id = 0` by a CHECK constraint on both
 //! backends.
 
+use xmtp_db::StorageError::InvalidHmacLength;
 use xmtp_db::pg::PgDb;
 use xmtp_db::user_preferences::{HmacKey, QueryUserPreferences};
-use xmtp_db::StorageError::InvalidHmacLength;
 use xmtp_db_pg_tests::fresh_db;
 
 async fn row_count(db: &PgDb) -> i64 {
@@ -43,7 +43,10 @@ async fn storing_an_hmac_key_creates_then_updates_the_one_row() {
 
     let second = HmacKey::random_key();
     db.store_hmac_key(&second, None).await.unwrap();
-    assert_eq!(db.load_user_preferences().await.unwrap().hmac_key, Some(second));
+    assert_eq!(
+        db.load_user_preferences().await.unwrap().hmac_key,
+        Some(second)
+    );
     assert_eq!(row_count(&db).await, 1, "still a singleton");
 }
 
@@ -87,7 +90,10 @@ async fn a_local_rotation_always_wins() {
 
     let local = HmacKey::random_key();
     db.store_hmac_key(&local, None).await.unwrap();
-    assert_eq!(db.load_user_preferences().await.unwrap().hmac_key, Some(local));
+    assert_eq!(
+        db.load_user_preferences().await.unwrap().hmac_key,
+        Some(local)
+    );
 }
 
 #[tokio::test]
@@ -106,7 +112,12 @@ async fn a_wrong_length_key_is_rejected_before_it_reaches_the_database() {
 async fn the_migration_flag_sticks_even_with_no_existing_row() {
     let db = fresh_db("up_migrated").await;
     db.set_dm_group_updates_migrated().await.unwrap();
-    assert!(db.load_user_preferences().await.unwrap().dm_group_updates_migrated);
+    assert!(
+        db.load_user_preferences()
+            .await
+            .unwrap()
+            .dm_group_updates_migrated
+    );
     assert_eq!(row_count(&db).await, 1);
 
     // Idempotent, and it does not disturb the key alongside it.
@@ -122,7 +133,9 @@ async fn the_migration_flag_sticks_even_with_no_existing_row() {
 #[tokio::test]
 async fn the_table_refuses_a_second_row() {
     let db = fresh_db("up_singleton").await;
-    db.store_hmac_key(&HmacKey::random_key(), None).await.unwrap();
+    db.store_hmac_key(&HmacKey::random_key(), None)
+        .await
+        .unwrap();
 
     let mut c = db.conn().await.unwrap();
     let err = sqlx::query("INSERT INTO user_preferences (id) VALUES (1)")

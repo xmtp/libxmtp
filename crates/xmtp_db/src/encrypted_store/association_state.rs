@@ -7,7 +7,9 @@ use super::schema::association_state::{self, dsl};
 use crate::ConnectionExt;
 #[cfg(feature = "sync")]
 use crate::DbConnection;
-use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
+use crate::StorageError;
+#[cfg(feature = "sync")]
+use crate::{Fetch, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
 use prost::Message;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 

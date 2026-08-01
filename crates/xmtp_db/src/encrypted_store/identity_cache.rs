@@ -5,6 +5,7 @@ use super::schema::identity_cache;
 #[cfg(feature = "sync")]
 use crate::DbConnection;
 use crate::StorageError;
+#[cfg(feature = "sync")]
 use crate::{Store, impl_fetch, impl_store};
 #[cfg(feature = "sync")]
 use diesel::deserialize::FromSqlRow;

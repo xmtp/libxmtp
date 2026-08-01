@@ -566,7 +566,7 @@ async fn unprocessed_sync_messages_excludes_processed_and_non_sync_groups() {
         "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, \
          added_by_inbox_id, conversation_type) VALUES ($1, 0, 1, 0, '', $2)",
     )
-    .bind(&sync_group)
+    .bind(sync_group)
     .bind(ConversationType::Sync)
     .execute(&mut *c)
     .await
@@ -575,7 +575,7 @@ async fn unprocessed_sync_messages_excludes_processed_and_non_sync_groups() {
         "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, \
          added_by_inbox_id, conversation_type) VALUES ($1, 0, 1, 0, '', $2)",
     )
-    .bind(&normal_group)
+    .bind(normal_group)
     .bind(ConversationType::Group)
     .execute(&mut *c)
     .await

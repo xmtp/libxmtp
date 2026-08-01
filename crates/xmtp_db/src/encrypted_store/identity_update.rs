@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::StorageError;
+#[cfg(feature = "sync")]
 use crate::impl_store;
 
 #[cfg(feature = "sync")]

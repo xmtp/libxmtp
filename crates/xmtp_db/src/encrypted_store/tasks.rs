@@ -380,9 +380,6 @@ pub(crate) mod pg {
          initial_backoff_duration_ns, next_attempt_at_ns, data_hash, data";
     const INSERT_PLACEHOLDERS: &str = "$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13";
 
-    /// Every column of `tasks`, in the order [`task`] reads them. `id` first,
-    /// then the insert columns.
-
     fn bind_new<'q>(
         q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
         t: &'q NewTask,

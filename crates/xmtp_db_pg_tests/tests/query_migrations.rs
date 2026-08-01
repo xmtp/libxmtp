@@ -46,7 +46,10 @@ async fn available_migrations_are_the_embedded_ones() {
     let db = bare_db("mig_available").await;
     assert_eq!(
         db.available_migrations().await.unwrap(),
-        MIGRATIONS.iter().map(|m| m.name.to_string()).collect::<Vec<_>>()
+        MIGRATIONS
+            .iter()
+            .map(|m| m.name.to_string())
+            .collect::<Vec<_>>()
     );
 }
 

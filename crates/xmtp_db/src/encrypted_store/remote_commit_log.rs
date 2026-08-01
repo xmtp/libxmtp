@@ -212,7 +212,6 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
-    use sqlx::Row;
 
     /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
     /// name, from the same fields the column list comes from.

@@ -4,6 +4,7 @@ use diesel::prelude::*;
 
 #[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::openmls_key_store};
+#[cfg(feature = "sync")]
 use crate::{Delete, impl_fetch, impl_store};
 
 #[derive(Debug, Clone)]

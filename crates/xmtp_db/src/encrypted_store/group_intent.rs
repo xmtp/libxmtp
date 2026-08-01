@@ -6,6 +6,7 @@ use diesel::{
     connection::DefaultLoadingMode, deserialize::FromSqlRow, expression::AsExpression, prelude::*,
     sql_types::Integer,
 };
+#[cfg(feature = "sync")]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
@@ -17,9 +18,9 @@ use super::{
     db_connection::DbConnection,
     schema::group_intents::{self, dsl},
 };
-use crate::{
-    Delete, NotFound, StorageError, group_message::QueryGroupMessage, impl_fetch, impl_store,
-};
+#[cfg(feature = "sync")]
+use crate::{Delete, impl_fetch, impl_store};
+use crate::{NotFound, StorageError, group_message::QueryGroupMessage};
 
 mod error;
 mod types;

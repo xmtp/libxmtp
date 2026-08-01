@@ -199,9 +199,9 @@ async fn remote_log_cursors_default_to_zero_and_seed() {
 
     let map = db.get_remote_log_cursors(&[known, unknown]).await.unwrap();
     assert_eq!(map.len(), 2);
-    assert_eq!(map.get(&known.to_vec()).unwrap().sequence_id, 12);
+    assert_eq!(map.get(known).unwrap().sequence_id, 12);
     assert_eq!(
-        map.get(&unknown.to_vec()).unwrap().sequence_id,
+        map.get(unknown).unwrap().sequence_id,
         0,
         "a conversation with no cursor reads as zero, not missing"
     );
@@ -211,7 +211,7 @@ async fn remote_log_cursors_default_to_zero_and_seed() {
         .get_refresh_state(
             unknown,
             EntityKind::CommitLogDownload,
-            map.get(&unknown.to_vec()).unwrap().originator_id,
+            map.get(unknown).unwrap().originator_id,
         )
         .await
         .unwrap();

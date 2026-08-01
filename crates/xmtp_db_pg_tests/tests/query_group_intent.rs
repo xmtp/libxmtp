@@ -106,26 +106,37 @@ async fn find_group_intents_filters_by_state_and_kind() {
         vec![send.id, key_update.id],
         "scoped to the group, ordered by id"
     );
-    assert_eq!(ids(Some(vec![IntentState::Error]), None).await, vec![
-        key_update.id
-    ]);
-    assert_eq!(ids(None, Some(vec![IntentKind::SendMessage])).await, vec![
-        send.id
-    ]);
+    assert_eq!(
+        ids(Some(vec![IntentState::Error]), None).await,
+        vec![key_update.id]
+    );
+    assert_eq!(
+        ids(None, Some(vec![IntentKind::SendMessage])).await,
+        vec![send.id]
+    );
     assert!(
-        ids(Some(vec![IntentState::ToPublish]), Some(vec![IntentKind::KeyUpdate]))
-            .await
-            .is_empty(),
+        ids(
+            Some(vec![IntentState::ToPublish]),
+            Some(vec![IntentKind::KeyUpdate])
+        )
+        .await
+        .is_empty(),
         "both filters apply"
     );
-    assert!(ids(Some(vec![]), None).await.is_empty(), "an empty allow-list matches nothing");
+    assert!(
+        ids(Some(vec![]), None).await.is_empty(),
+        "an empty allow-list matches nothing"
+    );
 }
 
 #[tokio::test]
 async fn find_group_intent_by_payload_hash() {
     let (db, intent) = with_intent("i_by_hash").await;
     assert!(
-        db.find_group_intent_by_payload_hash(&[9]).await.unwrap().is_none(),
+        db.find_group_intent_by_payload_hash(&[9])
+            .await
+            .unwrap()
+            .is_none(),
         "unpublished intents have no payload hash"
     );
 
@@ -369,9 +380,13 @@ async fn dependant_commits_join_the_commit_message_refresh_state() {
         .await
         .unwrap();
     // A different entity kind for the same group must not be picked up.
-    db.update_cursor(gid(1), EntityKind::ApplicationMessage, Cursor::new(99, 3u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(1),
+        EntityKind::ApplicationMessage,
+        Cursor::new(99, 3u32),
+    )
+    .await
+    .unwrap();
 
     let deps = db
         .find_dependant_commits(&[&[0xaau8][..], &[0xbbu8][..], &[0xccu8][..]])

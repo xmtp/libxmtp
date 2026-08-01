@@ -7,7 +7,9 @@ use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
 #[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::refresh_state};
-use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
+use crate::StorageError;
+#[cfg(feature = "sync")]
+use crate::{StoreOrIgnore, impl_store_or_ignore};
 
 #[cfg(feature = "sync")]
 allow_columns_to_appear_in_same_group_by_clause!(

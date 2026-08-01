@@ -9,7 +9,9 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
-use crate::{DbQuery, StorageError, impl_store};
+#[cfg(feature = "sync")]
+use crate::impl_store;
+use crate::{DbQuery, StorageError};
 #[cfg(feature = "sync")]
 use diesel::{
     deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer,
@@ -365,7 +367,6 @@ pub enum ConsentType {
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
-    use sqlx::Row;
 
     /// Upsert that only moves `state`, matching the sync track's
     /// `do_update().set(state.eq(excluded(state)))` — `consented_at_ns` on an

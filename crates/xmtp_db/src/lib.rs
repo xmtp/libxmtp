@@ -1,4 +1,15 @@
 #![warn(clippy::unwrap_used)]
+// Every `Query*` trait is `#[maybe_async::maybe_async(AFIT)]`, which is the
+// whole design: one trait definition that collapses to blocking fns on the sync
+// track and stays async on the async track. `async fn` in a trait is therefore
+// not an oversight to fix here, and the lint's suggested remedy -- desugaring to
+// `-> impl Future + Send` -- is not available, because maybe_async rewrites
+// tokens and cannot rewrite a return-type bound. Firing 159 times, it would
+// otherwise bury every real warning on the async track.
+//
+// The cost is real and worth stating: callers get no `Send` bound on the
+// returned futures, so a caller that needs `Send` has to establish it itself.
+#![allow(async_fn_in_trait)]
 
 pub mod encrypted_store;
 mod errors;

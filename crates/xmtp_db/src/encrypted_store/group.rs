@@ -7,7 +7,9 @@ use super::{
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
-use crate::{DuplicateItem, StorageError, impl_fetch, impl_store, impl_store_or_ignore};
+use crate::{DuplicateItem, StorageError};
+#[cfg(feature = "sync")]
+use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::{Builder, UninitializedFieldError};
 #[cfg(feature = "sync")]
 use diesel::{
@@ -2657,7 +2659,7 @@ mod pg_impl {
                     );
                     let mut c = db.conn().await?;
                     sqlx::query_as::<_, StoredGroup>(&sql)
-                        .bind(&group.id)
+                        .bind(group.id)
                         .bind(group.created_at_ns)
                         .bind(group.membership_state)
                         .bind(group.installations_last_checked)
@@ -2692,7 +2694,7 @@ mod pg_impl {
                     let sql = format!("SELECT {cols} FROM groups WHERE id = $1");
                     let mut c = db.conn().await?;
                     sqlx::query_as::<_, StoredGroup>(&sql)
-                        .bind(&group.id)
+                        .bind(group.id)
                         .fetch_one(&mut *c)
                         .await
                         .map_err(crate::ConnectionError::from)?
@@ -2729,7 +2731,7 @@ mod pg_impl {
                                COALESCE($20, has_pending_leave_request) \
                          WHERE id = $1",
                     )
-                    .bind(&group.id)
+                    .bind(group.id)
                     .bind(group.created_at_ns)
                     .bind(group.membership_state)
                     .bind(group.installations_last_checked)
@@ -2778,7 +2780,7 @@ mod pg_impl {
                     )
                     .bind(group.sequence_id)
                     .bind(group.originator_id)
-                    .bind(&group.id)
+                    .bind(group.id)
                     .execute(&mut *c)
                     .await
                     .map_err(crate::ConnectionError::from)?;

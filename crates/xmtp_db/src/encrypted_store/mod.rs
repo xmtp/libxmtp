@@ -62,10 +62,13 @@ pub use diesel::{
 #[cfg(feature = "sync")]
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, RetryableError};
+#[cfg(feature = "sync")]
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::ConversionError;
 use zeroize::ZeroizeOnDrop;
 
+#[cfg(feature = "sync")]
 use super::StorageError;
 #[cfg(feature = "sync")]
 use crate::sql_key_store::SqlKeyStoreError;
@@ -81,7 +84,9 @@ pub use store::*;
 use diesel::{prelude::*, sql_query};
 #[cfg(feature = "sync")]
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
+#[cfg(feature = "sync")]
+use std::sync::Arc;
 #[cfg(feature = "sync")]
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -132,6 +137,7 @@ impl TryFrom<&[u8]> for EncryptionKey {
 }
 
 // For PRAGMA query log statements
+#[cfg(feature = "sync")]
 #[derive(Debug)]
 #[cfg_attr(feature = "sync", derive(QueryableByName))]
 struct SqliteVersion {

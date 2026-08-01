@@ -114,7 +114,11 @@ async fn ice_stores_every_dependency_of_an_envelope() {
         .group_id(gid(1))
         .build()
         .unwrap();
-    assert_eq!(db.ice(vec![multi]).await.unwrap(), 3, "1 envelope + 2 edges");
+    assert_eq!(
+        db.ice(vec![multi]).await.unwrap(),
+        3,
+        "1 envelope + 2 edges"
+    );
 
     let found = db
         .future_dependents(&[Cursor::new(49, 1u32)])
@@ -251,16 +255,24 @@ async fn prune_drops_entries_the_cursor_has_passed() {
 
     // Originator 1 has been processed through sequence 40, so (40,1) goes and
     // (41,1) stays. Originator 2 is untouched, so (39,2) stays.
-    db.update_cursor(gid(1), EntityKind::ApplicationMessage, Cursor::new(40, 1u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(1),
+        EntityKind::ApplicationMessage,
+        Cursor::new(40, 1u32),
+    )
+    .await
+    .unwrap();
     assert_eq!(db.prune_icebox().await.unwrap(), 1);
 
     let left = db
         .future_dependents(&[Cursor::new(38, 2u32)])
         .await
         .unwrap();
-    assert_eq!(sequences(&left), vec![39], "(40,1) is gone, so (41,1) is unreachable");
+    assert_eq!(
+        sequences(&left),
+        vec![39],
+        "(40,1) is gone, so (41,1) is unreachable"
+    );
 }
 
 /// Only the two message kinds count: a commit-log cursor at the same sequence
@@ -268,15 +280,23 @@ async fn prune_drops_entries_the_cursor_has_passed() {
 #[tokio::test]
 async fn prune_ignores_unrelated_entity_kinds() {
     let db = iced_chain("ice_prune_kind").await;
-    db.update_cursor(gid(1), EntityKind::CommitLogDownload, Cursor::new(999, 1u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(1),
+        EntityKind::CommitLogDownload,
+        Cursor::new(999, 1u32),
+    )
+    .await
+    .unwrap();
     assert_eq!(db.prune_icebox().await.unwrap(), 0);
 
     db.update_cursor(gid(1), EntityKind::CommitMessage, Cursor::new(999, 1u32))
         .await
         .unwrap();
-    assert_eq!(db.prune_icebox().await.unwrap(), 2, "both originator-1 rows");
+    assert_eq!(
+        db.prune_icebox().await.unwrap(),
+        2,
+        "both originator-1 rows"
+    );
 }
 
 /// The cursor is scoped to the group, so another group's progress prunes
@@ -285,8 +305,12 @@ async fn prune_ignores_unrelated_entity_kinds() {
 async fn prune_is_scoped_to_the_group() {
     let db = iced_chain("ice_prune_group").await;
     make_group(&db, gid(2)).await;
-    db.update_cursor(gid(2), EntityKind::ApplicationMessage, Cursor::new(999, 1u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(2),
+        EntityKind::ApplicationMessage,
+        Cursor::new(999, 1u32),
+    )
+    .await
+    .unwrap();
     assert_eq!(db.prune_icebox().await.unwrap(), 0);
 }

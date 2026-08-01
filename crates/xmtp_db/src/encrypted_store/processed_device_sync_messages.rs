@@ -9,7 +9,9 @@ use super::{
     },
 };
 use super::{group::ConversationType, group_message::StoredGroupMessage};
-use crate::{StorageError, impl_store, impl_store_or_ignore};
+use crate::StorageError;
+#[cfg(feature = "sync")]
+use crate::{impl_store, impl_store_or_ignore};
 #[cfg(feature = "sync")]
 use diesel::{deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer};
 use serde::{Deserialize, Serialize};

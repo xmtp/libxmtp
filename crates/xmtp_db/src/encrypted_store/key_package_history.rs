@@ -1,6 +1,7 @@
 #[cfg(feature = "sync")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::key_package_history};
 use crate::StorageError;
+#[cfg(feature = "sync")]
 use crate::{StoreOrIgnore, impl_store_or_ignore};
 #[cfg(feature = "sync")]
 use diesel::prelude::*;
@@ -234,9 +235,6 @@ mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
     use sqlx::Row;
-
-    /// Column order is fixed here and reused by every `SELECT` below, so the
-    /// positional `try_get`s cannot drift apart from the query text.
 
     /// Decode via the `FromRow` that `#[derive(PgModel)]` emits: by column
     /// name, from the same fields the column list comes from.

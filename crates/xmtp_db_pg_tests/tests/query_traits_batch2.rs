@@ -565,7 +565,7 @@ async fn consent_paging_and_dm_lookup() {
         "INSERT INTO groups (id, created_at_ns, membership_state, \
          installations_last_checked, added_by_inbox_id, dm_id) VALUES ($1, 0, 1, 0, '', 'dm:x')",
     )
-    .bind(&group)
+    .bind(group)
     .execute(&mut *c)
     .await
     .unwrap();
