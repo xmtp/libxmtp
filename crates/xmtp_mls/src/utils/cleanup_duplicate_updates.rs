@@ -3,12 +3,11 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use tracing::info;
 use xmtp_db::diesel::prelude::*;
-use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{ConnectionExt, DbConnection};
 use xmtp_db::{
     group::{ConversationType, GroupQueryArgs, QueryGroup},
     group_message::{ContentType, MsgQueryArgs},
-    prelude::QueryGroupMessage,
+    prelude::{QueryGroupMessage, QueryUserPreferences},
 };
 
 use crate::groups::mls_sync::GroupMessageProcessingError;
@@ -30,7 +29,7 @@ async fn perform_inner<C>(db: DbConnection<C>) -> Result<(), GroupMessageProcess
 where
     C: ConnectionExt,
 {
-    let prefs = StoredUserPreferences::load(&db)?;
+    let prefs = db.load_user_preferences()?;
     if prefs.dm_group_updates_migrated {
         info!("DM group updates migration has already been performed. Skipping.");
         return Ok(());
@@ -104,11 +103,7 @@ where
         group_offset += BATCH_SIZE;
     }
 
-    db.raw_query(|conn| {
-        xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
-            .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(true))
-            .execute(conn)
-    })?;
+    db.set_dm_group_updates_migrated()?;
 
     Ok(())
 }
@@ -202,6 +197,11 @@ mod tests {
             }
         }
 
+        // Client startup already ran this migration and recorded it, so clear the
+        // flag to exercise the cleanup itself. (Before the flag was written with
+        // an upsert it never stuck on a fresh database, and this test passed only
+        // because the "one-time" migration silently re-ran on every start.)
+        clear_migrated_flag(&alix.db())?;
         perform(alix.db()).await;
 
         let msgs = dm.find_messages_v2(&MsgQueryArgs {
@@ -231,5 +231,35 @@ mod tests {
             ..Default::default()
         })?;
         assert!(msgs.iter().any(|m| m.metadata.id == msg.id));
+    }
+
+    /// Clears the one-time flag so a test can run the migration itself.
+    fn clear_migrated_flag<C: ConnectionExt>(
+        db: &DbConnection<C>,
+    ) -> Result<(), GroupMessageProcessingError> {
+        db.raw_query(|conn| {
+            xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
+                .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(false))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
+    /// The migration is one-time: once recorded, a later run must not touch
+    /// anything. This is what the flag exists for, and what a bare `UPDATE`
+    /// against a missing preferences row failed to deliver.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_cleanup_runs_only_once() {
+        tester!(alix);
+
+        // The startup run recorded it; a second run is a no-op.
+        assert!(alix.db().load_user_preferences()?.dm_group_updates_migrated);
+
+        clear_migrated_flag(&alix.db())?;
+        perform(alix.db()).await;
+        assert!(
+            alix.db().load_user_preferences()?.dm_group_updates_migrated,
+            "running the migration records that it ran"
+        );
     }
 }

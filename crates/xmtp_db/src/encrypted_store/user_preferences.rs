@@ -5,8 +5,6 @@ use super::{
 };
 use crate::StorageError;
 #[cfg(feature = "sync")]
-use crate::Store;
-#[cfg(feature = "sync")]
 use diesel::{insert_into, prelude::*};
 use xmtp_common::time::now_ns;
 
@@ -29,23 +27,6 @@ pub struct StoredUserPreferences {
     pub dm_group_updates_migrated: bool,
 }
 
-#[cfg(feature = "sync")]
-impl<C> Store<C> for StoredUserPreferences
-where
-    C: ConnectionExt,
-{
-    type Output = ();
-    fn store(&self, conn: &C) -> Result<Self::Output, StorageError> {
-        conn.raw_query(|conn| {
-            diesel::update(dsl::user_preferences)
-                .set(self)
-                .execute(conn)
-        })?;
-
-        Ok(())
-    }
-}
-
 #[derive(Debug)]
 pub struct HmacKey {
     // TODO: Use xmtp_cryptography::Secret for Zeroize support
@@ -64,59 +45,12 @@ impl HmacKey {
 /// [`HmacKey::key`].
 pub const HMAC_KEY_LEN: usize = 42;
 
-#[cfg(feature = "sync")]
-impl StoredUserPreferences {
-    pub fn load(conn: impl ConnectionExt) -> Result<Self, StorageError> {
-        let pref = conn.raw_query(|conn| dsl::user_preferences.first(conn).optional())?;
-        Ok(pref.unwrap_or_default())
-    }
-
-    fn store(&self, conn: &impl ConnectionExt) -> Result<(), StorageError> {
-        conn.raw_query(|conn| {
-            insert_into(dsl::user_preferences)
-                .values(self)
-                .on_conflict(user_preferences::id)
-                .do_update()
-                .set(self)
-                .execute(conn)
-        })?;
-
-        Ok(())
-    }
-
-    pub fn store_hmac_key(
-        conn: &impl ConnectionExt,
-        key: &[u8],
-        cycled_at: Option<i64>,
-    ) -> Result<(), StorageError> {
-        if key.len() != HMAC_KEY_LEN {
-            return Err(StorageError::InvalidHmacLength);
-        }
-
-        let mut preferences = Self::load(conn)?;
-
-        if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at)
-            && old > new
-        {
-            return Ok(());
-        }
-
-        preferences.hmac_key = Some(key.to_vec());
-        preferences.hmac_key_cycled_at_ns = Some(cycled_at.unwrap_or_else(now_ns));
-        preferences.store(conn)?;
-
-        Ok(())
-    }
-}
+/// The row's fixed primary key. Both schemas pin it with `CHECK (id = 0)`.
+const SINGLETON_ID: i32 = 0;
 
 /// `user_preferences` was the one table of the 23 reached only through
 /// `raw_query`, with no `Query*` trait of its own. It needs one to exist on the
 /// async track at all, since `ConnectionExt` is sync-track-only.
-///
-/// The sync-track callers in `xmtp_mls` still go through the inherent
-/// [`StoredUserPreferences`] functions above; moving them onto this trait (and
-/// retiring those functions) is a follow-up, deliberately left out of the port
-/// so the sync track stays behaviorally identical.
 #[maybe_async::maybe_async(AFIT)]
 pub trait QueryUserPreferences {
     /// The stored preferences, or their defaults when the row does not exist yet.
@@ -162,16 +96,50 @@ where
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryUserPreferences for crate::DbConnection<C> {
     fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError> {
-        StoredUserPreferences::load(self)
+        let pref = self.raw_query(|conn| dsl::user_preferences.first(conn).optional())?;
+        Ok(pref.unwrap_or_default())
     }
 
     fn store_hmac_key(&self, key: &[u8], cycled_at_ns: Option<i64>) -> Result<(), StorageError> {
-        StoredUserPreferences::store_hmac_key(&self, key, cycled_at_ns)
+        if key.len() != HMAC_KEY_LEN {
+            return Err(StorageError::InvalidHmacLength);
+        }
+
+        let mut preferences = self.load_user_preferences()?;
+
+        if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at_ns)
+            && old > new
+        {
+            return Ok(());
+        }
+
+        preferences.hmac_key = Some(key.to_vec());
+        preferences.hmac_key_cycled_at_ns = Some(cycled_at_ns.unwrap_or_else(now_ns));
+
+        self.raw_query(|conn| {
+            insert_into(dsl::user_preferences)
+                .values(&preferences)
+                .on_conflict(user_preferences::id)
+                .do_update()
+                .set(&preferences)
+                .execute(conn)
+        })?;
+        Ok(())
     }
 
+    /// An upsert, not a bare `UPDATE`. The preferences row is created lazily by
+    /// the first `store_hmac_key`, so on a database where that has not happened
+    /// an update matches nothing, the flag never sticks, and the one-time DM
+    /// cleanup re-runs on every start.
     fn set_dm_group_updates_migrated(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::user_preferences)
+            insert_into(dsl::user_preferences)
+                .values((
+                    dsl::id.eq(SINGLETON_ID),
+                    dsl::dm_group_updates_migrated.eq(true),
+                ))
+                .on_conflict(user_preferences::id)
+                .do_update()
                 .set(dsl::dm_group_updates_migrated.eq(true))
                 .execute(conn)
         })?;
@@ -185,9 +153,6 @@ impl<C: ConnectionExt> QueryUserPreferences for crate::DbConnection<C> {
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
-
-    /// The row's fixed primary key. Both schemas pin it with `CHECK (id = 0)`.
-    const SINGLETON_ID: i32 = 0;
 
     impl QueryUserPreferences for PgDb {
         async fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError> {
@@ -275,19 +240,19 @@ mod tests {
     #[xmtp_common::test]
     fn test_insert_and_update_preferences() {
         crate::test_utils::with_connection(|conn| {
-            let pref = StoredUserPreferences::load(conn).unwrap();
+            let pref = conn.load_user_preferences().unwrap();
             // by default, there is no key
             assert!(pref.hmac_key.is_none());
 
             // loads and stores a default
-            let pref = StoredUserPreferences::load(conn).unwrap();
+            let pref = conn.load_user_preferences().unwrap();
             // by default, there is no key
             assert!(pref.hmac_key.is_none());
 
             // set an hmac key
             let hmac_key = HmacKey::random_key();
-            StoredUserPreferences::store_hmac_key(conn, &hmac_key, None).unwrap();
-            let pref = StoredUserPreferences::load(conn).unwrap();
+            conn.store_hmac_key(&hmac_key, None).unwrap();
+            let pref = conn.load_user_preferences().unwrap();
             // Make sure it saved
             assert_eq!(hmac_key, pref.hmac_key.unwrap());
 
@@ -297,6 +262,67 @@ mod tests {
                 .raw_query(|conn| query.load::<StoredUserPreferences>(conn))
                 .unwrap();
             assert_eq!(result.len(), 1);
+        })
+    }
+
+    /// A `cycled_at_ns` older than the stored one is a device-sync update that
+    /// arrived out of order, and must not roll the key back.
+    #[xmtp_common::test]
+    fn hmac_key_cycled_at_is_monotonic() {
+        crate::test_utils::with_connection(|conn| {
+            let current = HmacKey::random_key();
+            conn.store_hmac_key(&current, Some(500)).unwrap();
+
+            conn.store_hmac_key(&HmacKey::random_key(), Some(499))
+                .unwrap();
+            let pref = conn.load_user_preferences().unwrap();
+            assert_eq!(pref.hmac_key.as_ref(), Some(&current));
+            assert_eq!(pref.hmac_key_cycled_at_ns, Some(500));
+
+            // `None` means "now": a local rotation, which always wins.
+            let local = HmacKey::random_key();
+            conn.store_hmac_key(&local, None).unwrap();
+            assert_eq!(conn.load_user_preferences().unwrap().hmac_key, Some(local));
+        })
+    }
+
+    /// The row is created lazily by the first `store_hmac_key`, so the flag has
+    /// to be written with an upsert -- a bare `UPDATE` would match nothing here
+    /// and the one-time DM cleanup would re-run on every start.
+    #[xmtp_common::test]
+    fn dm_group_updates_migrated_sticks_with_no_existing_row() {
+        crate::test_utils::with_connection(|conn| {
+            assert!(
+                !conn
+                    .load_user_preferences()
+                    .unwrap()
+                    .dm_group_updates_migrated
+            );
+
+            conn.set_dm_group_updates_migrated().unwrap();
+            assert!(
+                conn.load_user_preferences()
+                    .unwrap()
+                    .dm_group_updates_migrated
+            );
+
+            // Idempotent, and it leaves the key alongside it alone.
+            let key = HmacKey::random_key();
+            conn.store_hmac_key(&key, None).unwrap();
+            conn.set_dm_group_updates_migrated().unwrap();
+            let pref = conn.load_user_preferences().unwrap();
+            assert!(pref.dm_group_updates_migrated);
+            assert_eq!(pref.hmac_key, Some(key));
+        })
+    }
+
+    #[xmtp_common::test]
+    fn a_wrong_length_hmac_key_is_rejected() {
+        crate::test_utils::with_connection(|conn| {
+            assert!(matches!(
+                conn.store_hmac_key(&[1, 2, 3], None),
+                Err(StorageError::InvalidHmacLength)
+            ));
         })
     }
 }

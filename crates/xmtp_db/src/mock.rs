@@ -824,6 +824,20 @@ mock! {
 
         fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
     }
+    impl crate::user_preferences::QueryUserPreferences for DbQuery {
+        fn load_user_preferences(
+            &self,
+        ) -> Result<crate::user_preferences::StoredUserPreferences, StorageError>;
+
+        fn store_hmac_key<'a>(
+            &self,
+            key: &'a [u8],
+            cycled_at_ns: Option<i64>,
+        ) -> Result<(), StorageError>;
+
+        fn set_dm_group_updates_migrated(&self) -> Result<(), StorageError>;
+    }
+
     impl crate::d14n_migration_cutover::QueryMigrationCutover for DbQuery {
         fn get_migration_cutover(&self) -> Result<crate::d14n_migration_cutover::StoredMigrationCutover, StorageError>;
 

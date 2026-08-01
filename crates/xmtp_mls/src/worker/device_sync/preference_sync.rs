@@ -1,7 +1,7 @@
 use super::*;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
-use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
+use xmtp_db::user_preferences::HmacKey;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
@@ -77,7 +77,7 @@ pub(super) fn store_preference_updates(
             }
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
-                StoredUserPreferences::store_hmac_key(conn, &key, Some(cycled_at_ns))?;
+                conn.store_hmac_key(&key, Some(cycled_at_ns))?;
                 changed.push(PreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
@@ -125,7 +125,7 @@ impl From<PreferenceUpdate> for PreferenceUpdateProto {
 #[cfg(test)]
 mod tests {
     use crate::{tester, worker::device_sync::worker::SyncMetric};
-    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_db::prelude::QueryUserPreferences;
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
@@ -162,8 +162,8 @@ mod tests {
             .wait()
             .await?;
 
-        let pref_a = StoredUserPreferences::load(amal_a.context.db())?;
-        let pref_b = StoredUserPreferences::load(amal_b.context.db())?;
+        let pref_a = amal_a.context.db().load_user_preferences()?;
+        let pref_b = amal_b.context.db().load_user_preferences()?;
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
@@ -178,7 +178,7 @@ mod tests {
             .register_interest(SyncMetric::HmacReceived, 2)
             .wait()
             .await?;
-        let new_pref_a = StoredUserPreferences::load(amal_a.context.db())?;
+        let new_pref_a = amal_a.context.db().load_user_preferences()?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

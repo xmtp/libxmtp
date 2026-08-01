@@ -96,7 +96,6 @@ use xmtp_db::{
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     remote_commit_log::CommitResult,
     sql_key_store,
-    user_preferences::StoredUserPreferences,
 };
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
@@ -4380,12 +4379,12 @@ where
     ) -> Result<Vec<HmacKey>, StorageError> {
         let conn = self.context.db();
 
-        let preferences = StoredUserPreferences::load(&conn)?;
+        let preferences = conn.load_user_preferences()?;
         let mut ikm = match preferences.hmac_key {
             Some(ikm) => ikm,
             None => {
                 let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
+                conn.store_hmac_key(&key, None)?;
                 key
             }
         };

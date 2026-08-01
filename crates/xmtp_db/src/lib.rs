@@ -83,7 +83,6 @@ pub mod prelude {
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
-    #[cfg(feature = "sync")]
     pub use super::migrations::QueryMigrations;
     #[cfg(feature = "sync")]
     pub use super::pragmas::Pragmas;
@@ -93,6 +92,7 @@ pub mod prelude {
     pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::tasks::QueryTasks;
     pub use super::traits::*;
+    pub use super::user_preferences::QueryUserPreferences;
 }
 
 pub trait ReadOnly {

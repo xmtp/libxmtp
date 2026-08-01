@@ -112,6 +112,7 @@ pub trait DbQuery:
     + QueryIcebox
     + QueryMessageDeletion
     + QueryMigrationCutover
+    + QueryUserPreferences
 {
 }
 
@@ -142,6 +143,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryIcebox
         + QueryMessageDeletion
         + QueryMigrationCutover
+        + QueryUserPreferences
 {
 }
 
