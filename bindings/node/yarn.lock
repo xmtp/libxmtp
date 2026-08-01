@@ -669,9 +669,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/cli@npm:^3.7.4":
-  version: 3.7.4
-  resolution: "@napi-rs/cli@npm:3.7.4"
+"@napi-rs/cli@npm:^3.8.0":
+  version: 3.8.0
+  resolution: "@napi-rs/cli@npm:3.8.0"
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
@@ -679,21 +679,22 @@ __metadata:
     "@octokit/rest": "npm:^22.0.1"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    emnapi: "npm:^1.11.1"
+    emnapi: "npm:2.0.0-alpha.3"
     es-toolkit: "npm:^1.47.0"
     js-yaml: "npm:^4.2.0"
     obug: "npm:^2.1.2"
     semver: "npm:^7.8.2"
     typanion: "npm:^3.14.0"
+    typescript: "npm:^6.0.3"
   peerDependencies:
-    "@emnapi/runtime": ^1.7.1
+    "@emnapi/runtime": 2.0.0-alpha.3
   peerDependenciesMeta:
     "@emnapi/runtime":
       optional: true
   bin:
     napi: dist/cli.js
     napi-raw: cli.mjs
-  checksum: 10/dbdf4c645b155b6edcdce0423b727740c5989e0a1babad5ccaf09f973e9782565affff60547924b1ab93d8df58d6fe7b85330b065feb3a56a6bfb81cab0ff7be
+  checksum: 10/203a938c5b0e606716dfc1fe620ee69c263f0e55531ebfed1dd47e0469b72cae412490fb170c826e8d00262bf4b8e4a6ec2c7a3710dda09ada227668092101a5
   languageName: node
   linkType: hard
 
@@ -1835,7 +1836,7 @@ __metadata:
   resolution: "@xmtp/node-bindings@workspace:."
   dependencies:
     "@ianvs/prettier-plugin-sort-imports": "npm:^4.7.0"
-    "@napi-rs/cli": "npm:^3.7.4"
+    "@napi-rs/cli": "npm:^3.8.0"
     "@types/node": "npm:^26.1.1"
     "@types/uuid": "npm:^11.0.0"
     "@xmtp/content-type-remote-attachment": "npm:^2.0.3"
@@ -2010,15 +2011,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:^1.11.1":
-  version: 1.11.3
-  resolution: "emnapi@npm:1.11.3"
+"emnapi@npm:2.0.0-alpha.3":
+  version: 2.0.0-alpha.3
+  resolution: "emnapi@npm:2.0.0-alpha.3"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10/0de59692e56ff43d955189e8a3bb865c0bebe9ba4bc8fa963781479b8b7d1e800b133d2ee949d56e037c14f0e2227a44a2e3e479d5d6cb3ab9abb9c6d8921947
+  checksum: 10/ead5553f3099050336b405721e03a2c63b532327d77dd6803179384b41828a6c969481de0929e54ad7d9cb92374f28d6a9cffe84aea99f7971fde2b6a24a464b
   languageName: node
   linkType: hard
 
@@ -2992,6 +2993,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"typescript@npm:^6.0.3":
+  version: 6.0.3
+  resolution: "typescript@npm:6.0.3"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10/0ef2357a4cffd916b52b683a021cdab0f81eea4e9aa35f2d254581c9a5106da02224e3392e1b0ed42b7a48f80c966e5f52b8e1a27941fa0523c1705a9c2e0330
+  languageName: node
+  linkType: hard
+
 "typescript@patch:typescript@npm%3A^5.9.3#optional!builtin<compat/typescript>":
   version: 5.9.3
   resolution: "typescript@patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"
@@ -2999,6 +3010,16 @@ __metadata:
     tsc: bin/tsc
     tsserver: bin/tsserver
   checksum: 10/696e1b017bc2635f4e0c94eb4435357701008e2f272f553d06e35b494b8ddc60aa221145e286c28ace0c89ee32827a28c2040e3a69bdc108b1a5dc8fb40b72e3
+  languageName: node
+  linkType: hard
+
+"typescript@patch:typescript@npm%3A^6.0.3#optional!builtin<compat/typescript>":
+  version: 6.0.3
+  resolution: "typescript@patch:typescript@npm%3A6.0.3#optional!builtin<compat/typescript>::version=6.0.3&hash=5786d5"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10/22b67a18dafedf9b1468b64ca20d9aa02ea61d449b65413d8aa6552aeb63f52ef369e86beb25b6b4c91a803d9726ee5c196f391a9b64201263263410a4223ee6
   languageName: node
   linkType: hard
 
