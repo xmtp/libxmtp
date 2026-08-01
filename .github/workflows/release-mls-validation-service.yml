@@ -19,7 +19,7 @@ jobs:
       IMAGE: ghcr.io/${{ github.repository_owner }}/mls-validation-service
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install toml-cli
         run: cargo install toml-cli
@@ -71,7 +71,7 @@ jobs:
       # ---- Single build step with conditional push ----
       - name: Build (and conditionally push)
         id: build
-        uses: useblacksmith/build-push-action@v2
+        uses: useblacksmith/build-push-action@v2.2.0
         with:
           context: .
           file: ./dev/validation_service/Dockerfile
@@ -89,7 +89,7 @@ jobs:
         environment: [ dev, production, testnet ]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Deploy to ${{ matrix.environment }}
         uses: xmtp-labs/terraform-deployer@v1

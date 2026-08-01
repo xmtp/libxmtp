@@ -15,7 +15,7 @@ jobs:
     outputs:
       keys: ${{ steps.list.outputs.keys }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Collect disk-key values from workflows
         id: list
         run: |
