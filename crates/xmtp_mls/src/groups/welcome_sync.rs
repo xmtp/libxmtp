@@ -509,7 +509,6 @@ mod tests {
     use openmls::prelude::MlsMessageOut;
     use prost::Message;
     use rstest::*;
-    use std::sync::Mutex;
     use tls_codec::Serialize;
     use xmtp_common::Generate;
     use xmtp_configuration::Originators;
@@ -818,7 +817,7 @@ mod tests {
         );
 
         let (context, validator) = TestWelcomeSetup::builder()
-            .validator(NoopValidator)
+            .validator(SequenceValidator { fail: false })
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
                 db.expect_find_group().returning(|_id| Ok(None));
@@ -921,7 +920,6 @@ mod tests {
             None,
         );
 
-        let welcome_cursor_updates = Arc::new(Mutex::new(Vec::new()));
         let (context, _) = TestWelcomeSetup::builder()
             .validator(NoopValidator)
             .context(context)
@@ -935,23 +933,11 @@ mod tests {
                     .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
             })
             .nested_transaction_calls({
-                let welcome_cursor_updates = welcome_cursor_updates.clone();
-                move |db: &mut MockDbQuery| {
+                |db: &mut MockDbQuery| {
                     db.expect_find_group().returning(|_id| Ok(None));
                     db.expect_get_last_cursor_for_originators()
                         .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
-                    db.expect_update_cursor().returning({
-                        let welcome_cursor_updates = welcome_cursor_updates.clone();
-                        move |_, entity, cursor| {
-                            if entity == EntityKind::Welcome {
-                                welcome_cursor_updates
-                                    .lock()
-                                    .expect("welcome cursor updates lock poisoned")
-                                    .push(cursor.sequence_id);
-                            }
-                            Ok(true)
-                        }
-                    });
+                    db.expect_update_cursor().never();
                     db.expect_update_responded_at_sequence_id()
                         .returning(|_, _, _| Ok(()));
                     db.expect_insert_or_replace_group().returning(Ok);
@@ -977,14 +963,6 @@ mod tests {
             .await;
 
         assert_eq!(groups.len(), 0);
-
-        assert!(
-            welcome_cursor_updates
-                .lock()
-                .expect("welcome cursor updates lock poisoned")
-                .is_empty(),
-            "later welcome advanced the durable cursor past a retryable failure"
-        );
     }
 
     // Helper functions for filter_groups_with_new_messages tests
