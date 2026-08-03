@@ -795,8 +795,13 @@ where
     /// while part of their topic history was still replaying here. Released
     /// (re-checked) when this wave resolves or is removed.
     holds: Vec<LeaseId>,
-    progress_group: Option<B::Cursor>,
-    progress_welcome: Option<B::Cursor>,
+    /// Per-topic in-wave replay progress. A topic's replay cursor ascends for
+    /// the wave's lifetime under both the legacy single-scan server and the
+    /// batch-rotation server — but the rotation server orders frames only
+    /// within a batch, so cross-topic comparison is meaningless and is not
+    /// tracked. Telemetry-only: a per-topic regression is a real server
+    /// order fault.
+    progress: HashMap<Topic, B::Cursor>,
 }
 
 impl<B: TransportBinding> PendingWave<B>
@@ -810,16 +815,7 @@ where
             issued_at: std::time::Instant::now(),
             claims,
             holds: Vec::new(),
-            progress_group: None,
-            progress_welcome: None,
-        }
-    }
-
-    /// The wave's progress slot for `kind`'s cursor sequence.
-    fn progress_mut(&mut self, kind: DeliveryKind) -> &mut Option<B::Cursor> {
-        match kind {
-            DeliveryKind::Group => &mut self.progress_group,
-            DeliveryKind::Welcome => &mut self.progress_welcome,
+            progress: HashMap::new(),
         }
     }
 }
@@ -1912,7 +1908,7 @@ where
                     }
                 }
             }
-            // Advance the wire position and the wave's per-kind progress —
+            // Advance the wire position and the wave's per-topic progress —
             // both max-fold, so a deep-history replay below `last_seen`
             // moves neither the siblings' view nor the wire position.
             if let Some(seen) = self.last_seen.get_mut(&topic) {
@@ -1923,12 +1919,15 @@ where
             if let Some(wave) = wave
                 && let Some(pending) = self.pending_waves.get_mut(&wave)
             {
-                match pending.progress_mut(kind) {
+                match pending.progress.get_mut(&topic) {
                     Some(progress) => {
                         if B::covers(progress, &cursor) {
-                            // In-wave replay is total cursor order per kind
-                            // (XIP-83): a regression is a server order fault.
-                            // Telemetry only — max-fold keeps state sane.
+                            // A topic's in-wave replay ascends under both the
+                            // legacy single-scan server and the batch-rotation
+                            // server (which orders frames only within a batch,
+                            // so cross-topic order is deliberately not checked).
+                            // A per-topic regression is a real server order
+                            // fault. Telemetry only — max-fold keeps state sane.
                             tracing::warn!(
                                 %topic,
                                 wave = wave.0,
@@ -1938,7 +1937,9 @@ where
                         }
                         B::advance(progress, cursor)
                     }
-                    progress @ None => *progress = Some(cursor),
+                    None => {
+                        pending.progress.insert(topic.clone(), cursor);
+                    }
                 }
             }
         }
@@ -3624,6 +3625,54 @@ mod tests {
             ),
             _ => panic!("alpha expected only the new message"),
         }
+    }
+
+    /// The batch-rotation server replays a wave's topics in rotating batches:
+    /// ids ascend per topic and within each frame, but a later frame may open
+    /// below an earlier frame's ids. The transport must deliver such a replay
+    /// completely and in order per topic — cross-topic order within a wave is
+    /// not part of the contract.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rotation_ordered_replay_delivers_every_topic() {
+        let (transport, servers) = transport();
+        let mut alpha = transport
+            .lease(vec![(group_topic(b"g1"), 0), (group_topic(b"g2"), 0)], 8)
+            .await?;
+        let mut server = take_server(&servers);
+        let first = server.next_mutate().await;
+
+        // Turn 1 replays g1's rows; turn 2 replays g2's, opening below g1's
+        // last id — the rotation shape a single-scan server never produced.
+        server.send(replay(
+            first.mutate_id,
+            vec![group_msg(5, b"g1"), group_msg(6, b"g1")],
+            vec![],
+        ));
+        server.send(replay(
+            first.mutate_id,
+            vec![group_msg(3, b"g2"), group_msg(4, b"g2")],
+            vec![],
+        ));
+        server.send(catchup_complete(first.mutate_id));
+
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(5, b"g1"), group_msg(6, b"g1")])
+            }
+            _ => panic!("expected the first rotation turn"),
+        }
+        match recv(&mut alpha).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(
+                got,
+                vec![group_msg(3, b"g2"), group_msg(4, b"g2")],
+                "a later turn opening below an earlier turn's ids must still deliver"
+            ),
+            _ => panic!("expected the second rotation turn"),
+        }
+        assert!(matches!(
+            recv(&mut alpha).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
     }
 
     /// Tag routing is unconditional for the owner and closed to everyone
