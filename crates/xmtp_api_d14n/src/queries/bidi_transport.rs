@@ -632,6 +632,7 @@ where
     /// deadlock discipline). A `resume()` right after may briefly overlap
     /// that dying drain with the fresh wire; the resume wave re-serves
     /// anything the drain discarded, so nothing is lost.
+    #[xmtp_common::span(prefix = "bidi")]
     pub async fn suspend(&self) -> Result<(), TransportError> {
         self.enqueue_suspend()?
             .await
@@ -666,6 +667,7 @@ where
     /// A process thawed *without* having suspended doesn't need this: the
     /// connection's own watchdog detects the stale wire and the transport
     /// reconnects transparently.
+    #[xmtp_common::span(prefix = "bidi")]
     pub async fn resume(&self) -> Result<(), TransportError> {
         self.enqueue_resume()?
             .await
@@ -1995,6 +1997,7 @@ async fn run_ledger<B: TransportBinding>(
         reconnect_delay: RECONNECT_INITIAL_DELAY,
         reconnect_at: tokio::time::Instant::now(),
         wire_opened_at: None,
+        wire_span: None,
         suspended: initially_suspended,
         wire_opens: 0,
         resume_notify: Vec::new(),
@@ -2037,6 +2040,12 @@ where
     /// having been up at least [`MIN_STABLE_UPTIME`] resets the backoff to the
     /// floor; a shorter-lived one is flapping and keeps it growing.
     wire_opened_at: Option<tokio::time::Instant>,
+    /// The current wire's `bidi.wire_session` span, or `None` between wires.
+    /// Opened alongside `wire_opened_at` and closed by [`Self::close_wire_span`]
+    /// on every path that releases the wire, so its duration is wire uptime.
+    /// Deliberately never entered: it must not parent the spans of the work that
+    /// happens while the wire is up.
+    wire_span: Option<tracing::Span>,
     /// `suspend()`ed: the wire stays down on purpose — no lazy open for new
     /// leases, no reconnect backoff — until `resume()` clears it.
     suspended: bool,
@@ -2122,10 +2131,43 @@ where
     /// Every handle and lease is gone — close up shop.
     fn shutdown(&mut self) -> Flow {
         self.outbox.clear();
+        // Defensive, and normally a no-op: the last lease's drop closes the
+        // command channel, and it retires the wire on the way out.
+        self.close_wire_span("shutdown");
         if let Some(wire) = self.conn.take() {
             close_gracefully(wire);
         }
         Flow::Shutdown
+    }
+
+    /// Start the wire clock and its `bidi.wire_session` span. Both wire-open
+    /// sites (the cold open in [`Self::lease`] and the reconnect in
+    /// [`Self::reopen`]) go through here, so a wire can never come up timed but
+    /// unspanned.
+    ///
+    /// `parent: None` roots the span: a wire outlives whatever command happened
+    /// to trigger the dial, so adopting that caller's trace would hang an
+    /// arbitrarily long span off it. It is never entered either, so it parents
+    /// none of the work that happens while the wire is up — it exists only to
+    /// carry a duration and its `reason` to the Collector.
+    fn open_wire_span(&mut self) {
+        self.wire_opened_at = Some(tokio::time::Instant::now());
+        self.wire_span = Some(tracing::info_span!(
+            parent: None,
+            "bidi_wire",
+            operation = "bidi.wire_session",
+            reason = tracing::field::Empty,
+        ));
+    }
+
+    /// End the current wire's `bidi.wire_session` span, tagging why it ended.
+    /// Every path that releases the wire goes through here so the span's
+    /// duration is always exactly wire uptime, and `reason` is never missing.
+    /// A no-op between wires.
+    fn close_wire_span(&mut self, reason: &'static str) {
+        if let Some(span) = self.wire_span.take() {
+            span.record("reason", reason);
+        }
     }
 
     /// `Cmd::Lease`: open the wire if this lease is the reason to have one,
@@ -2165,7 +2207,7 @@ where
                     self.conn = Some(wire);
                     // Backoff resets on stable death, not on open: a bare accept
                     // doesn't prove the wire works ([`Self::wire_died`]).
-                    self.wire_opened_at = Some(tokio::time::Instant::now());
+                    self.open_wire_span();
                     self.wire_opens += 1;
                     tracing::info!(
                         topics = topics.len(),
@@ -2280,6 +2322,10 @@ where
         );
         self.suspended = true;
         self.outbox.clear();
+        // Must close here too, not only in `wire_died`: suspend releases the
+        // wire without going through it, so the span would otherwise stay open
+        // across the whole background sojourn and report that as wire uptime.
+        self.close_wire_span("suspend");
         if let Some(wire) = self.conn.take() {
             // Detached on purpose: acknowledging must not await the wire's
             // bounded command channel (deadlock discipline above), and the
@@ -2377,6 +2423,9 @@ where
     fn wire_died(&mut self) -> Flow {
         self.outbox.clear();
         drop(self.conn.take());
+        // `Step::Wire(None)` carries no error detail, so a server close and a
+        // transport failure are indistinguishable here — both are `wire_end`.
+        self.close_wire_span("wire_end");
         // A wire that proved stable resets the backoff to the floor so the
         // reconnect is prompt; one that died inside `MIN_STABLE_UPTIME` is
         // flapping — grow the backoff so an accept-then-close server can't pin
@@ -2405,6 +2454,9 @@ where
 
     /// One reconnect attempt, absorbing every [`reopen`](Self::reopen)
     /// outcome: a dial-preempting suspend re-suspends, shutdown propagates.
+    // Not `#[span(prefix = "bidi")]`: that form always emits `err`, which only
+    // compiles on a `Result` return. Everything else matches it exactly.
+    #[tracing::instrument(skip_all, fields(operation = "bidi.reconnect"))]
     async fn reconnect(&mut self) -> Flow {
         match self.reopen().await {
             AfterReopen::Proceed => Flow::Continue,
@@ -2488,7 +2540,7 @@ where
             OpenOutcome::Opened(wire) => {
                 self.conn = Some(wire);
                 // Backoff resets on stable death, not on open ([`wire_died`]).
-                self.wire_opened_at = Some(tokio::time::Instant::now());
+                self.open_wire_span();
                 self.wire_opens += 1;
                 tracing::info!(
                     reconnects = self.wire_opens.saturating_sub(1),
@@ -2637,6 +2689,10 @@ where
         if self.ledger.leases.is_empty() {
             // Unsent waves are for a wire we're closing — nobody needs them.
             self.outbox.clear();
+            // The task outlives its last lease, so without this the span would
+            // keep accruing idle time and be overwritten reasonless by the next
+            // cold open.
+            self.close_wire_span("idle");
             if let Some(wire) = self.conn.take() {
                 close_gracefully(wire);
             }
@@ -2989,6 +3045,60 @@ mod tests {
 
     fn take_server(servers: &Servers) -> MockServer {
         servers.lock().unwrap().remove(0)
+    }
+
+    /// Collects the `reason` of every closing `bidi.wire_session` span, in close
+    /// order. `close_wire_span` is the only thing that records `reason`, and it
+    /// does so on the span it has just taken — so a recorded reason *is* a close,
+    /// and watching `on_record` needs no span bookkeeping.
+    #[derive(Clone, Default)]
+    struct WireCloseLog {
+        reasons: Arc<Mutex<Vec<String>>>,
+    }
+
+    struct ReasonVisitor<'a>(&'a Mutex<Vec<String>>);
+
+    impl tracing::field::Visit for ReasonVisitor<'_> {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "reason" {
+                self.0.lock().unwrap().push(value.to_owned());
+            }
+        }
+
+        fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for WireCloseLog {
+        fn on_record(
+            &self,
+            _: &tracing::Id,
+            values: &tracing::span::Record<'_>,
+            _: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            values.record(&mut ReasonVisitor(&self.reasons));
+        }
+    }
+
+    /// Wait until `n` wire spans have closed, then return their reasons.
+    async fn close_reasons(log: &WireCloseLog, n: usize) -> Vec<String> {
+        let poll = async {
+            loop {
+                {
+                    let reasons = log.reasons.lock().unwrap();
+                    if reasons.len() >= n {
+                        return reasons.clone();
+                    }
+                }
+                xmtp_common::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        match tokio::time::timeout(WAIT, poll).await {
+            Ok(reasons) => reasons,
+            Err(_) => panic!(
+                "expected {n} closed wire spans, saw {:?}",
+                log.reasons.lock().unwrap()
+            ),
+        }
     }
 
     fn group_topic(id: &[u8]) -> Topic {
@@ -4013,6 +4123,58 @@ mod tests {
             }
             _ => panic!("the lease must survive suspend/resume invisibly"),
         }
+    }
+
+    /// Every reachable path that releases the wire ends its `bidi.wire_session`
+    /// span, and tags why. A missed path leaves the span open across the gap and
+    /// reports that as uptime — the metric reads as one long, healthy wire,
+    /// which is the opposite of the truth. That is not hypothetical: `retire`
+    /// was missed on the first pass, and its span survived to be misattributed
+    /// to whichever path closed next.
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn wire_session_span_closes_with_a_reason_on_every_release_path() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let closes = WireCloseLog::default();
+        // Thread-local rather than global: the test harness already installs a
+        // global dispatcher. `current_thread` is what makes that sound — the
+        // ledger actor is spawned onto this same thread, so the guard, held
+        // across every await below, covers the spans it opens.
+        let _guard =
+            tracing::subscriber::set_default(tracing_subscriber::registry().with(closes.clone()));
+
+        // Deliberate suspend releases the wire without it ever dying.
+        let (suspended, servers_a) = transport();
+        let alpha = suspended.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut first = take_server(&servers_a);
+        first.next_mutate().await;
+        suspended.suspend().await?;
+        assert_eq!(close_reasons(&closes, 1).await[0], "suspend");
+        drop((alpha, first, suspended));
+
+        // The server's stream ends under a live lease.
+        let (dying, servers_b) = transport();
+        let beta = dying.lease(vec![(group_topic(b"g2"), 0)], 8).await?;
+        let mut second = take_server(&servers_b);
+        second.next_mutate().await;
+        drop(second);
+        assert_eq!(close_reasons(&closes, 2).await[1], "wire_end");
+        drop((beta, dying));
+
+        // The last lease is retired while the transport itself stays alive: the
+        // task outlives its leases, so this is a distinct path from shutdown.
+        let (retiring, servers_c) = transport();
+        let gamma = retiring.lease(vec![(group_topic(b"g3"), 0)], 8).await?;
+        let mut third = take_server(&servers_c);
+        third.next_mutate().await;
+        drop(gamma);
+        assert_eq!(close_reasons(&closes, 3).await[2], "idle");
+        drop((third, retiring));
+
+        // `shutdown` is not exercised: leases hold a strong command sender, so
+        // the channel only closes once the last one drops — and that drop
+        // retires the wire first, via the path above. Its `close_wire_span` is
+        // defensive, kept symmetric with the `conn.take()` beside it.
     }
 
     /// Two concurrent `resume()` callers join the same in-flight catch-up:
