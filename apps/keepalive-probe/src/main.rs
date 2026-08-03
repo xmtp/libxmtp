@@ -40,13 +40,13 @@ struct Args {
     #[arg(long, default_value_t = 1)]
     count: usize,
 
-    /// HTTP/2 keepalive PING interval (libxmtp default: 16s).
-    #[arg(long, default_value = "16s", value_parser = humantime::parse_duration)]
+    /// HTTP/2 keepalive PING interval (libxmtp default: 45s).
+    #[arg(long, default_value = "45s", value_parser = humantime::parse_duration)]
     ka_interval: Duration,
 
-    /// Close the connection if no PONG arrives within this (libxmtp default: 10s).
+    /// Close the connection if no PONG arrives within this (libxmtp default: 20s).
     /// This is the #70 knob — raise it to give a slow path more slack.
-    #[arg(long, default_value = "10s", value_parser = humantime::parse_duration)]
+    #[arg(long, default_value = "20s", value_parser = humantime::parse_duration)]
     ka_timeout: Duration,
 
     /// Send keepalive PINGs even with no active streams (libxmtp default: true).
