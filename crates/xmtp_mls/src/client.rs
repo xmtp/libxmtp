@@ -2068,12 +2068,21 @@ pub(crate) mod tests {
         assert_eq!(item[0].state, ConsentState::Allowed);
     }
 
-    #[xmtp_common::timeout(Duration::from_secs(50))]
+    #[xmtp_common::timeout(Duration::from_secs(100))]
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
-    // Set to 50 seconds to safely account for the 16 second keepalive interval and 10 second timeout
+    // Detection of the black-holed connection comes from the h2 transport keepalive.
+    // Pin it fast (5s ping / 5s ack) so the failure lands in seconds under nextest,
+    // whose process-per-test isolation guarantees the pin is read before the
+    // process-wide config latches. Under a plain `cargo test`, a sibling test may
+    // latch the library defaults (45s/20s) first and the pin becomes a no-op, so
+    // the timeout budget also covers their ~65s worst-case detection.
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
+        unsafe {
+            std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");
+            std::env::set_var("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "5");
+        }
         toxiproxy_test(async || {
             let alix = Tester::builder().proxy().build().await;
             let bo = Tester::builder().build().await;

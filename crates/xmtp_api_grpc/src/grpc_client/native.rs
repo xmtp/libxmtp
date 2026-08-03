@@ -12,16 +12,23 @@ use std::task::{Context, Poll};
 
 /// HTTP/2 / TCP keep-alive parameters for the gRPC channel.
 ///
-/// Defaults favour *fast* detection of a dead connection (~26s = interval + timeout),
-/// which suits mobile clients and the default native path. A deployment on a high-latency
-/// link can relax any of them via environment variables, without affecting other
-/// consumers:
+/// The previous 16s/10s defaults optimized for fast dead-path detection (~26s worst
+/// case) but tore down otherwise-healthy long-lived connections whenever one PING ack
+/// straggled past the tight deadline — reconnect churn observed from server (herald-lite
+/// #70) and mobile clients alike, where every teardown forces a full stream re-subscribe
+/// against the backend (2026-08 production incident). The defaults now trade detection
+/// speed for stability: ~65s worst case (interval + timeout), with the 45s cadence
+/// chosen to stay inside common 60s middlebox idle timers. Where the XIP-83 Subscribe
+/// ping/pong or the stream watchdog is enabled, the application layer detects a dead
+/// stream on its own; for default consumers this transport keep-alive remains the only
+/// dead-path detector, just a slower and less trigger-happy one. A deployment can tune
+/// any of these via environment variables, without affecting other consumers:
 ///
 /// | env var                             | field                        | default |
 /// |-------------------------------------|------------------------------|---------|
-/// | `XMTP_GRPC_KEEPALIVE_INTERVAL_SECS` | `http2_keep_alive_interval`  | 16      |
-/// | `XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS`  | `keep_alive_timeout`         | 10      |
-/// | `XMTP_GRPC_TCP_KEEPALIVE_SECS`      | `tcp_keepalive` (0 disables) | 16      |
+/// | `XMTP_GRPC_KEEPALIVE_INTERVAL_SECS` | `http2_keep_alive_interval`  | 45      |
+/// | `XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS`  | `keep_alive_timeout`         | 20      |
+/// | `XMTP_GRPC_TCP_KEEPALIVE_SECS`      | `tcp_keepalive` (0 disables) | 45      |
 /// | `XMTP_GRPC_KEEPALIVE_WHILE_IDLE`    | `keep_alive_while_idle`      | true    |
 ///
 /// Read once per process (servers set these before start), so it is not part of the TLS
@@ -35,9 +42,9 @@ struct KeepaliveConfig {
 }
 
 impl KeepaliveConfig {
-    const DEFAULT_INTERVAL: Duration = Duration::from_secs(16);
-    const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-    const DEFAULT_TCP_KEEPALIVE: Duration = Duration::from_secs(16);
+    const DEFAULT_INTERVAL: Duration = Duration::from_secs(45);
+    const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
+    const DEFAULT_TCP_KEEPALIVE: Duration = Duration::from_secs(45);
 
     fn from_env() -> Self {
         Self::from_lookup(|key| std::env::var(key).ok())
@@ -143,12 +150,11 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
         // Functionality: If a ping response is not received within this duration, the connection is presumed to be lost and is closed.
         // Impact: This setting is crucial for quickly detecting unresponsive connections and freeing up resources associated with them. It ensures that the client has up-to-date information on the status of connections and can react accordingly.
         //
-        // Values are sourced from `KeepaliveConfig` (env-overridable). The defaults are
-        // intentionally aggressive (~26s detection = interval + timeout), which suits mobile
-        // and the default native path. A high-latency deployment such as herald — whose
-        // cross-cloud Fly->AWS round-trip can transiently starve a PONG past a tight deadline
-        // and trigger spurious `UNAVAILABLE` (status 14) disconnects (herald-lite #70) —
-        // relaxes them via environment variables without affecting other consumers.
+        // Values are sourced from `KeepaliveConfig` (env-overridable). See the config's
+        // doc comment for why the defaults are unaggressive: a missed PING ack here kills
+        // the whole connection — and with it every bidi stream, whose reconnects replay
+        // server-side catch-up waves — so this layer must tolerate transient stalls that
+        // the app-level heartbeat is already equipped to judge.
         .keep_alive_timeout(keepalive.timeout)
         .http2_keep_alive_interval(keepalive.interval)
         .rate_limit(limit, Duration::from_secs(60))
@@ -204,9 +210,9 @@ mod keepalive_tests {
     #[test]
     fn defaults_when_env_absent() {
         let cfg = KeepaliveConfig::from_lookup(|_| None);
-        assert_eq!(cfg.interval, Duration::from_secs(16));
-        assert_eq!(cfg.timeout, Duration::from_secs(10));
-        assert_eq!(cfg.tcp_keepalive, Some(Duration::from_secs(16)));
+        assert_eq!(cfg.interval, Duration::from_secs(45));
+        assert_eq!(cfg.timeout, Duration::from_secs(20));
+        assert_eq!(cfg.tcp_keepalive, Some(Duration::from_secs(45)));
         assert!(cfg.while_idle);
     }
 
@@ -236,7 +242,7 @@ mod keepalive_tests {
             ("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "not-a-number"),
             ("XMTP_GRPC_KEEPALIVE_WHILE_IDLE", "maybe"),
         ]));
-        assert_eq!(cfg.interval, Duration::from_secs(16));
+        assert_eq!(cfg.interval, Duration::from_secs(45));
         assert!(cfg.while_idle);
     }
 }
