@@ -44,10 +44,15 @@ pub trait QueryKeyStoreEntry {
     ) -> Result<(), StorageError>;
 }
 
+// No `Sync` bound, matching the other 17 `&T` forwarding impls. This trait was
+// the first one converted to maybe_async and kept a `Sync` left over from that
+// spike; on wasm the connection is an `Rc<RefCell<_>>`, so `DbConnection<C>` is
+// never `Sync` and the bound made `&DbConnection<C>: DbQuery` unsatisfiable --
+// breaking the wasm build at `cleanup_duplicate_updates.rs`.
 #[maybe_async::maybe_async(AFIT)]
 impl<T> QueryKeyStoreEntry for &T
 where
-    T: QueryKeyStoreEntry + Sync,
+    T: QueryKeyStoreEntry,
 {
     async fn insert_or_update_key_store_entry(
         &self,
