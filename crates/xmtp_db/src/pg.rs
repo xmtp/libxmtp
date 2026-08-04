@@ -204,3 +204,18 @@ pub trait PgModel: Sized + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {
             .join(", ")
     }
 }
+
+/// `PgDb` is the async track's `DbQuery`, and callers take `&impl DbQuery`, so
+/// both forms have to hold. Asserting it here means the async clippy job fails
+/// the moment a `Query*` impl goes missing or drifts out of the supertrait list
+/// -- otherwise the first sign is an unrelated downstream crate failing to
+/// satisfy a bound, far from the cause.
+///
+/// Gated `not(sync)` to match the sqlx impls: with both features on, `sync`
+/// wins and they are compiled out, so the assertion would be false there.
+#[cfg(not(feature = "sync"))]
+const _: fn() = || {
+    fn assert_db_query<T: crate::DbQuery>() {}
+    assert_db_query::<PgDb>();
+    assert_db_query::<&PgDb>();
+};

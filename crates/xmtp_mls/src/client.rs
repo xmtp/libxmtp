@@ -36,7 +36,6 @@ use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-    db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
@@ -485,10 +484,7 @@ where
 
     /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
     /// This may not be consistent with the latest state on the backend.
-    pub fn inbox_sequence_id(
-        &self,
-        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
-    ) -> Result<i64, StorageError> {
+    pub fn inbox_sequence_id(&self, conn: &impl xmtp_db::DbQuery) -> Result<i64, StorageError> {
         self.context
             .identity()
             .sequence_id(conn)
@@ -1212,7 +1208,7 @@ where
      */
     pub async fn validate_credential_against_network(
         &self,
-        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl xmtp_db::DbQuery,
         credential: &[u8],
         installation_pub_key: Vec<u8>,
     ) -> Result<InboxId, ClientError> {

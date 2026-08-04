@@ -41,13 +41,12 @@ use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
-use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
-use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
 use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::{MlsProviderExt, TransactionOutcome};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
@@ -624,10 +623,10 @@ impl Identity {
         (*self.installation_keys.public_bytes()).into()
     }
 
-    pub fn sequence_id<C>(&self, conn: &DbConnection<C>) -> Result<i64, xmtp_db::ConnectionError>
-    where
-        C: ConnectionExt,
-    {
+    pub fn sequence_id(
+        &self,
+        conn: &impl xmtp_db::DbQuery,
+    ) -> Result<i64, xmtp_db::ConnectionError> {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 

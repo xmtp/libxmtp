@@ -133,7 +133,6 @@ impl<'a, C, V> XmtpWelcome<'a, C, V>
 where
     C: XmtpSharedContext,
     V: ValidateGroupMembership,
-    <C::MlsStorage as XmtpMlsStorageProvider>::Connection: xmtp_db::ConnectionExt,
 {
     /// Get the last cursor in the database for welcomes
     fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {

@@ -13,9 +13,8 @@ use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
-use xmtp_db::XmtpDb;
+use xmtp_db::identity_update::StoredIdentityUpdate;
 use xmtp_db::prelude::*;
-use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     AsIdRef, InboxIdRef,
     associations::{
@@ -210,7 +209,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_latest_association_state(
         &self,
-        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl xmtp_db::DbQuery,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
         load_identity_updates(self.context.api(), conn, &[inbox_id]).await?;
