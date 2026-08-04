@@ -6,11 +6,19 @@ inputs:
     required: true
   disk-key:
     description: >-
-      Per-workflow namespace for the /nix sticky disk; pass the workflow file
-      stem (e.g. test-workspace). Required on Linux. Keep the value a literal:
+      Closure-family namespace for the /nix sticky disk (rust, web, android,
+      fh-cache); workflows with near-identical Nix closures share a disk.
+      Required on Linux unless nix-disk is "false". Keep the value a literal:
       reset-sticky-disks.yml greps workflows for `disk-key:` to enumerate disks.
     required: false
     default: ""
+  nix-disk:
+    description: >-
+      Mount the persistent /nix sticky disk (Linux). Set "false" in rarely-run
+      workflows (releases): Cachix substitution costs minutes per run, cheaper
+      than a sticky disk storing the closure 24/7.
+    required: false
+    default: "true"
   cachix-auth-token:
     description: "Cachix auth token for xmtp cache"
     required: false
@@ -29,26 +37,26 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # Persistent /nix sticky disk, one per (repo, workflow, OS, arch); must
-    # mount before Nix installs. Per-workflow keys stop concurrent workflows
-    # from overwriting each other's commits (last write wins per disk, so the
-    # slowest workflow used to decide what the shared disk kept). Concurrent
-    # jobs within a workflow still race, but they build near-identical
-    # closures and Cachix backfills anything a lost commit drops.
+    # Persistent /nix sticky disk, one per (repo, closure family, OS, arch);
+    # must mount before Nix installs. Workflows with near-identical closures
+    # share a family disk so storage doesn't hold N copies of the same
+    # toolchains. Commits are last-write-wins, so concurrent workflows in a
+    # family can drop each other's store paths; Cachix backfills anything a
+    # lost commit misses.
     - name: Require disk-key on Linux
-      if: ${{ runner.os == 'Linux' && inputs.disk-key == '' }}
+      if: ${{ runner.os == 'Linux' && inputs.nix-disk == 'true' && inputs.disk-key == '' }}
       run: |
-        echo "::error::setup-nix needs a disk-key input on Linux (the workflow file stem, e.g. test-workspace)"
+        echo "::error::setup-nix needs a disk-key input on Linux (a closure-family key, e.g. rust)"
         exit 1
       shell: bash
     - name: Prepare /nix mount point
-      if: ${{ runner.os == 'Linux' }}
+      if: ${{ runner.os == 'Linux' && inputs.nix-disk == 'true' }}
       run: |
         sudo mkdir -p /nix/store
         sudo chmod -R 777 /nix
       shell: bash
     - name: Mount /nix sticky disk
-      if: ${{ runner.os == 'Linux' }}
+      if: ${{ runner.os == 'Linux' && inputs.nix-disk == 'true' }}
       uses: useblacksmith/stickydisk@v1
       with:
         key: ${{ github.repository }}-nix-${{ inputs.disk-key }}-${{ runner.os }}-${{ runner.arch }}
@@ -76,7 +84,7 @@ runs:
     # action-post-run exec()s its `run` input as a bare executable (no
     # shell), so the script must live in a file.
     - name: Write /nix busy-process cleanup script
-      if: ${{ runner.os == 'Linux' }}
+      if: ${{ runner.os == 'Linux' && (inputs.nix-disk == 'true' || inputs.gradle-disk == 'true') }}
       run: |
         cat > "$RUNNER_TEMP/nix-unmount-cleanup.sh" << 'EOF'
         #!/usr/bin/env bash
@@ -93,7 +101,7 @@ runs:
         chmod +x "$RUNNER_TEMP/nix-unmount-cleanup.sh"
       shell: bash
     - name: Register /nix busy-process cleanup
-      if: ${{ runner.os == 'Linux' }}
+      if: ${{ runner.os == 'Linux' && (inputs.nix-disk == 'true' || inputs.gradle-disk == 'true') }}
       uses: webiny/action-post-run@3.1.0
       with:
         run: bash ${{ runner.temp }}/nix-unmount-cleanup.sh

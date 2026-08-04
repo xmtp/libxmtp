@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: test-android
+          disk-key: android
           gradle-disk: "true"
           docker-builder: "true"
           github-token: ${{ github.token }}
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: test-android
+          disk-key: android
           gradle-disk: "true"
           docker-builder: "true"
           github-token: ${{ github.token }}

@@ -3,12 +3,12 @@ name: Reset Sticky Disks
 # file deletion. Drop disks periodically; next run repopulates from Cachix.
 on:
   schedule:
-    # 1st of every other month (Jan, Mar, May, Jul, Sep, Nov) at 00:00 UTC
-    - cron: "0 0 1 */2 *"
+    # 1st of every month at 00:00 UTC
+    - cron: "0 0 1 * *"
   workflow_dispatch:
 jobs:
-  # Disks are keyed per workflow (see setup-nix). Enumerate the keys from
-  # the workflow files themselves so new workflows are reset automatically.
+  # Disks are keyed per closure family (see setup-nix). Enumerate the keys
+  # from the workflow files themselves so new families are reset automatically.
   enumerate:
     name: Enumerate disk keys
     runs-on: ubuntu-latest
@@ -19,7 +19,15 @@ jobs:
       - name: Collect disk-key values from workflows
         id: list
         run: |
-          keys=$(grep -rhoP 'disk-key:\s*\K[A-Za-z0-9_-]+' .github/workflows | sort -u | jq -Rnc '[inputs]')
+          # One-time: per-workflow keys from before the closure-family
+          # consolidation. Remove this list after one scheduled run.
+          legacy="cross-test ignored-tests-tracker lint-android lint-config
+            lint-js lint-node lint-wasm lint-workspace release-android
+            release-browser-sdk release-kotlin-bindings-nix release-node
+            release-node-sdk release-wasm test-android test-bindings-check
+            test-browser-sdk test-keepalive-probe test-node test-node-sdk
+            test-wasm test-workspace test-xdbg"
+          keys=$({ grep -rhoP 'disk-key:\s*\K[A-Za-z0-9_-]+' .github/workflows; printf '%s\n' $legacy; } | sort -u | jq -Rnc '[inputs]')
           echo "keys=$keys" >> "$GITHUB_OUTPUT"
           echo "Found nix disk keys: $keys"
   reset-nix-disks:
