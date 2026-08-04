@@ -96,17 +96,33 @@ maybe-async = "0.2.11"
 mockall = { version = "0.14" }
 mockall_double = "0.3.1"
 once_cell = "1.21.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = [
+# openmls' storage traits are async-by-default via maybe_async; `sync` collapses
+# them to the blocking shape. The track is NOT selected here: `openmls/sync` is
+# `maybe-async/is_sync`, which is a global switch, so pinning it on a workspace
+# dependency would force it on in every build -- including xmtp_db's async-only
+# one, where it silently collapses the Query* traits back to sync. It is selected
+# by `xmtp_db`'s own `sync` feature instead, so the two tracks stay selectable.
+openmls = { git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55", default-features = false, features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+# `extensions-draft` here is not cosmetic: it is the only path that reaches
+# `openmls_memory_storage/extensions-draft`, which libxmtp pulls in transitively
+# and never names directly. Without it that crate's `StorageProvider` impl omits
+# the three `application_export_tree` methods while `openmls_traits` -- which does
+# have the feature -- still requires them. This used to be supplied accidentally
+# by the workspace-hack unifying openmls' features; now that openmls is excluded
+# from the hack, the dependent has to state it.
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55", features = [
+  "extensions-draft",
+  "draft-ietf-mls-pq-ciphersuites",
+] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }

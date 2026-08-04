@@ -64,6 +64,21 @@ third-party = [
   # unifying it would compile a Postgres client into every native member,
   # including the mobile bindings, which have no use for it.
   { name = "sqlx" },
+  # openmls' `sync` feature is `maybe-async/is_sync` one level down, so it selects
+  # the storage track exactly the way `maybe-async` itself does. Left unified,
+  # hakari bakes `sync` into every member's graph and reaches `is_sync` *through
+  # openmls*, bypassing the `maybe-async` exclusion above -- the async track would
+  # silently collapse to the blocking shape, which is the same failure that
+  # exclusion exists to prevent.
+  # (git source must be spelled out, rev included -- hakari cannot resolve a bare
+  # name against a git-sourced package. The rev must be bumped here on every
+  # openmls repin; hakari errors out loudly if it goes stale.)
+  { name = "openmls", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_traits", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_basic_credential", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_rust_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_memory_storage", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_libcrux_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
 ]
 
 [final-excludes]
@@ -98,4 +113,19 @@ third-party = [
   # unifying it would compile a Postgres client into every native member,
   # including the mobile bindings, which have no use for it.
   { name = "sqlx" },
+  # openmls' `sync` feature is `maybe-async/is_sync` one level down, so it selects
+  # the storage track exactly the way `maybe-async` itself does. Left unified,
+  # hakari bakes `sync` into every member's graph and reaches `is_sync` *through
+  # openmls*, bypassing the `maybe-async` exclusion above -- the async track would
+  # silently collapse to the blocking shape, which is the same failure that
+  # exclusion exists to prevent.
+  # (git source must be spelled out, rev included -- hakari cannot resolve a bare
+  # name against a git-sourced package. The rev must be bumped here on every
+  # openmls repin; hakari errors out loudly if it goes stale.)
+  { name = "openmls", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_traits", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_basic_credential", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_rust_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_memory_storage", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  { name = "openmls_libcrux_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
 ]

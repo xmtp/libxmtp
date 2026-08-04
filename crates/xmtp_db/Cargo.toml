@@ -126,6 +126,13 @@ default = ["sync"]
 # use. maybe-async/is_sync is a global switch, so exactly one may be enabled.
 sync = [
   "maybe-async/is_sync",
+  # openmls' traits ride the same global `is_sync` switch, so its track is
+  # selected here rather than on the workspace dependency -- otherwise the
+  # async-only build inherits `is_sync` and its Query* traits collapse to sync.
+  "openmls/sync",
+  "openmls_traits/sync",
+  "openmls_basic_credential/sync",
+  "openmls_rust_crypto/sync",
   "dep:diesel",
   "dep:diesel_migrations",
   "dep:libsqlite3-sys",
