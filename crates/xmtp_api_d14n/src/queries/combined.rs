@@ -70,6 +70,7 @@ where
     D14n: Client,
     S: CursorStore,
 {
+    #[xmtp_common::rpc_span]
     pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError> {
         if self.store.has_migrated()? {
             return Ok(&self.xmtpd_client);
@@ -104,6 +105,7 @@ where
     }
 
     /// if the write fails because of a cutover, force a refresh and retry
+    #[xmtp_common::rpc_span]
     pub async fn write_with_refresh<F, R, Fut>(&self, f: F) -> Result<R, ApiClientError>
     where
         F: Fn() -> Fut,

@@ -240,6 +240,7 @@ where
     /// "everything else synced, one item pending replay" into a hard error
     /// on every wake. `Ok` therefore means "everything owed was received
     /// and attempted", not "zero processing errors".
+    #[xmtp_common::span(prefix = "stream")]
     pub async fn catch_up_to_live(
         &self,
         timeout: Option<Duration>,

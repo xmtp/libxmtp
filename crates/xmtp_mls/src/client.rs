@@ -890,6 +890,7 @@ where
 
     /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
     /// Returns an error if the message is not found or if it cannot be decoded/enriched
+    #[xmtp_common::mls_span]
     pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
         let conn = self.context.db();
         let message = conn
@@ -1009,6 +1010,7 @@ where
 
     /// Upload a Key Package to the network and publish the signed identity update
     /// from the provided SignatureRequest
+    #[xmtp_common::mls_span]
     pub async fn register_identity(
         &self,
         signature_request: SignatureRequest,
@@ -1150,7 +1152,7 @@ where
 
     /// Sync all unread welcome messages and then sync all groups.
     /// Returns the total number of active groups synced.
-    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_welcomes_and_groups"))]
+    #[xmtp_common::mls_span]
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,

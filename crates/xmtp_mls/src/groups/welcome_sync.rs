@@ -9,16 +9,17 @@ use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use xmtp_common::Event;
-use xmtp_common::{Retry, retry_async};
+use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
-use xmtp_proto::types::{GlobalCursor, GroupId, GroupMessageMetadata};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
 pub struct GroupSyncSummary {
@@ -33,6 +34,14 @@ impl GroupSyncSummary {
             num_synced,
         }
     }
+}
+
+// Outcome of span-instrumented welcome processing: the expected
+// already-processed duplicate is an `Ok` variant so it cannot mark the
+// `mls.process_new_welcome` span as status:error.
+enum WelcomeOutcome<Context> {
+    Processed(Option<MlsGroup<Context>>),
+    AlreadyProcessed(Cursor),
 }
 
 #[derive(Clone)]
@@ -53,12 +62,33 @@ where
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
     /// applies the update after the welcome processed successfully.
+    // Callers still receive `Err(WelcomeAlreadyProcessed)` for the routine
+    // duplicate-delivery case, but the span lives on the inner fn where that
+    // expected outcome exits as `Ok` — so it never flags span status:error.
     pub(crate) async fn process_new_welcome(
         &self,
         welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
+        match self
+            .process_new_welcome_spanned(welcome, cursor_increment, validator)
+            .await?
+        {
+            WelcomeOutcome::Processed(group) => Ok(group),
+            WelcomeOutcome::AlreadyProcessed(cursor) => Err(GroupError::ProcessIntent(
+                ProcessIntentError::WelcomeAlreadyProcessed(cursor),
+            )),
+        }
+    }
+
+    #[tracing::instrument(err, skip_all, fields(operation = "mls.process_new_welcome"))]
+    async fn process_new_welcome_spanned(
+        &self,
+        welcome: &xmtp_proto::types::WelcomeMessage,
+        cursor_increment: bool,
+        validator: impl ValidateGroupMembership,
+    ) -> Result<WelcomeOutcome<Context>, GroupError> {
         let result = XmtpWelcome::builder()
             .context(self.context.clone())
             .welcome(welcome)
@@ -89,7 +119,7 @@ where
                     }
                 }
 
-                Ok(mls_group)
+                Ok(WelcomeOutcome::Processed(mls_group))
             }
             Err(err) => {
                 use crate::DuplicateItem::*;
@@ -101,13 +131,11 @@ where
                         "Welcome ID already stored: {}",
                         err
                     );
-                    return Err(GroupError::ProcessIntent(
-                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor),
-                    ));
-                } else if matches!(
-                    err,
-                    GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))
-                ) {
+                    return Ok(WelcomeOutcome::AlreadyProcessed(welcome.cursor));
+                } else if let GroupError::ProcessIntent(
+                    ProcessIntentError::WelcomeAlreadyProcessed(cursor),
+                ) = err
+                {
                     // Expected, non-retryable condition: the welcome was already
                     // processed (e.g. duplicate delivery for a group we are already
                     // in). It is handled gracefully upstream (cursor incremented,
@@ -118,6 +146,7 @@ where
                         "welcome already processed, skipping: {}",
                         err
                     );
+                    return Ok(WelcomeOutcome::AlreadyProcessed(cursor));
                 } else {
                     tracing::error!(
                         "failed to create group from welcome={} created at {}: {}",
@@ -132,27 +161,64 @@ where
         }
     }
 
+    async fn process_welcomes_with<F, Fut>(
+        &self,
+        envelopes: Vec<xmtp_proto::types::WelcomeMessage>,
+        mut process: F,
+    ) -> Vec<MlsGroup<Context>>
+    where
+        F: FnMut(xmtp_proto::types::WelcomeMessage) -> Fut,
+        Fut: Future<Output = Result<Option<MlsGroup<Context>>, GroupError>>,
+    {
+        let mut groups = Vec::with_capacity(envelopes.len());
+
+        // Welcome commits advance the durable cursor. Stop after a retryable error
+        // so a later envelope cannot skip the failed welcome.
+        for welcome in envelopes {
+            let welcome_cursor = welcome.cursor;
+            let result = retry_async!(
+                Retry::default(),
+                ({
+                    let welcome = welcome.clone();
+                    process(welcome)
+                })
+            );
+
+            match result {
+                Ok(Some(group)) => groups.push(group),
+                Ok(None) => {}
+                Err(err) if err.is_retryable() => {
+                    tracing::warn!(
+                        welcome_cursor = %welcome_cursor,
+                        "stopping welcome sync after retryable failure: {err}"
+                    );
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        welcome_cursor = %welcome_cursor,
+                        "skipping welcome after non-retryable failure: {err}"
+                    );
+                }
+            }
+        }
+
+        groups
+    }
+
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::mls_span]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
 
-        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
-        let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
-            .filter_map(|welcome| async move {
-                retry_async!(
-                    Retry::default(),
-                    (async {
-                        let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&welcome, true, validator).await
-                    })
-                )
-                .ok()?
+        let groups = self
+            .process_welcomes_with(envelopes, |welcome| async move {
+                let validator = InitialMembershipValidator::new(&self.context);
+                self.process_new_welcome(&welcome, true, validator).await
             })
-            .collect()
             .await;
 
         // Rotate the keys regardless of whether the welcomes failed or succeeded. It is better to over-rotate than
@@ -712,6 +778,23 @@ mod tests {
         }
     }
 
+    struct SequenceValidator {
+        fail: bool,
+    }
+
+    impl ValidateGroupMembership for SequenceValidator {
+        async fn check_initial_membership(
+            &self,
+            _welcome: &openmls::prelude::StagedWelcome,
+        ) -> Result<(), GroupError> {
+            if self.fail {
+                Err(GroupError::LockUnavailable)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     #[rstest]
     #[xmtp_common::test]
     async fn increments_cursor_on_non_retryable_during_validation(context: NewMockContext) {
@@ -762,7 +845,7 @@ mod tests {
         );
 
         let (context, validator) = TestWelcomeSetup::builder()
-            .validator(NoopValidator)
+            .validator(SequenceValidator { fail: false })
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
                 db.expect_find_group().returning(|_id| Ok(None));
@@ -843,6 +926,71 @@ mod tests {
             .process_new_welcome(&network_welcome, cursor_increment, validator)
             .await;
         assert!(res.is_err(), "{}", res.unwrap_err());
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    async fn later_welcome_must_not_advance_cursor_past_retryable_failure(context: NewMockContext) {
+        let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
+        let client = create_mls_client(mem.as_ref());
+        let (first_kp, first_mls_welcome) = client.join_group();
+        let first_welcome = generate_welcome(
+            50,
+            first_kp.hpke_init_key().as_slice().to_vec(),
+            first_mls_welcome,
+            None,
+        );
+        let (second_kp, second_mls_welcome) = client.join_group();
+        let second_welcome = generate_welcome(
+            51,
+            second_kp.hpke_init_key().as_slice().to_vec(),
+            second_mls_welcome,
+            None,
+        );
+
+        let (context, _) = TestWelcomeSetup::builder()
+            .validator(NoopValidator)
+            .context(context)
+            .database_calls(|db: &mut MockDbQuery| {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
+                db.expect_find_group().returning(|_id| Ok(None));
+            })
+            .transaction_calls(|db: &mut MockDbQuery| {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
+            })
+            .nested_transaction_calls({
+                |db: &mut MockDbQuery| {
+                    db.expect_find_group().returning(|_id| Ok(None));
+                    db.expect_get_last_cursor_for_originators()
+                        .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
+                    db.expect_update_cursor().never();
+                    db.expect_update_responded_at_sequence_id()
+                        .returning(|_, _, _| Ok(()));
+                    db.expect_insert_or_replace_group().returning(Ok);
+                }
+            })
+            .mem(mem)
+            .build();
+
+        let service = WelcomeService::new(context);
+        let processing_service = service.clone();
+        let groups = service
+            .process_welcomes_with(vec![first_welcome, second_welcome], |welcome| {
+                let validator = SequenceValidator {
+                    fail: welcome.cursor.sequence_id == 50,
+                };
+                let processing_service = processing_service.clone();
+                async move {
+                    processing_service
+                        .process_new_welcome(&welcome, true, validator)
+                        .await
+                }
+            })
+            .await;
+
+        assert_eq!(groups.len(), 0);
     }
 
     // Helper functions for filter_groups_with_new_messages tests

@@ -11,6 +11,7 @@ use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
 /// Get the nodes from the gateway server and build the clients for each node.
+#[xmtp_common::rpc_span]
 pub(super) async fn get_nodes<C: Client>(
     gateway_client: &C,
     template: &ClientBuilder,
@@ -59,7 +60,12 @@ pub(super) async fn get_nodes<C: Client>(
                 clients.insert(node_id, client);
             }
             Err(err) => {
-                tracing::error!("failed to build client for node {}: {}", err.0, err.1);
+                tracing::error!(
+                    node_id = err.0,
+                    "failed to build client for node {}: {}",
+                    err.0,
+                    err.1
+                );
             }
         }
     }
@@ -75,6 +81,7 @@ pub(super) async fn get_nodes<C: Client>(
 }
 
 /// Get the fastest node from the list of endpoints.
+#[xmtp_common::rpc_span]
 pub async fn get_fastest_node(
     clients: HashMap<u32, GrpcClient>,
     timeout: Duration,
@@ -105,7 +112,12 @@ pub async fn get_fastest_node(
             xmtp_common::time::timeout(timeout, endpoint.query(&client))
                 .await
                 .map_err(|_| {
-                    tracing::error!("node {} timed out after {}ms", node_id, timeout.as_millis());
+                    tracing::error!(
+                        node_id,
+                        "node {} timed out after {}ms",
+                        node_id,
+                        timeout.as_millis()
+                    );
                     MultiNodeClientError::NodeTimedOut {
                         node_id,
                         latency: timeout.as_millis() as u64,
@@ -114,7 +126,7 @@ pub async fn get_fastest_node(
                 })
                 .and_then(|r| {
                     r.map_err(|e| {
-                        tracing::error!("node {} is unhealthy: {}", node_id, e);
+                        tracing::error!(node_id, "node {} is unhealthy: {}", node_id, e);
                         e.endpoint(ApiEndpoint::HealthCheck)
                     })
                 })
@@ -144,6 +156,7 @@ pub async fn get_fastest_node(
 
     let (node_id, client, latency) = fastest_client.ok_or_else(|| {
         tracing::error!(
+            failed_nodes = failed_nodes.len(),
             "no responsive nodes found, {} node(s) failed health checks",
             failed_nodes.len()
         );

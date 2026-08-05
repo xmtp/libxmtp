@@ -200,6 +200,7 @@ where
 
     /// Stream decoded messages for `group_ids`, resuming each group from its
     /// durable cursor (catch-up, then live, over the shared wire).
+    #[tracing::instrument(err, skip_all, fields(operation = "stream.router_stream_messages"))]
     pub async fn stream_messages(
         &self,
         group_ids: Vec<GroupId>,
@@ -220,6 +221,7 @@ where
     /// conversations: the subscribe-time set seeds the stream, and the
     /// welcome auto-subscribe reflex leases each later-joined group's topic
     /// as its welcome arrives — no re-subscribe needed.
+    #[tracing::instrument(err, skip_all, fields(operation = "stream.router_stream_all_messages"))]
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
@@ -250,6 +252,11 @@ where
 
     /// Stream new conversations from this client's welcome topic, resuming
     /// from the durable welcome cursor.
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "stream.router_stream_conversations")
+    )]
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
@@ -413,6 +420,9 @@ where
         }
     }
 
+    // Runs in the router task, detached from the caller's span — the entry
+    // spans above only observe the reply wait, this one the actual work.
+    #[tracing::instrument(skip_all, fields(operation = "stream.router_subscribe"))]
     async fn subscribe(&mut self, cmd: Cmd<Context>) {
         // A failed reply (the caller cancelled mid-subscribe) drops the
         // returned `RouterStream` right here, and its `Drop` routes back
