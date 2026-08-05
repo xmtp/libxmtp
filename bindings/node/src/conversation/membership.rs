@@ -7,8 +7,13 @@ use crate::{
 };
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
+use std::collections::HashMap;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
-use xmtp_mls::groups::{UpdateAdminListType, members::PermissionLevel as XmtpPermissionLevel};
+use xmtp_mls::groups::{
+  UpdateAdminListType,
+  members::PermissionLevel as XmtpPermissionLevel,
+  UpdateGroupMembershipResult as XmtpUpdateGroupMembershipResult,
+};
 
 #[napi]
 pub enum PermissionLevel {
@@ -58,6 +63,31 @@ pub struct GroupMember {
   pub installation_ids: Vec<String>,
   pub permission_level: PermissionLevel,
   pub consent_state: ConsentState,
+}
+
+#[napi(object)]
+pub struct UpdateGroupMembershipResult {
+  pub added_members: HashMap<String, i64>,
+  pub removed_members: Vec<String>,
+  pub failed_installations: Vec<String>,
+}
+
+impl From<XmtpUpdateGroupMembershipResult> for UpdateGroupMembershipResult {
+  fn from(value: XmtpUpdateGroupMembershipResult) -> Self {
+    Self {
+      added_members: value
+        .added_members
+        .into_iter()
+        .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
+        .collect(),
+      removed_members: value.removed_members,
+      failed_installations: value
+        .failed_installations
+        .into_iter()
+        .map(|id| hex::encode(id))
+        .collect(),
+    }
+  }
 }
 
 #[napi]
@@ -148,15 +178,17 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub async fn add_members_by_identity(&self, account_identities: Vec<Identifier>) -> Result<()> {
+  pub async fn add_members_by_identity(
+    &self,
+    account_identities: Vec<Identifier>,
+  ) -> Result<UpdateGroupMembershipResult> {
     let group = self.create_mls_group();
 
-    group
+    Ok(group
       .add_members_by_identity(&account_identities.to_internal()?)
       .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
+      .map(UpdateGroupMembershipResult::from)
+      .map_err(ErrorWrapper::from)?)
   }
 
   #[napi]
@@ -219,15 +251,14 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub async fn add_members(&self, inbox_ids: Vec<String>) -> Result<()> {
+  pub async fn add_members(&self, inbox_ids: Vec<String>) -> Result<UpdateGroupMembershipResult> {
     let group = self.create_mls_group();
 
-    group
+    Ok(group
       .add_members(&inbox_ids)
       .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
+      .map(UpdateGroupMembershipResult::from)
+      .map_err(ErrorWrapper::from)?)
   }
 
   #[napi]
