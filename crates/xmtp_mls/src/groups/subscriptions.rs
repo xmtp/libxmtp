@@ -97,6 +97,7 @@ where
             .await
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "stream.stream_group_messages"))]
     pub async fn stream<'a>(
         &'a self,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
@@ -107,6 +108,11 @@ where
     }
 
     /// create a stream that is not attached to any lifetime
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "stream.stream_group_messages_owned")
+    )]
     pub async fn stream_owned(
         &self,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>

@@ -142,6 +142,9 @@ impl Client for GrpcClient {
         &self.host
     }
 
+    // Manual form: #[rpc_span] can't produce the rpc.grpc.* sub-namespace nor
+    // carry the bounded `path` field (it hard-codes skip_all + rpc.<fn_name>).
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.request", path = %path))]
     async fn request(
         &self,
         request: http::request::Builder,
@@ -162,6 +165,9 @@ impl Client for GrpcClient {
         Ok(response.to_http())
     }
 
+    // The span covers stream establishment only — the returned stream
+    // outlives it.
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.stream", path = %path))]
     async fn stream(
         &self,
         request: request::Builder,
@@ -192,6 +198,7 @@ impl Client for GrpcClient {
     // Full-duplex needs a real HTTP/2 transport; the gRPC-Web service used on
     // wasm cannot carry it, so the browser keeps the trait's default error.
     #[cfg(not(target_arch = "wasm32"))]
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.bidi_stream", path = %path))]
     async fn bidi_stream(
         &self,
         request: request::Builder,

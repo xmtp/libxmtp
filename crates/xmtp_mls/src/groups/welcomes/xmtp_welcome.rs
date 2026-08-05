@@ -97,7 +97,10 @@ where
     C: XmtpSharedContext,
     V: ValidateGroupMembership,
 {
-    #[tracing::instrument(skip_all, level = "trace")]
+    // Named explicitly (derived `mls.process` is too generic) and without `err`:
+    // duplicate welcomes exit as Err(WelcomeAlreadyProcessed), an expected
+    // outcome; unexpected failures set status on mls.process_new_welcome above.
+    #[tracing::instrument(skip_all, fields(operation = "mls.process_welcome"))]
     pub async fn process(self) -> Result<Option<MlsGroup<C>>, GroupError> {
         let mut this = self.build()?;
         let db = this.context.db();

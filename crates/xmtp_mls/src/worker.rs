@@ -296,22 +296,20 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
             let worker = format!("{:?}", kind);
             let run = async move {
                 loop {
-                    let outcome = async { self.run_tasks().await }
-                        .instrument(tracing::info_span!(
-                            "worker_run",
-                            operation = "worker_run",
-                            worker = %worker
-                        ))
-                        .await;
+                    // No span here: `run_tasks` runs until worker death, so a
+                    // wrapping span exports only on restart with an hours-long
+                    // duration. Per-tick visibility comes from `worker_turn`;
+                    // restarts from the structured logs below.
+                    let outcome = self.run_tasks().await;
                     if let Err(err) = outcome {
                         if err.needs_db_reconnect() {
                             // drop the worker
                             tracing::debug!("pool disconnected. task will restart on reconnect");
                             break;
                         } else {
-                            tracing::error!("{:?} worker error: {}", kind, err);
+                            tracing::error!(worker = %worker, "{:?} worker error: {}", kind, err);
                             xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                            tracing::info!("Restarting {:?} worker...", kind);
+                            tracing::info!(worker = %worker, "Restarting {:?} worker...", kind);
                         }
                     }
                 }
