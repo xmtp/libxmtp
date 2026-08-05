@@ -4613,14 +4613,7 @@ async fn get_keypackages_for_installation_ids(
                 )?);
                 fetched_key_packages.push(verified_key_package.inner.clone());
             }
-            Err(err) => {
-                tracing::warn!(
-                    installation_id = %hex::encode(&installation_id),
-                    error = %err,
-                    "key package verification failed"
-                );
-                failed_installations.push(installation_id.clone());
-            }
+            Err(_) => failed_installations.push(installation_id.clone()),
         }
     }
 

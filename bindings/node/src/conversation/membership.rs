@@ -84,7 +84,7 @@ impl From<XmtpUpdateGroupMembershipResult> for UpdateGroupMembershipResult {
       failed_installations: value
         .failed_installations
         .into_iter()
-        .map(|id| hex::encode(id))
+        .map(hex::encode)
         .collect(),
     }
   }
