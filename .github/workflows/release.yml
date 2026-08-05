@@ -155,10 +155,15 @@ jobs:
   # nothing-pending.
   plan:
     needs: [validate]
-    if: needs.validate.outputs.release-type == 'nightly' && needs.validate.outputs.skip != 'true'
+    if: >-
+      (needs.validate.outputs.release-type == 'nightly' || needs.validate.outputs.release-type == 'dev')
+      && needs.validate.outputs.skip != 'true'
     uses: ./.github/workflows/release-gate-plan.yml
     with:
       ref: ${{ needs.validate.outputs.ref }}
+      # dev builds preview the next version off main but must NOT be gated on
+      # cross-test (that's a nightly correctness gate). nightly keeps the gate.
+      gate: ${{ needs.validate.outputs.release-type == 'nightly' }}
     secrets: inherit
 
   release-ios:
@@ -167,7 +172,7 @@ jobs:
       !cancelled() && !contains(needs.*.result, 'failure')
       && needs.validate.outputs.ios == 'true' && needs.validate.outputs.skip != 'true'
       && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
+      && ((needs.validate.outputs.release-type != 'nightly' && needs.validate.outputs.release-type != 'dev')
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-ios.yml
     with:
@@ -184,7 +189,7 @@ jobs:
       !cancelled() && !contains(needs.*.result, 'failure')
       && needs.validate.outputs.android == 'true' && needs.validate.outputs.skip != 'true'
       && needs.validate.outputs.dry-run != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
+      && ((needs.validate.outputs.release-type != 'nightly' && needs.validate.outputs.release-type != 'dev')
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-android.yml
     with:
@@ -200,7 +205,7 @@ jobs:
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure')
       && needs.validate.outputs.node-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
+      && ((needs.validate.outputs.release-type != 'nightly' && needs.validate.outputs.release-type != 'dev')
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-node-sdk.yml
     with:
@@ -217,7 +222,7 @@ jobs:
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure')
       && needs.validate.outputs.browser-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
+      && ((needs.validate.outputs.release-type != 'nightly' && needs.validate.outputs.release-type != 'dev')
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-browser-sdk.yml
     with:

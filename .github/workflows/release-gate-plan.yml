@@ -1,9 +1,12 @@
 name: release-gate-plan
 
-# Reusable: cross-test gate + version oracle (the nightly "plan"). Computes the
+# Reusable: cross-test gate + version oracle (the release "plan"). Computes the
 # pending libxmtp {version,kind}, caps at minor, asserts not-major, prints the
-# plan. Does NO publishing. Called by release.yml (real nightly) and
-# nightly-dry-run.yml (manual preview) so both run identical logic.
+# plan. Does NO publishing. Used for BOTH nightly and dev: nightly runs the
+# cross-test gate (gate: true, the default); dev runs it gateless (gate: false)
+# since the cross-test gate is a nightly-only correctness gate. Called by
+# release.yml (real nightly + dev) and nightly-dry-run.yml (manual preview) so
+# all paths run identical version-computation logic.
 
 on:
   workflow_call:
@@ -11,6 +14,11 @@ on:
       ref:
         required: true
         type: string
+      gate:
+        required: false
+        type: boolean
+        default: true
+        description: "Run the nightly cross-test gate. dev builds pass false to skip it."
     outputs:
       sha:
         value: ${{ jobs.gate.outputs.sha }}
@@ -53,8 +61,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.sha.outputs.sha }}
+          GATE_ENABLED: ${{ inputs.gate }}
         run: |
           set -euo pipefail
+          if [ "$GATE_ENABLED" != "true" ]; then
+            echo "gate-skip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cross-test gate disabled for this run (e.g. dev build); proceeding."
+            exit 0
+          fi
           gh api "repos/${REPO}/actions/workflows/cross-test.yml/runs?head_sha=${SHA}&status=completed" > /tmp/cross-runs.json
           RESULT=$(xmtp-release cross-test-gate --input=/tmp/cross-runs.json --sha "$SHA")
           PASS=$(printf '%s' "$RESULT" | jq -r '.pass')
@@ -143,7 +157,7 @@ jobs:
           echo "kind=$KIND" >> "$GITHUB_OUTPUT"
           # Human-readable release plan.
           {
-            echo "## Nightly release plan"
+            echo "## Release plan"
             echo ""
             echo "- libxmtp: \`$VERSION\` (bump: $KIND, baseline: $LAST)"
             echo ""
