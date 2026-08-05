@@ -682,7 +682,7 @@ where
             Event::DeviceSyncArchiveDownloading,
             self.context.installation_id()
         );
-        let response = reqwest::Client::new().get(reply.url).send().await?;
+        let response = xmtp_common::http::client()?.get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             log_event!(
                 Event::DeviceSyncPayloadDownloadFailure,
