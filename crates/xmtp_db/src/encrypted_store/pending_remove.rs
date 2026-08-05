@@ -190,8 +190,8 @@ mod tests {
     use crate::{StoreOrIgnore, with_connection};
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_add_pending_remove() {
-        with_connection(|conn| {
+    async fn test_add_pending_remove() {
+        with_connection(async |conn| {
             // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "123".to_string(),
@@ -199,16 +199,17 @@ mod tests {
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
-            let users = conn.get_pending_remove_users(&GroupId::ONE).unwrap();
+            let users = conn.get_pending_remove_users(&GroupId::ONE).await.unwrap();
             assert_eq!(users.len(), 1);
-            let users = conn.get_pending_remove_users(&GroupId::TWO).unwrap();
+            let users = conn.get_pending_remove_users(&GroupId::TWO).await.unwrap();
             assert_eq!(users.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_delete_pending_remove_user() {
-        with_connection(|conn| {
+    async fn test_delete_pending_remove_user() {
+        with_connection(async |conn| {
             // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "1".to_string(),
@@ -229,18 +230,21 @@ mod tests {
             }
             .store_or_ignore(conn)?;
             let group_id = GroupId::ONE;
-            let users = conn.get_pending_remove_users(&group_id).unwrap();
+            let users = conn.get_pending_remove_users(&group_id).await.unwrap();
             assert_eq!(users.len(), 3);
             let deleted_users = conn
                 .delete_pending_remove_users(&group_id, vec!["1".to_string(), "2".to_string()])
+                .await
                 .unwrap();
             assert_eq!(deleted_users, 2usize);
-            let users = conn.get_pending_remove_users(&group_id).unwrap();
+            let users = conn.get_pending_remove_users(&group_id).await.unwrap();
             assert_eq!(users.len(), 1);
             let deleted_users = conn
                 .delete_pending_remove_users(&GroupId::TWO, vec!["3".to_string()])
+                .await
                 .unwrap();
             assert_eq!(deleted_users, 0usize);
         })
+        .await
     }
 }

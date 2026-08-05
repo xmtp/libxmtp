@@ -405,8 +405,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn insert_and_read() {
-        with_connection(|conn| {
+    async fn insert_and_read() {
+        with_connection(async |conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
             let update_1_payload = update_1.payload.clone();
@@ -418,6 +418,7 @@ pub(crate) mod tests {
 
             let all_updates = conn
                 .get_identity_updates(inbox_id, None, None)
+                .await
                 .expect("query should work");
 
             assert_eq!(all_updates.len(), 2);
@@ -426,43 +427,49 @@ pub(crate) mod tests {
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_filter() {
-        with_connection(|conn| {
+    async fn test_filter() {
+        with_connection(async |conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
             let update_2 = build_update(inbox_id, 2);
             let update_3 = build_update(inbox_id, 3);
 
             conn.insert_or_ignore_identity_updates(&[update_1, update_2, update_3])
+                .await
                 .expect("insert should succeed");
 
             let update_1_and_2 = conn
                 .get_identity_updates(inbox_id, None, Some(2))
+                .await
                 .expect("query should work");
 
             assert_eq!(update_1_and_2.len(), 2);
 
             let all_updates = conn
                 .get_identity_updates(inbox_id, None, None)
+                .await
                 .expect("query should work");
 
             assert_eq!(all_updates.len(), 3);
 
             let only_update_2 = conn
                 .get_identity_updates(inbox_id, Some(1), Some(2))
+                .await
                 .expect("query should work");
 
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_latest_sequence_id() {
-        with_connection(|conn| {
+    async fn test_get_latest_sequence_id() {
+        with_connection(async |conn| {
             let inbox_1 = "inbox_1";
             let inbox_2 = "inbox_2";
             let update_1 = build_update(inbox_1, 1);
@@ -471,10 +478,12 @@ pub(crate) mod tests {
             let update_4 = build_update(inbox_2, 6);
 
             conn.insert_or_ignore_identity_updates(&[update_1, update_2, update_3, update_4])
+                .await
                 .expect("insert should succeed");
 
             let latest_sequence_ids = conn
                 .get_latest_sequence_id(&[inbox_1, inbox_2])
+                .await
                 .expect("query should work");
 
             assert_eq!(latest_sequence_ids.get(inbox_1), Some(&3));
@@ -482,6 +491,7 @@ pub(crate) mod tests {
 
             let latest_sequence_ids_with_missing_member = conn
                 .get_latest_sequence_id(&[inbox_1, "missing_inbox"])
+                .await
                 .expect("should still succeed");
 
             assert_eq!(
@@ -493,11 +503,12 @@ pub(crate) mod tests {
                 None
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn get_single_sequence_id() {
-        with_connection(|conn| {
+    async fn get_single_sequence_id() {
+        with_connection(async |conn| {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
             let update_2 = build_update(inbox_id, 2);
@@ -506,14 +517,16 @@ pub(crate) mod tests {
 
             let sequence_id = conn
                 .get_latest_sequence_id_for_inbox(inbox_id)
+                .await
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_count_inbox_updates() {
-        with_connection(|conn| {
+    async fn test_count_inbox_updates() {
+        with_connection(async |conn| {
             let inbox_1 = "inbox_1";
             let inbox_2 = "inbox_2";
             conn.insert_or_ignore_identity_updates(&[
@@ -521,13 +534,16 @@ pub(crate) mod tests {
                 build_update(inbox_1, 2),
                 build_update(inbox_2, 1),
             ])
+            .await
             .unwrap();
             let counts = conn
                 .count_inbox_updates(&[inbox_1, inbox_2, "missing"])
+                .await
                 .unwrap();
             assert_eq!(counts.get(inbox_1), Some(&2));
             assert_eq!(counts.get(inbox_2), Some(&1));
             assert_eq!(counts.get("missing"), None);
         })
+        .await
     }
 }

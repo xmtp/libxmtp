@@ -269,8 +269,8 @@ pub(crate) mod tests {
 
     // Test storing duplicated wallets (same inbox_id and wallet_address)
     #[xmtp_common::test]
-    fn test_store_duplicated_wallets() {
-        with_connection(|conn| {
+    async fn test_store_duplicated_wallets() {
+        with_connection(async |conn| {
             let entry1 = IdentityCache {
                 inbox_id: "test_dup".to_string(),
                 identity: "wallet_dup".to_string(),
@@ -288,12 +288,13 @@ pub(crate) mod tests {
                 "Duplicated wallet stored without error, expected failure"
             );
         })
+        .await
     }
 
     // Test storing and fetching multiple wallet addresses with multiple keys
     #[xmtp_common::test]
-    fn test_fetch_and_store_identity_cache() {
-        with_connection(|conn| {
+    async fn test_fetch_and_store_identity_cache() {
+        with_connection(async |conn| {
             let ident1 = MockIdentity::create();
             let ident2 = MockIdentity::create();
 
@@ -302,13 +303,14 @@ pub(crate) mod tests {
                 ident1.identity.clone(),
                 &ident1.inbox_id,
             )
+            .await
             .unwrap();
 
             let idents = &[
                 (ident1.identity.clone(), StoredIdentityKind::Ethereum),
                 (ident2.identity.clone(), StoredIdentityKind::Ethereum),
             ];
-            let stored_wallets = conn.fetch_cached_inbox_ids(idents).unwrap();
+            let stored_wallets = conn.fetch_cached_inbox_ids(idents).await.unwrap();
 
             // Verify that 1 entries are fetched
             assert_eq!(stored_wallets.len(), 1);
@@ -321,11 +323,13 @@ pub(crate) mod tests {
             let ident = MockIdentity::create();
             let non_existent_wallets = conn
                 .fetch_cached_inbox_ids(&[(ident.identity, StoredIdentityKind::Ethereum)])
+                .await
                 .unwrap_or_default();
             assert!(
                 non_existent_wallets.is_empty(),
                 "Expected no wallets, found some"
             );
         })
+        .await
     }
 }

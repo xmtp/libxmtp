@@ -603,29 +603,32 @@ pub(crate) mod tests {
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
-    fn get_tasks_returns_empty_list_initially() {
-        with_connection(|conn| {
-            let tasks = conn.get_tasks().unwrap();
+    async fn get_tasks_returns_empty_list_initially() {
+        with_connection(async |conn| {
+            let tasks = conn.get_tasks().await.unwrap();
             assert!(tasks.is_empty());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn update_task_returns_error_when_not_found() {
-        with_connection(|conn| {
+    async fn update_task_returns_error_when_not_found() {
+        with_connection(async |conn| {
             // Try to update a task that doesn't exist
             let result = conn.update_task(999, 5, 1000, 2000);
             // The update should fail when the task doesn't exist
-            assert!(result.is_err());
+            assert!(result.await.is_err());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn delete_task_returns_false_when_not_found() {
-        with_connection(|conn| {
-            let deleted = conn.delete_task(999).unwrap();
+    async fn delete_task_returns_false_when_not_found() {
+        with_connection(async |conn| {
+            let deleted = conn.delete_task(999).await.unwrap();
             assert!(!deleted);
         })
+        .await
     }
 
     // Generate a random task data for testing to ensure that the hashes are unique
@@ -648,8 +651,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn all_task_operations_work_together() {
-        with_connection(|conn| {
+    async fn all_task_operations_work_together() {
+        with_connection(async |conn| {
             let now = xmtp_common::time::now_ns();
 
             // 1. Create first task (should be next to run)
@@ -685,12 +688,12 @@ pub(crate) mod tests {
                 .unwrap();
 
             // 3. Verify no tasks initially
-            assert!(conn.get_next_task().unwrap().is_none());
-            assert!(conn.get_tasks().unwrap().is_empty());
+            assert!(conn.get_next_task().await.unwrap().is_none());
+            assert!(conn.get_tasks().await.unwrap().is_empty());
 
             // 4. Create both tasks
-            let created_task1 = conn.create_task(task1).unwrap();
-            let created_task2 = conn.create_task(task2).unwrap();
+            let created_task1 = conn.create_task(task1).await.unwrap();
+            let created_task2 = conn.create_task(task2).await.unwrap();
 
             let task1_id = created_task1.id;
             let task2_id = created_task2.id;
@@ -699,11 +702,11 @@ pub(crate) mod tests {
             assert_ne!(task1_id, task2_id);
 
             // 5. Verify both tasks appear in get_tasks
-            let all_tasks = conn.get_tasks().unwrap();
+            let all_tasks = conn.get_tasks().await.unwrap();
             assert_eq!(all_tasks.len(), 2);
 
             // 6. Verify get_next_task returns the task with earlier next_attempt_at_ns (task2)
-            let next_task = conn.get_next_task().unwrap();
+            let next_task = conn.get_next_task().await.unwrap();
             assert!(next_task.is_some());
             let next_task = next_task.unwrap();
             assert_eq!(next_task.id, task2_id);
@@ -717,6 +720,7 @@ pub(crate) mod tests {
                     now + 2000, // last_attempted_at_ns
                     now + 200,  // next_attempt_at_ns - now earliest
                 )
+                .await
                 .unwrap();
 
             // Verify the update
@@ -725,14 +729,14 @@ pub(crate) mod tests {
             assert_eq!(updated_task1.next_attempt_at_ns, now + 200);
 
             // 8. Verify get_next_task now returns task1 (earliest next_attempt_at_ns)
-            let next_task = conn.get_next_task().unwrap();
+            let next_task = conn.get_next_task().await.unwrap();
             assert!(next_task.is_some());
             let next_task = next_task.unwrap();
             assert_eq!(next_task.id, task1_id);
             assert_eq!(next_task.next_attempt_at_ns, now + 200);
 
             // 9. Verify both tasks appear in get_tasks with correct data
-            let all_tasks_after_update = conn.get_tasks().unwrap();
+            let all_tasks_after_update = conn.get_tasks().await.unwrap();
             assert_eq!(all_tasks_after_update.len(), 2);
 
             // Find each task by ID
@@ -751,33 +755,34 @@ pub(crate) mod tests {
             assert_eq!(task2_in_list.next_attempt_at_ns, now + 500);
 
             // 10. Delete task1
-            let deleted = conn.delete_task(task1_id).unwrap();
+            let deleted = conn.delete_task(task1_id).await.unwrap();
             assert!(deleted);
 
             // 11. Verify get_next_task now returns task2
-            let next_task = conn.get_next_task().unwrap();
+            let next_task = conn.get_next_task().await.unwrap();
             assert!(next_task.is_some());
             let next_task = next_task.unwrap();
             assert_eq!(next_task.id, task2_id);
 
             // 12. Verify only task2 remains in get_tasks
-            let remaining_tasks = conn.get_tasks().unwrap();
+            let remaining_tasks = conn.get_tasks().await.unwrap();
             assert_eq!(remaining_tasks.len(), 1);
             assert_eq!(remaining_tasks[0].id, task2_id);
 
             // 13. Delete task2
-            let deleted = conn.delete_task(task2_id).unwrap();
+            let deleted = conn.delete_task(task2_id).await.unwrap();
             assert!(deleted);
 
             // 14. Verify no tasks remain
-            let all_tasks_after_delete = conn.get_tasks().unwrap();
+            let all_tasks_after_delete = conn.get_tasks().await.unwrap();
             assert!(all_tasks_after_delete.is_empty());
-            assert!(conn.get_next_task().unwrap().is_none());
+            assert!(conn.get_next_task().await.unwrap().is_none());
 
             // 15. Verify delete returns false for non-existent task
-            let deleted_again = conn.delete_task(task1_id).unwrap();
+            let deleted_again = conn.delete_task(task1_id).await.unwrap();
             assert!(!deleted_again);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -851,8 +856,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn create_or_ignore_task_is_idempotent() {
-        with_connection(|conn| {
+    async fn create_or_ignore_task_is_idempotent() {
+        with_connection(async |conn| {
             let proto = gen_task_data();
             let mk = || {
                 NewTask::builder()
@@ -861,17 +866,18 @@ pub(crate) mod tests {
                     .build(proto.clone())
                     .unwrap()
             };
-            conn.create_or_ignore_task(mk()).unwrap();
+            conn.create_or_ignore_task(mk()).await.unwrap();
             // Second byte-identical insert must be a silent no-op, NOT a
             // unique-constraint error (plain create_task would error here).
-            conn.create_or_ignore_task(mk()).unwrap();
-            assert_eq!(conn.get_tasks().unwrap().len(), 1);
+            conn.create_or_ignore_task(mk()).await.unwrap();
+            assert_eq!(conn.get_tasks().await.unwrap().len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn pull_in_lowers_deadline() {
-        with_connection(|conn| {
+    async fn pull_in_lowers_deadline() {
+        with_connection(async |conn| {
             let proto = gen_task_data();
             let now = now_ns();
             let task = NewTask::builder()
@@ -880,35 +886,52 @@ pub(crate) mod tests {
                 .next_attempt_at_ns(now + NS_IN_DAY)
                 .build(proto.clone())
                 .unwrap();
-            conn.create_or_ignore_task(task).unwrap();
+            conn.create_or_ignore_task(task).await.unwrap();
             let hash = data_hash_for(&proto);
 
             // Lowers a far-out deadline.
-            assert!(conn.pull_in_task_deadline(&hash, now + 5).unwrap());
+            assert!(conn.pull_in_task_deadline(&hash, now + 5).await.unwrap());
             assert_eq!(
-                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                conn.get_next_task()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .next_attempt_at_ns,
                 now + 5
             );
 
             // Never raises (MIN): a later ceiling keeps the row but not the value.
-            assert!(conn.pull_in_task_deadline(&hash, now + NS_IN_DAY).unwrap());
+            assert!(
+                conn.pull_in_task_deadline(&hash, now + NS_IN_DAY)
+                    .await
+                    .unwrap()
+            );
             assert_eq!(
-                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                conn.get_next_task()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .next_attempt_at_ns,
                 now + 5
             );
 
             // Missing target: no-op reported as false, no error.
             let absent = TaskDataHash::try_from([0xAAu8; 32].as_slice()).unwrap();
-            assert!(!conn.pull_in_task_deadline(&absent, now).unwrap());
+            assert!(!conn.pull_in_task_deadline(&absent, now).await.unwrap());
             assert_eq!(
-                conn.get_next_task().unwrap().unwrap().next_attempt_at_ns,
+                conn.get_next_task()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .next_attempt_at_ns,
                 now + 5
             );
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn upsert_pending_self_remove_dedups_per_group() {
+    async fn upsert_pending_self_remove_dedups_per_group() {
         use xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove;
         let build = |gid: &GroupId| {
             let proto = TaskProto {
@@ -924,20 +947,24 @@ pub(crate) mod tests {
                 .build(proto)
                 .unwrap()
         };
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // First upsert inserts; a second for the same group dedups, not piles up.
-            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))?;
-            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))?;
-            assert_eq!(conn.get_tasks()?.len(), 1);
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))
+                .await?;
+            conn.upsert_pending_self_remove_task(&GroupId::ONE, build(&GroupId::ONE))
+                .await?;
+            assert_eq!(conn.get_tasks().await?.len(), 1);
 
             // A different group gets its own task.
-            conn.upsert_pending_self_remove_task(&GroupId::TWO, build(&GroupId::TWO))?;
-            assert_eq!(conn.get_tasks()?.len(), 2);
+            conn.upsert_pending_self_remove_task(&GroupId::TWO, build(&GroupId::TWO))
+                .await?;
+            assert_eq!(conn.get_tasks().await?.len(), 2);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn upsert_preserves_live_task_but_replaces_dead_one() {
+    async fn upsert_preserves_live_task_but_replaces_dead_one() {
         use xmtp_proto::xmtp::mls::database::ProcessPendingSelfRemove;
         let proto = |gid: &GroupId| TaskProto {
             task: Some(TaskKind::ProcessPendingSelfRemove(
@@ -946,7 +973,7 @@ pub(crate) mod tests {
                 },
             )),
         };
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // A live task that has already retried twice and backed off.
             let now = now_ns();
             let live = NewTask::builder()
@@ -955,7 +982,7 @@ pub(crate) mod tests {
                 .attempts(2)
                 .next_attempt_at_ns(now + NS_IN_DAY)
                 .build(proto(&GroupId::ONE))?;
-            conn.create_task(live)?;
+            conn.create_task(live).await?;
 
             // Re-upsert must NOT reset its backoff: the live row is left in place.
             conn.upsert_pending_self_remove_task(&GroupId::ONE, {
@@ -964,8 +991,8 @@ pub(crate) mod tests {
                     .originating_message_originator_id(0)
                     .next_attempt_at_ns(now)
                     .build(proto(&GroupId::ONE))?
-            })?;
-            let tasks = conn.get_tasks()?;
+            }).await?;
+            let tasks = conn.get_tasks().await?;
             assert_eq!(tasks.len(), 1);
             assert_eq!(tasks[0].attempts, 2);
             assert_eq!(tasks[0].next_attempt_at_ns, now + NS_IN_DAY);
@@ -977,16 +1004,16 @@ pub(crate) mod tests {
                 .attempts(20)
                 .max_attempts(20)
                 .build(proto(&GroupId::TWO))?;
-            conn.create_task(dead)?;
+            conn.create_task(dead).await?;
             conn.upsert_pending_self_remove_task(&GroupId::TWO, {
                 NewTask::builder()
                     .originating_message_sequence_id(0)
                     .originating_message_originator_id(0)
                     .attempts(0)
                     .build(proto(&GroupId::TWO))?
-            })?;
+            }).await?;
             let two: Vec<_> = conn
-                .get_tasks()?
+                .get_tasks().await?
                 .into_iter()
                 .filter(|t| {
                     matches!(
@@ -997,6 +1024,6 @@ pub(crate) mod tests {
                 .collect();
             assert_eq!(two.len(), 1);
             assert_eq!(two[0].attempts, 0);
-        })
+        }).await
     }
 }

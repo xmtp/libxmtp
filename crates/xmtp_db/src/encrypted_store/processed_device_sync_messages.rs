@@ -363,8 +363,8 @@ mod tests {
     };
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn it_marks_as_processed() {
-        with_connection(|conn| {
+    async fn it_marks_as_processed() {
+        with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
             group.store(conn)?;
@@ -378,25 +378,26 @@ mod tests {
             let message2 = generate_message(None, Some(&group2.id), None, None, None, None);
             message2.store(conn)?;
 
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 2);
 
             // Storing with Pending state still counts as unprocessed
             StoredProcessedDeviceSyncMessages::new(message2.id.clone()).store(conn)?;
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 2);
 
             // Setting state to Processed marks it as processed
-            conn.mark_device_sync_msg_as_processed(&message2.id)?;
+            conn.mark_device_sync_msg_as_processed(&message2.id).await?;
 
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn it_stores_with_attempts_and_state() {
-        with_connection(|conn| {
+    async fn it_stores_with_attempts_and_state() {
+        with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
             group.store(conn)?;
@@ -411,21 +412,22 @@ mod tests {
             stored.store(conn)?;
 
             // Pending state is still considered unprocessed
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 1);
 
             // Update to Processed state using mark_device_sync_msg_as_processed
-            conn.mark_device_sync_msg_as_processed(&message.id)?;
+            conn.mark_device_sync_msg_as_processed(&message.id).await?;
 
             // Now it's no longer in unprocessed
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn it_preserves_attempts_when_marking_as_processed() {
-        with_connection(|conn| {
+    async fn it_preserves_attempts_when_marking_as_processed() {
+        with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
             group.store(conn)?;
@@ -437,11 +439,13 @@ mod tests {
             StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
 
             // Increment attempts a couple times
-            conn.increment_device_sync_msg_attempt(&message.id, 3)?;
-            conn.increment_device_sync_msg_attempt(&message.id, 3)?;
+            conn.increment_device_sync_msg_attempt(&message.id, 3)
+                .await?;
+            conn.increment_device_sync_msg_attempt(&message.id, 3)
+                .await?;
 
             // Now mark as processed
-            conn.mark_device_sync_msg_as_processed(&message.id)?;
+            conn.mark_device_sync_msg_as_processed(&message.id).await?;
 
             // Verify attempts are preserved (should be 2)
             let record: StoredProcessedDeviceSyncMessages = conn.raw_query(|c| {
@@ -452,11 +456,12 @@ mod tests {
             assert_eq!(record.attempts, 2);
             assert_eq!(record.state, DeviceSyncProcessingState::Processed);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn it_increments_attempts_and_sets_failed_at_max() {
-        with_connection(|conn| {
+    async fn it_increments_attempts_and_sets_failed_at_max() {
+        with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
             group.store(conn)?;
@@ -468,31 +473,38 @@ mod tests {
             StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
 
             // Increment attempt 1
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
+            let attempts = conn
+                .increment_device_sync_msg_attempt(&message.id, 3)
+                .await?;
             assert_eq!(attempts, 1);
             // Still pending (below max)
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 1);
 
             // Increment attempt 2
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
+            let attempts = conn
+                .increment_device_sync_msg_attempt(&message.id, 3)
+                .await?;
             assert_eq!(attempts, 2);
             // Still pending (below max)
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 1);
 
             // Increment attempt 3 (reaches MAX_ATTEMPTS)
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
+            let attempts = conn
+                .increment_device_sync_msg_attempt(&message.id, 3)
+                .await?;
             assert_eq!(attempts, 3);
             // Should now be Failed and no longer in unprocessed
-            let unprocessed = conn.unprocessed_sync_group_messages()?;
+            let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn it_returns_sync_group_messages_paged() {
-        with_connection(|conn| {
+    async fn it_returns_sync_group_messages_paged() {
+        with_connection(async |conn| {
             let mut sync_group = generate_group(None);
             sync_group.conversation_type = ConversationType::Sync;
             sync_group.store(conn)?;
@@ -523,28 +535,28 @@ mod tests {
             dm_message.store(conn)?;
 
             // Test pagination: get first 2 messages
-            let page1 = conn.sync_group_messages_paged(0, 2)?;
+            let page1 = conn.sync_group_messages_paged(0, 2).await?;
             assert_eq!(page1.len(), 2);
             assert_eq!(page1[0].id, sync_message_ids[0]);
             assert_eq!(page1[1].id, sync_message_ids[1]);
 
             // Test pagination: get next 2 messages
-            let page2 = conn.sync_group_messages_paged(2, 2)?;
+            let page2 = conn.sync_group_messages_paged(2, 2).await?;
             assert_eq!(page2.len(), 2);
             assert_eq!(page2[0].id, sync_message_ids[2]);
             assert_eq!(page2[1].id, sync_message_ids[3]);
 
             // Test pagination: get last message
-            let page3 = conn.sync_group_messages_paged(4, 2)?;
+            let page3 = conn.sync_group_messages_paged(4, 2).await?;
             assert_eq!(page3.len(), 1);
             assert_eq!(page3[0].id, sync_message_ids[4]);
 
             // Test pagination: offset beyond available messages
-            let page4 = conn.sync_group_messages_paged(10, 2)?;
+            let page4 = conn.sync_group_messages_paged(10, 2).await?;
             assert_eq!(page4.len(), 0);
 
             // Test getting all messages at once
-            let all_messages = conn.sync_group_messages_paged(0, 100)?;
+            let all_messages = conn.sync_group_messages_paged(0, 100).await?;
             assert_eq!(all_messages.len(), 5);
 
             // Verify all returned messages are in order and belong to the sync group
@@ -553,5 +565,6 @@ mod tests {
                 assert_eq!(msg.group_id.as_slice(), sync_group.id.as_slice());
             }
         })
+        .await
     }
 }

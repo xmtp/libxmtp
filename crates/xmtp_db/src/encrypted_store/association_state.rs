@@ -284,14 +284,15 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_batch_read() {
-        with_connection(|conn| {
+    async fn test_batch_read() {
+        with_connection(async |conn| {
             let mock = AssociationStateProto {
                 inbox_id: "test_id1".into(),
                 members: vec![],
                 ..Default::default()
             };
             conn.write_to_cache(mock.inbox_id.clone(), 1, mock.clone())
+                .await
                 .unwrap();
             let mock_2 = AssociationStateProto {
                 inbox_id: "test_id2".into(),
@@ -300,10 +301,12 @@ pub(crate) mod tests {
             };
 
             conn.write_to_cache(mock_2.inbox_id.clone(), 2, mock_2.clone())
+                .await
                 .unwrap();
 
             let first_association_state: Vec<MockState> = conn
                 .batch_read_from_cache(vec![(mock.inbox_id.to_string(), 1)])
+                .await
                 .unwrap()
                 .into_iter()
                 .map(Into::into)
@@ -316,6 +319,7 @@ pub(crate) mod tests {
                     (mock.inbox_id.clone(), 1),
                     (mock_2.inbox_id.clone(), 2),
                 ])
+                .await
                 .unwrap()
                 .into_iter()
                 .map(Into::into)
@@ -325,11 +329,13 @@ pub(crate) mod tests {
 
             let no_results = conn
                 .batch_read_from_cache(vec![(mock.inbox_id.clone(), 2)])
+                .await
                 .unwrap()
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<MockState>>();
             assert_eq!(no_results.len(), 0);
         })
+        .await
     }
 }

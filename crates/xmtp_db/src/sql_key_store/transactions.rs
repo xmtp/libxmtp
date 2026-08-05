@@ -219,6 +219,13 @@ mod tests {
             self.key_store
                 .transaction(|conn| {
                     let storage = conn.key_store();
+                    // `.await` is not available here: diesel's transaction
+                    // callback holds `&mut conn` and so cannot be async. The
+                    // sync track's `Query*` futures never yield -- their bodies
+                    // are blocking diesel calls -- so resolving one in place is
+                    // sound. Same escape hatch `with_connection` used before it
+                    // became async.
+                    use futures::FutureExt;
                     storage
                         .db()
                         .insert_group_intent(NewGroupIntent {
@@ -228,6 +235,8 @@ mod tests {
                             should_push: false,
                             state: IntentState::ToPublish,
                         })
+                        .now_or_never()
+                        .expect("sync-track Query futures resolve immediately")
                         .map(Continue)
                 })
                 .unwrap();

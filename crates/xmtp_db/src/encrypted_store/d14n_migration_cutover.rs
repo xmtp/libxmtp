@@ -190,59 +190,64 @@ mod tests {
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
-    fn test_default_migration_cutover() {
-        with_connection(|conn| {
-            let cutover = conn.get_migration_cutover().unwrap();
+    async fn test_default_migration_cutover() {
+        with_connection(async |conn| {
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert_eq!(cutover.cutover_ns, i64::MAX);
             assert_eq!(cutover.last_checked_ns, 0);
             assert!(!cutover.has_migrated);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_set_cutover_ns() {
-        with_connection(|conn| {
+    async fn test_set_cutover_ns() {
+        with_connection(async |conn| {
             let timestamp = 1_700_000_000_000_000_000i64;
-            conn.set_cutover_ns(timestamp).unwrap();
+            conn.set_cutover_ns(timestamp).await.unwrap();
 
-            let cutover = conn.get_migration_cutover().unwrap();
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert_eq!(cutover.cutover_ns, timestamp);
             assert_eq!(cutover.last_checked_ns, 0);
             assert!(!cutover.has_migrated);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_set_last_checked_ns() {
-        with_connection(|conn| {
+    async fn test_set_last_checked_ns() {
+        with_connection(async |conn| {
             let timestamp = 1_700_000_000_000_000_000i64;
-            conn.set_last_checked_ns(timestamp).unwrap();
+            conn.set_last_checked_ns(timestamp).await.unwrap();
 
-            let cutover = conn.get_migration_cutover().unwrap();
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert_eq!(cutover.cutover_ns, i64::MAX);
             assert_eq!(cutover.last_checked_ns, timestamp);
             assert!(!cutover.has_migrated);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_last_checked_ns() {
-        with_connection(|conn| {
+    async fn test_get_last_checked_ns() {
+        with_connection(async |conn| {
             let timestamp = 1_700_000_000_000_000_000i64;
-            conn.set_last_checked_ns(timestamp).unwrap();
+            conn.set_last_checked_ns(timestamp).await.unwrap();
 
-            let last_checked = conn.get_last_checked_ns().unwrap();
+            let last_checked = conn.get_last_checked_ns().await.unwrap();
             assert_eq!(last_checked, timestamp);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_set_has_migrated() {
-        with_connection(|conn| {
-            conn.set_has_migrated(true).unwrap();
+    async fn test_set_has_migrated() {
+        with_connection(async |conn| {
+            conn.set_has_migrated(true).await.unwrap();
 
-            let cutover = conn.get_migration_cutover().unwrap();
+            let cutover = conn.get_migration_cutover().await.unwrap();
             assert!(cutover.has_migrated);
         })
+        .await
     }
 }

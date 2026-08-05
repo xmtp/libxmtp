@@ -325,19 +325,23 @@ mod tests {
     use crate::{Store, test_utils::with_connection};
 
     #[xmtp_common::test]
-    fn test_get_readd_status_not_found() {
-        with_connection(|conn| {
+    async fn test_get_readd_status_not_found() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
-            let result = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let result = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(result.is_none());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_store_and_get_readd_status() {
-        with_connection(|conn| {
+    async fn test_store_and_get_readd_status() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -352,37 +356,46 @@ mod tests {
             status.store(conn).unwrap();
 
             // Retrieve it
-            let retrieved = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let retrieved = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(retrieved.is_some());
             let retrieved_status = retrieved.unwrap();
             assert_eq!(retrieved_status.requested_at_sequence_id, Some(100));
             assert_eq!(retrieved_status.responded_at_sequence_id, Some(50));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_update_requested_at_sequence_id_creates_new() {
-        with_connection(|conn| {
+    async fn test_update_requested_at_sequence_id_creates_new() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
             let sequence_id = 100;
 
             // Update on non-existing record should create it
             conn.update_requested_at_sequence_id(&group_id, &installation_id, sequence_id)
+                .await
                 .unwrap();
 
             // Verify it was created
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.requested_at_sequence_id, Some(sequence_id));
             assert_eq!(status.responded_at_sequence_id, None);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_update_requested_at_sequence_id_updates_existing() {
-        with_connection(|conn| {
+    async fn test_update_requested_at_sequence_id_updates_existing() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -397,20 +410,25 @@ mod tests {
 
             // Update with higher sequence_id
             conn.update_requested_at_sequence_id(&group_id, &installation_id, 100)
+                .await
                 .unwrap();
 
             // Verify it was updated
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.requested_at_sequence_id, Some(100));
             assert_eq!(status.responded_at_sequence_id, Some(25)); // This is preserved by the UPDATE
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_update_requested_at_sequence_id_only_updates_if_higher() {
-        with_connection(|conn| {
+    async fn test_update_requested_at_sequence_id_only_updates_if_higher() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -425,20 +443,25 @@ mod tests {
 
             // Try to update with lower sequence_id - this should be ignored
             conn.update_requested_at_sequence_id(&group_id, &installation_id, 75)
+                .await
                 .unwrap();
 
             // Verify it was NOT updated (lower sequence_id should be ignored due to filter)
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.requested_at_sequence_id, Some(100)); // Should remain unchanged
             assert_eq!(status.responded_at_sequence_id, Some(50)); // Should remain unchanged
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_update_requested_at_sequence_id_updates_from_null() {
-        with_connection(|conn| {
+    async fn test_update_requested_at_sequence_id_updates_from_null() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -453,40 +476,50 @@ mod tests {
 
             // Update with any sequence_id (should work since current is null)
             conn.update_requested_at_sequence_id(&group_id, &installation_id, 50)
+                .await
                 .unwrap();
 
             // Verify it was updated
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.requested_at_sequence_id, Some(50));
             assert_eq!(status.responded_at_sequence_id, Some(25)); // This is preserved by the UPDATE
         })
+        .await
     }
 
     #[xmtp_common::test]
     async fn test_update_responded_at_sequence_id_creates_new() {
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
             let sequence_id = 100;
 
             // Update on non-existing record should create it
             conn.update_responded_at_sequence_id(&group_id, &installation_id, sequence_id)
+                .await
                 .unwrap();
 
             // Verify it was created
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.responded_at_sequence_id, Some(sequence_id));
             assert_eq!(status.requested_at_sequence_id, None);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_update_responded_at_sequence_id_only_updates_if_higher() {
-        with_connection(|conn| {
+    async fn test_update_responded_at_sequence_id_only_updates_if_higher() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -501,10 +534,14 @@ mod tests {
 
             // Try to update with lower sequence_id - this should be ignored
             conn.update_responded_at_sequence_id(&group_id, &installation_id, 75)
+                .await
                 .unwrap();
 
             // Verify it was NOT updated (lower sequence_id should be ignored due to filter)
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.responded_at_sequence_id, Some(100)); // Should remain unchanged
@@ -512,32 +549,41 @@ mod tests {
 
             // Now update with a higher sequence_id - this should work
             conn.update_responded_at_sequence_id(&group_id, &installation_id, 125)
+                .await
                 .unwrap();
 
             // Verify it was updated
-            let status = conn.get_readd_status(&group_id, &installation_id).unwrap();
+            let status = conn
+                .get_readd_status(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(status.is_some());
             let status = status.unwrap();
             assert_eq!(status.responded_at_sequence_id, Some(125)); // Should be updated
             assert_eq!(status.requested_at_sequence_id, Some(50)); // Should remain unchanged
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_is_awaiting_readd_no_status() {
-        with_connection(|conn| {
+    async fn test_is_awaiting_readd_no_status() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
             // Should return false when no readd status exists
-            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            let result = conn
+                .is_awaiting_readd(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(!result);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_is_awaiting_readd_no_request() {
-        with_connection(|conn| {
+    async fn test_is_awaiting_readd_no_request() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -552,14 +598,18 @@ mod tests {
             .unwrap();
 
             // Should return false when no request has been made
-            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            let result = conn
+                .is_awaiting_readd(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(!result);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_is_awaiting_readd_request_pending() {
-        with_connection(|conn| {
+    async fn test_is_awaiting_readd_request_pending() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -574,14 +624,18 @@ mod tests {
             .unwrap();
 
             // Should return true when request is pending
-            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            let result = conn
+                .is_awaiting_readd(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(result);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_is_awaiting_readd_request_fulfilled() {
-        with_connection(|conn| {
+    async fn test_is_awaiting_readd_request_fulfilled() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -596,14 +650,18 @@ mod tests {
             .unwrap();
 
             // Should return false when request has been fulfilled
-            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            let result = conn
+                .is_awaiting_readd(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(!result);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_is_awaiting_readd_equal_sequence_ids() {
-        with_connection(|conn| {
+    async fn test_is_awaiting_readd_equal_sequence_ids() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -620,14 +678,18 @@ mod tests {
             // Should return true when sequence IDs are equal.
             // The response to a readd request will always add a commit, which increases the sequence ID.
             // It is possible that a readd request is subsequently issued at the same sequence ID.
-            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            let result = conn
+                .is_awaiting_readd(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(result);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_is_awaiting_readd_no_responded_at() {
-        with_connection(|conn| {
+    async fn test_is_awaiting_readd_no_responded_at() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let installation_id = vec![4, 5, 6];
 
@@ -642,14 +704,18 @@ mod tests {
             .unwrap();
 
             // Should return true when requested_at > 0 (default responded_at)
-            let result = conn.is_awaiting_readd(&group_id, &installation_id).unwrap();
+            let result = conn
+                .is_awaiting_readd(&group_id, &installation_id)
+                .await
+                .unwrap();
             assert!(result);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_delete_other_readd_statuses() {
-        with_connection(|conn| {
+    async fn test_delete_other_readd_statuses() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let keep_installation_id = vec![10, 11, 12];
             let delete_installation_id_1 = vec![20, 21, 22];
@@ -691,36 +757,42 @@ mod tests {
 
             // Delete other readd statuses for the group
             conn.delete_other_readd_statuses(&group_id, &keep_installation_id)
+                .await
                 .unwrap();
 
             // Verify the status we wanted to keep is still there
             let kept_status = conn
                 .get_readd_status(&group_id, &keep_installation_id)
+                .await
                 .unwrap();
             assert!(kept_status.is_some());
 
             // Verify the other statuses in the same group were deleted
             let deleted_status_1 = conn
                 .get_readd_status(&group_id, &delete_installation_id_1)
+                .await
                 .unwrap();
             assert!(deleted_status_1.is_none());
 
             let deleted_status_2 = conn
                 .get_readd_status(&group_id, &delete_installation_id_2)
+                .await
                 .unwrap();
             assert!(deleted_status_2.is_none());
 
             // Verify the status in the different group was not affected
             let different_group_check = conn
                 .get_readd_status(&GroupId::FOUR, &[40, 41, 42])
+                .await
                 .unwrap();
             assert!(different_group_check.is_some());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_readds_awaiting_response() {
-        with_connection(|conn| {
+    async fn test_get_readds_awaiting_response() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let self_installation_id = vec![10, 11, 12];
             let other_installation_id_1 = vec![20, 21, 22];
@@ -785,6 +857,7 @@ mod tests {
             // Call the method under test
             let result = conn
                 .get_readds_awaiting_response(&group_id, &self_installation_id)
+                .await
                 .unwrap();
 
             // Should return 2 pending readds from other installations
@@ -808,6 +881,7 @@ mod tests {
                 assert!(requested_at >= responded_at);
             }
         })
+        .await
     }
 }
 

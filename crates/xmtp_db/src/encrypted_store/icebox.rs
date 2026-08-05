@@ -729,22 +729,22 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn icebox_dependency_chain() {
-        with_connection(|conn| {
+    async fn icebox_dependency_chain() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
 
             // Store envelopes and dependencies
-            conn.ice(orphans.clone())?;
+            conn.ice(orphans.clone()).await?;
 
-            let dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
+            let dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)]).await?;
             assert_eq!(dep_chain.len(), 3);
 
             assert_eq!(orphans[0].depends_on[&1], 40);
             assert_eq!(orphans[1].depends_on[&2], 39);
             assert_eq!(orphans[2].depends_on[&2], 38);
 
-            let mut dep_chain = conn.future_dependents(&[Cursor::new(39, 2u32)])?;
+            let mut dep_chain = conn.future_dependents(&[Cursor::new(39, 2u32)]).await?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(dep_chain.len(), 2);
             assert_eq!(dep_chain[0].cursor.sequence_id, 40);
@@ -755,11 +755,12 @@ mod tests {
             assert_eq!(dep_chain[1].cursor.originator_id, 1);
             assert_eq!(dep_chain[1].depends_on[&1], 40);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_wrong_originator() {
-        with_connection(|conn| {
+    async fn test_icebox_wrong_originator() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the originator
             let mut orphans = iced(group_id);
@@ -772,9 +773,9 @@ mod tests {
                 .build()
                 .unwrap();
 
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
-            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
+            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)]).await?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
             // The last iced message should not be there due to the wrong originator_id.
             // past_dependents returns starting envelope + dependencies
@@ -785,14 +786,15 @@ mod tests {
 
             // With the changed originator, envelope (39, 1) has no dependents
             // (40, 1) depends on (39, 2), not (39, 1)
-            let dep_chain = conn.future_dependents(&[Cursor::new(39, 1u32)])?;
+            let dep_chain = conn.future_dependents(&[Cursor::new(39, 1u32)]).await?;
             assert_eq!(dep_chain.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_wrong_sequence() {
-        with_connection(|conn| {
+    async fn test_icebox_wrong_sequence() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the sequence_id to a non-conflicting value
             let mut orphans = iced(group_id);
@@ -805,9 +807,9 @@ mod tests {
                 .build()
                 .unwrap();
 
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
-            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)])?;
+            let mut dep_chain = conn.past_dependents(&[Cursor::new(41, 1u32)]).await?;
             dep_chain.sort_by_key(|d| d.cursor.sequence_id);
 
             // The last iced message should not be there due to the wrong sequence_id.
@@ -818,15 +820,16 @@ mod tests {
             assert_eq!(dep_chain[1].depends_on[&1], 40);
             // With the changed sequence_id, envelope (100, 2) has no dependents
             // Nothing depends on (100, 2) in the dependency chain
-            let dep_chain = conn.future_dependents(&[Cursor::new(100, 2u32)])?;
+            let dep_chain = conn.future_dependents(&[Cursor::new(100, 2u32)]).await?;
             assert_eq!(dep_chain.len(), 0);
         })
+        .await
     }
 
     // commit + two dependant application messages
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_multiple_dependencies() {
-        with_connection(|conn| {
+    async fn test_icebox_multiple_dependencies() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Test that two envelopes can depend on the same envelope
             let orphans = vec![
@@ -847,9 +850,9 @@ mod tests {
             ];
 
             let result = conn.ice(orphans);
-            assert!(result.is_ok());
+            assert!(result.await.is_ok());
 
-            let mut got = conn.future_dependents(&[Cursor::new(10, 0u32)])?;
+            let mut got = conn.future_dependents(&[Cursor::new(10, 0u32)]).await?;
             got.sort_by_key(|d| d.cursor.sequence_id);
             assert_eq!(got.len(), 2);
             assert_eq!(got[0].cursor.sequence_id, 1);
@@ -862,12 +865,13 @@ mod tests {
                 assert_eq!(envelope.depends_on[&0], 10);
             }
         })
+        .await
     }
 
     // chained commits & app messages
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_icebox_chain() {
-        with_connection(|conn| {
+    async fn test_icebox_chain() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             // Test a chain where envelope 3 depends on 2, and both 1 and 2 depend on 3
             let orphans = vec![
@@ -895,9 +899,9 @@ mod tests {
             ];
 
             let result = conn.ice(orphans);
-            assert!(result.is_ok());
+            assert!(result.await.is_ok());
 
-            let mut got = conn.future_dependents(&[Cursor::new(2, 0u32)])?;
+            let mut got = conn.future_dependents(&[Cursor::new(2, 0u32)]).await?;
             got.sort_by_key(|i| i.cursor.sequence_id);
             assert_eq!(got.len(), 3);
 
@@ -908,21 +912,22 @@ mod tests {
             assert_eq!(got[2].cursor.sequence_id, 3);
             assert_eq!(got[2].cursor.originator_id, 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_future_dependents_multiple_cursors() {
-        with_connection(|conn| {
+    async fn test_future_dependents_multiple_cursors() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
 
             // Store envelopes and dependencies
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             // Test query with multiple cursors
             let cursors = vec![Cursor::new(39, 2u32), Cursor::new(40, 1u32)];
 
-            let mut result = conn.future_dependents(&cursors)?;
+            let mut result = conn.future_dependents(&cursors).await?;
             result.sort_by_key(|d| d.cursor.sequence_id);
 
             // Verify we get the union of dependants
@@ -939,26 +944,28 @@ mod tests {
             assert_eq!(result[0].depends_on[&2], 39);
             assert_eq!(result[1].depends_on[&1], 40);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_future_dependents_empty() {
-        with_connection(|conn| {
+    async fn test_future_dependents_empty() {
+        with_connection(async |conn| {
             // Test with empty cursor list
-            let result = conn.future_dependents(&[])?;
+            let result = conn.future_dependents(&[]).await?;
             assert_eq!(result.len(), 0);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_querying_dependencies_in_middle_works() {
-        with_connection(|conn| {
+    async fn test_querying_dependencies_in_middle_works() {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
             let orphans = iced(group_id);
 
-            conn.ice(orphans.clone())?;
+            conn.ice(orphans.clone()).await?;
 
-            let mut result = conn.past_dependents(&[Cursor::new(40, 1u32)])?;
+            let mut result = conn.past_dependents(&[Cursor::new(40, 1u32)]).await?;
             assert_eq!(result.len(), 2);
             result.sort_by_key(|d| d.cursor.originator_id);
             assert_eq!(result[0].cursor, Cursor::new(40, 1u32));
@@ -966,19 +973,20 @@ mod tests {
             assert_eq!(result[1].cursor, Cursor::new(39, 2u32));
             assert_eq!(result[1].depends_on, Cursor::new(38, 2u32).into());
 
-            let result = conn.future_dependents(&[Cursor::new(40, 1u32)])?;
+            let result = conn.future_dependents(&[Cursor::new(40, 1u32)]).await?;
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].cursor, Cursor::new(41, 1u32));
             assert_eq!(result[0].depends_on, Cursor::new(40, 1u32).into());
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox() {
+    async fn test_prune_icebox() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -1011,7 +1019,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             RefreshState {
                 entity_id: group_id.to_vec(),
@@ -1021,7 +1029,7 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(
                 deleted, 2,
                 "Should delete entries with sequence_id 10 and 20"
@@ -1038,14 +1046,15 @@ mod tests {
             assert_eq!(remaining[1].sequence_id, 10);
             assert_eq!(remaining[1].originator_id, 10);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox_no_cleanup_when_cursor_lower() {
+    async fn test_prune_icebox_no_cleanup_when_cursor_lower() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -1064,7 +1073,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             RefreshState {
                 entity_id: group_id.to_vec(),
@@ -1074,21 +1083,22 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete any entries");
 
             let remaining: Vec<Icebox> =
                 conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 2);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox_only_relevant_entity_kinds() {
+    async fn test_prune_icebox_only_relevant_entity_kinds() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -1100,7 +1110,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             RefreshState {
                 entity_id: group_id.to_vec(),
@@ -1110,21 +1120,22 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
 
             let remaining: Vec<Icebox> =
                 conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_prune_icebox_dependencies_cascade_deleted() {
+    async fn test_prune_icebox_dependencies_cascade_deleted() {
         use crate::StoreOrIgnore;
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             let group_id = create_test_group(conn);
 
             let orphans = vec![
@@ -1136,7 +1147,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ];
-            conn.ice(orphans)?;
+            conn.ice(orphans).await?;
 
             use crate::schema::icebox_dependencies::dsl as dep_dsl;
             let deps: Vec<IceboxDependency> = conn.raw_query(|conn| {
@@ -1155,7 +1166,7 @@ mod tests {
             }
             .store_or_ignore(conn)?;
 
-            let deleted = conn.prune_icebox()?;
+            let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 1, "Should delete the icebox entry");
 
             let remaining: Vec<Icebox> =
@@ -1170,5 +1181,6 @@ mod tests {
             })?;
             assert_eq!(deps.len(), 0, "Dependencies should be cascade deleted");
         })
+        .await
     }
 }

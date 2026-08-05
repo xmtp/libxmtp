@@ -425,67 +425,77 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn queue_with_nudge_is_noop_before_registration() {
+    async fn queue_with_nudge_is_noop_before_registration() {
         use crate::prelude::{QueryIdentity, QueryTasks};
         use crate::test_utils::with_connection;
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // Empty identity table (pre-registration): must be a no-op like the
             // old column-only path, not a NotFound error. The seed must NOT be
             // inserted either — pre-registration means zero writes.
             let hash = crate::tasks::TaskDataHash::try_from([0x11u8; 32].as_slice()).unwrap();
             conn.queue_key_rotation_with_nudge(&hash, test_rotation_seed())
+                .await
                 .unwrap();
             assert!(
-                conn.get_tasks().unwrap().is_empty(),
+                conn.get_tasks().await.unwrap().is_empty(),
                 "no pull-in without an identity row"
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn queue_with_nudge_selfheals_missing_seed() {
+    async fn queue_with_nudge_selfheals_missing_seed() {
         use crate::prelude::{QueryIdentity, QueryTasks};
         use crate::test_utils::with_connection;
-        with_connection(|conn| {
+        with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
             let seed = test_rotation_seed();
             let hash = crate::tasks::TaskDataHash::try_from(seed.data_hash.as_slice()).unwrap();
-            conn.queue_key_rotation_with_nudge(&hash, seed).unwrap();
-            let tasks = conn.get_tasks().unwrap();
+            conn.queue_key_rotation_with_nudge(&hash, seed)
+                .await
+                .unwrap();
+            let tasks = conn.get_tasks().await.unwrap();
             assert!(
                 tasks.iter().any(|t| t.data_hash == hash.as_ref()),
                 "nudge must insert the missing rotation seed (pull-in target)"
             );
             assert_eq!(tasks.len(), 2, "seed + pull-in");
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn queue_initializes_null_rotation_column() {
+    async fn queue_initializes_null_rotation_column() {
         use crate::prelude::QueryIdentity;
         use crate::test_utils::with_connection;
         use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
-        with_connection(|conn| {
+        with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
 
             // Migrated DBs have NULL here; queueing must initialize it (5s
             // debounce) rather than skip the row.
-            conn.queue_key_package_rotation().unwrap();
+            conn.queue_key_package_rotation().await.unwrap();
             let v = conn
                 .next_key_package_rotation_ns()
+                .await
                 .unwrap()
                 .expect("NULL column must be initialized");
             let now = xmtp_common::time::now_ns();
             assert!(v > now && v <= now + KEY_PACKAGE_QUEUE_INTERVAL_NS);
 
             // Lower-only: a later queue call never raises the deadline.
-            conn.queue_key_package_rotation().unwrap();
-            assert_eq!(conn.next_key_package_rotation_ns().unwrap().unwrap(), v);
+            conn.queue_key_package_rotation().await.unwrap();
+            assert_eq!(
+                conn.next_key_package_rotation_ns().await.unwrap().unwrap(),
+                v
+            );
         })
+        .await
     }
 
     #[xmtp_common::test]

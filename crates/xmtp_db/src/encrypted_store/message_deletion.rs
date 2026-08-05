@@ -345,8 +345,8 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_store_and_get_deletion() {
-        with_connection(|conn| {
+    async fn test_store_and_get_deletion() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
@@ -367,20 +367,21 @@ mod tests {
             deletion.store(conn)?;
 
             // Test get by ID
-            let retrieved = conn.get_message_deletion(&delete_message_id)?;
+            let retrieved = conn.get_message_deletion(&delete_message_id).await?;
             assert!(retrieved.is_some());
             assert_eq!(retrieved.unwrap().deleted_message_id, message_id);
 
             // Test get by deleted_message_id
-            let by_deleted_id = conn.get_deletion_by_deleted_message_id(&message_id)?;
+            let by_deleted_id = conn.get_deletion_by_deleted_message_id(&message_id).await?;
             assert!(by_deleted_id.is_some());
             assert_eq!(by_deleted_id.unwrap().id, delete_message_id);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_is_message_deleted() {
-        with_connection(|conn| {
+    async fn test_is_message_deleted() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
@@ -390,7 +391,7 @@ mod tests {
             create_test_message(conn, delete_message_id.clone(), group_id);
 
             // Initially not deleted
-            assert!(!conn.is_message_deleted(&message_id)?);
+            assert!(!conn.is_message_deleted(&message_id).await?);
 
             // Store deletion
             StoredMessageDeletion {
@@ -404,13 +405,14 @@ mod tests {
             .store(conn)?;
 
             // Now it's deleted
-            assert!(conn.is_message_deleted(&message_id)?);
+            assert!(conn.is_message_deleted(&message_id).await?);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_deletions_for_messages() {
-        with_connection(|conn| {
+    async fn test_get_deletions_for_messages() {
+        with_connection(async |conn| {
             let group_id = GroupId::ONE;
             let msg1 = vec![4, 5, 6];
             let msg2 = vec![7, 8, 9];
@@ -447,18 +449,20 @@ mod tests {
             .store(conn)?;
 
             // Query for all three messages
-            let deletions =
-                conn.get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
+            let deletions = conn
+                .get_deletions_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])
+                .await?;
             assert_eq!(deletions.len(), 2);
 
             // msg3 should not be deleted
-            assert!(!conn.is_message_deleted(&msg3)?);
+            assert!(!conn.is_message_deleted(&msg3).await?);
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_group_deletions() {
-        with_connection(|conn| {
+    async fn test_get_group_deletions() {
+        with_connection(async |conn| {
             let group1 = GroupId::ONE;
             let group2 = GroupId::TWO;
             let msg1 = vec![7, 8, 9];
@@ -494,14 +498,15 @@ mod tests {
             .store(conn)?;
 
             // Get deletions for group1
-            let group1_deletions = conn.get_group_deletions(&group1)?;
+            let group1_deletions = conn.get_group_deletions(&group1).await?;
             assert_eq!(group1_deletions.len(), 1);
             assert_eq!(group1_deletions[0].deleted_message_id, msg1);
 
             // Get deletions for group2
-            let group2_deletions = conn.get_group_deletions(&group2)?;
+            let group2_deletions = conn.get_group_deletions(&group2).await?;
             assert_eq!(group2_deletions.len(), 1);
             assert_eq!(group2_deletions[0].deleted_message_id, msg2);
         })
+        .await
     }
 }

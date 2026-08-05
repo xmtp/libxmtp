@@ -245,21 +245,21 @@ mod tests {
     use super::*;
 
     #[xmtp_common::test]
-    fn test_insert_and_update_preferences() {
-        crate::test_utils::with_connection(|conn| {
-            let pref = conn.load_user_preferences().unwrap();
+    async fn test_insert_and_update_preferences() {
+        crate::test_utils::with_connection(async |conn| {
+            let pref = conn.load_user_preferences().await.unwrap();
             // by default, there is no key
             assert!(pref.hmac_key.is_none());
 
             // loads and stores a default
-            let pref = conn.load_user_preferences().unwrap();
+            let pref = conn.load_user_preferences().await.unwrap();
             // by default, there is no key
             assert!(pref.hmac_key.is_none());
 
             // set an hmac key
             let hmac_key = HmacKey::random_key();
-            conn.store_hmac_key(&hmac_key, None).unwrap();
-            let pref = conn.load_user_preferences().unwrap();
+            conn.store_hmac_key(&hmac_key, None).await.unwrap();
+            let pref = conn.load_user_preferences().await.unwrap();
             // Make sure it saved
             assert_eq!(hmac_key, pref.hmac_key.unwrap());
 
@@ -270,66 +270,76 @@ mod tests {
                 .unwrap();
             assert_eq!(result.len(), 1);
         })
+        .await
     }
 
     /// A `cycled_at_ns` older than the stored one is a device-sync update that
     /// arrived out of order, and must not roll the key back.
     #[xmtp_common::test]
-    fn hmac_key_cycled_at_is_monotonic() {
-        crate::test_utils::with_connection(|conn| {
+    async fn hmac_key_cycled_at_is_monotonic() {
+        crate::test_utils::with_connection(async |conn| {
             let current = HmacKey::random_key();
-            conn.store_hmac_key(&current, Some(500)).unwrap();
+            conn.store_hmac_key(&current, Some(500)).await.unwrap();
 
             conn.store_hmac_key(&HmacKey::random_key(), Some(499))
+                .await
                 .unwrap();
-            let pref = conn.load_user_preferences().unwrap();
+            let pref = conn.load_user_preferences().await.unwrap();
             assert_eq!(pref.hmac_key.as_ref(), Some(&current));
             assert_eq!(pref.hmac_key_cycled_at_ns, Some(500));
 
             // `None` means "now": a local rotation, which always wins.
             let local = HmacKey::random_key();
-            conn.store_hmac_key(&local, None).unwrap();
-            assert_eq!(conn.load_user_preferences().unwrap().hmac_key, Some(local));
+            conn.store_hmac_key(&local, None).await.unwrap();
+            assert_eq!(
+                conn.load_user_preferences().await.unwrap().hmac_key,
+                Some(local)
+            );
         })
+        .await
     }
 
     /// The row is created lazily by the first `store_hmac_key`, so the flag has
     /// to be written with an upsert -- a bare `UPDATE` would match nothing here
     /// and the one-time DM cleanup would re-run on every start.
     #[xmtp_common::test]
-    fn dm_group_updates_migrated_sticks_with_no_existing_row() {
-        crate::test_utils::with_connection(|conn| {
+    async fn dm_group_updates_migrated_sticks_with_no_existing_row() {
+        crate::test_utils::with_connection(async |conn| {
             assert!(
                 !conn
                     .load_user_preferences()
+                    .await
                     .unwrap()
                     .dm_group_updates_migrated
             );
 
-            conn.set_dm_group_updates_migrated().unwrap();
+            conn.set_dm_group_updates_migrated().await.unwrap();
             assert!(
                 conn.load_user_preferences()
+                    .await
                     .unwrap()
                     .dm_group_updates_migrated
             );
 
             // Idempotent, and it leaves the key alongside it alone.
             let key = HmacKey::random_key();
-            conn.store_hmac_key(&key, None).unwrap();
-            conn.set_dm_group_updates_migrated().unwrap();
-            let pref = conn.load_user_preferences().unwrap();
+            conn.store_hmac_key(&key, None).await.unwrap();
+            conn.set_dm_group_updates_migrated().await.unwrap();
+            let pref = conn.load_user_preferences().await.unwrap();
             assert!(pref.dm_group_updates_migrated);
             assert_eq!(pref.hmac_key, Some(key));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn a_wrong_length_hmac_key_is_rejected() {
-        crate::test_utils::with_connection(|conn| {
+    async fn a_wrong_length_hmac_key_is_rejected() {
+        crate::test_utils::with_connection(async |conn| {
             assert!(matches!(
-                conn.store_hmac_key(&[1, 2, 3], None),
+                conn.store_hmac_key(&[1, 2, 3], None).await,
                 Err(StorageError::InvalidHmacLength)
             ));
         })
+        .await
     }
 }

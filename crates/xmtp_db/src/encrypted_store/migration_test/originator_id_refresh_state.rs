@@ -149,7 +149,7 @@ async fn up_groups() {
 
     finish_migrations(db.conn());
 
-    let group = db.db().find_group(&GroupId::ONE).unwrap().unwrap();
+    let group = db.db().find_group(&GroupId::ONE).await.unwrap().unwrap();
     assert_eq!(group.sequence_id, Some(100));
     assert_eq!(
         group.originator_id,
@@ -174,6 +174,7 @@ async fn up_identity_updates() {
     let cursor = db
         .db()
         .get_identity_updates("test_inbox1", None, None)
+        .await
         .unwrap();
 
     let cursor = cursor.last().unwrap();
@@ -251,7 +252,8 @@ async fn up_both_cursors_set_to_old_value() {
     // Both cursors should be set to the old cursor value (100)
     let commit_cursor = db
         .db()
-        .get_last_cursor_for_originator([0, 0, 0], EntityKind::CommitMessage, 0)
+        .get_last_cursor_for_originator(&[0, 0, 0], EntityKind::CommitMessage, 0)
+        .await
         .unwrap();
     assert_eq!(
         commit_cursor,
@@ -261,7 +263,8 @@ async fn up_both_cursors_set_to_old_value() {
 
     let app_cursor = db
         .db()
-        .get_last_cursor_for_originator([0, 0, 0], EntityKind::ApplicationMessage, 10)
+        .get_last_cursor_for_originator(&[0, 0, 0], EntityKind::ApplicationMessage, 10)
+        .await
         .unwrap();
     assert_eq!(
         app_cursor,
@@ -284,7 +287,8 @@ async fn up_welcome_unchanged() {
 
     let welcome_cursor = db
         .db()
-        .get_last_cursor_for_originator([0, 0, 0], EntityKind::Welcome, 11)
+        .get_last_cursor_for_originator(&[0, 0, 0], EntityKind::Welcome, 11)
+        .await
         .unwrap();
     assert_eq!(
         welcome_cursor,

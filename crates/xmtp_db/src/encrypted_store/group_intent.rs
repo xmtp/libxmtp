@@ -799,10 +799,10 @@ pub(crate) mod tests {
     /// kind-filtered queries. Unfiltered queries still error — pinned
     /// here so a future change to that behavior is a conscious one.
     #[xmtp_common::test]
-    fn unknown_kind_row_is_excluded_by_kind_filter() {
+    async fn unknown_kind_row_is_excluded_by_kind_filter() {
         let group_id = GroupId::generate();
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
 
             // A known-kind intent this build must keep seeing.
@@ -837,10 +837,11 @@ pub(crate) mod tests {
             // excluded in SQL, the known intent still comes back.
             let intents = conn
                 .find_group_intents(
-                    group_id,
+                    group_id.as_slice(),
                     Some(vec![IntentState::ToPublish]),
                     Some(IntentKind::all().collect()),
                 )
+                .await
                 .unwrap();
             assert_eq!(intents.len(), 1);
             assert_eq!(intents[0].kind, IntentKind::SendMessage);
@@ -848,15 +849,21 @@ pub(crate) mod tests {
             // Unfiltered: the unknown discriminant fails row
             // deserialization and poisons the whole query.
             assert!(
-                conn.find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
-                    .is_err(),
+                conn.find_group_intents(
+                    group_id.as_slice(),
+                    Some(vec![IntentState::ToPublish]),
+                    None
+                )
+                .await
+                .is_err(),
                 "unfiltered query should surface the FromSql error for unknown kinds"
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_store_and_fetch() {
+    async fn test_store_and_fetch() {
         let group_id = GroupId::generate();
         let data = rand_vec::<24>();
         let kind = IntentKind::UpdateGroupMembership;
@@ -864,14 +871,19 @@ pub(crate) mod tests {
 
         let to_insert = NewGroupIntent::new_test(kind, group_id, data.clone(), state);
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // Group needs to exist or FK constraint will fail
             insert_group(conn, group_id);
 
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
+                .find_group_intents(
+                    group_id.as_slice(),
+                    Some(vec![IntentState::ToPublish]),
+                    None,
+                )
+                .await
                 .unwrap();
 
             assert_eq!(results.len(), 1);
@@ -885,10 +897,11 @@ pub(crate) mod tests {
 
             assert_eq!(fetched.id, id);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_query() {
+    async fn test_query() {
         let group_id = GroupId::generate();
 
         let test_intents: Vec<NewGroupIntent> = vec![
@@ -912,7 +925,7 @@ pub(crate) mod tests {
             ),
         ];
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // Group needs to exist or FK constraint will fail
             insert_group(conn, group_id);
 
@@ -923,27 +936,30 @@ pub(crate) mod tests {
             // Can query for multiple states
             let mut results = conn
                 .find_group_intents(
-                    group_id,
+                    group_id.as_slice(),
                     Some(vec![IntentState::ToPublish, IntentState::Published]),
                     None,
                 )
+                .await
                 .unwrap();
 
             assert_eq!(results.len(), 2);
 
             // Can query by kind
             results = conn
-                .find_group_intents(group_id, None, Some(vec![IntentKind::KeyUpdate]))
+                .find_group_intents(group_id.as_slice(), None, Some(vec![IntentKind::KeyUpdate]))
+                .await
                 .unwrap();
             assert_eq!(results.len(), 2);
 
             // Can query by kind and state
             results = conn
                 .find_group_intents(
-                    group_id,
+                    group_id.as_slice(),
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::KeyUpdate]),
                 )
+                .await
                 .unwrap();
 
             assert_eq!(results.len(), 1);
@@ -951,25 +967,30 @@ pub(crate) mod tests {
             // Can get no results
             results = conn
                 .find_group_intents(
-                    group_id,
+                    group_id.as_slice(),
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::SendMessage]),
                 )
+                .await
                 .unwrap();
 
             assert_eq!(results.len(), 0);
 
             // Can get all intents
-            results = conn.find_group_intents(group_id, None, None).unwrap();
+            results = conn
+                .find_group_intents(group_id.as_slice(), None, None)
+                .await
+                .unwrap();
             assert_eq!(results.len(), 3);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn find_by_payload_hash() {
+    async fn find_by_payload_hash() {
         let group_id = GroupId::generate();
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
 
             // Store the intent
@@ -995,23 +1016,26 @@ pub(crate) mod tests {
                 None,
                 1,
             )
+            .await
             .unwrap();
 
             let find_result = conn
                 .find_group_intent_by_payload_hash(&payload_hash)
+                .await
                 .unwrap()
                 .unwrap();
 
             assert_eq!(find_result.id, intent.id);
             assert_eq!(find_result.published_in_epoch, Some(1));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_happy_path_state_transitions() {
+    async fn test_happy_path_state_transitions() {
         let group_id = GroupId::generate();
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
 
             // Store the intent
@@ -1036,6 +1060,7 @@ pub(crate) mod tests {
                 None,
                 1,
             )
+            .await
             .unwrap();
 
             intent = conn.fetch(&intent.id).unwrap().unwrap();
@@ -1044,6 +1069,7 @@ pub(crate) mod tests {
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
 
             conn.set_group_intent_committed(intent.id, Cursor::default())
+                .await
                 .unwrap();
             // Refresh from the DB
             intent = conn.fetch(&intent.id).unwrap().unwrap();
@@ -1051,13 +1077,14 @@ pub(crate) mod tests {
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_republish_state_transition() {
+    async fn test_republish_state_transition() {
         let group_id = GroupId::generate();
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
 
             // Store the intent
@@ -1082,6 +1109,7 @@ pub(crate) mod tests {
                 None,
                 1,
             )
+            .await
             .unwrap();
 
             intent = conn.fetch(&intent.id).unwrap().unwrap();
@@ -1089,19 +1117,20 @@ pub(crate) mod tests {
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
 
             // Now revert back to ToPublish
-            conn.set_group_intent_to_publish(intent.id).unwrap();
+            conn.set_group_intent_to_publish(intent.id).await.unwrap();
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_invalid_state_transition() {
+    async fn test_invalid_state_transition() {
         let group_id = GroupId::generate();
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
 
             // Store the intent
@@ -1116,26 +1145,29 @@ pub(crate) mod tests {
 
             let intent = find_first_intent(conn, group_id);
 
-            let commit_result = conn.set_group_intent_committed(intent.id, Cursor::default());
+            let commit_result = conn
+                .set_group_intent_committed(intent.id, Cursor::default())
+                .await;
             assert!(commit_result.is_err());
             assert!(matches!(
                 commit_result.err().unwrap(),
                 StorageError::NotFound(_)
             ));
 
-            let to_publish_result = conn.set_group_intent_to_publish(intent.id);
+            let to_publish_result = conn.set_group_intent_to_publish(intent.id).await;
             assert!(to_publish_result.is_err());
             assert!(matches!(
                 to_publish_result.err().unwrap(),
                 StorageError::NotFound(_)
             ));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_increment_publish_attempts() {
+    async fn test_increment_publish_attempts() {
         let group_id = GroupId::generate();
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
@@ -1149,24 +1181,27 @@ pub(crate) mod tests {
             let mut intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 0);
             conn.increment_intent_publish_attempt_count(intent.id)
+                .await
                 .unwrap();
             intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 1);
             conn.increment_intent_publish_attempt_count(intent.id)
+                .await
                 .unwrap();
             intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 2);
         })
+        .await
     }
     #[xmtp_common::test]
-    fn test_find_dependant_commits() {
+    async fn test_find_dependant_commits() {
         use crate::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};
 
         let group_id = GroupId::generate();
         let payload_hash1 = rand_vec::<24>();
         let payload_hash2 = rand_vec::<24>();
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
             NewGroupIntent::new(IntentKind::SendMessage, group_id, rand_vec::<24>(), false)
                 .store(conn)
@@ -1174,21 +1209,32 @@ pub(crate) mod tests {
 
             let intent1 = find_first_intent(conn, group_id);
             conn.set_group_intent_published(intent1.id, &payload_hash1, None, None, 1)
+                .await
                 .unwrap();
 
             NewGroupIntent::new(IntentKind::KeyUpdate, group_id, rand_vec::<24>(), false)
                 .store(conn)
                 .unwrap();
-            let intents = conn.find_group_intents(group_id, None, None).unwrap();
+            let intents = conn
+                .find_group_intents(group_id.as_slice(), None, None)
+                .await
+                .unwrap();
             let intent2 = intents.iter().find(|i| i.id != intent1.id).unwrap();
             conn.set_group_intent_published(intent2.id, &payload_hash2, None, None, 1)
+                .await
                 .unwrap();
 
-            conn.update_cursor(group_id, EntityKind::CommitMessage, Cursor::new(100, 42u32))
-                .unwrap();
+            conn.update_cursor(
+                group_id.as_slice(),
+                EntityKind::CommitMessage,
+                Cursor::new(100, 42u32),
+            )
+            .await
+            .unwrap();
 
             let result = conn
                 .find_dependant_commits(&[&payload_hash1, &payload_hash2])
+                .await
                 .unwrap();
 
             assert_eq!(result.len(), 2);
@@ -1206,10 +1252,11 @@ pub(crate) mod tests {
             assert_eq!(dep2.cursor.originator_id, 42);
             assert_eq!(dep2.group_id.as_ref(), &group_id);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn bootstrap_migration_intent_round_trips_through_sql() {
+    async fn bootstrap_migration_intent_round_trips_through_sql() {
         // Exercises both the i32 → IntentKind::BootstrapMigration arm
         // and the Display impl. Cheap coverage for the new variant
         // that would otherwise sit dead until end-to-end migration tests.
@@ -1219,18 +1266,24 @@ pub(crate) mod tests {
         let to_insert =
             NewGroupIntent::new_test(kind, group_id, data.clone(), IntentState::ToPublish);
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             insert_group(conn, group_id);
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
+                .find_group_intents(
+                    group_id.as_slice(),
+                    Some(vec![IntentState::ToPublish]),
+                    None,
+                )
+                .await
                 .unwrap();
 
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].kind, IntentKind::BootstrapMigration);
             assert_eq!(format!("{}", results[0].kind), "BootstrapMigration");
         })
+        .await
     }
 }
 

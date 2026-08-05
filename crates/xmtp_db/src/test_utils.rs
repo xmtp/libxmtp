@@ -115,22 +115,26 @@ mod wasm {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub fn with_connection<F, R>(fun: F) -> R
+    ///
+    /// Async because the `Query*` traits are, but still lends the connection by
+    /// reference -- unlike [`with_connection_async`], which hands it over by
+    /// value. Keeping the borrow is what lets test bodies stay as they were.
+    pub async fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(
+        F: AsyncFnOnce(
             &crate::DbConnection<
                 Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>,
             >,
         ) -> R,
     {
-        // ephemeral db connections do not use async so should resolve immediately
+        // Was `now_or_never` only because this harness used to be sync; an
+        // ephemeral store resolves immediately either way.
         let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
-            .now_or_never()
-            .unwrap()
+            .await
             .unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
-        fun(&DbConnection::new(conn))
+        fun(&DbConnection::new(conn)).await
     }
 
     /// Test harness that loads an Ephemeral store.
@@ -216,7 +220,7 @@ mod native {
                 }
 
                 if let Some(path) = path {
-                            // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
+                    // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
                     {
                         let mut conn =
                             SqliteConnection::establish(path.to_string_lossy().as_ref()).unwrap();
@@ -261,9 +265,13 @@ mod native {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub fn with_connection<F, R>(fun: F) -> R
+    ///
+    /// Async because the `Query*` traits are, but still lends the connection by
+    /// reference -- unlike [`with_connection_async`], which hands it over by
+    /// value. Keeping the borrow is what lets test bodies stay as they were.
+    pub async fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(
+        F: AsyncFnOnce(
             &crate::DbConnection<
                 Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>,
             >,
@@ -272,7 +280,7 @@ mod native {
         let db = NativeDb::builder().ephemeral().build_unencrypted().unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
-        fun(&DbConnection::new(conn))
+        fun(&DbConnection::new(conn)).await
     }
 
     /// Test harness that loads an Ephemeral store.

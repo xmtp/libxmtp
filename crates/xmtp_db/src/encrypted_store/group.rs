@@ -1519,8 +1519,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_it_stores_group() {
-        with_connection(|conn| {
+    async fn test_it_stores_group() {
+        with_connection(async |conn| {
             let test_group = generate_group(None);
 
             test_group.store(conn).unwrap();
@@ -1530,11 +1530,12 @@ pub(crate) mod tests {
                 test_group
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_it_fetches_group() {
-        with_connection(|conn| {
+    async fn test_it_fetches_group() {
+        with_connection(async |conn| {
             let test_group = generate_group(None);
 
             conn.raw_query(|raw_conn| {
@@ -1547,15 +1548,17 @@ pub(crate) mod tests {
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_it_updates_group_membership_state() {
-        with_connection(|conn| {
+    async fn test_it_updates_group_membership_state() {
+        with_connection(async |conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
             test_group.store(conn).unwrap();
-            conn.update_group_membership(test_group.id, GroupMembershipState::Rejected)
+            conn.update_group_membership(test_group.id.as_slice(), GroupMembershipState::Rejected)
+                .await
                 .unwrap();
 
             let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
@@ -1567,6 +1570,7 @@ pub(crate) mod tests {
                 }
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -1600,6 +1604,7 @@ pub(crate) mod tests {
                     conversation_type: Some(ConversationType::Group),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(all_results.len(), 2);
 
@@ -1609,6 +1614,7 @@ pub(crate) mod tests {
                     conversation_type: Some(ConversationType::Group),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
             assert_eq!(pending_results.len(), 1);
@@ -1620,6 +1626,7 @@ pub(crate) mod tests {
                     limit: Some(1),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
@@ -1631,22 +1638,24 @@ pub(crate) mod tests {
                     created_after_ns: Some(test_group_1.created_at_ns),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.primary_sync_group().unwrap();
+            let synced_groups = conn.primary_sync_group().await.unwrap();
             assert!(synced_groups.is_none());
 
             // test that dm groups are included
-            let dm_results = conn.find_groups(&GroupQueryArgs::default()).unwrap();
+            let dm_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test find_dm_group
             let dm_result = conn
                 .find_active_dm_group(&format!("dm:placeholder_inbox_id_1:{}", other_inbox_id))
+                .await
                 .unwrap();
             assert!(dm_result.is_some());
 
@@ -1656,6 +1665,7 @@ pub(crate) mod tests {
                     conversation_type: Some(ConversationType::Dm),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
@@ -1680,7 +1690,7 @@ pub(crate) mod tests {
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
             let result = conn.update_installations_time_checked(&test_group.id);
-            assert_ok!(result);
+            assert_ok!(result.await);
 
             // Check that the latest installation list timestamp has been updated
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
@@ -1691,8 +1701,8 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_new_group_has_correct_purpose() {
-        with_connection(|conn| {
+    async fn test_new_group_has_correct_purpose() {
+        with_connection(async |conn| {
             let test_group = generate_group(None);
 
             conn.raw_query(|raw_conn| {
@@ -1707,11 +1717,12 @@ pub(crate) mod tests {
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_find_groups_by_consent_state() {
-        with_connection(|conn| {
+    async fn test_find_groups_by_consent_state() {
+        with_connection(async |conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_1.store(conn).unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
@@ -1749,10 +1760,11 @@ pub(crate) mod tests {
                     ]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(all_results.len(), 4);
 
-            let default_results = conn.find_groups(&GroupQueryArgs::default()).unwrap();
+            let default_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
             assert_eq!(default_results.len(), 3);
 
             let allowed_results = conn
@@ -1760,6 +1772,7 @@ pub(crate) mod tests {
                     consent_states: Some(vec![ConsentState::Allowed]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(allowed_results.len(), 2);
 
@@ -1768,6 +1781,7 @@ pub(crate) mod tests {
                     consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(allowed_unknown_results.len(), 3);
 
@@ -1776,6 +1790,7 @@ pub(crate) mod tests {
                     consent_states: Some(vec![ConsentState::Denied]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(denied_results.len(), 1);
             assert_eq!(denied_results[0].id, test_group_2.id);
@@ -1785,6 +1800,7 @@ pub(crate) mod tests {
                     consent_states: Some(vec![ConsentState::Unknown]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
@@ -1794,14 +1810,16 @@ pub(crate) mod tests {
                     consent_states: Some(vec![]),
                     ..Default::default()
                 })
+                .await
                 .unwrap();
             assert_eq!(empty_array_results.len(), 3);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_sequence_ids() {
-        with_connection(|conn| {
+    async fn test_get_sequence_ids() {
+        with_connection(async |conn| {
             let mls_groups = [
                 generate_group_with_welcome(None, Some(30)),
                 generate_group(None),
@@ -1814,12 +1832,14 @@ pub(crate) mod tests {
             assert_eq!(
                 vec![30, 10],
                 conn.group_cursors()
+                    .await
                     .unwrap()
                     .into_iter()
                     .map(|c| c.sequence_id)
                     .collect::<Vec<u64>>()
             );
         })
+        .await
     }
 
     /// Regression test for the `group_cursors` abort
@@ -1833,8 +1853,8 @@ pub(crate) mod tests {
     /// in the invalid `(sequence_id = NOT NULL, originator_id = NULL)` state that
     /// aborts `group_cursors()` on the next conversation-stream startup.
     #[xmtp_common::test]
-    fn test_insert_or_replace_group_update_preserves_originator() {
-        with_connection(|conn| {
+    async fn test_insert_or_replace_group_update_preserves_originator() {
+        with_connection(async |conn| {
             // 1. Cursorless group created locally (both fields NULL — valid).
             let group = generate_group(None);
             assert!(group.sequence_id.is_none());
@@ -1848,7 +1868,7 @@ pub(crate) mod tests {
                 originator_id: Some(Originators::WELCOME_MESSAGES as i64),
                 ..group.clone()
             };
-            conn.insert_or_replace_group(incoming).unwrap();
+            conn.insert_or_replace_group(incoming).await.unwrap();
 
             // 3. The stored row must keep the invariant: seq set => originator set.
             let stored: StoredGroup = conn.fetch(&group.id).ok().flatten().unwrap();
@@ -1860,11 +1880,12 @@ pub(crate) mod tests {
             );
 
             // 4. group_cursors() (run on conversation-stream startup) must not abort.
-            let cursors = conn.group_cursors().unwrap();
+            let cursors = conn.group_cursors().await.unwrap();
             assert_eq!(cursors.len(), 1);
             assert_eq!(cursors[0].sequence_id, 5);
             assert_eq!(cursors[0].originator_id, Originators::WELCOME_MESSAGES);
         })
+        .await
     }
 
     /// Defense in depth: even if a legacy / half-populated row already exists with
@@ -1872,8 +1893,8 @@ pub(crate) mod tests {
     /// wild since the originator-id migration), `group_cursors()` must not abort the
     /// stream. It should skip the bad row instead of `.expect()`-panicking.
     #[xmtp_common::test]
-    fn test_group_cursors_skips_row_with_null_originator() {
-        with_connection(|conn| {
+    async fn test_group_cursors_skips_row_with_null_originator() {
+        with_connection(async |conn| {
             // A healthy cursor'd group.
             let good = generate_group_with_welcome(None, Some(30));
             good.store(conn).unwrap();
@@ -1891,16 +1912,17 @@ pub(crate) mod tests {
             .unwrap();
 
             // Must not panic; the bad row is skipped, the good one is returned.
-            let cursors = conn.group_cursors().unwrap();
+            let cursors = conn.group_cursors().await.unwrap();
             assert_eq!(cursors.len(), 1);
             assert_eq!(cursors[0].sequence_id, 30);
             assert_eq!(cursors[0].originator_id, Originators::WELCOME_MESSAGES);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_find_group_default_excludes_denied() {
-        with_connection(|conn| {
+    async fn test_find_group_default_excludes_denied() {
+        with_connection(async |conn| {
             // Create three groups: one allowed, one denied, one unknown (no consent)
             let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
             allowed_group.store(conn).unwrap();
@@ -1927,7 +1949,7 @@ pub(crate) mod tests {
             denied_consent.store(conn).unwrap();
 
             // Query using default args (no consent_states specified)
-            let default_results = conn.find_groups(&GroupQueryArgs::default()).unwrap();
+            let default_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
 
             // Expect to include only: allowed_group and unknown_group (2 total)
             assert_eq!(default_results.len(), 2);
@@ -1936,11 +1958,12 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
         })
+        .await
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_get_conversation_ids_for_remote_log_publish() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_remote_log_publish() {
+        with_connection(async |conn| {
             let mut group1 = generate_group(None);
             let mut group2 = generate_group(None);
             let mut group3 = generate_group(None);
@@ -1970,7 +1993,10 @@ pub(crate) mod tests {
             group3.store(conn)?;
             group4.store(conn)?;
 
-            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            let commit_log_keys = conn
+                .get_conversation_ids_for_remote_log_publish()
+                .await
+                .unwrap();
             assert_eq!(commit_log_keys.len(), 2);
             assert_eq!(commit_log_keys[0].id, group1.id);
             assert_eq!(commit_log_keys[1].id, group3.id);
@@ -1980,11 +2006,12 @@ pub(crate) mod tests {
                 group3.commit_log_public_key
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_remote_log_publish_with_consent() {
+        with_connection(async |conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let mut allowed_group = generate_group(None);
             allowed_group.should_publish_commit_log = true;
@@ -2014,15 +2041,19 @@ pub(crate) mod tests {
             denied_consent.store(conn).unwrap();
 
             // Function should only return groups with Allowed consent state
-            let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
+            let commit_log_keys = conn
+                .get_conversation_ids_for_remote_log_publish()
+                .await
+                .unwrap();
             assert_eq!(commit_log_keys.len(), 1);
             assert_eq!(commit_log_keys[0].id, allowed_group.id);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_conversation_ids_for_remote_log_download_with_consent() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_remote_log_download_with_consent() {
+        with_connection(async |conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let allowed_group = generate_group(None);
             allowed_group.store(conn).unwrap();
@@ -2060,15 +2091,19 @@ pub(crate) mod tests {
             denied_consent.store(conn).unwrap();
 
             // Function should only return groups with Allowed consent state, excluding sync groups
-            let conversation_ids = conn.get_conversation_ids_for_remote_log_download().unwrap();
+            let conversation_ids = conn
+                .get_conversation_ids_for_remote_log_download()
+                .await
+                .unwrap();
             assert_eq!(conversation_ids.len(), 1);
             assert_eq!(conversation_ids[0].id, allowed_group.id);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_get_conversation_ids_for_responding_readds() {
-        with_connection(|conn| {
+    async fn test_get_conversation_ids_for_responding_readds() {
+        with_connection(async |conn| {
             // Create test groups
             let group_id_1 = GroupId::ONE;
             let group_id_2 = GroupId::TWO;
@@ -2146,7 +2181,10 @@ pub(crate) mod tests {
             }
 
             // Call the method under test
-            let result = conn.get_conversation_ids_for_responding_readds().unwrap();
+            let result = conn
+                .get_conversation_ids_for_responding_readds()
+                .await
+                .unwrap();
 
             // Should return groups 1 and 3 (both have pending readd requests)
             // Group 2 has no pending readds
@@ -2170,6 +2208,7 @@ pub(crate) mod tests {
             assert_eq!(group3_result.conversation_type, ConversationType::Group);
             assert_eq!(group3_result.created_at_ns, 3000);
         })
+        .await
     }
 
     /// Regression guard for the `find_group` query-span instrumentation.
@@ -2193,8 +2232,8 @@ pub(crate) mod tests {
     /// no span-event/`FmtSpan` configuration is required, so the assertion is
     /// deterministic and not flaky. Scoping via `with_default` around only the
     /// `find_group` call keeps unrelated framework spans out of the buffer.
-    #[test]
-    fn test_find_group_span_emits_operation_and_skips_group_id() {
+    #[xmtp_common::test]
+    async fn test_find_group_span_emits_operation_and_skips_group_id() {
         use std::sync::{
             Arc,
             atomic::{AtomicU64, Ordering},
@@ -2247,7 +2286,7 @@ pub(crate) mod tests {
             fn exit(&self, _span: &tracing::span::Id) {}
         }
 
-        with_connection(|conn| {
+        with_connection(async |conn| {
             // Insert a group so `find_group` exercises a real (Ok) query path.
             let test_group = generate_group(None);
             conn.raw_query(|raw_conn| {
@@ -2262,8 +2301,12 @@ pub(crate) mod tests {
             // Scope the subscriber tightly around the single instrumented call so
             // only `find_group`'s span lands in the buffer.
             tracing::subscriber::with_default(capture.clone(), || {
-                // `find_group` is synchronous; no runtime needed for the call.
-                let _ = conn.find_group(&test_group.id);
+                // The span opens when the future is *polled*, so it has to be
+                // driven inside this scope -- awaiting outside would poll it
+                // after the guard dropped and capture nothing. The sync track's
+                // futures are await-free, so a single poll resolves it here.
+                use futures::FutureExt;
+                let _ = conn.find_group(&test_group.id).now_or_never();
             });
 
             let logged = capture.buf.lock().clone();
@@ -2296,6 +2339,7 @@ pub(crate) mod tests {
                 "find_group span must carry only the operation field, got fields: {fields:?}"
             );
         })
+        .await
     }
 }
 

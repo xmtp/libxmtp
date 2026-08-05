@@ -648,8 +648,8 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn find_consent_by_dm_id() {
-        with_connection(|conn| {
+    async fn find_consent_by_dm_id() {
+        with_connection(async |conn| {
             let mut g = generate_group(None);
             g.dm_id = Some("dm:alpha:beta".to_string());
             g.store(conn)?;
@@ -661,16 +661,17 @@ mod tests {
             );
             cr.store(conn)?;
 
-            let mut records = conn.find_consent_by_dm_id("dm:alpha:beta")?;
+            let mut records = conn.find_consent_by_dm_id("dm:alpha:beta").await?;
 
             assert_eq!(records.len(), 1);
             assert_eq!(records.pop()?, cr);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn insert_and_read() {
-        with_connection(|conn| {
+    async fn insert_and_read() {
+        with_connection(async |conn| {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
                 ConsentType::InboxId,
@@ -682,6 +683,7 @@ mod tests {
             // Insert the record
             let result = conn
                 .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
+                .await
                 .expect("should store without error");
             // One record was inserted
             assert_eq!(result.len(), 1);
@@ -689,6 +691,7 @@ mod tests {
             // Insert it again
             let result = conn
                 .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
+                .await
                 .expect("should store without error");
             // Nothing should change
             assert_eq!(result.len(), 0);
@@ -699,12 +702,14 @@ mod tests {
                     state: ConsentState::Denied,
                     ..consent_record
                 }])
+                .await
                 .expect("should store without error");
             // Should change
             assert_eq!(result.len(), 1);
 
             let consent_record = conn
                 .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)
+                .await
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
@@ -717,6 +722,7 @@ mod tests {
 
             let existing = conn
                 .maybe_insert_consent_record_return_existing(&conflict)
+                .await
                 .unwrap();
             assert!(existing.is_some());
             let existing = existing.unwrap();
@@ -725,10 +731,12 @@ mod tests {
 
             let db_cr = conn
                 .get_consent_record(existing.entity, existing.entity_type)
+                .await
                 .unwrap()
                 .unwrap();
             // ensure the db matches the state of what was returned
             assert_eq!(db_cr.state, existing.state);
         })
+        .await
     }
 }

@@ -402,16 +402,17 @@ mod tests {
     use xmtp_common::rand_vec;
 
     #[xmtp_common::test]
-    fn min_key_package_delete_at_ns_none_when_empty() {
-        with_connection(|conn| {
+    async fn min_key_package_delete_at_ns_none_when_empty() {
+        with_connection(async |conn| {
             // Aggregate MIN over an empty/unmarked table is NULL -> None.
-            assert_eq!(conn.min_key_package_delete_at_ns().unwrap(), None);
+            assert_eq!(conn.min_key_package_delete_at_ns().await.unwrap(), None);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_store_key_package_history_entry() {
-        with_connection(|conn| {
+    async fn test_store_key_package_history_entry() {
+        with_connection(async |conn| {
             let hash_ref = rand_vec::<24>();
             let post_quantum_public_key = rand_vec::<32>();
             let new_entry = conn
@@ -419,6 +420,7 @@ mod tests {
                     hash_ref.clone(),
                     Some(post_quantum_public_key.clone()),
                 )
+                .await
                 .unwrap();
             assert_eq!(new_entry.key_package_hash_ref, hash_ref);
             assert_eq!(
@@ -428,17 +430,19 @@ mod tests {
             assert_eq!(new_entry.id, 1);
 
             // Now delete it
-            conn.delete_key_package_entry_with_id(1).unwrap();
+            conn.delete_key_package_entry_with_id(1).await.unwrap();
             let all_entries = conn
                 .find_key_package_history_entries_before_id(100)
+                .await
                 .unwrap();
             assert!(all_entries.is_empty());
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_store_multiple() {
-        with_connection(|conn| {
+    async fn test_store_multiple() {
+        with_connection(async |conn| {
             let post_quantum_public_key = rand_vec::<32>();
             let hash_ref1 = rand_vec::<24>();
             let hash_ref2 = rand_vec::<24>();
@@ -448,26 +452,32 @@ mod tests {
                 hash_ref1.clone(),
                 Some(post_quantum_public_key.clone()),
             )
+            .await
             .unwrap();
             conn.store_key_package_history_entry(
                 hash_ref2.clone(),
                 Some(post_quantum_public_key.clone()),
             )
+            .await
             .unwrap();
             let entry_3 = conn
                 .store_key_package_history_entry(hash_ref3.clone(), None)
+                .await
                 .unwrap();
 
             let all_entries = conn
                 .find_key_package_history_entries_before_id(100)
+                .await
                 .unwrap();
 
             assert_eq!(all_entries.len(), 3);
 
             let earlier_entries = conn
                 .find_key_package_history_entries_before_id(entry_3.id)
+                .await
                 .unwrap();
             assert_eq!(earlier_entries.len(), 2);
         })
+        .await
     }
 }

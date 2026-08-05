@@ -140,8 +140,8 @@ pub(super) mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_dm_stitching() {
-        with_connection(|conn| {
+    async fn test_dm_stitching() {
+        with_connection(async |conn| {
             StoredGroup::builder()
                 .id(GroupId::generate())
                 .created_at_ns(now_ns())
@@ -163,15 +163,16 @@ pub(super) mod tests {
                 .unwrap()
                 .store(conn)
                 .unwrap();
-            let all_groups = conn.find_groups(&GroupQueryArgs::default()).unwrap();
+            let all_groups = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
 
             assert_eq!(all_groups.len(), 1);
         })
+        .await
     }
 
     #[xmtp_common::test]
-    fn test_dm_deduplication() {
-        with_connection(|conn| {
+    async fn test_dm_deduplication() {
+        with_connection(async |conn| {
             let now = now_ns();
             let base_time = now - 1_000_000_000; // 1 second ago
 
@@ -244,6 +245,7 @@ pub(super) mod tests {
                     include_duplicate_dms: false,
                     ..Default::default()
                 })
+                .await
                 .unwrap();
 
             // Should have 3 groups: latest DM, different DM, and regular group
@@ -277,11 +279,13 @@ pub(super) mod tests {
                     include_duplicate_dms: true,
                     ..Default::default()
                 })
+                .await
                 .unwrap();
 
             // Should have all 5 groups
             assert_eq!(all_groups.len(), 5);
         })
+        .await
     }
 }
 
