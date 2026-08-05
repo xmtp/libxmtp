@@ -28,6 +28,9 @@ pub fn client() -> Result<reqwest::Client, reqwest::Error> {
 /// The same configuration as [`client`], for callers that need to set timeouts or other
 /// options before building. Note that on Android the TLS setup is already fixed here, so
 /// reqwest's own TLS options (extra roots, `danger_accept_invalid_certs`, ...) are ignored.
+// The one place in the workspace allowed to construct a reqwest client directly; `.clippy.toml`
+// disallows it everywhere else so the Android TLS setup below cannot be bypassed.
+#[allow(clippy::disallowed_methods)]
 pub fn client_builder() -> reqwest::ClientBuilder {
     let builder = reqwest::Client::builder();
     #[cfg(target_os = "android")]
@@ -70,6 +73,7 @@ mod tests {
     /// "unknown" TLS backend and only errors at `build()`. That would be an Android-only
     /// failure, so pin it down here instead.
     #[xmtp_common::test(unwrap_try = true)]
+    #[allow(clippy::disallowed_methods)]
     fn bundled_roots_config_is_accepted_by_reqwest() {
         let config = bundled_roots_tls_config();
         assert!(!config.alpn_protocols.is_empty());
