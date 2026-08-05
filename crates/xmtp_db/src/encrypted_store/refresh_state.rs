@@ -116,25 +116,25 @@ fn rows_to_global_cursor_map(
     map
 }
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryRefreshState {
-    async fn get_refresh_state<EntityId: AsRef<[u8]>>(
+    fn get_refresh_state(
         &self,
-        entity_id: EntityId,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
-    ) -> Result<Option<RefreshState>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Option<RefreshState>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    fn get_last_cursor_for_originators(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_ids: &[u32],
-    ) -> Result<Vec<Cursor>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Vec<Cursor>, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn get_last_cursor_for_originator<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originator(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
     ) -> Result<Cursor, StorageError> {
@@ -144,37 +144,38 @@ pub trait QueryRefreshState {
             .map(|c| c[0])
     }
 
-    async fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    fn get_last_cursor_for_ids(
         &self,
-        ids: &[Id],
+        ids: &[&[u8]],
         entities: &[EntityKind],
-    ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn update_cursor<Id: AsRef<[u8]>>(
+    fn update_cursor(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: Cursor,
-    ) -> Result<bool, StorageError>;
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    fn latest_cursor_for_id(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
-    ) -> Result<GlobalCursor, StorageError>;
+    ) -> impl std::future::Future<Output = Result<GlobalCursor, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn get_remote_log_cursors(
+    fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
-    ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
-impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
-    async fn get_refresh_state<EntityId: AsRef<[u8]>>(
+impl<T: QueryRefreshState + xmtp_common::MaybeSync> QueryRefreshState for &T {
+    async fn get_refresh_state(
         &self,
-        entity_id: EntityId,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         originator: u32,
     ) -> Result<Option<RefreshState>, StorageError> {
@@ -183,17 +184,17 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
             .await
     }
 
-    async fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_ids(
         &self,
-        ids: &[Id],
+        ids: &[&[u8]],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
         (**self).get_last_cursor_for_ids(ids, entities).await
     }
 
-    async fn update_cursor<Id: AsRef<[u8]>>(
+    async fn update_cursor(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError> {
@@ -207,9 +208,9 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         (**self).get_remote_log_cursors(conversation_ids).await
     }
 
-    async fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originators(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
@@ -218,9 +219,9 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
             .await
     }
 
-    async fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    async fn latest_cursor_for_id(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
@@ -233,9 +234,9 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+    async fn get_refresh_state(
         &self,
-        entity_id: EntityId,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
     ) -> Result<Option<RefreshState>, StorageError> {
@@ -243,7 +244,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
         let res = self.raw_query(|conn| {
             dsl::refresh_state
-                .find((entity_id.as_ref(), entity_kind, originator_id as i32))
+                .find((entity_id, entity_kind, originator_id as i32))
                 .first(conn)
                 .optional()
         })?;
@@ -251,15 +252,15 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_originators(
         &self,
-        id: Id,
+        id: &[u8],
         entity_kind: EntityKind,
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
         use super::schema::refresh_state::dsl;
 
-        let id_ref = id.as_ref();
+        let id_ref = id;
 
         let originator_ids_i32: Vec<i32> = originator_ids.iter().map(|o| *o as i32).collect();
         let found_states: Vec<RefreshState> = self.raw_query(|conn| {
@@ -304,9 +305,9 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+    async fn get_last_cursor_for_ids(
         &self,
-        ids: &[Id],
+        ids: &[&[u8]],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
         use super::schema::refresh_state::dsl;
@@ -353,9 +354,9 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(&entity_id)))]
-    fn update_cursor<Id: AsRef<[u8]>>(
+    async fn update_cursor(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: Cursor,
     ) -> Result<bool, StorageError> {
@@ -364,7 +365,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         use diesel::query_dsl::methods::FilterDsl;
 
         let state = RefreshState {
-            entity_id: entity_id.as_ref().to_vec(),
+            entity_id: entity_id.to_vec(),
             entity_kind,
             sequence_id: cursor.sequence_id as i64,
             originator_id: cursor.originator_id as i32,
@@ -382,7 +383,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn get_remote_log_cursors(
+    async fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError> {
@@ -394,6 +395,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                     EntityKind::CommitLogDownload,
                     Originators::REMOTE_COMMIT_LOG,
                 )
+                .await
                 .unwrap_or_default();
             cursor_map.insert(conversation_id.to_vec(), cursor);
         }
@@ -401,16 +403,16 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+    async fn latest_cursor_for_id(
         &self,
-        entity_id: Id,
+        entity_id: &[u8],
         entities: &[EntityKind],
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
         use super::schema::refresh_state::dsl;
         use diesel::dsl::max;
 
-        let entity_ref = entity_id.as_ref();
+        let entity_ref = entity_id;
 
         let cursor_map = self.raw_query(|conn| {
             let base_query = dsl::refresh_state
@@ -464,9 +466,9 @@ mod pg_impl {
     }
 
     impl QueryRefreshState for PgDb {
-        async fn get_refresh_state<EntityId: AsRef<[u8]>>(
+        async fn get_refresh_state(
             &self,
-            entity_id: EntityId,
+            entity_id: &[u8],
             entity_kind: EntityKind,
             originator_id: u32,
         ) -> Result<Option<RefreshState>, StorageError> {
@@ -476,7 +478,7 @@ mod pg_impl {
                  WHERE entity_id = $1 AND entity_kind = $2 AND originator_id = $3",
                 RefreshState::select_columns()
             ))
-            .bind(entity_id.as_ref())
+            .bind(entity_id)
             .bind(entity_kind)
             .bind(originator_id as i32)
             .fetch_optional(&mut *c)
@@ -488,13 +490,13 @@ mod pg_impl {
         /// Reads the cursor for each originator, seeding a zero row for any that
         /// has none, and returns one cursor per requested originator **in the
         /// order asked for**. Callers index the result positionally.
-        async fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
+        async fn get_last_cursor_for_originators(
             &self,
-            id: Id,
+            id: &[u8],
             entity_kind: EntityKind,
             originator_ids: &[u32],
         ) -> Result<Vec<Cursor>, StorageError> {
-            let id_ref = id.as_ref();
+            let id_ref = id;
             let wanted: Vec<i32> = originator_ids.iter().map(|o| *o as i32).collect();
 
             // Read-then-seed across two statements, so they share a transaction.
@@ -555,9 +557,9 @@ mod pg_impl {
         /// Unlike the sync track this issues a single query: SQLite's 999-bind
         /// ceiling forces that impl to chunk the id list, but Postgres takes the
         /// whole set as one array parameter.
-        async fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+        async fn get_last_cursor_for_ids(
             &self,
-            ids: &[Id],
+            ids: &[&[u8]],
             entities: &[EntityKind],
         ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
             if ids.is_empty() {
@@ -594,9 +596,9 @@ mod pg_impl {
         /// is what makes that atomic: a stale writer's row is rejected by the
         /// database rather than by a read-then-compare that could race.
         /// `false` means the stored cursor was already at or past this one.
-        async fn update_cursor<Id: AsRef<[u8]>>(
+        async fn update_cursor(
             &self,
-            entity_id: Id,
+            entity_id: &[u8],
             entity_kind: EntityKind,
             cursor: Cursor,
         ) -> Result<bool, StorageError> {
@@ -608,7 +610,7 @@ mod pg_impl {
                  SET sequence_id = excluded.sequence_id \
                  WHERE refresh_state.sequence_id < excluded.sequence_id",
             )
-            .bind(entity_id.as_ref())
+            .bind(entity_id)
             .bind(entity_kind)
             .bind(cursor.sequence_id as i64)
             .bind(cursor.originator_id as i32)
@@ -683,9 +685,9 @@ mod pg_impl {
             .await
         }
 
-        async fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+        async fn latest_cursor_for_id(
             &self,
-            entity_id: Id,
+            entity_id: &[u8],
             entities: &[EntityKind],
             originators: Option<&[&OriginatorId]>,
         ) -> Result<GlobalCursor, StorageError> {
@@ -701,7 +703,7 @@ mod pg_impl {
             sql.push_str(" GROUP BY originator_id");
 
             let mut query = sqlx::query(&sql)
-                .bind(entity_id.as_ref())
+                .bind(entity_id)
                 .bind(kinds_as_i32(entities));
             if let Some(oids) = originators {
                 let ids: Vec<i32> = oids.iter().map(|o| **o as i32).collect();

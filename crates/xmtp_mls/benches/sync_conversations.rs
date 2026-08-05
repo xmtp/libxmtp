@@ -116,7 +116,7 @@ async fn setup_sync_conversations_bench(
         .take(groups_with_messages)
     {
         let other_group = other_client
-            .find_groups(Default::default())
+            .find_groups(&Default::default())
             .unwrap()
             .into_iter()
             .find(|g| g.group_id == *other_group_id)

@@ -72,22 +72,21 @@ pub struct ConversationListItem {
     pub originator_id: Option<i64>,
 }
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryConversationList {
-    async fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+    fn fetch_conversation_list(
         &self,
-        args: A,
-    ) -> Result<Vec<ConversationListItem>, StorageError>;
+        args: &GroupQueryArgs,
+    ) -> impl std::future::Future<Output = Result<Vec<ConversationListItem>, StorageError>>
+    + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryConversationList for &T
 where
-    T: QueryConversationList,
+    T: QueryConversationList + xmtp_common::MaybeSync,
 {
-    async fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+    async fn fetch_conversation_list(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
         (**self).fetch_conversation_list(args).await
     }
@@ -95,14 +94,14 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
-    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+    async fn fetch_conversation_list(
         &self,
-        args: A,
+        args: &GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
         use crate::schema::consent_records::dsl as consent_dsl;
         use crate::schema::conversation_list::dsl as conversation_list_dsl;
 
-        args.as_ref().validate()?;
+        args.validate()?;
 
         let GroupQueryArgs {
             allowed_states,
@@ -117,7 +116,7 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
             last_activity_before_ns,
             order_by,
             ..
-        } = args.as_ref();
+        } = args;
 
         let order_expression = match order_by.clone().unwrap_or_default() {
             GroupQueryOrderBy::CreatedAt => {
@@ -295,11 +294,10 @@ mod pg_impl {
         /// view rather than `groups`: every optional filter is `$n IS NULL OR
         /// ...` on a fixed bind order, and only the consent join varies the
         /// query's shape, so it takes the last parameter.
-        async fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+        async fn fetch_conversation_list(
             &self,
-            args: A,
+            args: &GroupQueryArgs,
         ) -> Result<Vec<ConversationListItem>, StorageError> {
-            let args = args.as_ref();
             args.validate()?;
 
             let GroupQueryArgs {
@@ -458,7 +456,7 @@ pub(crate) mod tests {
 
             // Fetch the conversation list
             let conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(&GroupQueryArgs::default())
                 .unwrap();
             assert_eq!(conversation_list.len(), 1, "Should return one group");
             assert_eq!(
@@ -497,7 +495,7 @@ pub(crate) mod tests {
 
             // Fetch the conversation list
             let conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(&GroupQueryArgs::default())
                 .unwrap();
 
             assert_eq!(conversation_list.len(), 3, "Should return all three groups");
@@ -536,7 +534,7 @@ pub(crate) mod tests {
 
             // Fetch the conversation list and check last message
             let mut conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(&GroupQueryArgs::default())
                 .unwrap();
             assert_eq!(conversation_list.len(), 1, "Should return one group");
             assert_eq!(
@@ -558,7 +556,7 @@ pub(crate) mod tests {
 
             // Fetch the conversation list again and validate the last message is updated
             conversation_list = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(&GroupQueryArgs::default())
                 .unwrap();
             assert_eq!(
                 conversation_list[0].sent_at_ns.unwrap(),
@@ -600,7 +598,7 @@ pub(crate) mod tests {
             test_group_3_consent.store(conn).unwrap();
 
             let all_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     consent_states: Some(vec![
                         ConsentState::Allowed,
                         ConsentState::Unknown,
@@ -612,12 +610,12 @@ pub(crate) mod tests {
             assert_eq!(all_results.len(), 4);
 
             let default_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(&GroupQueryArgs::default())
                 .unwrap();
             assert_eq!(default_results.len(), 3);
 
             let allowed_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Allowed]),
                     ..Default::default()
                 })
@@ -625,7 +623,7 @@ pub(crate) mod tests {
             assert_eq!(allowed_results.len(), 2);
 
             let allowed_unknown_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
                     ..Default::default()
                 })
@@ -633,7 +631,7 @@ pub(crate) mod tests {
             assert_eq!(allowed_unknown_results.len(), 3);
 
             let denied_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Denied]),
                     ..Default::default()
                 })
@@ -642,7 +640,7 @@ pub(crate) mod tests {
             assert_eq!(denied_results[0].id, test_group_2.id);
 
             let unknown_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     consent_states: Some(vec![ConsentState::Unknown]),
                     ..Default::default()
                 })
@@ -651,7 +649,7 @@ pub(crate) mod tests {
             assert_eq!(unknown_results[0].id, test_group_4.id);
 
             let empty_array_results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     consent_states: Some(vec![]),
                     ..Default::default()
                 })
@@ -690,7 +688,7 @@ pub(crate) mod tests {
 
             // Query using default args (no consent_states specified)
             let default_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(&GroupQueryArgs::default())
                 .unwrap();
 
             // Expect to include only: allowed_group and unknown_group (2 total)
@@ -718,7 +716,7 @@ pub(crate) mod tests {
             );
             m.store(conn)?;
 
-            let conv = conn.fetch_conversation_list(GroupQueryArgs {
+            let conv = conn.fetch_conversation_list(&GroupQueryArgs {
                 ..Default::default()
             })?;
 
@@ -765,7 +763,7 @@ pub(crate) mod tests {
 
             // Test: last_activity_after_ns = 3500 should return group1 (activity at 5000) and group2 (activity at 4000)
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_after_ns: Some(3500),
                     ..Default::default()
                 })
@@ -792,7 +790,7 @@ pub(crate) mod tests {
 
             // Test: last_activity_after_ns = 4500 should only return group1
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_after_ns: Some(4500),
                     ..Default::default()
                 })
@@ -802,7 +800,7 @@ pub(crate) mod tests {
 
             // Test: last_activity_after_ns = 2500 should return all groups
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_after_ns: Some(2500),
                     ..Default::default()
                 })
@@ -849,7 +847,7 @@ pub(crate) mod tests {
 
             // Test: last_activity_before_ns = 4500 should return group2 (activity at 4000) and group3 (created at 3000)
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_before_ns: Some(4500),
                     ..Default::default()
                 })
@@ -876,7 +874,7 @@ pub(crate) mod tests {
 
             // Test: last_activity_before_ns = 3500 should only return group3
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_before_ns: Some(3500),
                     ..Default::default()
                 })
@@ -886,7 +884,7 @@ pub(crate) mod tests {
 
             // Test: last_activity_before_ns = 5500 should return all groups
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_before_ns: Some(5500),
                     ..Default::default()
                 })
@@ -920,7 +918,7 @@ pub(crate) mod tests {
             // Test: last_activity_after_ns = 7500 with limit = 2
             // Should return groups with messages at 97_000, 98_000, 99_000, 100_000, but only 2 due to limit
             let results = conn
-                .fetch_conversation_list(GroupQueryArgs {
+                .fetch_conversation_list(&GroupQueryArgs {
                     last_activity_after_ns: Some(96_000),
                     limit: Some(2),
                     order_by: Some(GroupQueryOrderBy::LastActivity),

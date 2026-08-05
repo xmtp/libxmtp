@@ -295,7 +295,7 @@ pub trait ConnectionExt: MaybeSend + MaybeSync {
 #[cfg(feature = "sync")]
 impl<C> ConnectionExt for &C
 where
-    C: ConnectionExt,
+    C: ConnectionExt + xmtp_common::MaybeSync,
 {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where

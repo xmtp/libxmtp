@@ -17,7 +17,7 @@ fn get_first_group<C>(client: &crate::Client<C>) -> MlsGroup<C>
 where
     C: XmtpSharedContext,
 {
-    let groups = client.find_groups(Default::default()).unwrap();
+    let groups = client.find_groups(&Default::default()).unwrap();
     groups
         .into_iter()
         .next()
@@ -389,7 +389,7 @@ async fn test_group_updated_admin_changes() {
 
     sync_client_welcomes(&bola).await;
 
-    let bola_groups2 = bola.find_groups(Default::default()).unwrap();
+    let bola_groups2 = bola.find_groups(&Default::default()).unwrap();
     let new_group = bola_groups2
         .iter()
         .find(|g| g.group_id != bola_group.group_id)

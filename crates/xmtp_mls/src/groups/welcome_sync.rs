@@ -225,10 +225,12 @@ where
 
         let group_ids: Vec<GroupId> = groups.iter().map(|group| group.group_id).collect();
         let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
-        let last_synced_cursors = db.get_last_cursor_for_ids(
-            &id_slices,
-            &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
-        )?;
+        let last_synced_cursors = db
+            .get_last_cursor_for_ids(
+                &id_slices,
+                &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
+            )
+            .await?;
         let latest_message_metadata = api.get_newest_message_metadata(&group_ids).await?;
 
         let group_ids_needing_sync =
@@ -246,7 +248,8 @@ where
         let db = self.context.db();
         self.sync_welcomes().await?;
         let groups = db
-            .all_sync_groups()?
+            .all_sync_groups()
+            .await?
             .into_iter()
             .map(|g| {
                 MlsGroup::new(
@@ -280,7 +283,7 @@ where
     pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
         use crate::groups::validated_commit::LibXMTPVersion;
 
-        let paused = self.context.db().get_paused_groups_with_versions()?;
+        let paused = self.context.db().get_paused_groups_with_versions().await?;
         if paused.is_empty() {
             return Ok(0);
         }
@@ -307,7 +310,7 @@ where
                 // transient DB failure on one row shouldn't abort the
                 // sweep for the others. The next sync sweep will pick
                 // this row up again.
-                if let Err(err) = self.context.db().unpause_group(&group_id) {
+                if let Err(err) = self.context.db().unpause_group(&group_id).await {
                     tracing::warn!(
                         group_id = hex::encode(group_id.as_ref()),
                         required = %required_str,
@@ -355,7 +358,7 @@ where
             ..GroupQueryArgs::default()
         };
 
-        let conversations = db.fetch_conversation_list(query_args)?;
+        let conversations = db.fetch_conversation_list(&query_args).await?;
 
         let all_groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()

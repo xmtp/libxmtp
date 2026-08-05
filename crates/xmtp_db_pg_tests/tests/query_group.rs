@@ -84,7 +84,7 @@ async fn find_groups_excludes_virtual_conversation_types() {
     store(&db, virtual_group(gid(2), ConversationType::Sync)).await;
     store(&db, virtual_group(gid(3), ConversationType::Oneshot)).await;
 
-    let found = db.find_groups(GroupQueryArgs::default()).await.unwrap();
+    let found = db.find_groups(&GroupQueryArgs::default()).await.unwrap();
     assert_eq!(ids(&found), vec![gid(1)]);
 }
 
@@ -99,13 +99,13 @@ async fn find_groups_keeps_only_the_latest_row_per_dm() {
     store(&db, dm(gid(4), "dm:c:d", None)).await;
     store(&db, group(gid(5), 1)).await;
 
-    let found = db.find_groups(GroupQueryArgs::default()).await.unwrap();
+    let found = db.find_groups(&GroupQueryArgs::default()).await.unwrap();
     let mut found = ids(&found);
     found.sort();
     assert_eq!(found, vec![gid(2), gid(4), gid(5)]);
 
     let all = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             include_duplicate_dms: true,
             ..Default::default()
         })
@@ -123,7 +123,7 @@ async fn find_groups_dedup_treats_a_null_last_message_as_oldest() {
     store(&db, dm(gid(1), "dm:a:b", None)).await;
     store(&db, dm(gid(2), "dm:a:b", Some(5))).await;
 
-    let found = db.find_groups(GroupQueryArgs::default()).await.unwrap();
+    let found = db.find_groups(&GroupQueryArgs::default()).await.unwrap();
     assert_eq!(ids(&found), vec![gid(2)]);
 }
 
@@ -146,7 +146,7 @@ async fn find_groups_orders_by_created_at_or_last_activity() {
     .await;
 
     let by_created = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             order_by: Some(GroupQueryOrderBy::CreatedAt),
             ..Default::default()
         })
@@ -156,7 +156,7 @@ async fn find_groups_orders_by_created_at_or_last_activity() {
 
     // COALESCE(last_message_ns, created_at_ns) DESC -> 900, 40, 20.
     let by_activity = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             order_by: Some(GroupQueryOrderBy::LastActivity),
             ..Default::default()
         })
@@ -178,7 +178,7 @@ async fn find_groups_default_consent_keeps_unknown_and_unrecorded() {
     set_consent(&db, &gid(3), ConsentState::Unknown).await;
     set_consent(&db, &gid(4), ConsentState::Denied).await;
 
-    let found = db.find_groups(GroupQueryArgs::default()).await.unwrap();
+    let found = db.find_groups(&GroupQueryArgs::default()).await.unwrap();
     assert_eq!(ids(&found), vec![gid(1), gid(2), gid(3)]);
 }
 
@@ -194,7 +194,7 @@ async fn find_groups_explicit_states_require_a_consent_record() {
     set_consent(&db, &gid(3), ConsentState::Allowed).await;
 
     let denied = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             consent_states: Some(vec![ConsentState::Denied]),
             ..Default::default()
         })
@@ -213,7 +213,7 @@ async fn find_groups_all_consent_states_skips_the_join() {
     set_consent(&db, &gid(2), ConsentState::Denied).await;
 
     let found = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             consent_states: Some(vec![
                 ConsentState::Allowed,
                 ConsentState::Denied,
@@ -241,7 +241,7 @@ async fn find_groups_applies_scalar_filters() {
 
     // created_after / created_before are both exclusive here.
     let window = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             created_after_ns: Some(10),
             created_before_ns: Some(30),
             ..Default::default()
@@ -251,7 +251,7 @@ async fn find_groups_applies_scalar_filters() {
     assert_eq!(ids(&window), vec![gid(2)]);
 
     let pending = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             allowed_states: Some(vec![GroupMembershipState::Pending]),
             ..Default::default()
         })
@@ -260,7 +260,7 @@ async fn find_groups_applies_scalar_filters() {
     assert_eq!(ids(&pending), vec![gid(3)]);
 
     let publishers = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             should_publish_commit_log: Some(true),
             ..Default::default()
         })
@@ -269,7 +269,7 @@ async fn find_groups_applies_scalar_filters() {
     assert_eq!(ids(&publishers), vec![gid(3)]);
 
     let limited = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             limit: Some(2),
             ..Default::default()
         })
@@ -292,7 +292,7 @@ async fn find_groups_activity_window_falls_back_to_created_at() {
     .await;
 
     let recent = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             last_activity_after_ns: Some(50),
             ..Default::default()
         })
@@ -303,7 +303,7 @@ async fn find_groups_activity_window_falls_back_to_created_at() {
     assert_eq!(recent, vec![gid(1), gid(2)]);
 
     let old = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             last_activity_before_ns: Some(200),
             ..Default::default()
         })
@@ -319,7 +319,7 @@ async fn find_groups_appends_sync_groups_only_when_asked() {
     store(&db, virtual_group(gid(2), ConversationType::Sync)).await;
 
     let with_sync = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             include_sync_groups: true,
             ..Default::default()
         })
@@ -330,7 +330,7 @@ async fn find_groups_appends_sync_groups_only_when_asked() {
     // Asking for the Sync type alone returns only the sync groups: the main
     // query filters every virtual type out.
     let only_sync = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             conversation_type: Some(ConversationType::Sync),
             ..Default::default()
         })
@@ -343,7 +343,7 @@ async fn find_groups_appends_sync_groups_only_when_asked() {
 async fn find_groups_rejects_conflicting_time_filters() {
     let db = fresh_db("g_conflict").await;
     let err = db
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             created_after_ns: Some(1),
             last_activity_after_ns: Some(1),
             ..Default::default()
@@ -363,7 +363,7 @@ async fn find_groups_by_id_paged_orders_by_id_and_offsets() {
 
     let page = db
         .find_groups_by_id_paged(
-            GroupQueryArgs {
+            &GroupQueryArgs {
                 limit: Some(2),
                 ..Default::default()
             },
@@ -376,7 +376,7 @@ async fn find_groups_by_id_paged_orders_by_id_and_offsets() {
     // Unlike find_groups, the upper bound here is inclusive.
     let bounded = db
         .find_groups_by_id_paged(
-            GroupQueryArgs {
+            &GroupQueryArgs {
                 created_before_ns: Some(20),
                 ..Default::default()
             },

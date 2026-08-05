@@ -265,7 +265,7 @@ where
         let conn = &self.context.db();
         // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
         let conversation_ids_for_remote_log_publish =
-            conn.get_conversation_ids_for_remote_log_publish()?;
+            conn.get_conversation_ids_for_remote_log_publish().await?;
 
         // Step 2 is to prepare commit log entries for publishing along with the updated cursor for each conversation on publication success
         let (conversation_cursor_info, all_entries) =
@@ -297,7 +297,8 @@ where
                 &conversation_cursor_info.conversation_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                 Cursor::commit_log(conversation_cursor_info.last_entry_published_rowid as u64),
-            )?;
+            )
+            .await?;
         }
         Ok(conversation_cursor_info)
     }
@@ -415,19 +416,22 @@ where
         let conn = &self.context.db();
         // This should be all groups we are in, and all dms are in except sync groups
         let conversation_id_to_public_key: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
-            .get_conversation_ids_for_remote_log_download()?
+            .get_conversation_ids_for_remote_log_download()
+            .await?
             .into_iter()
             .map(|c| (c.id.to_vec(), c.commit_log_public_key))
             .collect();
 
         // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
-        let remote_log_cursors = conn.get_remote_log_cursors(
-            conversation_id_to_public_key
-                .keys()
-                .map(Vec::as_slice)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )?;
+        let remote_log_cursors = conn
+            .get_remote_log_cursors(
+                conversation_id_to_public_key
+                    .keys()
+                    .map(Vec::as_slice)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .await?;
         // For now we will rely on next iteration of the worker to download the next batch of commit log entries
         // if there is more than MAX_PAGE_SIZE entries to download per group
         let query_log_requests: Vec<QueryCommitLogRequest> = remote_log_cursors
@@ -617,8 +621,11 @@ where
 
     // Updates fork status for conversations in the database
     pub async fn update_forked_state(&mut self) -> Result<(), CommitLogError> {
-        let conversation_ids_for_forked_state_check =
-            self.context.db().get_conversation_ids_for_fork_check()?;
+        let conversation_ids_for_forked_state_check = self
+            .context
+            .db()
+            .get_conversation_ids_for_fork_check()
+            .await?;
 
         for conversation_id in conversation_ids_for_forked_state_check {
             let conversation_id = GroupId::try_from(conversation_id)?;
@@ -664,7 +671,10 @@ where
         let group_id = group_info.group_id;
 
         // Check if a readd request has already been sent for this group
-        if conn.is_awaiting_readd(&group_id, self.context.installation_id().as_slice())? {
+        if conn
+            .is_awaiting_readd(&group_id, self.context.installation_id().as_slice())
+            .await?
+        {
             tracing::debug!(
                 group_id = %group_id,
                 "Skipping readd request for group because it has already been requested"
@@ -699,7 +709,8 @@ where
             &group_id,
             self.context.installation_id().as_slice(),
             latest_commit_sequence_id,
-        )?;
+        )
+        .await?;
 
         tracing::debug!(
             group_id = %group_id,
@@ -718,7 +729,7 @@ where
         let conn = self.context.db();
 
         // Fetch all forked groups with their latest epoch
-        let mut forked_groups = conn.get_conversation_ids_for_requesting_readds()?;
+        let mut forked_groups = conn.get_conversation_ids_for_requesting_readds().await?;
         if self.context.fork_recovery_opts().enable_recovery_requests
             == ForkRecoveryPolicy::AllowlistedGroups
         {
@@ -771,7 +782,7 @@ where
             return Ok(());
         }
         let conn = self.context.db();
-        let groups_for_readd = conn.get_conversation_ids_for_responding_readds()?;
+        let groups_for_readd = conn.get_conversation_ids_for_responding_readds().await?;
 
         // Runs every worker tick (~2s); only speak when there's actually work.
         if groups_for_readd.is_empty() {
@@ -815,7 +826,8 @@ where
                     conn.delete_other_readd_statuses(
                         &group.group_id,
                         self.context.installation_id().as_slice(),
-                    )?;
+                    )
+                    .await?;
                     continue;
                 }
             }
@@ -867,10 +879,12 @@ where
             return Ok(HashSet::new());
         }
 
-        let readd_statuses = conn.get_readds_awaiting_response(
-            &mls_group.group_id,
-            self.context.installation_id().as_slice(),
-        )?;
+        let readd_statuses = conn
+            .get_readds_awaiting_response(
+                &mls_group.group_id,
+                self.context.installation_id().as_slice(),
+            )
+            .await?;
         let mut unverified = readd_statuses
             .iter()
             .map(|readd_status| readd_status.installation_id.clone())
@@ -894,7 +908,8 @@ where
             unverified.len(),
             verified.len()
         );
-        conn.delete_readd_statuses(&mls_group.group_id, unverified)?;
+        conn.delete_readd_statuses(&mls_group.group_id, unverified)
+            .await?;
 
         Ok(verified)
     }
@@ -1078,7 +1093,7 @@ where
         use xmtp_db::group::GroupQueryArgs;
         let conn = &self.context.db();
         // Get all groups (not just those with commit log keys)
-        let all_groups = conn.find_groups(GroupQueryArgs::default())?;
+        let all_groups = conn.find_groups(&GroupQueryArgs::default())?;
 
         let mut results = HashMap::new();
         for group in all_groups {

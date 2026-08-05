@@ -19,7 +19,7 @@
 //! [`PgDb`] is a single concrete type whose variant is chosen at runtime. A
 //! type-level split (`PgDb` plus a separate `PgTx`) would need every `Query*`
 //! trait implemented twice, since a blanket `impl<E: PgExecutor> QueryX for E`
-//! cannot coexist with the `impl<T: QueryX> QueryX for &T` forwarding impl that
+//! cannot coexist with the `impl<T: QueryX + xmtp_common::MaybeSync> QueryX for &T` forwarding impl that
 //! each trait already has -- coherence cannot rule out a future `&T: PgExecutor`.
 //! One type keeps all ~156 method bodies single-copy: they call
 //! [`PgDb::conn`] and write against `&mut PgConnection`, never observing which

@@ -139,7 +139,7 @@ where
         Ok(self
             .context
             .db()
-            .find_groups(args)?
+            .find_groups(&args)?
             .into_iter()
             .map(|stored_group| {
                 MlsGroup::new(

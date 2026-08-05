@@ -12,7 +12,10 @@ impl BackupRecordProvider for ConsentSave {
         D: DbQuery,
     {
         let cursor = state.cursor.load(Ordering::SeqCst);
-        let batch = state.db.consent_records_paged(Self::BATCH_SIZE, cursor)?;
+        let batch = state
+            .db
+            .consent_records_paged(Self::BATCH_SIZE, cursor)
+            .await?;
 
         let records = batch
             .into_iter()

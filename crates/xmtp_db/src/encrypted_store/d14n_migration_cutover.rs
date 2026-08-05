@@ -33,21 +33,33 @@ impl Default for StoredMigrationCutover {
     }
 }
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryMigrationCutover {
-    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError>;
+    fn get_migration_cutover(
+        &self,
+    ) -> impl std::future::Future<Output = Result<StoredMigrationCutover, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError>;
+    fn set_cutover_ns(
+        &self,
+        cutover_ns: i64,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn get_last_checked_ns(&self) -> Result<i64, StorageError>;
+    fn get_last_checked_ns(
+        &self,
+    ) -> impl std::future::Future<Output = Result<i64, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError>;
+    fn set_last_checked_ns(
+        &self,
+        last_checked_ns: i64,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError>;
+    fn set_has_migrated(
+        &self,
+        has_migrated: bool,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
-impl<T: QueryMigrationCutover> QueryMigrationCutover for &T {
+impl<T: QueryMigrationCutover + xmtp_common::MaybeSync> QueryMigrationCutover for &T {
     async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
         (**self).get_migration_cutover().await
     }
@@ -71,12 +83,12 @@ impl<T: QueryMigrationCutover> QueryMigrationCutover for &T {
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
-    fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
+    async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
         let result = self.raw_query(|conn| dsl::d14n_migration_cutover.first(conn).optional())?;
         Ok(result.unwrap_or_default())
     }
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::cutover_ns.eq(cutover_ns))
@@ -85,12 +97,12 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
         Ok(())
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
-        let cutover = self.get_migration_cutover()?;
+    async fn get_last_checked_ns(&self) -> Result<i64, StorageError> {
+        let cutover = self.get_migration_cutover().await?;
         Ok(cutover.last_checked_ns)
     }
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::last_checked_ns.eq(last_checked_ns))
@@ -99,7 +111,7 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
         Ok(())
     }
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::d14n_migration_cutover.find(1))
                 .set(d14n_migration_cutover::has_migrated.eq(has_migrated))

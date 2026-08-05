@@ -470,111 +470,128 @@ pub struct MessagesWithRelations {
 
 pub type LatestMessageTimeBySender = HashMap<String, i64>;
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryGroupMessage {
     /// Query for group messages
-    async fn get_group_messages(
+    fn get_group_messages(
         &self,
         group_id: &GroupId,
         args: &MsgQueryArgs,
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupMessage>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Count group messages matching the given criteria
-    async fn count_group_messages(
+    fn count_group_messages(
         &self,
         group_id: &GroupId,
         args: &MsgQueryArgs,
-    ) -> Result<i64, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<i64, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Return all `Application`-kind messages stored locally for `group_id`
     /// whose `sequence_id` is NOT in the provided list. Used by tools that
     /// compare local state against an authoritative set of sequence ids
     /// (e.g. xdbg's healthcheck validator).
-    async fn missing_messages(
+    fn missing_messages(
         &self,
         group_id: &GroupId,
         sequence_ids: &[u64],
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupMessage>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    async fn group_messages_paged(
+    fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
         offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupMessage>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Query for group messages with their reactions
-    async fn get_group_messages_with_reactions(
+    fn get_group_messages_with_reactions(
         &self,
         group_id: &GroupId,
         args: &MsgQueryArgs,
-    ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn get_inbound_relations(
+    fn get_inbound_relations(
         &self,
         group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
-    ) -> Result<InboundRelations, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<InboundRelations, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    async fn get_outbound_relations(
+    fn get_outbound_relations(
         &self,
         group_id: &GroupId,
         message_ids: &[&[u8]],
-    ) -> Result<OutboundRelations, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<OutboundRelations, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    async fn get_inbound_relation_counts(
+    fn get_inbound_relation_counts(
         &self,
         group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
-    ) -> Result<RelationCounts, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<RelationCounts, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Get a particular group message
-    async fn get_group_message<MessageId: AsRef<[u8]>>(
+    fn get_group_message(
         &self,
-        id: MessageId,
-    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+        id: &[u8],
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredGroupMessage>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
+    fn get_latest_message_times_by_sender(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         allowed_content_types: &[ContentType],
-    ) -> Result<LatestMessageTimeBySender, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<LatestMessageTimeBySender, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Get a particular group message using the write connection
-    async fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+    fn write_conn_get_group_message(
         &self,
-        id: MessageId,
-    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+        id: &[u8],
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredGroupMessage>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
+    fn get_group_message_by_timestamp(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         timestamp: i64,
-    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredGroupMessage>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
+    fn get_group_message_by_cursor(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         sequence_id: Cursor,
-    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredGroupMessage>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+    fn set_delivery_status_to_published(
         &self,
-        msg_id: &MessageId,
+        msg_id: &[u8],
         timestamp: u64,
         cursor: Cursor,
         message_expire_at_ns: Option<i64>,
-    ) -> Result<usize, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    async fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+    fn set_delivery_status_to_failed(
         &self,
-        msg_id: &MessageId,
-    ) -> Result<usize, crate::ConnectionError>;
+        msg_id: &[u8],
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    async fn delete_expired_messages(
+    fn delete_expired_messages(
         &self,
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupMessage>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// The soonest `expire_at_ns` among published Application messages that have
     /// an expiry set, or `None` if no disappearing messages exist. Note this can
@@ -582,20 +599,24 @@ pub trait QueryGroupMessage {
     /// worker was asleep) — the caller clamps the resulting sleep to `>= 0` and
     /// deletes on the next wake. Same filters as `delete_expired_messages`
     /// without its `expire_at_ns <= now` bound.
-    async fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
-
-    async fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+    fn min_expire_at_ns(
         &self,
-        message_id: MessageId,
-    ) -> Result<usize, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<i64>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
+
+    fn delete_message_by_id(
+        &self,
+        message_id: &[u8],
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Stored messages above each group's cursor, attributed to their group.
     /// The attribution matters: sequence ids are not scoped per group, so a
     /// caller folding these into per-group state must never mix groups.
-    async fn messages_newer_than(
+    fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Clear messages from the database with optional filtering.
     ///
@@ -605,17 +626,16 @@ pub trait QueryGroupMessage {
     ///
     /// # Returns
     /// The number of messages deleted.
-    async fn clear_messages(
+    fn clear_messages(
         &self,
         group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
-    ) -> Result<usize, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryGroupMessage for &T
 where
-    T: QueryGroupMessage,
+    T: QueryGroupMessage + xmtp_common::MaybeSync,
 {
     /// Query for group messages
     async fn get_group_messages(
@@ -692,9 +712,9 @@ where
             .await
     }
 
-    async fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
+    async fn get_latest_message_times_by_sender(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         allowed_content_types: &[ContentType],
     ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
         (**self)
@@ -703,24 +723,24 @@ where
     }
 
     /// Get a particular group message
-    async fn get_group_message<MessageId: AsRef<[u8]>>(
+    async fn get_group_message(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_message(id).await
     }
 
     /// Get a particular group message using the write connection
-    async fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+    async fn write_conn_get_group_message(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).write_conn_get_group_message(id).await
     }
 
-    async fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
+    async fn get_group_message_by_timestamp(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self)
@@ -728,17 +748,17 @@ where
             .await
     }
 
-    async fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
+    async fn get_group_message_by_cursor(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_message_by_cursor(group_id, cursor).await
     }
 
-    async fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+    async fn set_delivery_status_to_published(
         &self,
-        msg_id: &MessageId,
+        msg_id: &[u8],
         timestamp: u64,
         cursor: Cursor,
         message_expire_at_ns: Option<i64>,
@@ -748,9 +768,9 @@ where
             .await
     }
 
-    async fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+    async fn set_delivery_status_to_failed(
         &self,
-        msg_id: &MessageId,
+        msg_id: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
         (**self).set_delivery_status_to_failed(msg_id).await
     }
@@ -765,9 +785,9 @@ where
         (**self).min_expire_at_ns().await
     }
 
-    async fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+    async fn delete_message_by_id(
         &self,
-        message_id: MessageId,
+        message_id: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
         (**self).delete_message_by_id(message_id).await
     }
@@ -848,7 +868,7 @@ macro_rules! apply_message_filters {
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
     #[xmtp_common::db_span]
-    fn get_group_messages(
+    async fn get_group_messages(
         &self,
         group_id: &GroupId,
         args: &MsgQueryArgs,
@@ -894,7 +914,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
     /// Count group messages matching the given criteria
     #[xmtp_common::db_span]
-    fn count_group_messages(
+    async fn count_group_messages(
         &self,
         group_id: &GroupId,
         args: &MsgQueryArgs,
@@ -940,7 +960,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn missing_messages(
+    async fn missing_messages(
         &self,
         group_id: &GroupId,
         sequence_ids: &[u64],
@@ -960,7 +980,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn group_messages_paged(
+    async fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
         offset: i64,
@@ -1009,7 +1029,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
     /// Query for group messages with their reactions
     #[xmtp_common::db_span]
-    fn get_group_messages_with_reactions(
+    async fn get_group_messages_with_reactions(
         &self,
         group_id: &GroupId,
         args: &MsgQueryArgs,
@@ -1037,7 +1057,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         };
 
         modified_args.content_types = content_types;
-        let messages = self.get_group_messages(group_id, &modified_args)?;
+        let messages = self.get_group_messages(group_id, &modified_args).await?;
 
         // Then get all reactions for these messages in a single query
         let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
@@ -1087,7 +1107,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_inbound_relations(
+    async fn get_inbound_relations(
         &self,
         group_id: &GroupId,
         message_ids: &[&[u8]],
@@ -1132,7 +1152,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_outbound_relations(
+    async fn get_outbound_relations(
         &self,
         group_id: &GroupId,
         reference_ids: &[&[u8]],
@@ -1152,7 +1172,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_inbound_relation_counts(
+    async fn get_inbound_relation_counts(
         &self,
         group_id: &GroupId,
         message_ids: &[&[u8]],
@@ -1180,13 +1200,13 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
+    async fn get_latest_message_times_by_sender(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         allowed_content_types: &[ContentType],
     ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
         let query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_ref()))
+            .filter(group_id_filter(group_id))
             .filter(dsl::content_type.eq_any(allowed_content_types))
             .group_by(dsl::sender_inbox_id)
             .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
@@ -1203,53 +1223,53 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     /// Get a particular group message
-    fn get_group_message<MessageId: AsRef<[u8]>>(
+    async fn get_group_message(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             dsl::group_messages
-                .filter(dsl::id.eq(id.as_ref()))
+                .filter(dsl::id.eq(id))
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
     }
 
     /// Get a particular group message using the write connection
-    fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+    async fn write_conn_get_group_message(
         &self,
-        id: MessageId,
+        id: &[u8],
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             dsl::group_messages
-                .filter(dsl::id.eq(id.as_ref()))
+                .filter(dsl::id.eq(id))
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
     }
 
-    fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
+    async fn get_group_message_by_timestamp(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             dsl::group_messages
-                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::group_id.eq(group_id))
                 .filter(dsl::sent_at_ns.eq(&timestamp))
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
     }
 
-    fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
+    async fn get_group_message_by_cursor(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             dsl::group_messages
-                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::group_id.eq(group_id))
                 .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
                 .filter(dsl::originator_id.eq(cursor.originator_id as i64))
                 .first::<StoredGroupMessage>(conn)
@@ -1257,9 +1277,9 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+    async fn set_delivery_status_to_published(
         &self,
-        msg_id: &MessageId,
+        msg_id: &[u8],
         timestamp: u64,
         cursor: Cursor,
         message_expire_at_ns: Option<i64>,
@@ -1271,7 +1291,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         );
         self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
-                .filter(dsl::id.eq(msg_id.as_ref()))
+                .filter(dsl::id.eq(msg_id))
                 .set((
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
@@ -1283,20 +1303,22 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+    async fn set_delivery_status_to_failed(
         &self,
-        msg_id: &MessageId,
+        msg_id: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
         self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
-                .filter(dsl::id.eq(msg_id.as_ref()))
+                .filter(dsl::id.eq(msg_id))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
                 .execute(conn)
         })
     }
 
     #[xmtp_common::db_span]
-    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+    async fn delete_expired_messages(
+        &self,
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             use diesel::prelude::*;
             let now = now_ns();
@@ -1314,7 +1336,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+    async fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
         self.raw_query(|conn| {
             use diesel::dsl::min;
             use diesel::prelude::*;
@@ -1327,19 +1349,18 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+    async fn delete_message_by_id(
         &self,
-        message_id: MessageId,
+        message_id: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
         self.raw_query(|conn| {
             use diesel::prelude::*;
-            diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id.as_ref())))
-                .execute(conn)
+            diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id))).execute(conn)
         })
     }
 
     #[xmtp_common::db_span]
-    fn messages_newer_than(
+    async fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
     ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
@@ -1425,7 +1446,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     #[xmtp_common::db_span]
-    fn clear_messages(
+    async fn clear_messages(
         &self,
         group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
@@ -1899,9 +1920,9 @@ mod pg_impl {
 
         /// `MAX` over a NOT NULL column within a group is never NULL, so unlike
         /// the sync path there is nothing to filter out afterwards.
-        async fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
+        async fn get_latest_message_times_by_sender(
             &self,
-            group_id: Id,
+            group_id: &[u8],
             allowed_content_types: &[ContentType],
         ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
             let sql = format!(
@@ -1913,16 +1934,16 @@ mod pg_impl {
             let types: Vec<i32> = allowed_content_types.iter().map(|t| *t as i32).collect();
             let mut c = self.conn().await?;
             let rows: Vec<(String, i64)> = sqlx::query_as(&sql)
-                .bind(group_id.as_ref())
+                .bind(group_id)
                 .bind(&types)
                 .fetch_all(&mut *c)
                 .await?;
             Ok(rows.into_iter().collect())
         }
 
-        async fn get_group_message<MessageId: AsRef<[u8]>>(
+        async fn get_group_message(
             &self,
-            id: MessageId,
+            id: &[u8],
         ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
             let sql = format!(
                 "SELECT {} FROM group_messages WHERE id = $1",
@@ -1930,7 +1951,7 @@ mod pg_impl {
             );
             let mut c = self.conn().await?;
             Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
-                .bind(id.as_ref())
+                .bind(id)
                 .fetch_optional(&mut *c)
                 .await?)
         }
@@ -1938,16 +1959,16 @@ mod pg_impl {
         /// The read/write connection split is a sync-track concept (one SQLite
         /// writer, many readers); a Postgres pool has no such distinction, so
         /// this is `get_group_message`.
-        async fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+        async fn write_conn_get_group_message(
             &self,
-            id: MessageId,
+            id: &[u8],
         ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
             self.get_group_message(id).await
         }
 
-        async fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
+        async fn get_group_message_by_timestamp(
             &self,
-            group_id: Id,
+            group_id: &[u8],
             timestamp: i64,
         ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
             let sql = format!(
@@ -1956,15 +1977,15 @@ mod pg_impl {
             );
             let mut c = self.conn().await?;
             Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
-                .bind(group_id.as_ref())
+                .bind(group_id)
                 .bind(timestamp)
                 .fetch_optional(&mut *c)
                 .await?)
         }
 
-        async fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
+        async fn get_group_message_by_cursor(
             &self,
-            group_id: Id,
+            group_id: &[u8],
             cursor: Cursor,
         ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
             let sql = format!(
@@ -1974,16 +1995,16 @@ mod pg_impl {
             );
             let mut c = self.conn().await?;
             Ok(sqlx::query_as::<_, StoredGroupMessage>(&sql)
-                .bind(group_id.as_ref())
+                .bind(group_id)
                 .bind(cursor.sequence_id as i64)
                 .bind(cursor.originator_id as i64)
                 .fetch_optional(&mut *c)
                 .await?)
         }
 
-        async fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+        async fn set_delivery_status_to_published(
             &self,
-            msg_id: &MessageId,
+            msg_id: &[u8],
             timestamp: u64,
             cursor: Cursor,
             message_expire_at_ns: Option<i64>,
@@ -2003,22 +2024,22 @@ mod pg_impl {
             .bind(cursor.sequence_id as i64)
             .bind(cursor.originator_id as i64)
             .bind(message_expire_at_ns)
-            .bind(msg_id.as_ref())
+            .bind(msg_id)
             .execute(&mut *c)
             .await?
             .rows_affected();
             Ok(updated as usize)
         }
 
-        async fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+        async fn set_delivery_status_to_failed(
             &self,
-            msg_id: &MessageId,
+            msg_id: &[u8],
         ) -> Result<usize, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let updated =
                 sqlx::query("UPDATE group_messages SET delivery_status = $1 WHERE id = $2")
                     .bind(DeliveryStatus::Failed)
-                    .bind(msg_id.as_ref())
+                    .bind(msg_id)
                     .execute(&mut *c)
                     .await?
                     .rows_affected();
@@ -2059,13 +2080,13 @@ mod pg_impl {
             .await?)
         }
 
-        async fn delete_message_by_id<MessageId: AsRef<[u8]>>(
+        async fn delete_message_by_id(
             &self,
-            message_id: MessageId,
+            message_id: &[u8],
         ) -> Result<usize, crate::ConnectionError> {
             let mut c = self.conn().await?;
             let deleted = sqlx::query("DELETE FROM group_messages WHERE id = $1")
-                .bind(message_id.as_ref())
+                .bind(message_id)
                 .execute(&mut *c)
                 .await?
                 .rows_affected();

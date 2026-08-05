@@ -738,7 +738,8 @@ impl Identity {
                     .map(TransactionOutcome::into_continued)?;
                 mls_storage
                     .db()
-                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)
+                    .await?;
                 Ok(())
             }
             Err(err) => Err(IdentityError::ApiClient(err)),

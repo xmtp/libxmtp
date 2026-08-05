@@ -33,27 +33,26 @@ pub struct PendingRemove {
 impl_store_or_ignore!(PendingRemove, pending_remove);
 #[cfg(feature = "sync")]
 impl_fetch!(PendingRemove, pending_remove);
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryPendingRemove {
-    async fn get_pending_remove_users(
+    fn get_pending_remove_users(
         &self,
         group_id: &GroupId,
-    ) -> Result<Vec<String>, crate::ConnectionError>;
-    async fn get_user_pending_remove_status(
+    ) -> impl std::future::Future<Output = Result<Vec<String>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
+    fn get_user_pending_remove_status(
         &self,
         group_id: &GroupId,
         inbox_id: &str,
-    ) -> Result<bool, crate::ConnectionError>;
-    async fn delete_pending_remove_users(
+    ) -> impl std::future::Future<Output = Result<bool, crate::ConnectionError>> + xmtp_common::MaybeSend;
+    fn delete_pending_remove_users(
         &self,
         group_id: &GroupId,
         inbox_ids: Vec<String>,
-    ) -> Result<usize, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 }
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryPendingRemove for &T
 where
-    T: QueryPendingRemove,
+    T: QueryPendingRemove + xmtp_common::MaybeSync,
 {
     async fn get_pending_remove_users(
         &self,
@@ -82,7 +81,7 @@ where
 }
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
-    fn get_pending_remove_users(
+    async fn get_pending_remove_users(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<String>, crate::ConnectionError> {
@@ -96,7 +95,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         Ok(result)
     }
 
-    fn get_user_pending_remove_status(
+    async fn get_user_pending_remove_status(
         &self,
         group_id: &GroupId,
         inbox_id: &str,
@@ -110,7 +109,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         Ok(result)
     }
 
-    fn delete_pending_remove_users(
+    async fn delete_pending_remove_users(
         &self,
         group_id: &GroupId,
         inbox_ids: Vec<String>,

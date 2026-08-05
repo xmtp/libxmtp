@@ -116,7 +116,7 @@ async fn each_conversation_carries_its_latest_message() {
     insert_message(&db, 3, gid(1), 200, ContentType::Text).await;
 
     let list = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
 
@@ -148,7 +148,7 @@ async fn only_readable_content_types_become_the_preview() {
     insert_message(&db, 4, gid(1), 400, ContentType::GroupMembershipChange).await;
 
     let list = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
     assert_eq!(
@@ -159,7 +159,7 @@ async fn only_readable_content_types_become_the_preview() {
 
     insert_message(&db, 5, gid(1), 500, ContentType::Reaction).await;
     let list = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
     assert_eq!(
@@ -179,13 +179,13 @@ async fn virtual_conversations_are_excluded_unless_asked_for() {
     make_virtual_group(&db, gid(3), ConversationType::Oneshot).await;
 
     let default = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
     assert_eq!(ids(&default), vec![gid(1)]);
 
     let with_sync = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             include_sync_groups: true,
             ..Default::default()
         })
@@ -194,7 +194,7 @@ async fn virtual_conversations_are_excluded_unless_asked_for() {
     assert_eq!(ids(&with_sync), vec![gid(1), gid(2)]);
 
     let only_sync = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             conversation_type: Some(ConversationType::Sync),
             ..Default::default()
         })
@@ -218,7 +218,7 @@ async fn stitched_dms_collapse_to_the_most_recently_active() {
     insert_message(&db, 2, gid(2), 500, ContentType::Text).await;
 
     let list = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
     let mut found = ids(&list);
@@ -226,7 +226,7 @@ async fn stitched_dms_collapse_to_the_most_recently_active() {
     assert_eq!(found, vec![gid(2), gid(3), gid(4)]);
 
     let all = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             include_duplicate_dms: true,
             ..Default::default()
         })
@@ -245,7 +245,7 @@ async fn stitched_dms_with_no_messages_break_the_tie_on_id() {
     make_group(&db, gid(2), 20, Some("dm:a:b")).await;
 
     let list = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
     assert_eq!(ids(&list), vec![gid(2)], "the higher id wins");
@@ -261,7 +261,7 @@ async fn orders_newest_first_by_creation_or_activity() {
     insert_message(&db, 1, gid(1), 900, ContentType::Text).await;
 
     let by_created = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             order_by: Some(GroupQueryOrderBy::CreatedAt),
             ..Default::default()
         })
@@ -274,7 +274,7 @@ async fn orders_newest_first_by_creation_or_activity() {
     );
 
     let by_activity = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             order_by: Some(GroupQueryOrderBy::LastActivity),
             ..Default::default()
         })
@@ -294,7 +294,7 @@ async fn applies_the_scalar_filters() {
         .unwrap();
 
     let window = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             created_after_ns: Some(10),
             created_before_ns: Some(30),
             ..Default::default()
@@ -304,7 +304,7 @@ async fn applies_the_scalar_filters() {
     assert_eq!(ids(&window), vec![gid(2)]);
 
     let pending = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             allowed_states: Some(vec![GroupMembershipState::Pending]),
             ..Default::default()
         })
@@ -313,7 +313,7 @@ async fn applies_the_scalar_filters() {
     assert_eq!(ids(&pending), vec![gid(3)]);
 
     let limited = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             limit: Some(2),
             ..Default::default()
         })
@@ -332,7 +332,7 @@ async fn activity_window_falls_back_to_created_at() {
     insert_message(&db, 1, gid(2), 500, ContentType::Text).await;
 
     let recent = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             last_activity_after_ns: Some(50),
             ..Default::default()
         })
@@ -343,7 +343,7 @@ async fn activity_window_falls_back_to_created_at() {
     assert_eq!(recent, vec![gid(1), gid(2)]);
 
     let old = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             last_activity_before_ns: Some(200),
             ..Default::default()
         })
@@ -365,7 +365,7 @@ async fn default_consent_keeps_unknown_and_unrecorded() {
     set_consent(&db, &gid(4), ConsentState::Denied).await;
 
     let list = db
-        .fetch_conversation_list(GroupQueryArgs::default())
+        .fetch_conversation_list(&GroupQueryArgs::default())
         .await
         .unwrap();
     assert_eq!(ids(&list), vec![gid(3), gid(2), gid(1)]);
@@ -379,7 +379,7 @@ async fn explicit_states_require_a_consent_record() {
     set_consent(&db, &gid(2), ConsentState::Denied).await;
 
     let denied = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             consent_states: Some(vec![ConsentState::Denied]),
             ..Default::default()
         })
@@ -396,7 +396,7 @@ async fn all_consent_states_skip_the_join() {
     set_consent(&db, &gid(2), ConsentState::Denied).await;
 
     let list = db
-        .fetch_conversation_list(GroupQueryArgs {
+        .fetch_conversation_list(&GroupQueryArgs {
             consent_states: Some(vec![
                 ConsentState::Allowed,
                 ConsentState::Denied,
@@ -413,7 +413,7 @@ async fn all_consent_states_skip_the_join() {
 async fn rejects_conflicting_time_filters() {
     let db = fresh_db("cl_conflict").await;
     assert!(
-        db.fetch_conversation_list(GroupQueryArgs {
+        db.fetch_conversation_list(&GroupQueryArgs {
             created_before_ns: Some(1),
             last_activity_before_ns: Some(1),
             ..Default::default()

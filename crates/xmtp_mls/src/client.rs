@@ -453,7 +453,7 @@ where
                 ))
             })
             .try_collect()?;
-        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
+        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids).await?;
         let mut new_inbox_ids = HashMap::default();
 
         let missing: Vec<_> = identifiers
@@ -541,7 +541,7 @@ where
             load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
         }
         let inbox_id_strs = inbox_ids.to_vec();
-        let counts = conn.count_inbox_updates(&inbox_id_strs)?;
+        let counts = conn.count_inbox_updates(&inbox_id_strs).await?;
         Ok(counts.into_iter().map(|(k, v)| (k, v as u32)).collect())
     }
 
@@ -596,7 +596,7 @@ where
         records: &[StoredConsentRecord],
     ) -> Result<(), ClientError> {
         let conn = self.context.db();
-        let changed_records = conn.insert_or_replace_consent_records(records)?;
+        let changed_records = conn.insert_or_replace_consent_records(records).await?;
 
         if !changed_records.is_empty() {
             let updates: Vec<_> = changed_records
@@ -624,7 +624,7 @@ where
         entity: String,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.context.db();
-        let record = conn.get_consent_record(entity, entity_type)?;
+        let record = conn.get_consent_record(entity, entity_type).await?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -781,10 +781,15 @@ where
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let db = self.context.db();
-        let group = db.find_active_dm_group(&DmMembers {
-            member_one_inbox_id: self.inbox_id(),
-            member_two_inbox_id: inbox_id,
-        })?;
+        let group = db
+            .find_active_dm_group(
+                &DmMembers {
+                    member_one_inbox_id: self.inbox_id(),
+                    member_two_inbox_id: inbox_id,
+                }
+                .to_string(),
+            )
+            .await?;
 
         if let Some(group) = group {
             return Ok(MlsGroup::new(
@@ -862,10 +867,13 @@ where
         let conn = self.context.db();
 
         let group = conn
-            .find_active_dm_group(&DmMembers {
-                member_one_inbox_id: self.inbox_id(),
-                member_two_inbox_id: &target_inbox_id,
-            })?
+            .find_active_dm_group(
+                &DmMembers {
+                    member_one_inbox_id: self.inbox_id(),
+                    member_two_inbox_id: &target_inbox_id,
+                }
+                .to_string(),
+            )?
             .ok_or(NotFound::DmByInbox(target_inbox_id))?;
         Ok(MlsGroup::new(
             self.context.clone(),
@@ -954,7 +962,7 @@ where
         Ok(self
             .context
             .db()
-            .fetch_conversation_list(args)?
+            .fetch_conversation_list(&args)?
             .into_iter()
             .map(|conversation_item: DbConversationListItem| {
                 let message = conversation_item.message_id.and_then(|message_id| {
@@ -1070,7 +1078,8 @@ where
         self.context
             .mls_storage()
             .db()
-            .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+            .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)
+            .await?;
 
         // Mark identity as ready
         let mut stored_identity = StoredIdentity::try_from(self.identity())?;
@@ -1184,7 +1193,8 @@ where
         let groups = self
             .context
             .db()
-            .all_sync_groups()?
+            .all_sync_groups()
+            .await?
             .into_iter()
             .map(|g| {
                 MlsGroup::new(
@@ -1404,7 +1414,7 @@ pub(crate) mod tests {
         let group_1 = client.create_group(None, None).unwrap();
         let group_2 = client.create_group(None, None).unwrap();
 
-        let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
+        let groups = client.find_groups(&GroupQueryArgs::default()).unwrap();
         assert_eq!(groups.len(), 2);
         assert!(groups.iter().any(|g| g.group_id == group_1.group_id));
         assert!(groups.iter().any(|g| g.group_id == group_2.group_id));
@@ -1463,7 +1473,7 @@ pub(crate) mod tests {
         alice_dm.sync().await?;
 
         alice2.sync_welcomes().await?;
-        let mut groups = alice2.find_groups(GroupQueryArgs::default())?;
+        let mut groups = alice2.find_groups(&GroupQueryArgs::default())?;
 
         assert_eq!(groups.len(), 1);
         let group = groups.pop()?;
@@ -1593,7 +1603,7 @@ pub(crate) mod tests {
         let bob_received_groups = bo.sync_welcomes().await.unwrap();
         assert_eq!(bob_received_groups.len(), 2);
 
-        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_groups = bo.find_groups(&GroupQueryArgs::default()).unwrap();
         let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
@@ -1781,7 +1791,7 @@ pub(crate) mod tests {
 
         // See if Bola can see that they were added to the group
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(Default::default()).unwrap();
+        let bola_groups = bola.find_groups(&Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -1946,7 +1956,7 @@ pub(crate) mod tests {
         bo.sync_welcomes().await.unwrap();
 
         // Bo should have two groups now
-        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_groups = bo.find_groups(&GroupQueryArgs::default()).unwrap();
         assert_eq!(bo_groups.len(), 2);
 
         // Bo's original key should be deleted
@@ -1991,7 +2001,7 @@ pub(crate) mod tests {
         assert_eq!(dm1.created_at_ns, dm2.created_at_ns);
 
         // Verify the DM appears in conversations list
-        let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
+        let conversations = client1.find_groups(&GroupQueryArgs::default()).unwrap();
         assert_eq!(conversations.len(), 1);
         assert_eq!(conversations[0].group_id, dm1.group_id);
     }

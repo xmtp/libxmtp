@@ -1607,7 +1607,8 @@ where
         let message = self
             .context
             .db()
-            .get_group_message(message_id)?
+            .get_group_message(message_id)
+            .await?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
 
         // Silent no-op if already published
@@ -2175,7 +2176,8 @@ where
             // Clear the pending leave request status
             self.context
                 .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+                .await?;
             return Ok(());
         }
 
@@ -2204,7 +2206,8 @@ where
             // Remove all users who are no longer in the group from pending list
             self.context
                 .db()
-                .delete_pending_remove_users(&self.group_id, removed_members)?;
+                .delete_pending_remove_users(&self.group_id, removed_members)
+                .await?;
         }
 
         // After cleanup, check if there are any pending removals left
@@ -2213,7 +2216,8 @@ where
             // Clear the pending leave request status if no pending removals remain
             self.context
                 .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+                .await?;
         }
 
         tracing::info!(
@@ -2681,7 +2685,12 @@ where
 
     #[tracing::instrument(skip_all, level = "trace")]
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        if let Some(min_version) = self.context.db().get_group_paused_version(&self.group_id)? {
+        if let Some(min_version) = self
+            .context
+            .db()
+            .get_group_paused_version(&self.group_id)
+            .await?
+        {
             Err(GroupError::GroupPausedUntilUpdate(min_version))
         } else {
             Ok(())
@@ -2724,6 +2733,7 @@ where
         self.context
             .db()
             .get_pending_remove_users(&self.group_id)
+            .await
             .map_err(Into::into)
     }
 
@@ -2732,6 +2742,7 @@ where
         self.context
             .db()
             .get_user_pending_remove_status(&self.group_id, inbox_id)
+            .await
             .map_err(Into::into)
     }
 
@@ -2866,7 +2877,11 @@ where
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
     pub async fn conversation_type(&self) -> Result<ConversationType, GroupError> {
-        let conversation_type = self.context.db().get_conversation_type(&self.group_id)?;
+        let conversation_type = self
+            .context
+            .db()
+            .get_conversation_type(&self.group_id)
+            .await?;
         Ok(conversation_type)
     }
 
@@ -2978,29 +2993,37 @@ where
 
     pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
-        let msgs = db.get_last_cursor_for_originator(
-            self.group_id,
-            EntityKind::ApplicationMessage,
-            Originators::APPLICATION_MESSAGES,
-        )?;
-        let commits = db.get_last_cursor_for_originator(
-            self.group_id,
-            EntityKind::CommitMessage,
-            Originators::MLS_COMMITS,
-        )?;
+        let msgs = db
+            .get_last_cursor_for_originator(
+                self.group_id,
+                EntityKind::ApplicationMessage,
+                Originators::APPLICATION_MESSAGES,
+            )
+            .await?;
+        let commits = db
+            .get_last_cursor_for_originator(
+                self.group_id,
+                EntityKind::CommitMessage,
+                Originators::MLS_COMMITS,
+            )
+            .await?;
         Ok([msgs, commits])
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
-        Ok(self.context.db().get_group_logs(&self.group_id)?)
+        Ok(self.context.db().get_group_logs(&self.group_id).await?)
     }
 
     pub async fn remote_commit_log(&self) -> Result<Vec<RemoteCommitLog>, GroupError> {
-        Ok(self.context.db().get_remote_commit_log_after_cursor(
-            &self.group_id,
-            0,
-            RemoteCommitLogOrder::AscendingByRowid,
-        )?)
+        Ok(self
+            .context
+            .db()
+            .get_remote_commit_log_after_cursor(
+                &self.group_id,
+                0,
+                RemoteCommitLogOrder::AscendingByRowid,
+            )
+            .await?)
     }
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
@@ -3010,7 +3033,7 @@ where
         let remote_commit_log = self.remote_commit_log().await?;
         let db = self.context.db();
 
-        let stored_group = match db.find_group(&self.group_id)? {
+        let stored_group = match db.find_group(&self.group_id).await? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));

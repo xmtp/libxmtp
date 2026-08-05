@@ -4,34 +4,37 @@ use crate::ConnectionExt;
 use super::*;
 
 use xmtp_proto::types::GroupId;
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryGroupVersion {
-    async fn set_group_paused(
+    fn set_group_paused(
         &self,
         group_id: &GroupId,
         min_version: &str,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError>;
-
-    async fn get_group_paused_version(
+    fn unpause_group(
         &self,
         group_id: &GroupId,
-    ) -> Result<Option<String>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
+
+    fn get_group_paused_version(
+        &self,
+        group_id: &GroupId,
+    ) -> impl std::future::Future<Output = Result<Option<String>, StorageError>> + xmtp_common::MaybeSend;
 
     /// Return every group currently flagged as paused, with the
     /// `paused_for_version` floor it's pinned to. Used by the
     /// startup/sweep recovery path to re-evaluate paused groups
     /// against the now-current `pkg_version` without having to sync
     /// each group individually.
-    async fn get_paused_groups_with_versions(&self)
-    -> Result<Vec<(GroupId, String)>, StorageError>;
+    fn get_paused_groups_with_versions(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<(GroupId, String)>, StorageError>>
+    + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryGroupVersion for &T
 where
-    T: QueryGroupVersion,
+    T: QueryGroupVersion + xmtp_common::MaybeSync,
 {
     async fn set_group_paused(
         &self,
@@ -61,7 +64,11 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
-    fn set_group_paused(&self, group_id: &GroupId, min_version: &str) -> Result<(), StorageError> {
+    async fn set_group_paused(
+        &self,
+        group_id: &GroupId,
+        min_version: &str,
+    ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 
         self.raw_query(|conn| {
@@ -73,7 +80,7 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         Ok(())
     }
 
-    fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError> {
+    async fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 
         self.raw_query(|conn| {
@@ -85,7 +92,10 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         Ok(())
     }
 
-    fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError> {
+    async fn get_group_paused_version(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<String>, StorageError> {
         use crate::schema::groups::dsl;
 
         let paused_version = self.raw_query(|conn| {
@@ -98,7 +108,9 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         Ok(paused_version)
     }
 
-    fn get_paused_groups_with_versions(&self) -> Result<Vec<(GroupId, String)>, StorageError> {
+    async fn get_paused_groups_with_versions(
+        &self,
+    ) -> Result<Vec<(GroupId, String)>, StorageError> {
         use crate::schema::groups::dsl;
 
         let rows: Vec<(Vec<u8>, Option<String>)> = self.raw_query(|conn| {

@@ -2129,7 +2129,7 @@ impl FfiConversations {
     #[tracing::instrument(level = "debug", skip_all)]
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let inner = self.inner_client.as_ref();
-        let conversations = inner.find_groups(GroupQueryArgs {
+        let conversations = inner.find_groups(&GroupQueryArgs {
             include_duplicate_dms: true,
             ..GroupQueryArgs::default()
         })?;

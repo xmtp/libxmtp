@@ -513,7 +513,7 @@ where
         let welcome_floor = welcome_seed(&db, installation)?;
         let known = known_welcomes_above(&db, welcome_floor)?;
         let groups = db
-            .find_groups(GroupQueryArgs {
+            .find_groups(&GroupQueryArgs {
                 conversation_type,
                 consent_states: consent_states.clone(),
                 include_duplicate_dms: true,
@@ -525,6 +525,7 @@ where
                     .unwrap_or(true),
                 ..Default::default()
             })
+            .await
             .map_err(SubscribeError::from)?;
         let sync_groups: HashSet<GroupId> = groups
             .iter()
@@ -1222,7 +1223,7 @@ where
     /// end.
     async fn reconcile(&mut self, kill: &mut oneshot::Receiver<()>) -> bool {
         let groups = match self.reflex.as_ref() {
-            Some(reflex) => reflex.intake.context.db().find_groups(GroupQueryArgs {
+            Some(reflex) => reflex.intake.context.db().find_groups(&GroupQueryArgs {
                 conversation_type: reflex.intake.conversation_type,
                 consent_states: reflex.intake.consent_states.clone(),
                 include_duplicate_dms: true,
@@ -1232,7 +1233,7 @@ where
             }),
             None => return true,
         };
-        let groups = match groups {
+        let groups = match groups.await {
             Ok(groups) => groups,
             Err(e) => {
                 // The lapped announcements are unrecoverable in-stream; end

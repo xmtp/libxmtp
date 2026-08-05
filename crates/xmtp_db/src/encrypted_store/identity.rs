@@ -53,35 +53,39 @@ impl StoredIdentity {
         }
     }
 }
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIdentity {
-    async fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+    fn queue_key_package_rotation(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
     /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
     /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
     /// value — one transaction, so neither write can land without the other.
     /// `rotation_seed` is insert-or-ignored first so the pull-in always has a live
     /// target (commit-target-first), even if startup seeding never ran.
     /// Callers wake the TaskWorker AFTER this returns (never inside a tx).
-    async fn queue_key_rotation_with_nudge(
+    fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
-    ) -> Result<(), StorageError>;
-    async fn reset_key_package_rotation_queue(
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
+    fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
-    ) -> Result<(), StorageError>;
-    async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
+    fn is_identity_needs_rotation(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
     /// The identity's absolute rotation deadline (`next_key_package_rotation_ns`).
     /// `None` if NULL or if no identity row exists yet (indistinguishable to callers;
     /// treat as "no scheduled deadline").
-    async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
+    fn next_key_package_rotation_ns(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<i64>, StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryIdentity for &T
 where
-    T: QueryIdentity,
+    T: QueryIdentity + xmtp_common::MaybeSync,
 {
     async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         (**self).queue_key_package_rotation().await
@@ -117,7 +121,7 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+    async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
             // NULL (migrated DBs) counts as unscheduled: initialize it here so the
@@ -137,7 +141,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         Ok(())
     }
 
-    fn queue_key_rotation_with_nudge(
+    async fn queue_key_rotation_with_nudge(
         &self,
         rotation_task_hash: &crate::tasks::TaskDataHash,
         rotation_seed: crate::tasks::NewTask,
@@ -200,7 +204,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         Ok(())
     }
 
-    fn reset_key_package_rotation_queue(
+    async fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError> {
@@ -221,7 +225,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         Ok(())
     }
 
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+    async fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         use crate::schema::identity::dsl;
 
         let next_rotation_opt: Option<Option<i64>> = self.raw_query(|conn| {
@@ -240,7 +244,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
         })
     }
 
-    fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
+    async fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
         use crate::schema::identity::dsl;
         // Use optional() so an empty table (pre-registration) returns Ok(None).
         let v: Option<Option<i64>> = self.raw_query(|conn| {

@@ -11,33 +11,59 @@ use crate::ConnectionError;
 ///
 /// WARNING: These operations are dangerous and can cause data loss.
 /// They are intended for debugging and admin tools only.
-#[maybe_async::maybe_async(AFIT)]
+///
+/// Unlike every other `Query*` trait here, these futures carry no
+/// `MaybeSend` bound, and it is not an oversight. RPITIT makes the `Send`
+/// proof higher-ranked over the `&self` lifetime, so rustc asks for
+/// `Executor<'1>` on `&'0 mut PgConnection` at *any* two lifetimes; sqlx
+/// implements it only with the two tied together (`impl<'c> Executor<'c> for
+/// &'c mut PgConnection`), so the async-track impl cannot satisfy it. Adding
+/// the bound fails to compile rather than costing anything at runtime.
+///
+/// Losing it is affordable precisely here: migrations run once at startup on
+/// the task that owns the handle. The practical consequence is that a caller
+/// cannot `tokio::spawn` a migration directly -- await it, or box it locally.
 pub trait QueryMigrations {
     /// Returns a list of all applied migration versions, most recent first.
-    async fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError>;
+    fn applied_migrations(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, ConnectionError>>;
 
     /// Returns a list of all available (embedded) migration names.
-    async fn available_migrations(&self) -> Result<Vec<String>, ConnectionError>;
+    fn available_migrations(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, ConnectionError>>;
 
     /// Rollback all migrations after and including the specified version.
     ///
     /// WARNING: This is destructive and may cause data loss.
-    async fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError>;
+    fn rollback_to_version(
+        &self,
+        version: &str,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, ConnectionError>>;
 
     /// Run a specific migration by name.
     ///
     /// NOTE: This runs the migration SQL directly without updating the
     /// schema_migrations tracking table.
-    async fn run_migration(&self, name: &str) -> Result<(), ConnectionError>;
+    fn run_migration(
+        &self,
+        name: &str,
+    ) -> impl std::future::Future<Output = Result<(), ConnectionError>>;
 
     /// Revert a specific migration by name.
     ///
     /// NOTE: This runs the revert SQL directly without updating the
     /// schema_migrations tracking table.
-    async fn revert_migration(&self, name: &str) -> Result<(), ConnectionError>;
+    fn revert_migration(
+        &self,
+        name: &str,
+    ) -> impl std::future::Future<Output = Result<(), ConnectionError>>;
 
     /// Run all pending migrations.
-    async fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError>;
+    fn run_pending_migrations(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, ConnectionError>>;
 }
 
 #[cfg(feature = "sync")]
@@ -48,7 +74,7 @@ fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> 
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
-    fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
+    async fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
         let applied: Vec<MigrationVersion<'static>> = self.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)
@@ -56,13 +82,13 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         Ok(applied.into_iter().map(|v| v.to_string()).collect())
     }
 
-    fn available_migrations(&self) -> Result<Vec<String>, ConnectionError> {
+    async fn available_migrations(&self) -> Result<Vec<String>, ConnectionError> {
         let migrations = get_migrations()?;
         let names: Vec<String> = migrations.iter().map(|m| m.name().to_string()).collect();
         Ok(names)
     }
 
-    fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError> {
+    async fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError> {
         let target: String = version.chars().filter(|c| c.is_numeric()).collect();
         let target: u64 = target.parse().map_err(|_| {
             ConnectionError::InvalidQuery(format!("Invalid migration version: {version}"))
@@ -71,7 +97,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         let mut reverted = Vec::new();
 
         loop {
-            let applied = self.applied_migrations()?;
+            let applied = self.applied_migrations().await?;
             let Some(current_version) = applied.first() else {
                 break;
             };
@@ -106,7 +132,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         Ok(reverted)
     }
 
-    fn run_migration(&self, name: &str) -> Result<(), ConnectionError> {
+    async fn run_migration(&self, name: &str) -> Result<(), ConnectionError> {
         let migrations = get_migrations()?;
 
         for migration in &migrations {
@@ -125,7 +151,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         )))
     }
 
-    fn revert_migration(&self, name: &str) -> Result<(), ConnectionError> {
+    async fn revert_migration(&self, name: &str) -> Result<(), ConnectionError> {
         let migrations = get_migrations()?;
 
         for migration in &migrations {
@@ -144,7 +170,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         )))
     }
 
-    fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError> {
+    async fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError> {
         let ran: Vec<String> = self.raw_query(|conn| {
             conn.run_pending_migrations(MIGRATIONS)
                 .map(|versions| versions.into_iter().map(|v| v.to_string()).collect())
@@ -241,6 +267,19 @@ mod pg_impl {
     use pg::{MIGRATIONS, PgMigration, TRACKING_TABLE, tracking_table_ddl};
     use xmtp_common::time::now_ns;
 
+    /// Run `sql` through the simple query protocol.
+    ///
+    /// `sqlx::raw_sql` leaves the executor's lifetime independent of the SQL's,
+    /// so calling it inline in a `-> impl Future + MaybeSend` method asks rustc
+    /// to prove `Executor<'1>` for `&'0 mut PgConnection` at *any* two
+    /// lifetimes -- sqlx only implements it with the two tied together. Going
+    /// through a plain `async fn` over a concrete `&mut PgConnection` pins them
+    /// to one place, and callers just await a concrete future.
+    async fn exec_raw(conn: &mut sqlx::PgConnection, sql: &str) -> Result<(), ConnectionError> {
+        sqlx::raw_sql(sql).execute(conn).await?;
+        Ok(())
+    }
+
     /// The numeric part of a version or name, as the sync path parses it:
     /// `"0000_init"` and `"0000"` both mean 0.
     fn version_number(value: &str) -> Result<u64, ConnectionError> {
@@ -276,7 +315,7 @@ mod pg_impl {
                     // `raw_sql` uses the simple query protocol, which is what
                     // allows a whole multi-statement file (including `$$`-quoted
                     // function bodies) in one call.
-                    sqlx::raw_sql(direction_sql).execute(&mut *c).await?;
+                    exec_raw(&mut c, direction_sql).await?;
                 }
                 if record {
                     let mut c = db.conn().await?;
@@ -308,15 +347,12 @@ mod pg_impl {
         /// Creates the tracking table if it is missing, so this is safe to call
         /// against a database the runner has never touched.
         async fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
+            let ddl = tracking_table_ddl();
+            let select = format!("SELECT version FROM {TRACKING_TABLE} ORDER BY version DESC");
             let mut c = self.conn().await?;
-            sqlx::raw_sql(&tracking_table_ddl())
-                .execute(&mut *c)
-                .await?;
-            Ok(sqlx::query_scalar(&format!(
-                "SELECT version FROM {TRACKING_TABLE} ORDER BY version DESC"
-            ))
-            .fetch_all(&mut *c)
-            .await?)
+            exec_raw(&mut c, &ddl).await?;
+            let applied = sqlx::query_scalar(&select).fetch_all(&mut *c).await?;
+            Ok(applied)
         }
 
         async fn available_migrations(&self) -> Result<Vec<String>, ConnectionError> {

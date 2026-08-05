@@ -55,49 +55,50 @@ impl StoredIdentityUpdate {
 #[cfg(feature = "sync")]
 impl_store!(StoredIdentityUpdate, identity_updates);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIdentityUpdates {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
-    async fn get_identity_updates<InboxId: AsRef<str>>(
-        &self,
-        inbox_id: InboxId,
-        from_sequence_id: Option<i64>,
-        to_sequence_id: Option<i64>,
-    ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError>;
-
-    /// Batch insert identity updates, ignoring duplicates.
-    async fn insert_or_ignore_identity_updates(
-        &self,
-        updates: &[StoredIdentityUpdate],
-    ) -> Result<(), crate::ConnectionError>;
-
-    async fn get_latest_sequence_id_for_inbox(
+    fn get_identity_updates(
         &self,
         inbox_id: &str,
-    ) -> Result<i64, crate::ConnectionError>;
+        from_sequence_id: Option<i64>,
+        to_sequence_id: Option<i64>,
+    ) -> impl std::future::Future<Output = Result<Vec<StoredIdentityUpdate>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
+
+    /// Batch insert identity updates, ignoring duplicates.
+    fn insert_or_ignore_identity_updates(
+        &self,
+        updates: &[StoredIdentityUpdate],
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
+
+    fn get_latest_sequence_id_for_inbox(
+        &self,
+        inbox_id: &str,
+    ) -> impl std::future::Future<Output = Result<i64, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
-    async fn get_latest_sequence_id(
+    fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
-    ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<String, i64>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Returns the count of identity updates for inbox_ids
-    async fn count_inbox_updates(
+    fn count_inbox_updates(
         &self,
         inbox_ids: &[&str],
-    ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<String, i64>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryIdentityUpdates for &T
 where
-    T: QueryIdentityUpdates,
+    T: QueryIdentityUpdates + xmtp_common::MaybeSync,
 {
-    async fn get_identity_updates<InboxId: AsRef<str>>(
+    async fn get_identity_updates(
         &self,
-        inbox_id: InboxId,
+        inbox_id: &str,
         from_sequence_id: Option<i64>,
         to_sequence_id: Option<i64>,
     ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
@@ -139,15 +140,15 @@ where
 impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
-    fn get_identity_updates<InboxId: AsRef<str>>(
+    async fn get_identity_updates(
         &self,
-        inbox_id: InboxId,
+        inbox_id: &str,
         from_sequence_id: Option<i64>,
         to_sequence_id: Option<i64>,
     ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
         let mut query = dsl::identity_updates
             .order(dsl::sequence_id.asc())
-            .filter(dsl::inbox_id.eq(inbox_id.as_ref()))
+            .filter(dsl::inbox_id.eq(inbox_id))
             .into_boxed();
 
         if let Some(sequence_id) = from_sequence_id {
@@ -163,7 +164,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
 
     /// Batch insert identity updates, ignoring duplicates.
     #[tracing::instrument(level = "trace", skip(updates))]
-    fn insert_or_ignore_identity_updates(
+    async fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
     ) -> Result<(), crate::ConnectionError> {
@@ -175,7 +176,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
         Ok(())
     }
 
-    fn get_latest_sequence_id_for_inbox(
+    async fn get_latest_sequence_id_for_inbox(
         &self,
         inbox_id: &str,
     ) -> Result<i64, crate::ConnectionError> {
@@ -191,7 +192,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
     #[tracing::instrument(level = "trace", skip_all)]
-    fn get_latest_sequence_id(
+    async fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
@@ -216,7 +217,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
         Ok(HashMap::from_iter(result_tuples))
     }
 
-    fn count_inbox_updates(
+    async fn count_inbox_updates(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
@@ -254,9 +255,9 @@ mod pg_impl {
         /// The bounds are optional, so they are applied as `$n IS NULL OR ...`
         /// rather than by assembling the SQL conditionally: one statement text,
         /// one prepared plan, whichever bounds the caller supplies.
-        async fn get_identity_updates<InboxId: AsRef<str>>(
+        async fn get_identity_updates(
             &self,
-            inbox_id: InboxId,
+            inbox_id: &str,
             from_sequence_id: Option<i64>,
             to_sequence_id: Option<i64>,
         ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
@@ -268,7 +269,7 @@ mod pg_impl {
                  ORDER BY sequence_id ASC",
                 StoredIdentityUpdate::select_columns()
             ))
-            .bind(inbox_id.as_ref())
+            .bind(inbox_id)
             .bind(from_sequence_id)
             .bind(to_sequence_id)
             .fetch_all(&mut *c)

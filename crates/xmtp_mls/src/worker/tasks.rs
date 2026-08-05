@@ -230,7 +230,7 @@ where
             Err(_) => return Err(TaskWorkerError::ReceiverLocked),
         };
         loop {
-            let next_task = self.context.db().get_next_task()?;
+            let next_task = self.context.db().get_next_task().await?;
             let next_wakeup = Self::next_wakeup(
                 next_task.as_ref().map(|t| t.next_attempt_at_ns),
                 xmtp_common::time::now_ns(),
@@ -242,7 +242,7 @@ where
                     if let TaskMessage::New(task) =
                         msg.expect("Task sender is owned by the task worker")
                     {
-                        self.context.db().create_task(task)?;
+                        self.context.db().create_task(task).await?;
                     }
                 }
                 () = xmtp_common::time::sleep(next_wakeup) => {
@@ -260,7 +260,7 @@ where
     ) -> Result<(), TaskWorkerError> {
         let now = xmtp_common::time::now_ns();
         if task.expires_at_ns < now || task.attempts >= task.max_attempts {
-            context.db().delete_task(task.id)?;
+            context.db().delete_task(task.id).await?;
             return Ok(());
         }
         if task.next_attempt_at_ns > now {
@@ -274,12 +274,12 @@ where
         }
         match Self::run_task(&task, context).await {
             Ok(TaskOutcome::Done) => {
-                context.db().delete_task(task.id)?;
+                context.db().delete_task(task.id).await?;
             }
             Ok(TaskOutcome::RescheduleAt(t)) => {
                 // Plain advance + attempts=0. A MIN floor here would pin a just-run
                 // (past-due) row and hot-loop it.
-                match context.db().update_task(task.id, 0, now, t) {
+                match context.db().update_task(task.id, 0, now, t).await {
                     Ok(_) => {}
                     Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {
                         tracing::debug!("Task {} vanished before reschedule; skipping", task.id);
@@ -298,6 +298,7 @@ where
                 match context
                     .db()
                     .update_task(task.id, attempts, now, next_attempt_at_ns)
+                    .await
                 {
                     Ok(_) => {}
                     // The row was concurrently deleted (e.g. a dead-row cleanup in
@@ -331,7 +332,7 @@ where
         let task_proto = match TaskProto::decode(task.data.as_slice()) {
             Ok(task_proto) => task_proto,
             Err(e) => {
-                context.db().delete_task(task.id)?;
+                context.db().delete_task(task.id).await?;
                 tracing::warn!("Task {} data decode error: {}", task.id, e);
                 return Ok(TaskOutcome::Done);
             }
@@ -393,9 +394,12 @@ where
                 // rows' `next_attempt_at_ns` — so no transaction is needed
                 // (inserts happen off-thread; only deadline mutation is guarded).
                 let matched = match TaskDataHash::try_from(p.target_data_hash.as_slice()) {
-                    Ok(h) => context
-                        .db()
-                        .pull_in_task_deadline(&h, p.not_later_than_ns)?,
+                    Ok(h) => {
+                        context
+                            .db()
+                            .pull_in_task_deadline(&h, p.not_later_than_ns)
+                            .await?
+                    }
                     Err(_) => false, // malformed length: fall through to the miss log
                 };
                 if !matched {
@@ -421,7 +425,8 @@ where
                 // welcome nudge may have re-lowered it). Do NOT hardcode +30d.
                 let next = context
                     .db()
-                    .next_key_package_rotation_ns()?
+                    .next_key_package_rotation_ns()
+                    .await?
                     .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
@@ -433,7 +438,8 @@ where
                 // exact value isn't load-bearing, nudges pull the task in sooner).
                 let next = context
                     .db()
-                    .min_key_package_delete_at_ns()?
+                    .min_key_package_delete_at_ns()
+                    .await?
                     .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
@@ -442,7 +448,7 @@ where
             }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
-                context.db().delete_task(task.id)?;
+                context.db().delete_task(task.id).await?;
             }
         }
         Ok(TaskOutcome::Done)
@@ -475,7 +481,7 @@ where
                 "Task {} has a malformed group_id for ProcessPendingSelfRemove. Deleting.",
                 task.id
             );
-            context.db().delete_task(task.id)?;
+            context.db().delete_task(task.id).await?;
             return Ok(());
         };
         match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
@@ -489,7 +495,7 @@ where
                     "Task {} targets a group that no longer exists. Deleting.",
                     task.id
                 );
-                context.db().delete_task(task.id)?;
+                context.db().delete_task(task.id).await?;
                 Ok(())
             }
             // A DB/connection error is transient — let it retry.
@@ -512,7 +518,7 @@ where
                 "Task {} has a malformed group_id for AddMissingInstallations. Deleting.",
                 task.id
             );
-            context.db().delete_task(task.id)?;
+            context.db().delete_task(task.id).await?;
             return Ok(());
         };
         match crate::mls_store::MlsStore::new(context.clone()).group(&group_id) {
@@ -525,7 +531,7 @@ where
                     "Task {} targets a group that no longer exists. Deleting.",
                     task.id
                 );
-                context.db().delete_task(task.id)?;
+                context.db().delete_task(task.id).await?;
                 Ok(())
             }
             // A DB/connection error is transient — let it retry.

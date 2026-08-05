@@ -234,78 +234,90 @@ impl NewGroupIntent {
     }
 }
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryGroupIntent {
-    async fn insert_group_intent(
+    fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
-    ) -> Result<StoredGroupIntent, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<StoredGroupIntent, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    async fn find_group_intents<Id: AsRef<[u8]>>(
+    fn find_group_intents(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
-    ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupIntent>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
-    async fn set_group_intent_published(
+    fn set_group_intent_published(
         &self,
         intent_id: ID,
         payload_hash: &[u8],
         post_commit_data: Option<Vec<u8>>,
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     // Set the intent with the given ID to `Committed`
-    async fn set_group_intent_committed(
+    fn set_group_intent_committed(
         &self,
         intent_id: ID,
         cursor: Cursor,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     // Set the intent with the given ID to `Committed`
-    async fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError>;
+    fn set_group_intent_processed(
+        &self,
+        intent_id: ID,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
-    async fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
+    fn set_group_intent_to_publish(
+        &self,
+        intent_id: ID,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     /// Set the intent with the given ID to `Error`
-    async fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError>;
+    fn set_group_intent_error(
+        &self,
+        intent_id: ID,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
-    async fn find_group_intent_by_payload_hash(
+    fn find_group_intent_by_payload_hash(
         &self,
         payload_hash: &[u8],
-    ) -> Result<Option<StoredGroupIntent>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Option<StoredGroupIntent>, StorageError>>
+    + xmtp_common::MaybeSend;
 
     /// find the commit message refresh state for each intent payload hash
-    async fn find_dependant_commits<P: AsRef<[u8]>>(
+    fn find_dependant_commits(
         &self,
-        payload_hashes: &[P],
-    ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError>;
+        payload_hashes: &[&[u8]],
+    ) -> impl std::future::Future<
+        Output = Result<HashMap<PayloadHash, IntentDependency>, StorageError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn increment_intent_publish_attempt_count(
+    fn increment_intent_publish_attempt_count(
         &self,
         intent_id: ID,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn set_group_intent_error_and_fail_msg(
+    fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,
         msg_id: Option<Vec<u8>>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryGroupIntent for &T
 where
-    T: QueryGroupIntent,
+    T: QueryGroupIntent + xmtp_common::MaybeSync,
 {
     async fn insert_group_intent(
         &self,
@@ -314,9 +326,9 @@ where
         (**self).insert_group_intent(to_save).await
     }
 
-    async fn find_group_intents<Id: AsRef<[u8]>>(
+    async fn find_group_intents(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -373,9 +385,9 @@ where
             .await
     }
 
-    async fn find_dependant_commits<P: AsRef<[u8]>>(
+    async fn find_dependant_commits(
         &self,
-        payload_hashes: &[P],
+        payload_hashes: &[&[u8]],
     ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
         (**self).find_dependant_commits(payload_hashes).await
     }
@@ -403,7 +415,7 @@ where
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     #[xmtp_common::db_span]
-    fn insert_group_intent(
+    async fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
     ) -> Result<StoredGroupIntent, crate::ConnectionError> {
@@ -416,13 +428,12 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Query for group_intents by group_id, optionally filtering by state and kind
     #[xmtp_common::db_span]
-    fn find_group_intents<Id: AsRef<[u8]>>(
+    async fn find_group_intents(
         &self,
-        group_id: Id,
+        group_id: &[u8],
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
-        let group_id = group_id.as_ref();
         let mut query = dsl::group_intents
             .into_boxed()
             .filter(dsl::group_id.eq(group_id));
@@ -443,7 +454,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
     #[tracing::instrument(level = "debug", skip(self, payload_hash), fields(id = intent_id, payload_hash = hex::encode(payload_hash)))]
-    fn set_group_intent_published(
+    async fn set_group_intent_published(
         &self,
         intent_id: ID,
         payload_hash: &[u8],
@@ -485,7 +496,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Set the intent with the given ID to `Committed`
     #[tracing::instrument(level = "debug", skip(self))]
-    fn set_group_intent_committed(
+    async fn set_group_intent_committed(
         &self,
         intent_id: ID,
         cursor: Cursor,
@@ -514,7 +525,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Set the intent with the given ID to `Committed`
     #[tracing::instrument(level = "debug", skip(self))]
-    fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
+    async fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
         let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
@@ -533,7 +544,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     #[tracing::instrument(level = "debug", skip(self))]
-    fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
+    async fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
         let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
@@ -559,7 +570,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     /// Set the intent with the given ID to `Error`
     #[tracing::instrument(level = "debug", skip(self))]
-    fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
+    async fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
         let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
@@ -577,7 +588,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     #[xmtp_common::db_span]
-    fn find_group_intent_by_payload_hash(
+    async fn find_group_intent_by_payload_hash(
         &self,
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
@@ -594,9 +605,9 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     /// Find the commit message refresh state for each intent by payload hash.
     /// Returns a map from payload hash to a vector of dependencies (one per originator).
     #[xmtp_common::db_span]
-    fn find_dependant_commits<P: AsRef<[u8]>>(
+    async fn find_dependant_commits(
         &self,
-        payload_hashes: &[P],
+        payload_hashes: &[&[u8]],
     ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
         use super::schema::refresh_state;
         use crate::encrypted_store::refresh_state::EntityKind;
@@ -659,7 +670,10 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
-    fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
+    async fn increment_intent_publish_attempt_count(
+        &self,
+        intent_id: ID,
+    ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
@@ -671,14 +685,14 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(id = %intent.id, kind = %intent.kind, group_id = %intent.group_id))]
-    fn set_group_intent_error_and_fail_msg(
+    async fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,
         msg_id: Option<Vec<u8>>,
     ) -> Result<(), StorageError> {
-        self.set_group_intent_error(intent.id)?;
+        self.set_group_intent_error(intent.id).await?;
         if let Some(id) = msg_id {
-            self.set_delivery_status_to_failed(&id)?;
+            self.set_delivery_status_to_failed(&id).await?;
         }
         Ok(())
     }
@@ -1257,9 +1271,9 @@ mod pg_impl {
                 .await?)
         }
 
-        async fn find_group_intents<Id: AsRef<[u8]>>(
+        async fn find_group_intents(
             &self,
-            group_id: Id,
+            group_id: &[u8],
             allowed_states: Option<Vec<IntentState>>,
             allowed_kinds: Option<Vec<IntentKind>>,
         ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -1273,7 +1287,7 @@ mod pg_impl {
             );
             let mut c = self.conn().await?;
             Ok(sqlx::query_as::<_, StoredGroupIntent>(&sql)
-                .bind(group_id.as_ref())
+                .bind(group_id)
                 .bind(as_ints(&allowed_states, |s| s as i32))
                 .bind(as_ints(&allowed_kinds, |k| k as i32))
                 .fetch_all(&mut *c)
@@ -1404,14 +1418,11 @@ mod pg_impl {
                 .map_err(crate::ConnectionError::from)?)
         }
 
-        async fn find_dependant_commits<P: AsRef<[u8]>>(
+        async fn find_dependant_commits(
             &self,
-            payload_hashes: &[P],
+            payload_hashes: &[&[u8]],
         ) -> Result<HashMap<PayloadHash, IntentDependency>, StorageError> {
-            let hashes: Vec<Vec<u8>> = payload_hashes
-                .iter()
-                .map(|hash| hash.as_ref().to_vec())
-                .collect();
+            let hashes: Vec<Vec<u8>> = payload_hashes.iter().map(|hash| hash.to_vec()).collect();
 
             // `payload_hash` decodes as non-null: `NULL = ANY(...)` is NULL, so
             // an unpublished intent can never match.

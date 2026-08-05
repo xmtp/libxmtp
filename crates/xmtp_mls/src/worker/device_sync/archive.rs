@@ -509,7 +509,7 @@ mod tests {
 
         let alix2_group = alix2.group(&old_group.id)?;
         // Loading all the groups works fine
-        let _groups = alix2.find_groups(GroupQueryArgs::default())?;
+        let _groups = alix2.find_groups(&GroupQueryArgs::default())?;
         // Can fetch the group name no problem
         alix2_group.group_name()?;
         assert!(!alix2_group.is_active()?);

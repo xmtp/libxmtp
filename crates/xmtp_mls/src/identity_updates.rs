@@ -88,7 +88,9 @@ pub async fn get_association_state_with_verifier(
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<AssociationState, ClientError> {
-    let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
+    let updates = conn
+        .get_identity_updates(inbox_id, None, to_sequence_id)
+        .await?;
     let last_sequence_id = updates
         .last()
         .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
@@ -99,7 +101,7 @@ pub async fn get_association_state_with_verifier(
         return Err(AssociationError::MissingIdentityUpdate.into());
     }
 
-    if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id)? {
+    if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id).await? {
         return Ok(association_state.try_into().map_err(StorageError::from)?);
     }
 
@@ -116,7 +118,8 @@ pub async fn get_association_state_with_verifier(
         inbox_id.to_owned(),
         last_sequence_id,
         association_state.clone().into(),
-    )?;
+    )
+    .await?;
 
     Ok(association_state)
 }
@@ -263,8 +266,9 @@ where
             .await?;
 
         // Get any identity updates that need to be applied
-        let incremental_updates =
-            conn.get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?;
+        let incremental_updates = conn
+            .get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)
+            .await?;
 
         let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
         if ending_sequence_id.is_some()
@@ -298,7 +302,8 @@ where
                 inbox_id.to_string(),
                 last_sequence_id,
                 final_state.clone().into(),
-            )?;
+            )
+            .await?;
         }
 
         Ok(initial_state.diff(&final_state))
@@ -596,7 +601,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     }
     tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
-    let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids)?;
+    let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids).await?;
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
         .iter()
         .map(|inbox_id| GetIdentityUpdatesV2Filter {
@@ -622,7 +627,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         })
         .collect::<Vec<StoredIdentityUpdate>>();
 
-    conn.insert_or_ignore_identity_updates(&to_store)?;
+    conn.insert_or_ignore_identity_updates(&to_store).await?;
     Ok(updates)
 }
 
@@ -693,7 +698,7 @@ pub async fn get_creation_signature_kind(
     scw_verifier: impl SmartContractSignatureVerifier,
     inbox_id: InboxIdRef<'_>,
 ) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
-    let updates = conn.get_identity_updates(inbox_id, None, None)?;
+    let updates = conn.get_identity_updates(inbox_id, None, None).await?;
 
     let first_update = updates
         .first()

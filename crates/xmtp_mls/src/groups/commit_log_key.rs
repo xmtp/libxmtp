@@ -143,7 +143,8 @@ pub(crate) async fn derive_consensus_public_key(
             maybe_share_private_key(context, &group_id, &signature.public_key).await?;
             context
                 .db()
-                .set_group_commit_log_public_key(&group_id, &signature.public_key)?;
+                .set_group_commit_log_public_key(&group_id, &signature.public_key)
+                .await?;
             return Ok(Some(signature.public_key.clone()));
         }
     }

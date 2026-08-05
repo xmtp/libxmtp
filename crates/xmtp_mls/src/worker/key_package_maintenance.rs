@@ -91,6 +91,7 @@ pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
     if !context
         .db()
         .is_identity_needs_rotation()
+        .await
         .map_err(KeyPackageMaintenanceError::Metadata)?
     {
         return Ok(false);
@@ -140,6 +141,7 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
     // Propagate (don't swallow) so the supervisor's reconnect path can fire.
     let expired_kps = conn
         .get_expired_key_packages()
+        .await
         .map_err(KeyPackageMaintenanceError::Fetch)?;
     if expired_kps.is_empty() {
         return Ok(());
@@ -157,6 +159,7 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
 
     if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
         conn.delete_key_package_history_up_to_id(max_id)
+            .await
             .map_err(KeyPackageMaintenanceError::Deletion)?;
         tracing::info!(
             "Deleted {} expired key packages (up to ID {}) from local DB and state",

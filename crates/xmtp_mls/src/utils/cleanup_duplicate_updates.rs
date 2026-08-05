@@ -29,7 +29,7 @@ async fn perform_inner<C>(db: DbConnection<C>) -> Result<(), GroupMessageProcess
 where
     C: ConnectionExt,
 {
-    let prefs = db.load_user_preferences()?;
+    let prefs = db.load_user_preferences().await?;
     if prefs.dm_group_updates_migrated {
         info!("DM group updates migration has already been performed. Skipping.");
         return Ok(());
@@ -38,14 +38,16 @@ where
     let mut group_offset = 0;
     let mut groups;
     loop {
-        groups = db.find_groups_by_id_paged(
-            GroupQueryArgs {
-                conversation_type: Some(ConversationType::Dm),
-                limit: Some(BATCH_SIZE),
-                ..Default::default()
-            },
-            group_offset,
-        )?;
+        groups = db
+            .find_groups_by_id_paged(
+                &GroupQueryArgs {
+                    conversation_type: Some(ConversationType::Dm),
+                    limit: Some(BATCH_SIZE),
+                    ..Default::default()
+                },
+                group_offset,
+            )
+            .await?;
 
         if groups.is_empty() {
             break;
@@ -57,15 +59,17 @@ where
             let mut originals: HashSet<u64> = HashSet::default();
 
             loop {
-                msgs = db.get_group_messages(
-                    &group.id,
-                    &MsgQueryArgs {
-                        content_types: Some(vec![ContentType::GroupUpdated]),
-                        sent_after_ns,
-                        limit: Some(BATCH_SIZE),
-                        ..Default::default()
-                    },
-                )?;
+                msgs = db
+                    .get_group_messages(
+                        &group.id,
+                        &MsgQueryArgs {
+                            content_types: Some(vec![ContentType::GroupUpdated]),
+                            sent_after_ns,
+                            limit: Some(BATCH_SIZE),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
 
                 {
                     let Some(msg) = msgs.last() else {
@@ -103,7 +107,7 @@ where
         group_offset += BATCH_SIZE;
     }
 
-    db.set_dm_group_updates_migrated()?;
+    db.set_dm_group_updates_migrated().await?;
 
     Ok(())
 }

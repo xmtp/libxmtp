@@ -13,7 +13,7 @@ where
         let provider = self.mls_provider();
         let groups = provider
             .db()
-            .find_groups(GroupQueryArgs::default())?
+            .find_groups(&GroupQueryArgs::default())?
             .into_iter()
             .map(Syncable::Group)
             .collect();
@@ -22,7 +22,7 @@ where
     }
 
     pub(super) fn syncable_messages(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let groups = self.context.db().find_groups(GroupQueryArgs::default())?;
+        let groups = self.context.db().find_groups(&GroupQueryArgs::default())?;
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {

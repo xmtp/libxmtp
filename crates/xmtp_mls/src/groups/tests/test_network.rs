@@ -23,7 +23,7 @@ async fn test_bad_network() {
         assert!(result.is_err());
 
         // The group should still be created, even though the add members request didn't go through.
-        let g = alix.find_groups(GroupQueryArgs::default())?.pop().unwrap();
+        let g = alix.find_groups(&GroupQueryArgs::default())?.pop().unwrap();
 
         // Bo should not have received the welcome for the group.
         bo.sync_welcomes().await?;

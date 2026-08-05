@@ -14,20 +14,26 @@ pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
 #[allow(async_fn_in_trait)]
 pub trait XmtpTestDb {
     /// Create a validated, ephemeral database, running the migrations
-    async fn create_ephemeral_store() -> EncryptedMessageStore<crate::DefaultDatabase>;
+    fn create_ephemeral_store()
+    -> impl std::future::Future<Output = EncryptedMessageStore<crate::DefaultDatabase>>
+    + xmtp_common::MaybeSend;
 
-    async fn create_ephemeral_store_from_snapshot(
+    fn create_ephemeral_store_from_snapshot(
         snapshot: &[u8],
-        path: Option<impl AsRef<Path>>,
-    ) -> EncryptedMessageStore<crate::DefaultDatabase>;
+        path: Option<&Path>,
+    ) -> impl std::future::Future<Output = EncryptedMessageStore<crate::DefaultDatabase>>
+    + xmtp_common::MaybeSend;
 
     /// Create a validated, persistent database running the migrations
-    async fn create_persistent_store(
+    fn create_persistent_store(
         path: Option<String>,
-    ) -> EncryptedMessageStore<crate::DefaultDatabase>;
+    ) -> impl std::future::Future<Output = EncryptedMessageStore<crate::DefaultDatabase>>
+    + xmtp_common::MaybeSend;
     /// Create an empty database
     /// does no validation and does not run migrations.
-    async fn create_database(path: Option<String>) -> crate::DefaultDatabase;
+    fn create_database(
+        path: Option<String>,
+    ) -> impl std::future::Future<Output = crate::DefaultDatabase> + xmtp_common::MaybeSend;
 }
 
 impl<Db> EncryptedMessageStore<Db> {
@@ -76,7 +82,7 @@ mod wasm {
 
         async fn create_ephemeral_store_from_snapshot(
             snapshot: &[u8],
-            _path: Option<impl AsRef<Path>>,
+            _path: Option<&Path>,
         ) -> EncryptedMessageStore<crate::DefaultDatabase> {
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
@@ -185,9 +191,8 @@ mod native {
         }
         async fn create_ephemeral_store_from_snapshot(
             mut snapshot: &[u8],
-            path: Option<impl AsRef<Path>>,
+            path: Option<&Path>,
         ) -> crate::DefaultStore {
-            let path = path.as_ref();
             let mut buffer;
 
             let mut i = 0;
@@ -211,8 +216,7 @@ mod native {
                 }
 
                 if let Some(path) = path {
-                    let path = path.as_ref();
-                    // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
+                            // WAL is not compatible with ephemeral databases. Attempt to update and try one more time.
                     {
                         let mut conn =
                             SqliteConnection::establish(path.to_string_lossy().as_ref()).unwrap();

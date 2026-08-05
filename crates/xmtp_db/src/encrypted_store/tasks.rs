@@ -141,51 +141,62 @@ pub fn data_hash_for(task: &TaskProto) -> TaskDataHash {
 /// recurring row lives forever; an applied pull-in self-deletes).
 pub const NEVER_EXPIRES: i64 = i64::MAX;
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryTasks {
-    async fn create_task(&self, task: NewTask) -> Result<Task, StorageError>;
+    fn create_task(
+        &self,
+        task: NewTask,
+    ) -> impl std::future::Future<Output = Result<Task, StorageError>> + xmtp_common::MaybeSend;
 
     /// Idempotent enqueue: a payload-identical duplicate is a no-op (the existing
     /// row wins; OR IGNORE swallows any constraint hit, not just data_hash UNIQUE).
-    async fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError>;
+    fn create_or_ignore_task(
+        &self,
+        task: NewTask,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     /// Lower a task's `next_attempt_at_ns` to `MIN(current, at_ns)` — never raises.
     /// Returns whether a row matched; a missing target is a no-op (`false`).
     /// TaskWorker dispatch thread only (sole rescheduler).
-    async fn pull_in_task_deadline(
+    fn pull_in_task_deadline(
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
-    ) -> Result<bool, StorageError>;
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn get_tasks(&self) -> Result<Vec<Task>, StorageError>;
+    fn get_tasks(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<Task>, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn get_next_task(&self) -> Result<Option<Task>, StorageError>;
+    fn get_next_task(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<Task>, StorageError>> + xmtp_common::MaybeSend;
 
     /// Ensure exactly one live `ProcessPendingSelfRemove` task exists for
     /// `group_id`. Clears only dead rows (expired / attempts-exhausted) then
     /// insert-or-ignores, so a live retrying task keeps its backoff and is never
     /// deleted out from under the TaskRunner, while a stale dead row can't block
     /// a fresh retry via the `data_hash` unique constraint.
-    async fn upsert_pending_self_remove_task(
+    fn upsert_pending_self_remove_task(
         &self,
         group_id: &GroupId,
         task: NewTask,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn update_task(
+    fn update_task(
         &self,
         id: i32,
         attempts: i32,
         last_attempted_at_ns: i64,
         next_attempt_at_ns: i64,
-    ) -> Result<Task, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Task, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
+    fn delete_task(
+        &self,
+        id: i32,
+    ) -> impl std::future::Future<Output = Result<bool, StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
-impl<T: QueryTasks> QueryTasks for &'_ T {
+impl<T: QueryTasks + xmtp_common::MaybeSync> QueryTasks for &T {
     async fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
         (**self).create_task(task).await
     }
@@ -241,7 +252,7 @@ impl<T: QueryTasks> QueryTasks for &'_ T {
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
-    fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
+    async fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
         self.raw_query(|conn| {
             diesel::insert_into(tasks::table)
                 .values(task)
@@ -250,7 +261,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
+    async fn create_or_ignore_task(&self, task: NewTask) -> Result<(), StorageError> {
         // A single INSERT OR IGNORE is atomic; no explicit transaction needed.
         self.raw_query(|conn| {
             diesel::insert_or_ignore_into(tasks::table)
@@ -260,7 +271,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         Ok(())
     }
 
-    fn pull_in_task_deadline(
+    async fn pull_in_task_deadline(
         &self,
         target_data_hash: &TaskDataHash,
         at_ns: i64,
@@ -279,12 +290,12 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         Ok(matched > 0)
     }
 
-    fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
+    async fn get_tasks(&self) -> Result<Vec<Task>, StorageError> {
         self.raw_query(|conn| tasks::table.load::<Task>(conn))
             .map_err(Into::into)
     }
 
-    fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
+    async fn get_next_task(&self) -> Result<Option<Task>, StorageError> {
         self.raw_query(|conn| {
             tasks::table
                 .order(tasks::next_attempt_at_ns)
@@ -294,7 +305,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn upsert_pending_self_remove_task(
+    async fn upsert_pending_self_remove_task(
         &self,
         group_id: &GroupId,
         task: NewTask,
@@ -338,7 +349,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn update_task(
+    async fn update_task(
         &self,
         id: i32,
         attempts: i32,
@@ -357,7 +368,7 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
         .map_err(Into::into)
     }
 
-    fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
+    async fn delete_task(&self, id: i32) -> Result<bool, StorageError> {
         let num_deleted = self.raw_query(|conn| {
             diesel::delete(tasks::table.filter(tasks::id.eq(id))).execute(conn)
         })?;

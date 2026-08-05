@@ -44,18 +44,21 @@ where
                 let entities = vec![EntityKind::Welcome];
                 self.db
                     .latest_cursor_for_id(topic.identifier(), &entities, originators)
+                    .await
                     .map_err(CursorStoreError::other)
             }
             TopicKind::GroupMessagesV1 => {
                 let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
                 self.db
                     .latest_cursor_for_id(topic.identifier(), &entities, originators)
+                    .await
                     .map_err(CursorStoreError::other)
             }
             TopicKind::IdentityUpdatesV1 => {
                 let sid = self
                     .db
                     .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
+                    .await
                     .map_err(CursorStoreError::other)?;
                 let mut map = GlobalCursor::default();
                 map.insert(Originators::INBOX_LOG, sid as u64);
@@ -82,6 +85,7 @@ where
                     let mut cursors = self
                         .db
                         .get_last_cursor_for_ids(&identifiers, &[EntityKind::Welcome])
+                        .await
                         .map_err(CursorStoreError::other)?;
 
                     Ok(topics_of_kind
@@ -101,6 +105,7 @@ where
                             &identifiers,
                             &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
                         )
+                        .await
                         .map_err(CursorStoreError::other)?;
 
                     Ok(topics_of_kind
@@ -117,6 +122,7 @@ where
                         let sid = self
                             .db
                             .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
+                            .await
                             .map_err(CursorStoreError::other)?;
                         let mut map = GlobalCursor::default();
                         map.insert(Originators::INBOX_LOG, sid as u64);
@@ -140,6 +146,7 @@ where
         let dependencies: HashMap<Vec<u8>, IntentDependency> = self
             .db
             .find_dependant_commits(hashes)
+            .await
             .map_err(CursorStoreError::other)?
             .into_iter()
             .map(|(k, v)| (k.into(), v))
@@ -155,7 +162,10 @@ where
         &self,
         orphans: Vec<xmtp_proto::types::OrphanedEnvelope>,
     ) -> Result<(), CursorStoreError> {
-        self.db.ice(orphans).map_err(CursorStoreError::other)?;
+        self.db
+            .ice(orphans)
+            .await
+            .map_err(CursorStoreError::other)?;
         Ok(())
     }
 
@@ -165,12 +175,14 @@ where
     ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
         self.db
             .future_dependents(cursors)
+            .await
             .map_err(CursorStoreError::other)
     }
 
     fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
         self.db
             .set_cutover_ns(cutover_ns)
+            .await
             .map_err(CursorStoreError::other)
     }
 
@@ -178,6 +190,7 @@ where
         let cutover = self
             .db
             .get_migration_cutover()
+            .await
             .map_err(CursorStoreError::other)?;
         Ok(cutover.cutover_ns)
     }
@@ -186,6 +199,7 @@ where
         let cutover = self
             .db
             .get_migration_cutover()
+            .await
             .map_err(CursorStoreError::other)?;
         Ok(cutover.has_migrated)
     }
@@ -193,18 +207,21 @@ where
     fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
         self.db
             .set_has_migrated(has_migrated)
+            .await
             .map_err(CursorStoreError::other)
     }
 
     fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
         self.db
             .get_last_checked_ns()
+            .await
             .map_err(CursorStoreError::other)
     }
 
     fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
         self.db
             .set_last_checked_ns(last_checked_ns)
+            .await
             .map_err(CursorStoreError::other)
     }
 }

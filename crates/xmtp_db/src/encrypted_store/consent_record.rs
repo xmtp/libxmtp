@@ -63,7 +63,6 @@ impl StoredConsentRecord {
 
     /// This function will perform some logic to see if a new group should be auto-consented
     /// or auto-denied based on past consent.
-    #[maybe_async::maybe_async]
     pub async fn stitch_dm_consent(
         conn: &impl DbQuery,
         group: &StoredGroup,
@@ -89,50 +88,59 @@ impl StoredConsentRecord {
 #[cfg(feature = "sync")]
 impl_store!(StoredConsentRecord, consent_records);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryConsentRecord {
     /// Returns the consent_records for the given entity up
-    async fn get_consent_record(
+    fn get_consent_record(
         &self,
         entity: String,
         entity_type: ConsentType,
-    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredConsentRecord>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+    fn consent_records(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<StoredConsentRecord>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    async fn consent_records_paged(
+    fn consent_records_paged(
         &self,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredConsentRecord>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Returns true if newer
-    async fn insert_newer_consent_record(
+    fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
-    ) -> Result<bool, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<bool, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
-    async fn insert_or_replace_consent_records(
+    fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
-    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredConsentRecord>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    async fn maybe_insert_consent_record_return_existing(
+    fn maybe_insert_consent_record_return_existing(
         &self,
         record: &StoredConsentRecord,
-    ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredConsentRecord>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
-    async fn find_consent_by_dm_id(
+    fn find_consent_by_dm_id(
         &self,
         dm_id: &str,
-    ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredConsentRecord>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
     /// Returns the consent_records for the given entity up
-    fn get_consent_record(
+    async fn get_consent_record(
         &self,
         entity: String,
         entity_type: ConsentType,
@@ -146,11 +154,11 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         })
     }
 
-    fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+    async fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
         self.raw_query(|conn| super::schema::consent_records::table.load(conn))
     }
 
-    fn consent_records_paged(
+    async fn consent_records_paged(
         &self,
         limit: i64,
         offset: i64,
@@ -164,7 +172,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
     }
 
     // returns true if newer
-    fn insert_newer_consent_record(
+    async fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
     ) -> Result<bool, crate::ConnectionError> {
@@ -203,7 +211,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
-    fn insert_or_replace_consent_records(
+    async fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
@@ -248,7 +256,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         Ok(changed)
     }
 
-    fn maybe_insert_consent_record_return_existing(
+    async fn maybe_insert_consent_record_return_existing(
         &self,
         record: &StoredConsentRecord,
     ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
@@ -272,7 +280,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         })
     }
 
-    fn find_consent_by_dm_id(
+    async fn find_consent_by_dm_id(
         &self,
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
@@ -296,8 +304,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
     }
 }
 
-#[maybe_async::maybe_async(AFIT)]
-impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
+impl<T: QueryConsentRecord + ?Sized + xmtp_common::MaybeSync> QueryConsentRecord for &T {
     async fn get_consent_record(
         &self,
         entity: String,

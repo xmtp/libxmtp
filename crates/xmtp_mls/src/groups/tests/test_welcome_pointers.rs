@@ -156,7 +156,7 @@ async fn test_welcome_pointer_round_trip(
 
     // Verify bola can see the group
     let bola_groups = bola
-        .find_groups(xmtp_db::group::GroupQueryArgs::default())
+        .find_groups(&xmtp_db::group::GroupQueryArgs::default())
         .unwrap();
     assert_eq!(bola_groups.len(), 1);
 
@@ -237,7 +237,7 @@ async fn test_welcome_pointer_round_trip(
         |tester| async {
             tester.sync_welcomes().await.unwrap();
             let tester_groups = tester
-                .find_groups(xmtp_db::group::GroupQueryArgs::default())
+                .find_groups(&xmtp_db::group::GroupQueryArgs::default())
                 .unwrap();
             assert_eq!(tester_groups.len(), 1);
             let installation_id = tester.identity().installation_id();
@@ -665,7 +665,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
 
     tracing::info!("Finding group for bo");
     let bo_group = bo
-        .find_groups(xmtp_db::group::GroupQueryArgs::default())
+        .find_groups(&xmtp_db::group::GroupQueryArgs::default())
         .unwrap()
         .into_iter()
         .next()

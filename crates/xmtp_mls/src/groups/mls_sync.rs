@@ -463,7 +463,7 @@ where
         );
 
         // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&self.group_id)? {
+        for other_dm in conn.other_dms(&self.group_id).await? {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
                 other_dm.id,
@@ -593,11 +593,15 @@ where
         // Filter to kinds this build understands: after a downgrade,
         // rows written by a newer build would otherwise fail `FromSql`
         // and poison the whole query (see `IntentKind::all`).
-        let intents = self.context.db().find_group_intents(
-            self.group_id,
-            Some(vec![IntentState::ToPublish, IntentState::Published]),
-            Some(IntentKind::all().collect()),
-        )?;
+        let intents = self
+            .context
+            .db()
+            .find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(IntentKind::all().collect()),
+            )
+            .await?;
 
         let Some(intent) = intents.last() else {
             return Ok(Default::default());
@@ -1129,6 +1133,7 @@ where
                 envelope.cursor,
                 message_expire_at_ns,
             )
+            .await
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
@@ -2181,11 +2186,15 @@ where
         trust_message_order: bool,
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         if trust_message_order {
-            let last_cursor = self.context.db().get_last_cursor_for_originator(
-                envelope.group_id,
-                envelope.entity_kind(),
-                envelope.originator_id(),
-            )?;
+            let last_cursor = self
+                .context
+                .db()
+                .get_last_cursor_for_originator(
+                    envelope.group_id,
+                    envelope.entity_kind(),
+                    envelope.originator_id(),
+                )
+                .await?;
             tracing::info!("last cursor of processed = {}", last_cursor);
             if last_cursor.sequence_id >= envelope.sequence_id() {
                 tracing::info!(
@@ -2259,13 +2268,16 @@ where
 
         let intent = db
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())
+            .await
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = db.get_last_cursor_for_originator(
-            self.group_id,
-            envelope.entity_kind(),
-            envelope.originator_id(),
-        )?;
+        let group_cursor = db
+            .get_last_cursor_for_originator(
+                self.group_id,
+                envelope.entity_kind(),
+                envelope.originator_id(),
+            )
+            .await?;
         if group_cursor.sequence_id >= envelope.sequence_id() {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
@@ -2528,7 +2540,7 @@ where
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let message = match process_result {
             Ok(m) => {
-                self.context.db().prune_icebox()?;
+                self.context.db().prune_icebox().await?;
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
                     &envelope.group_id,
@@ -2542,7 +2554,8 @@ where
                 // Instead of updating cursor, mark group as paused
                 self.context
                     .db()
-                    .set_group_paused(&self.group_id, &min_version)?;
+                    .set_group_paused(&self.group_id, &min_version)
+                    .await?;
                 tracing::warn!(
                     "Group [{}] paused due to minimum protocol version requirement",
                     hex::encode(self.group_id)
@@ -2875,7 +2888,7 @@ where
                 self.group_id,
                 Some(vec![IntentState::ToPublish]),
                 Some(IntentKind::all().collect()),
-            )?;
+            ).await?;
 
             for intent in intents {
                 let result = retry_async!(
@@ -2898,9 +2911,9 @@ where
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
-                            db.set_group_intent_error_and_fail_msg(&intent, id)?;
+                            db.set_group_intent_error_and_fail_msg(&intent, id).await?;
                         } else {
-                            db.increment_intent_publish_attempt_count(intent.id)?;
+                            db.increment_intent_publish_attempt_count(intent.id).await?;
                         }
 
                         return Err(err);
@@ -3008,7 +3021,7 @@ where
                             installation_id = %self.context.installation_id(),
                             "Skipping intent because no publish data returned"
                         );
-                        db.set_group_intent_processed(intent.id)?
+                        db.set_group_intent_processed(intent.id).await?
                     }
                 }
             }
@@ -3366,7 +3379,8 @@ where
                     let latest_sequence_ids = self
                         .context
                         .db()
-                        .get_latest_sequence_id(&inbox_ids_to_add)?;
+                        .get_latest_sequence_id(&inbox_ids_to_add)
+                        .await?;
 
                     // Build the projected membership for kp lookup.
                     let mut projected = old_group_membership.clone();
@@ -3744,8 +3758,11 @@ where
                         inbox_ids_to_add.iter().map(|s| s.as_str()).collect();
                     load_identity_updates(self.context.api(), &self.context.db(), &inbox_ids_refs)
                         .await?;
-                    let latest_sequence_ids =
-                        self.context.db().get_latest_sequence_id(&inbox_ids_refs)?;
+                    let latest_sequence_ids = self
+                        .context
+                        .db()
+                        .get_latest_sequence_id(&inbox_ids_refs)
+                        .await?;
 
                     for inbox_id in &inbox_ids_to_add {
                         let sequence_id = latest_sequence_ids
@@ -3999,7 +4016,7 @@ where
                 self.group_id,
                 Some(vec![IntentState::Committed]),
                 Some(IntentKind::all().collect()),
-            )?;
+            ).await?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {
@@ -4017,7 +4034,7 @@ where
                     }
                 }
             }
-            db.set_group_intent_processed(intent.id)?
+            db.set_group_intent_processed(intent.id).await?
         }
 
         Ok(())
@@ -4028,7 +4045,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let db = self.context.db();
-        let Some(stored_group) = db.find_group(&self.group_id)? else {
+        let Some(stored_group) = db.find_group(&self.group_id).await? else {
             return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
         };
         if stored_group.conversation_type.is_virtual() {
@@ -4039,11 +4056,11 @@ where
         let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = xmtp_common::time::now_ns();
-        let last_ns = db.get_installations_time_checked(&self.group_id)?;
+        let last_ns = db.get_installations_time_checked(&self.group_id).await?;
         let elapsed_ns = now_ns - last_ns;
         if elapsed_ns > interval_ns && self.is_active()? {
             self.add_missing_installations().await?;
-            db.update_installations_time_checked(&self.group_id)?;
+            db.update_installations_time_checked(&self.group_id).await?;
         }
 
         Ok(())
@@ -4106,7 +4123,7 @@ where
             // Load any missing updates from the network
             load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
 
-            let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
+            let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str]).await?;
 
             // Get a list of all inbox IDs that have increased sequence_id for the group
             let changed_inbox_ids =

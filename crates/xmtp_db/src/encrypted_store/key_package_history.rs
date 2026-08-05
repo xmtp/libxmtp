@@ -33,43 +33,56 @@ pub struct StoredKeyPackageHistoryEntry {
 #[cfg(feature = "sync")]
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryKeyPackageHistory {
-    async fn store_key_package_history_entry(
+    fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
         post_quantum_public_key: Option<Vec<u8>>,
-    ) -> Result<StoredKeyPackageHistoryEntry, StorageError>;
+    ) -> impl std::future::Future<Output = Result<StoredKeyPackageHistoryEntry, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn find_key_package_history_entry_by_hash_ref(
+    fn find_key_package_history_entry_by_hash_ref(
         &self,
         hash_ref: Vec<u8>,
-    ) -> Result<StoredKeyPackageHistoryEntry, StorageError>;
+    ) -> impl std::future::Future<Output = Result<StoredKeyPackageHistoryEntry, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn find_key_package_history_entries_before_id(
+    fn find_key_package_history_entries_before_id(
         &self,
         id: i32,
-    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError>;
-
-    async fn get_expired_key_packages(
+    fn mark_key_package_before_id_to_be_deleted(
         &self,
-    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
+        id: i32,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
+
+    fn get_expired_key_packages(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>>
+    + xmtp_common::MaybeSend;
 
     /// Soonest pending `delete_at_ns` across all key packages marked for deletion,
     /// or `None` if none are marked. The KpDeletion task's reschedule source.
-    async fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
+    fn min_key_package_delete_at_ns(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Option<i64>, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
+    fn delete_key_package_history_up_to_id(
+        &self,
+        id: i32,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
+    fn delete_key_package_entry_with_id(
+        &self,
+        id: i32,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryKeyPackageHistory for &T
 where
-    T: QueryKeyPackageHistory,
+    T: QueryKeyPackageHistory + xmtp_common::MaybeSync,
 {
     async fn store_key_package_history_entry(
         &self,
@@ -124,7 +137,7 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
-    fn store_key_package_history_entry(
+    async fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
         post_quantum_public_key: Option<Vec<u8>>,
@@ -137,9 +150,10 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         entry.store_or_ignore(self)?;
 
         self.find_key_package_history_entry_by_hash_ref(key_package_hash_ref)
+            .await
     }
 
-    fn find_key_package_history_entry_by_hash_ref(
+    async fn find_key_package_history_entry_by_hash_ref(
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
@@ -152,7 +166,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         Ok(result)
     }
 
-    fn find_key_package_history_entries_before_id(
+    async fn find_key_package_history_entries_before_id(
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
@@ -165,7 +179,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         Ok(result)
     }
 
-    fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
+    async fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
         use crate::schema::key_package_history::dsl;
         let delete_at_24_hrs_ns = now_ns() + KEYS_EXPIRATION_INTERVAL_NS;
         self.raw_query(|conn| {
@@ -181,7 +195,9 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         Ok(())
     }
 
-    fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+    async fn get_expired_key_packages(
+        &self,
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
         use crate::schema::key_package_history::dsl;
         self.raw_query(|conn| {
             dsl::key_package_history
@@ -191,7 +207,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         .map_err(StorageError::from) // convert ConnectionError into StorageError
     }
 
-    fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
+    async fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError> {
         use crate::schema::key_package_history::dsl;
         use diesel::dsl::min;
         let v: Option<i64> = self.raw_query(|conn| {
@@ -203,7 +219,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         Ok(v)
     }
 
-    fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
+    async fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
@@ -215,7 +231,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
         Ok(())
     }
 
-    fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
+    async fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history

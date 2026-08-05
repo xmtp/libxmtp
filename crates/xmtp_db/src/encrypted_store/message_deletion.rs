@@ -40,40 +40,49 @@ impl_store!(StoredMessageDeletion, message_deletions);
 impl_store_or_ignore!(StoredMessageDeletion, message_deletions);
 
 /// Trait for querying message deletions
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryMessageDeletion {
     /// Get a deletion record by the DeleteMessage ID
-    async fn get_message_deletion(
+    fn get_message_deletion(
         &self,
         id: &[u8],
-    ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get deletion record for a specific deleted message
-    async fn get_deletion_by_deleted_message_id(
+    fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
-    ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Option<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get all deletions for a list of message IDs
-    async fn get_deletions_for_messages(
+    fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Get all deletions in a group
-    async fn get_group_deletions(
+    fn get_group_deletions(
         &self,
         group_id: &GroupId,
-    ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<StoredMessageDeletion>, crate::ConnectionError>,
+    > + xmtp_common::MaybeSend;
 
     /// Check if a message has been deleted
-    async fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+    fn is_message_deleted(
+        &self,
+        message_id: &[u8],
+    ) -> impl std::future::Future<Output = Result<bool, crate::ConnectionError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryMessageDeletion for &T
 where
-    T: QueryMessageDeletion,
+    T: QueryMessageDeletion + xmtp_common::MaybeSync,
 {
     async fn get_message_deletion(
         &self,
@@ -112,7 +121,7 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
-    fn get_message_deletion(
+    async fn get_message_deletion(
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
@@ -124,7 +133,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_deletion_by_deleted_message_id(
+    async fn get_deletion_by_deleted_message_id(
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
@@ -136,7 +145,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_deletions_for_messages(
+    async fn get_deletions_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
@@ -151,7 +160,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn get_group_deletions(
+    async fn get_group_deletions(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
@@ -162,7 +171,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         })
     }
 
-    fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+    async fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
         self.raw_query(|conn| {
             diesel::dsl::select(diesel::dsl::exists(
                 dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),

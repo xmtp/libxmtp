@@ -284,7 +284,7 @@ where
             .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?);
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors().await?);
 
         let stream = multiplexed(subscription, events);
 
@@ -573,7 +573,7 @@ mod test {
 
         // Verify syncing welcomes while streaming causes no issues
         alix.sync_welcomes().await.unwrap();
-        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
+        let find_groups_results = alix.find_groups(&GroupQueryArgs::default()).unwrap();
         assert_eq!(2, find_groups_results.len());
     }
 

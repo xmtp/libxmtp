@@ -390,7 +390,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    let groups = alix1.find_groups(GroupQueryArgs {
+    let groups = alix1.find_groups(&GroupQueryArgs {
         include_sync_groups: true,
         ..Default::default()
     })?;

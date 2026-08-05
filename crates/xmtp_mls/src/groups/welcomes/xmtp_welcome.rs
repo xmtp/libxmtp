@@ -209,7 +209,7 @@ where
         let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
         // try to load the group this welcome represents
         // defensive to avoid race conditions & duplicates
-        if db.find_group(&group_id)?.is_some() {
+        if db.find_group(&group_id).await?.is_some() {
             // Fetch the original MLS group, rather than the one from the welcome
             let result = MlsGroup::new_cached(self.context.clone(), &group_id);
             if let Ok((group, _)) = result {

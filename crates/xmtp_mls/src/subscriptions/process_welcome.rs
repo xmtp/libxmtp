@@ -257,7 +257,7 @@ where
         // Filter out duplicate DMs if not included
         if !self.include_duplicate_dms
             && metadata.conversation_type == ConversationType::Dm
-            && self.context.db().has_duplicate_dm(&group.group_id)?
+            && self.context.db().has_duplicate_dm(&group.group_id).await?
         {
             tracing::debug!("Duplicate DM group detected. Skipping stream.");
             return Ok(false);

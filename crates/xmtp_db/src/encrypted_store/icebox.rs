@@ -65,7 +65,6 @@ pub struct IceboxDependency {
 #[cfg(feature = "sync")]
 impl_store!(IceboxDependency, icebox_dependencies);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIcebox {
     /// Returns the envelopes (if they exist) plus all their dependencies, and
     /// dependencies of dependencies, along with each envelope's own dependencies.
@@ -73,32 +72,38 @@ pub trait QueryIcebox {
     /// processed, was accidentally committed to the icebox.
     /// Generally, if an envelope has a dependency on something in the icebox already
     /// it means its dependency could not be processed, so it must also be iceboxed.
-    async fn past_dependents(
+    fn past_dependents(
         &self,
         cursors: &[Cursor],
-    ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<OrphanedEnvelope>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// Returns envelopes that depend on any of the specified cursors,
     /// along with each envelope's own dependencies.
     /// Does not return the cursors themselves, if they exist in the chain.
-    async fn future_dependents(
+    fn future_dependents(
         &self,
         cursors: &[Cursor],
-    ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<OrphanedEnvelope>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
     /// cache the orphans until its parent(s) may be found.
-    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError>;
+    fn ice(
+        &self,
+        orphans: Vec<OrphanedEnvelope>,
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Removes icebox entries that have been processed according to refresh_state.
     /// Deletes entries where the refresh_state cursor for the group is at or beyond
     /// the icebox entry's sequence_id, indicating the envelope has been processed.
-    async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
+    fn prune_icebox(
+        &self,
+    ) -> impl std::future::Future<Output = Result<usize, crate::ConnectionError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryIcebox for &T
 where
-    T: QueryIcebox,
+    T: QueryIcebox + xmtp_common::MaybeSync,
 {
     async fn past_dependents(
         &self,
@@ -183,7 +188,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
-    fn past_dependents(
+    async fn past_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
@@ -248,7 +253,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         self.do_icebox_query(query_str)
     }
 
-    fn future_dependents(
+    async fn future_dependents(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
@@ -305,7 +310,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         self.do_icebox_query(query_str)
     }
 
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
+    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<usize, crate::ConnectionError> {
         if orphans.is_empty() {
             return Ok(0);
         }
@@ -335,7 +340,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         })
     }
 
-    fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
+    async fn prune_icebox(&self) -> Result<usize, crate::ConnectionError> {
         use super::refresh_state::EntityKind;
         use super::schema::{icebox, refresh_state};
 

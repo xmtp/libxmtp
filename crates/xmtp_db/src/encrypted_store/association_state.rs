@@ -28,31 +28,31 @@ impl_fetch!(StoredAssociationState, association_state, (String, i64));
 #[cfg(feature = "sync")]
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryAssociationStateCache {
-    async fn write_to_cache(
+    fn write_to_cache(
         &self,
         inbox_id: String,
         sequence_id: i64,
         state: AssociationStateProto,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
-    async fn read_from_cache<A: AsRef<str>>(
+    fn read_from_cache(
         &self,
-        inbox_id: A,
+        inbox_id: &str,
         sequence_id: i64,
-    ) -> Result<Option<AssociationStateProto>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Option<AssociationStateProto>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn batch_read_from_cache(
+    fn batch_read_from_cache(
         &self,
         identifiers: Vec<(String, i64)>,
-    ) -> Result<Vec<AssociationStateProto>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Vec<AssociationStateProto>, StorageError>>
+    + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<R> QueryAssociationStateCache for &R
 where
-    R: QueryAssociationStateCache,
+    R: QueryAssociationStateCache + xmtp_common::MaybeSync,
 {
     async fn write_to_cache(
         &self,
@@ -63,9 +63,9 @@ where
         (**self).write_to_cache(inbox_id, sequence_id, state).await
     }
 
-    async fn read_from_cache<A: AsRef<str>>(
+    async fn read_from_cache(
         &self,
-        inbox_id: A,
+        inbox_id: &str,
         sequence_id: i64,
     ) -> Result<Option<AssociationStateProto>, StorageError> {
         (**self).read_from_cache(inbox_id, sequence_id).await
@@ -81,7 +81,7 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
-    fn write_to_cache(
+    async fn write_to_cache(
         &self,
         inbox_id: String,
         sequence_id: i64,
@@ -105,12 +105,11 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
         result
     }
 
-    fn read_from_cache<A: AsRef<str>>(
+    async fn read_from_cache(
         &self,
-        inbox_id: A,
+        inbox_id: &str,
         sequence_id: i64,
     ) -> Result<Option<AssociationStateProto>, StorageError> {
-        let inbox_id = inbox_id.as_ref();
         let stored_state: Option<StoredAssociationState> =
             self.fetch(&(inbox_id.to_string(), sequence_id))?;
 
@@ -128,7 +127,7 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
             .transpose()?)
     }
 
-    fn batch_read_from_cache(
+    async fn batch_read_from_cache(
         &self,
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<AssociationStateProto>, StorageError> {
@@ -195,13 +194,12 @@ impl QueryAssociationStateCache for crate::pg::PgDb {
         Ok(())
     }
 
-    async fn read_from_cache<A: AsRef<str>>(
+    async fn read_from_cache(
         &self,
-        inbox_id: A,
+        inbox_id: &str,
         sequence_id: i64,
     ) -> Result<Option<AssociationStateProto>, StorageError> {
         use sqlx::Row;
-        let inbox_id = inbox_id.as_ref();
 
         let mut c = self.conn().await?;
         let row = sqlx::query(

@@ -37,7 +37,7 @@ impl BackupRecordProvider for GroupSave {
         args.limit = Some(Self::BATCH_SIZE);
 
         let cursor = state.cursor.load(Ordering::SeqCst);
-        let batch = state.db.find_groups_by_id_paged(args, cursor)?;
+        let batch = state.db.find_groups_by_id_paged(&args, cursor).await?;
         let storage = SqlKeyStore::new(&state.db);
         let records = batch
             .into_iter()

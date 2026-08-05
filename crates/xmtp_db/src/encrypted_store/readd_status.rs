@@ -31,62 +31,63 @@ pub struct ReaddStatus {
 #[cfg(feature = "sync")]
 impl_store!(ReaddStatus, readd_status);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryReaddStatus {
-    async fn get_readd_status(
+    fn get_readd_status(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
-    ) -> Result<Option<ReaddStatus>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Option<ReaddStatus>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 
-    async fn is_awaiting_readd(
+    fn is_awaiting_readd(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
-    ) -> Result<bool, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<bool, crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Update the requested_at_sequence_id for a given group_id and installation_id,
     /// provided it is higher than the current value.
     /// Inserts the row if it doesn't exist.
-    async fn update_requested_at_sequence_id(
+    fn update_requested_at_sequence_id(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
         sequence_id: i64,
-    ) -> Result<(), crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
     /// Update the responded_at_sequence_id for a given group_id and installation_id,
     /// provided it is higher than the current value.
     /// Inserts the row if it doesn't exist.
-    async fn update_responded_at_sequence_id(
+    fn update_responded_at_sequence_id(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
         sequence_id: i64,
-    ) -> Result<(), crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    async fn delete_other_readd_statuses(
+    fn delete_other_readd_statuses(
         &self,
         group_id: &GroupId,
         self_installation_id: &[u8],
-    ) -> Result<(), crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    async fn delete_readd_statuses(
+    fn delete_readd_statuses(
         &self,
         group_id: &GroupId,
         installation_ids: HashSet<Vec<u8>>,
-    ) -> Result<(), crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
-    async fn get_readds_awaiting_response(
+    fn get_readds_awaiting_response(
         &self,
         group_id: &GroupId,
         self_installation_id: &[u8],
-    ) -> Result<Vec<ReaddStatus>, crate::ConnectionError>;
+    ) -> impl std::future::Future<Output = Result<Vec<ReaddStatus>, crate::ConnectionError>>
+    + xmtp_common::MaybeSend;
 }
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
-    fn get_readd_status(
+    async fn get_readd_status(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
@@ -103,12 +104,12 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         })
     }
 
-    fn is_awaiting_readd(
+    async fn is_awaiting_readd(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
     ) -> Result<bool, crate::ConnectionError> {
-        let readd_status = self.get_readd_status(group_id, installation_id)?;
+        let readd_status = self.get_readd_status(group_id, installation_id).await?;
         if let Some(readd_status) = readd_status
             && let Some(requested_at) = readd_status.requested_at_sequence_id
             && requested_at >= readd_status.responded_at_sequence_id.unwrap_or(0)
@@ -118,7 +119,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         Ok(false)
     }
 
-    fn update_requested_at_sequence_id(
+    async fn update_requested_at_sequence_id(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
@@ -151,7 +152,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         Ok(())
     }
 
-    fn update_responded_at_sequence_id(
+    async fn update_responded_at_sequence_id(
         &self,
         group_id: &GroupId,
         installation_id: &[u8],
@@ -184,7 +185,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         Ok(())
     }
 
-    fn delete_other_readd_statuses(
+    async fn delete_other_readd_statuses(
         &self,
         group_id: &GroupId,
         self_installation_id: &[u8],
@@ -203,7 +204,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         })
     }
 
-    fn delete_readd_statuses(
+    async fn delete_readd_statuses(
         &self,
         group_id: &GroupId,
         installation_ids: HashSet<Vec<u8>>,
@@ -222,7 +223,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         })
     }
 
-    fn get_readds_awaiting_response(
+    async fn get_readds_awaiting_response(
         &self,
         group_id: &GroupId,
         self_installation_id: &[u8],
@@ -245,10 +246,9 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
     }
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryReaddStatus for &T
 where
-    T: QueryReaddStatus,
+    T: QueryReaddStatus + xmtp_common::MaybeSync,
 {
     async fn get_readd_status(
         &self,

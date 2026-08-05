@@ -67,8 +67,10 @@ where
             }
             m.internal_id.clone()
         })
+        .as_ref()
         .map(|id| conn.get_group_message(id))
         .unwrap_or_else(|| conn.get_group_message_by_timestamp(msg.group_id, msg.timestamp()))
+        .await
         .map_err(StorageError::from)
     }
 }

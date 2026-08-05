@@ -13,7 +13,7 @@ impl Conversations {
   pub fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let inner = self.inner_client.as_ref();
     let conversations = inner
-      .find_groups(GroupQueryArgs {
+      .find_groups(&GroupQueryArgs {
         include_duplicate_dms: true,
         ..Default::default()
       })

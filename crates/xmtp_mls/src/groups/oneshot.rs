@@ -295,8 +295,8 @@ mod tests {
         bo.sync_welcomes().await.expect("Failed to sync welcomes");
 
         // Check that neither Alix nor Bo has any oneshot groups in find_groups
-        let alix_groups = alix.find_groups(Default::default()).unwrap();
-        let bo_groups = bo.find_groups(Default::default()).unwrap();
+        let alix_groups = alix.find_groups(&Default::default()).unwrap();
+        let bo_groups = bo.find_groups(&Default::default()).unwrap();
 
         // Oneshot groups should not appear in the regular groups list
         assert_eq!(alix_groups.len(), 0, "Alix should have no groups");

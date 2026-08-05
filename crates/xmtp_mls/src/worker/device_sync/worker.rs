@@ -223,7 +223,7 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if conn.primary_sync_group()?.is_none() {
+            if conn.primary_sync_group().await?.is_none() {
                 log_event!(
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
@@ -265,7 +265,12 @@ where
     }
 
     async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
-        let unprocessed_messages = self.client.context.db().unprocessed_sync_group_messages()?;
+        let unprocessed_messages = self
+            .client
+            .context
+            .db()
+            .unprocessed_sync_group_messages()
+            .await?;
 
         if !is_tick || !unprocessed_messages.is_empty() {
             tracing::info!("Processing {} messages.", unprocessed_messages.len());
@@ -342,11 +347,13 @@ where
                 );
                 self.context
                     .db()
-                    .increment_device_sync_msg_attempt(&msg.id, MAX_ATTEMPTS)?;
+                    .increment_device_sync_msg_attempt(&msg.id, MAX_ATTEMPTS)
+                    .await?;
             } else {
                 self.context
                     .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                    .mark_device_sync_msg_as_processed(&msg.id)
+                    .await?;
             }
         }
 
@@ -394,7 +401,8 @@ where
                 // Mark this message as processed immediately.
                 self.context
                     .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                    .mark_device_sync_msg_as_processed(&msg.id)
+                    .await?;
 
                 handle.increment_metric(SyncMetric::PayloadTaskScheduled);
             }
@@ -592,7 +600,11 @@ where
         let mut offset = 0;
         let mut messages = vec![];
         loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
+            messages = self
+                .context
+                .db()
+                .sync_group_messages_paged(offset, 100)
+                .await?;
             if messages.is_empty() {
                 break;
             }

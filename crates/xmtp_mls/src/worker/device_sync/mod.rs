@@ -352,7 +352,7 @@ where
     #[instrument(level = "trace", skip_all)]
     pub async fn get_sync_group(&self) -> Result<MlsGroup<Context>, GroupError> {
         let db = self.context.db();
-        let sync_group = match db.primary_sync_group()? {
+        let sync_group = match db.primary_sync_group().await? {
             Some(sync_group) => self.mls_store.group(&sync_group.id)?,
             None => {
                 let sync_group = MlsGroup::create_and_insert(

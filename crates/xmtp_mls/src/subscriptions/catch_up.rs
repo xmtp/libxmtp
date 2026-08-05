@@ -344,7 +344,10 @@ where
             include_sync_groups: true,
             ..Default::default()
         };
-        let pre_groups = db.find_groups(query()).map_err(SubscribeError::from)?;
+        let pre_groups = db
+            .find_groups(&query())
+            .await
+            .map_err(SubscribeError::from)?;
         let pre_ids: HashSet<GroupId> = pre_groups.iter().map(|g| g.id).collect();
         let group_ids: Vec<GroupId> = pre_ids.iter().copied().collect();
         let mut cursors = db
@@ -352,9 +355,11 @@ where
                 &group_ids,
                 &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
             )
+            .await
             .map_err(SubscribeError::from)?;
         let pre_stored: HashSet<Cursor> = db
             .messages_newer_than(&cursors)
+            .await
             .map_err(SubscribeError::from)?
             .into_iter()
             .map(|(_, cursor)| cursor)
@@ -365,7 +370,10 @@ where
             .await
             .map_err(|e| CatchUpError::from(SubscribeError::from(Box::new(e))))?;
 
-        let post_groups = db.find_groups(query()).map_err(SubscribeError::from)?;
+        let post_groups = db
+            .find_groups(&query())
+            .await
+            .map_err(SubscribeError::from)?;
         let mut summary = CatchUpSummary::default();
         let mut sync_ids: HashSet<GroupId> = HashSet::new();
         for group in &post_groups {
@@ -383,6 +391,7 @@ where
         }
         summary.messages = db
             .messages_newer_than(&cursors)
+            .await
             .map_err(SubscribeError::from)?
             .into_iter()
             .filter(|(group_id, cursor)| {
@@ -412,13 +421,14 @@ where
         let welcome_floor = welcome_seed(&db, installation)?;
         let known = known_welcomes_above(&db, welcome_floor)?;
         let groups = db
-            .find_groups(GroupQueryArgs {
+            .find_groups(&GroupQueryArgs {
                 include_duplicate_dms: true,
                 // Sync groups are caught up too — their replayed traffic
                 // nudges the device-sync worker, like the streams do.
                 include_sync_groups: true,
                 ..Default::default()
             })
+            .await
             .map_err(SubscribeError::from)?;
         let mut sync_groups: HashSet<GroupId> = groups
             .iter()

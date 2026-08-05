@@ -35,13 +35,12 @@ impl<C: ConnectionExt> Delete<StoredKeyStoreEntry> for DbConnection<C> {
 /// Query traits carry the `maybe_async` attribute so one definition serves both
 /// storage tracks: `sync` collapses it to the blocking diesel shape (the only
 /// option on wasm), `async` keeps it awaitable for the sqlx backend.
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryKeyStoreEntry {
-    async fn insert_or_update_key_store_entry(
+    fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,
         value: Vec<u8>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
 // No `Sync` bound, matching the other 17 `&T` forwarding impls. This trait was
@@ -49,10 +48,9 @@ pub trait QueryKeyStoreEntry {
 // spike; on wasm the connection is an `Rc<RefCell<_>>`, so `DbConnection<C>` is
 // never `Sync` and the bound made `&DbConnection<C>: DbQuery` unsatisfiable --
 // breaking the wasm build at `cleanup_duplicate_updates.rs`.
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryKeyStoreEntry for &T
 where
-    T: QueryKeyStoreEntry,
+    T: QueryKeyStoreEntry + xmtp_common::MaybeSync,
 {
     async fn insert_or_update_key_store_entry(
         &self,
@@ -67,7 +65,7 @@ where
 /// only exists on the sync track; nothing in it ever awaits.
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryKeyStoreEntry for DbConnection<C> {
-    fn insert_or_update_key_store_entry(
+    async fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,
         value: Vec<u8>,

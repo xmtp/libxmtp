@@ -258,14 +258,14 @@ async fn test_should_publish_commit_log() {
     assert_eq!(bo_group.group.group_id, alix_group.group_id);
 
     let alix_should_publish_commit_log_groups = alix
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             should_publish_commit_log: Some(true),
             ..Default::default()
         })
         .unwrap();
 
     let bo_should_publish_commit_log_groups = bo
-        .find_groups(GroupQueryArgs {
+        .find_groups(&GroupQueryArgs {
             should_publish_commit_log: Some(true),
             ..Default::default()
         })
@@ -383,7 +383,7 @@ async fn test_download_commit_log_from_remote() {
         .unwrap();
 
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 

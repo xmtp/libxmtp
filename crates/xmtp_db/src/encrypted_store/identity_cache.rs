@@ -97,26 +97,25 @@ impl_store!(IdentityCache, identity_cache);
 #[cfg(feature = "sync")]
 impl_fetch!(IdentityCache, identity_cache);
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryIdentityCache {
     /// Returns a HashMap of WalletAddress -> InboxId
-    async fn fetch_cached_inbox_ids(
+    fn fetch_cached_inbox_ids(
         &self,
         identifiers: &[(Address, StoredIdentityKind)],
-    ) -> Result<HashMap<String, String>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<HashMap<String, String>, StorageError>>
+    + xmtp_common::MaybeSend;
 
-    async fn cache_inbox_id<S: ToString>(
+    fn cache_inbox_id(
         &self,
         kind: StoredIdentityKind,
         identity: String,
-        inbox_id: S,
-    ) -> Result<(), StorageError>;
+        inbox_id: &str,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<G> QueryIdentityCache for &G
 where
-    G: QueryIdentityCache,
+    G: QueryIdentityCache + xmtp_common::MaybeSync,
 {
     async fn fetch_cached_inbox_ids(
         &self,
@@ -125,11 +124,11 @@ where
         (**self).fetch_cached_inbox_ids(identifiers).await
     }
 
-    async fn cache_inbox_id<S: ToString>(
+    async fn cache_inbox_id(
         &self,
         kind: StoredIdentityKind,
         identity: String,
-        inbox_id: S,
+        inbox_id: &str,
     ) -> Result<(), StorageError> {
         (**self).cache_inbox_id(kind, identity, inbox_id).await
     }
@@ -140,7 +139,7 @@ type Address = String;
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     /// Returns a HashMap of WalletAddress -> InboxId
-    fn fetch_cached_inbox_ids(
+    async fn fetch_cached_inbox_ids(
         &self,
         identifiers: &[(Address, StoredIdentityKind)],
     ) -> Result<HashMap<String, String>, StorageError> {
@@ -162,11 +161,11 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
         Ok(result)
     }
 
-    fn cache_inbox_id<S: ToString>(
+    async fn cache_inbox_id(
         &self,
         kind: StoredIdentityKind,
         identity: String,
-        inbox_id: S,
+        inbox_id: &str,
     ) -> Result<(), StorageError> {
         IdentityCache {
             inbox_id: inbox_id.to_string(),
@@ -221,11 +220,11 @@ impl QueryIdentityCache for crate::pg::PgDb {
 
     /// Plain `INSERT`, matching the sync track's `store`: caching the same
     /// identity twice is a primary-key violation, not a silent overwrite.
-    async fn cache_inbox_id<S: ToString>(
+    async fn cache_inbox_id(
         &self,
         kind: StoredIdentityKind,
         identity: String,
-        inbox_id: S,
+        inbox_id: &str,
     ) -> Result<(), StorageError> {
         let mut c = self.conn().await?;
         sqlx::query(

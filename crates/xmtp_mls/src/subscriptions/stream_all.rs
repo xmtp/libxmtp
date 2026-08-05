@@ -112,15 +112,17 @@ where
                 .sync_welcomes()
                 .await?;
 
-            let groups = conn.find_groups(GroupQueryArgs {
-                conversation_type,
-                consent_states: consent_states.clone(),
-                include_duplicate_dms: true,
-                include_sync_groups: conversation_type
-                    .map(|ct| matches!(ct, ConversationType::Sync))
-                    .unwrap_or(true),
-                ..Default::default()
-            })?;
+            let groups = conn
+                .find_groups(&GroupQueryArgs {
+                    conversation_type,
+                    consent_states: consent_states.clone(),
+                    include_duplicate_dms: true,
+                    include_sync_groups: conversation_type
+                        .map(|ct| matches!(ct, ConversationType::Sync))
+                        .unwrap_or(true),
+                    ..Default::default()
+                })
+                .await?;
 
             let sync_groups = groups
                 .iter()

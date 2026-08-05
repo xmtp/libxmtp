@@ -38,7 +38,7 @@ xmtp_common::if_wasm! {
 
     impl<C: ConnectionExt> AsyncStore for DbConnection<C> {
         async fn group_count(&self) -> usize {
-            self.find_groups(GroupQueryArgs::default()).unwrap().len()
+            self.find_groups(&GroupQueryArgs::default()).unwrap().len()
         }
 
         async fn add_group(&self, id: GroupId) {

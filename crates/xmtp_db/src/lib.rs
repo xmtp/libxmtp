@@ -120,7 +120,7 @@ impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
 
 impl<T> ReadOnly for &T
 where
-    T: ReadOnly,
+    T: ReadOnly + xmtp_common::MaybeSync,
 {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError> {

@@ -15,19 +15,19 @@ struct BusyTimeout {
 pub trait Pragmas {
     /// Check the busy timeout value
     fn busy_timeout(&self) -> Result<i32, crate::ConnectionError>;
-    fn set_sqlcipher_log<S: AsRef<str>>(&self, level: S) -> Result<(), crate::ConnectionError>;
+    fn set_sqlcipher_log(&self, level: &str) -> Result<(), crate::ConnectionError>;
 }
 
 impl<T> Pragmas for &T
 where
-    T: Pragmas,
+    T: Pragmas + xmtp_common::MaybeSync,
 {
     /// Check the busy timeout value
     fn busy_timeout(&self) -> Result<i32, crate::ConnectionError> {
         (**self).busy_timeout()
     }
 
-    fn set_sqlcipher_log<S: AsRef<str>>(&self, level: S) -> Result<(), crate::ConnectionError> {
+    fn set_sqlcipher_log(&self, level: &str) -> Result<(), crate::ConnectionError> {
         (**self).set_sqlcipher_log(level)
     }
 }
@@ -42,8 +42,7 @@ impl<C: ConnectionExt> Pragmas for DbConnection<C> {
         })
     }
 
-    fn set_sqlcipher_log<S: AsRef<str>>(&self, level: S) -> Result<(), crate::ConnectionError> {
-        let level = level.as_ref();
+    fn set_sqlcipher_log(&self, level: &str) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
             diesel::sql_query(format!("PRAGMA cipher_log_level = {level}")).execute(conn)?;
             Ok(())

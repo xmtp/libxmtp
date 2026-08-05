@@ -51,30 +51,33 @@ const SINGLETON_ID: i32 = 0;
 /// `user_preferences` was the one table of the 23 reached only through
 /// `raw_query`, with no `Query*` trait of its own. It needs one to exist on the
 /// async track at all, since `ConnectionExt` is sync-track-only.
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryUserPreferences {
     /// The stored preferences, or their defaults when the row does not exist yet.
-    async fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError>;
+    fn load_user_preferences(
+        &self,
+    ) -> impl std::future::Future<Output = Result<StoredUserPreferences, StorageError>>
+    + xmtp_common::MaybeSend;
 
     /// Store the HMAC root key, keeping `hmac_key_cycled_at_ns` monotonic.
     ///
     /// A `cycled_at_ns` older than the stored one is ignored -- that is a stale
     /// device-sync update arriving out of order. `None` means "now", and always
     /// wins.
-    async fn store_hmac_key(
+    fn store_hmac_key(
         &self,
         key: &[u8],
         cycled_at_ns: Option<i64>,
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 
     /// Record that the one-time DM group-updates cleanup has run.
-    async fn set_dm_group_updates_migrated(&self) -> Result<(), StorageError>;
+    fn set_dm_group_updates_migrated(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryUserPreferences for &T
 where
-    T: QueryUserPreferences,
+    T: QueryUserPreferences + xmtp_common::MaybeSync,
 {
     async fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError> {
         (**self).load_user_preferences().await
@@ -95,17 +98,21 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryUserPreferences for crate::DbConnection<C> {
-    fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError> {
+    async fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError> {
         let pref = self.raw_query(|conn| dsl::user_preferences.first(conn).optional())?;
         Ok(pref.unwrap_or_default())
     }
 
-    fn store_hmac_key(&self, key: &[u8], cycled_at_ns: Option<i64>) -> Result<(), StorageError> {
+    async fn store_hmac_key(
+        &self,
+        key: &[u8],
+        cycled_at_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
         if key.len() != HMAC_KEY_LEN {
             return Err(StorageError::InvalidHmacLength);
         }
 
-        let mut preferences = self.load_user_preferences()?;
+        let mut preferences = self.load_user_preferences().await?;
 
         if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at_ns)
             && old > new
@@ -131,7 +138,7 @@ impl<C: ConnectionExt> QueryUserPreferences for crate::DbConnection<C> {
     /// the first `store_hmac_key`, so on a database where that has not happened
     /// an update matches nothing, the flag never sticks, and the one-time DM
     /// cleanup re-runs on every start.
-    fn set_dm_group_updates_migrated(&self) -> Result<(), StorageError> {
+    async fn set_dm_group_updates_migrated(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             insert_into(dsl::user_preferences)
                 .values((

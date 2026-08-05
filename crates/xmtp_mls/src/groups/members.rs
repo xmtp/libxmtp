@@ -45,7 +45,7 @@ where
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect::<Vec<_>>();
 
-        let association_states = db.batch_read_from_cache(requests.clone())?;
+        let association_states = db.batch_read_from_cache(requests.clone()).await?;
         let mut association_states: Vec<AssociationState> = association_states
             .into_iter()
             .map(|a| a.try_into())

@@ -71,35 +71,35 @@ impl_store_or_ignore!(
     processed_device_sync_messages
 );
 
-#[maybe_async::maybe_async(AFIT)]
 pub trait QueryDeviceSyncMessages {
-    async fn unprocessed_sync_group_messages(
+    fn unprocessed_sync_group_messages(
         &self,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError>;
-    async fn sync_group_messages_paged(
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupMessage>, StorageError>>
+    + xmtp_common::MaybeSend;
+    fn sync_group_messages_paged(
         &self,
         offset: i64,
         limit: i64,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Vec<StoredGroupMessage>, StorageError>>
+    + xmtp_common::MaybeSend;
     /// Marks a device sync message as processed.
-    async fn mark_device_sync_msg_as_processed(
+    fn mark_device_sync_msg_as_processed(
         &self,
         message_id: &[u8],
-    ) -> Result<(), StorageError>;
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + xmtp_common::MaybeSend;
     /// Increments the attempt count for a device sync message.
     /// If the attempt count reaches max_attempts, the state is set to Failed.
     /// Returns the new attempt count.
-    async fn increment_device_sync_msg_attempt(
+    fn increment_device_sync_msg_attempt(
         &self,
         message_id: &[u8],
         max_attempts: i32,
-    ) -> Result<i32, StorageError>;
+    ) -> impl std::future::Future<Output = Result<i32, StorageError>> + xmtp_common::MaybeSend;
 }
 
-#[maybe_async::maybe_async(AFIT)]
 impl<T> QueryDeviceSyncMessages for &T
 where
-    T: QueryDeviceSyncMessages,
+    T: QueryDeviceSyncMessages + xmtp_common::MaybeSync,
 {
     async fn unprocessed_sync_group_messages(
         &self,
@@ -135,7 +135,9 @@ where
 
 #[cfg(feature = "sync")]
 impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
-    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    async fn unprocessed_sync_group_messages(
+        &self,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let result = self.raw_query(|conn| {
             group_messages_dsl::group_messages
                 .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
@@ -160,7 +162,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         Ok(result)
     }
 
-    fn sync_group_messages_paged(
+    async fn sync_group_messages_paged(
         &self,
         offset: i64,
         limit: i64,
@@ -178,7 +180,10 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         Ok(result)
     }
 
-    fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError> {
+    async fn mark_device_sync_msg_as_processed(
+        &self,
+        message_id: &[u8],
+    ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::insert_into(dsl::processed_device_sync_messages)
                 .values(StoredProcessedDeviceSyncMessages {
@@ -194,7 +199,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         Ok(())
     }
 
-    fn increment_device_sync_msg_attempt(
+    async fn increment_device_sync_msg_attempt(
         &self,
         message_id: &[u8],
         max_attempts: i32,
