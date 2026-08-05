@@ -174,6 +174,7 @@ pub(crate) fn finish(processed: ProcessedMessage) -> Processed {
 /// The caller owns dedup and cursor advancement (see [`Processed`]). The live
 /// [`super::stream_messages`] stream shares the same [`prepare`]/[`finish`] steps from
 /// its poll state-machine (which cannot `.await` this directly).
+#[xmtp_common::span(prefix = "stream")]
 pub async fn process_one<'a>(
     factory: &impl ProcessFutureFactory<'a>,
     msg: xmtp_proto::types::GroupMessage,

@@ -450,7 +450,7 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    #[tracing::instrument(err, skip_all, fields(operation = "sync"))]
+    #[xmtp_common::mls_span]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
         let conn = self.context.db();
 
@@ -526,10 +526,7 @@ where
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, fields(who = %self.context.inbox_id(), operation = "sync_with_conn")))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(err, skip_all, fields(operation = "sync_with_conn"))
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -586,10 +583,7 @@ where
     }
 
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         // Filter to kinds this build understands: after a downgrade,
         // rows written by a newer build would otherwise fail `FromSql`
@@ -615,10 +609,7 @@ where
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(who = %self.context.inbox_id(), operation = "intent"), skip(self)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(err, level = "trace", skip(self), fields(operation = "intent"))
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
@@ -730,7 +721,12 @@ where
                     );
                 }
                 Err(err) => {
-                    tracing::error!("database error fetching intent {err:?}");
+                    tracing::error!(
+                        group_id = %self.group_id,
+                        intent_id,
+                        attempt,
+                        "database error fetching intent {err:?}"
+                    );
                     summary.add_other(GroupError::Storage(err));
                 }
             };
@@ -977,6 +973,11 @@ where
             || intent.state == IntentState::Error
         {
             tracing::warn!(
+                group_id = %self.group_id,
+                intent_id = intent.id,
+                intent_kind = %intent.kind,
+                intent_state = ?intent.state,
+                cursor = envelope.cursor.sequence_id,
                 "Skipping already processed intent {} of kind {} because it is in state {:?}",
                 intent.id,
                 intent.kind,
@@ -2145,13 +2146,27 @@ where
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
+        // A parse failure here must not look identical to "disappearing
+        // messages disabled" — warn before treating it as None.
         let mutable_metadata =
             super::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 mls_group,
             )
+            .inspect_err(|err| {
+                tracing::warn!(
+                    group_id = hex::encode(mls_group.group_id().as_slice()),
+                    "failed to extract mutable metadata for message expiry: {err:?}"
+                )
+            })
             .ok()?;
         let group_disappearing_settings =
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
+                .inspect_err(|err| {
+                    tracing::warn!(
+                        group_id = hex::encode(mls_group.group_id().as_slice()),
+                        "failed to parse disappearing-message settings: {err:?}"
+                    )
+                })
                 .ok()?;
 
         if group_disappearing_settings.is_enabled() {
@@ -2172,10 +2187,7 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip(self), fields(envelope = %envelope))
     )]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn process_message(
         &self,
         envelope: &GroupMessage,
@@ -2385,7 +2397,7 @@ where
                                 return Err(err.processing_error);
                             }
                             if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
-                                tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
+                                tracing::error!(group_id = %self.group_id, cursor = cursor.sequence_id, "Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             if err.next_intent_state == IntentState::Error {
                                 error_cause = Some(err.processing_error);
@@ -2399,7 +2411,14 @@ where
                     if next_intent_state == intent.state {
                         // No state transition (e.g. a re-delivered message for an
                         // intent already in this state) — nothing new to report.
-                        tracing::warn!("Intent [{}] is already in state [{:?}]", intent_id, next_intent_state);
+                        tracing::warn!(
+                            group_id = %self.group_id,
+                            intent_id,
+                            intent_state = ?next_intent_state,
+                            "Intent [{}] is already in state [{:?}]",
+                            intent_id,
+                            next_intent_state
+                        );
                         return Ok(Continue(None));
                     }
                     let mut intent_error = None;
@@ -2570,7 +2589,7 @@ where
                     {
                         // We don't need to propagate the error if the cursor fails to update - the worst case is
                         // that the non-retriable error is processed again
-                        tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
+                        tracing::error!(group_id = %self.group_id, cursor = envelope.sequence_id(), "Error updating cursor for non-retriable error: {update_cursor_error:?}");
                     } else if envelope.is_commit()
                         && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
                         &provider,
@@ -2579,6 +2598,8 @@ where
                         &e,
                     ) {
                         tracing::error!(
+                                group_id = %self.group_id,
+                                cursor = envelope.sequence_id(),
                                 "Error inserting commit entry for failed commit: {}",
                                 accounting_error
                         );
@@ -2587,7 +2608,7 @@ where
                 })
                 .map(TransactionOutcome::into_continued)
                 {
-                    tracing::error!("Error post-processing non-retryable error: {transaction_error:?}");
+                    tracing::error!(group_id = %self.group_id, cursor = envelope.sequence_id(), "Error post-processing non-retryable error: {transaction_error:?}");
                 };
 
                 if let Err(accounting_error) = self
@@ -2600,6 +2621,8 @@ where
                     .await
                 {
                     tracing::error!(
+                        group_id = %self.group_id,
+                        cursor = envelope.sequence_id(),
                         "Error trying to log fork detection errors: {}",
                         accounting_error
                     );
@@ -2614,9 +2637,11 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id()))
     )]
+    // Returns a bare ProcessSummary, so the canonical `#[mls_span]` (which
+    // records `err`) cannot apply; keep the same span shape by hand.
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
+        tracing::instrument(skip_all, fields(operation = "mls.process_messages"))
     )]
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
@@ -2857,17 +2882,25 @@ where
                 original_error = error.to_string(),
                 fork_details
             );
-            let _ = self
+            if let Err(storage_error) = self
                 .context
                 .db()
-                .mark_group_as_maybe_forked(&self.group_id, fork_details);
+                .mark_group_as_maybe_forked(&self.group_id, fork_details)
+            {
+                // Losing this write silently loses the durable fork signal.
+                tracing::error!(
+                    group_id = %self.group_id,
+                    cursor = %message_cursor,
+                    "failed to persist maybe-forked flag: {storage_error:?}"
+                );
+            }
             return epoch_validation_result;
         }
 
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[xmtp_common::mls_span]
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         self.load_mls_group_with_lock_async(async |mut mls_group| {

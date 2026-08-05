@@ -105,7 +105,7 @@ fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
-#[tracing::instrument(level = "trace", skip_all)]
+#[xmtp_common::mls_span]
 pub(crate) async fn apply_update_group_membership_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
@@ -361,7 +361,13 @@ async fn compute_publish_data_for_proposal_based_update(
             //    On migrated groups, also pre-compute the dict updates
             //    so the commit's confirmation tag agrees with what the
             //    receiver will compute via its own AppDataUpdate apply path.
-            let new_membership = extract_group_membership(&new_extensions_for_filter).ok();
+            let new_membership = extract_group_membership(&new_extensions_for_filter)
+                .inspect_err(|err| {
+                    // `None` downstream means "accept all GCE proposals" — a
+                    // parse failure taking that path deserves a trace.
+                    tracing::warn!("failed to extract legacy group membership: {err:?}")
+                })
+                .ok();
             let app_data_updates = if is_migrated_path {
                 Some(crate::groups::app_data::pending_app_data_updates(group)?)
             } else {
@@ -427,7 +433,7 @@ async fn compute_publish_data_for_proposal_based_update(
     })
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
+#[xmtp_common::mls_span]
 pub(crate) async fn apply_readd_installations_intent(
     context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,

@@ -264,8 +264,10 @@ where
             return Ok(());
         }
         if task.next_attempt_at_ns > now {
-            // This will get called again
-            tracing::warn!(
+            // This will get called again — expected scheduler behavior, not a
+            // warning (it was ~3k warns/day in prod).
+            tracing::debug!(
+                task_id = task.id,
                 "Task {} called before next attempt at {}. Now: {now}",
                 task.id,
                 task.next_attempt_at_ns

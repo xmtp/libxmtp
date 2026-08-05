@@ -1432,7 +1432,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[tracing::instrument(level = "debug", err, skip_all, fields(who = self.context.inbox_id(), operation = "send_message"))]
+    #[xmtp_common::mls_span]
     pub async fn send_message(
         &self,
         message: &[u8],
@@ -1490,10 +1490,7 @@ where
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = self.context.inbox_id()), skip(self)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -1593,10 +1590,7 @@ where
     /// This is a no-op if the message is already published.
     ///
     /// Returns an error if the message is not found.
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
-    )]
+    #[xmtp_common::mls_span]
     pub async fn publish_stored_message(&self, message_id: &[u8]) -> Result<(), GroupError> {
         if !self.is_active()? {
             return Err(GroupError::GroupInactive);

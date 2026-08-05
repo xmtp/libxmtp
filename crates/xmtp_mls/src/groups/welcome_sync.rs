@@ -19,7 +19,7 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
-use xmtp_proto::types::{GlobalCursor, GroupId, GroupMessageMetadata};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
 pub struct GroupSyncSummary {
@@ -34,6 +34,14 @@ impl GroupSyncSummary {
             num_synced,
         }
     }
+}
+
+// Outcome of span-instrumented welcome processing: the expected
+// already-processed duplicate is an `Ok` variant so it cannot mark the
+// `mls.process_new_welcome` span as status:error.
+enum WelcomeOutcome<Context> {
+    Processed(Option<MlsGroup<Context>>),
+    AlreadyProcessed(Cursor),
 }
 
 #[derive(Clone)]
@@ -54,12 +62,33 @@ where
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
     /// applies the update after the welcome processed successfully.
+    // Callers still receive `Err(WelcomeAlreadyProcessed)` for the routine
+    // duplicate-delivery case, but the span lives on the inner fn where that
+    // expected outcome exits as `Ok` — so it never flags span status:error.
     pub(crate) async fn process_new_welcome(
         &self,
         welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
+        match self
+            .process_new_welcome_spanned(welcome, cursor_increment, validator)
+            .await?
+        {
+            WelcomeOutcome::Processed(group) => Ok(group),
+            WelcomeOutcome::AlreadyProcessed(cursor) => Err(GroupError::ProcessIntent(
+                ProcessIntentError::WelcomeAlreadyProcessed(cursor),
+            )),
+        }
+    }
+
+    #[tracing::instrument(err, skip_all, fields(operation = "mls.process_new_welcome"))]
+    async fn process_new_welcome_spanned(
+        &self,
+        welcome: &xmtp_proto::types::WelcomeMessage,
+        cursor_increment: bool,
+        validator: impl ValidateGroupMembership,
+    ) -> Result<WelcomeOutcome<Context>, GroupError> {
         let result = XmtpWelcome::builder()
             .context(self.context.clone())
             .welcome(welcome)
@@ -90,7 +119,7 @@ where
                     }
                 }
 
-                Ok(mls_group)
+                Ok(WelcomeOutcome::Processed(mls_group))
             }
             Err(err) => {
                 use crate::DuplicateItem::*;
@@ -102,13 +131,11 @@ where
                         "Welcome ID already stored: {}",
                         err
                     );
-                    return Err(GroupError::ProcessIntent(
-                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor),
-                    ));
-                } else if matches!(
-                    err,
-                    GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))
-                ) {
+                    return Ok(WelcomeOutcome::AlreadyProcessed(welcome.cursor));
+                } else if let GroupError::ProcessIntent(
+                    ProcessIntentError::WelcomeAlreadyProcessed(cursor),
+                ) = err
+                {
                     // Expected, non-retryable condition: the welcome was already
                     // processed (e.g. duplicate delivery for a group we are already
                     // in). It is handled gracefully upstream (cursor incremented,
@@ -119,6 +146,7 @@ where
                         "welcome already processed, skipping: {}",
                         err
                     );
+                    return Ok(WelcomeOutcome::AlreadyProcessed(cursor));
                 } else {
                     tracing::error!(
                         "failed to create group from welcome={} created at {}: {}",
@@ -180,7 +208,7 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::mls_span]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages().await?;
