@@ -890,6 +890,7 @@ where
 
     /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
     /// Returns an error if the message is not found or if it cannot be decoded/enriched
+    #[xmtp_common::mls_span]
     pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
         let conn = self.context.db();
         let message = conn
