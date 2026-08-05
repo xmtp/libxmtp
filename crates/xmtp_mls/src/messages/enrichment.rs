@@ -77,6 +77,7 @@ pub(crate) fn is_deletion_valid(
     is_sender || deletion.is_super_admin_deletion
 }
 
+#[xmtp_common::mls_span]
 pub fn enrich_messages(
     conn: impl DbQuery,
     group_id: &GroupId,
@@ -131,7 +132,18 @@ pub fn enrich_messages(
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
                     let _ = hex::decode(&reply_body.reference_id)
                         .inspect_err(|err| {
-                            tracing::warn!("could not parse reference ID as hex: {:?}", err)
+                            // The reference is sender-controlled; truncate so a
+                            // malformed value can't flood the log line.
+                            let reference_id: String =
+                                reply_body.reference_id.chars().take(64).collect();
+                            tracing::warn!(
+                                group_id = %group_id,
+                                message_id = %hex::encode(&stored_message.id),
+                                sender_inbox_id = %stored_message.sender_inbox_id,
+                                reference_id = %reference_id,
+                                "could not parse reference ID as hex: {:?}",
+                                err
+                            )
                         })
                         .inspect(|id| {
                             let mut in_reply_to = relations

@@ -1817,6 +1817,7 @@ where
     }
 
     /// Query for enriched messages (with reactions, replies, and deletion status)
+    #[xmtp_common::mls_span]
     pub fn find_enriched_messages(
         &self,
         args: &MsgQueryArgs,
