@@ -13,6 +13,7 @@ use pin_project::pin_project;
 use prost::bytes::Bytes;
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll, ready},
 };
 use tonic::{
@@ -63,29 +64,25 @@ impl<T> ToHttp for tonic::Response<T> {
 #[derive(Clone, Debug)]
 pub struct GrpcClient {
     inner: tonic::client::Grpc<crate::GrpcService>,
+    /// The URL this client dials ([`Client::host`]), as `Url` serializes it —
+    /// one normalization for every spelling of the same destination.
+    host: Arc<str>,
     app_version: MetadataValue<metadata::Ascii>,
     libxmtp_version: MetadataValue<metadata::Ascii>,
 }
 
 impl GrpcClient {
-    pub fn new(
-        service: crate::GrpcService,
-        app_version: MetadataValue<metadata::Ascii>,
-        libxmtp_version: MetadataValue<metadata::Ascii>,
-    ) -> Self {
-        Self {
-            inner: tonic::client::Grpc::new(service),
-            app_version,
-            libxmtp_version,
-        }
-    }
-
-    /// Builds a tonic request from a body and a generic HTTP Request
-    fn build_tonic_request(
+    /// Builds a tonic request from a body and a generic HTTP Request.
+    ///
+    /// Generic over the body type `B` so the same path serves both the
+    /// unary / server-streaming transports (where `B` is `Bytes`) and the
+    /// XIP-83 bidirectional transport (where `B` is a `BoxDynStream` of
+    /// outbound frames). `tonic::Request<B>` is happy with either.
+    fn build_tonic_request<B>(
         &self,
         request: http::request::Builder,
-        body: Bytes,
-    ) -> Result<tonic::Request<Bytes>, Status> {
+        body: B,
+    ) -> Result<tonic::Request<B>, Status> {
         let request = request
             .body(body)
             .map_err(|e| tonic::Status::from_error(Box::new(e)))?;
@@ -141,6 +138,13 @@ impl Stream for GrpcStream {
 
 #[xmtp_common::async_trait]
 impl Client for GrpcClient {
+    fn host(&self) -> &str {
+        &self.host
+    }
+
+    // Manual form: #[rpc_span] can't produce the rpc.grpc.* sub-namespace nor
+    // carry the bounded `path` field (it hard-codes skip_all + rpc.<fn_name>).
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.request", path = %path))]
     async fn request(
         &self,
         request: http::request::Builder,
@@ -161,6 +165,9 @@ impl Client for GrpcClient {
         Ok(response.to_http())
     }
 
+    // The span covers stream establishment only — the returned stream
+    // outlives it.
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.stream", path = %path))]
     async fn stream(
         &self,
         request: request::Builder,
@@ -175,6 +182,37 @@ impl Client for GrpcClient {
             let request = this.build_tonic_request(request, body)?;
             let codec = TransparentCodec::default();
             client.server_streaming(request, path, codec).await
+        };
+        let req = crate::streams::NonBlockingStreamRequest::new(
+            Box::pin(response) as crate::streams::ResponseFuture
+        );
+        let response = crate::streams::send(req).await.map_err(GrpcError::from)?;
+        let response = response.map(|body| {
+            BytesStream::new(GrpcStream {
+                inner: EscapableTonicStream::new(body),
+            })
+        });
+        Ok(response.to_http().map(Into::into))
+    }
+
+    // Full-duplex needs a real HTTP/2 transport; the gRPC-Web service used on
+    // wasm cannot carry it, so the browser keeps the trait's default error.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.bidi_stream", path = %path))]
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let this = self.clone();
+        // client requires to be moved so it lives long enough for streaming response future.
+        let response = async move {
+            let mut client = this.inner.clone();
+            this.wait_for_ready(&mut client).await?;
+            let request = this.build_tonic_request(request, body)?;
+            let codec = TransparentCodec::default();
+            client.streaming(request, path, codec).await
         };
         let req = crate::streams::NonBlockingStreamRequest::new(
             Box::pin(response) as crate::streams::ResponseFuture
@@ -257,11 +295,13 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
+        let host_str: Arc<str> = host.as_str().into();
         let channel = crate::GrpcService::new(host, self.limit)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
                 .max_encoding_message_size(GRPC_PAYLOAD_LIMIT),
+            host: host_str,
             app_version: self
                 .app_version
                 .unwrap_or(MetadataValue::try_from("0.0.0")?),
@@ -311,7 +351,7 @@ pub mod tests {
         let request = client
             .build_tonic_request(
                 Default::default(),
-                PublishRequest { envelopes: vec![] }.encode_to_vec().into(),
+                prost::bytes::Bytes::from(PublishRequest { envelopes: vec![] }.encode_to_vec()),
             )
             .unwrap();
 

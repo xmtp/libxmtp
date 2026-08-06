@@ -191,16 +191,24 @@ impl RetryableError for ConnectionError {
     }
 }
 
-pub trait ConnectionExt: MaybeSend + MaybeSync {
-    /// in order to track transaction context
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized;
+impl ConnectionError {
+    /// True when the pool can't currently hand out a connection. Mirrors
+    /// [`StorageError::db_needs_connection`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn db_needs_connection(&self) -> bool {
+        use PlatformStorageError::{Pool, PoolNeedsConnection};
+        matches!(self, Self::Platform(PoolNeedsConnection | Pool(_)))
+    }
 
-    /// Run a scoped write-only query
-    /// in order to track transaction context
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    #[cfg(target_arch = "wasm32")]
+    pub fn db_needs_connection(&self) -> bool {
+        false
+    }
+}
+
+pub trait ConnectionExt: MaybeSend + MaybeSync {
+    /// Run a scoped query against the underlying SQLite connection.
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized;
@@ -213,20 +221,12 @@ impl<C> ConnectionExt for &C
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        <C as ConnectionExt>::raw_query_read(self, fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        <C as ConnectionExt>::raw_query_write(self, fun)
+        <C as ConnectionExt>::raw_query(self, fun)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -242,20 +242,12 @@ impl<C> ConnectionExt for &mut C
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        <C as ConnectionExt>::raw_query_read(self, fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        <C as ConnectionExt>::raw_query_write(self, fun)
+        <C as ConnectionExt>::raw_query(self, fun)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -271,20 +263,12 @@ impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,
 {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        <C as ConnectionExt>::raw_query_read(self, fun)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        <C as ConnectionExt>::raw_query_write(self, fun)
+        <C as ConnectionExt>::raw_query(self, fun)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -311,7 +295,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
     type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
     fn init(&self) -> Result<(), ConnectionError> {
-        self.conn().raw_query_write(|conn| {
+        self.conn().raw_query(|conn| {
             self.validate(conn).map_err(|e| {
                 diesel::result::Error::DatabaseError(
                     DatabaseErrorKind::Unknown,
@@ -374,7 +358,7 @@ macro_rules! impl_fetch {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read(|conn| $table.first(conn).optional())
+                self.raw_query(|conn| $table.first(conn).optional())
                     .map_err(Into::into)
             }
         }
@@ -388,7 +372,7 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read::<_, _>(|conn| $table.find(key.clone()).first(conn).optional())
+                self.raw_query::<_, _>(|conn| $table.find(key.clone()).first(conn).optional())
                     .map_err(Into::into)
             }
         }
@@ -404,7 +388,7 @@ macro_rules! impl_fetch_list {
         {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read(|conn| $table.load::<$model>(conn))
+                self.raw_query(|conn| $table.load::<$model>(conn))
                     .map_err(Into::into)
             }
         }
@@ -421,7 +405,7 @@ macro_rules! impl_store {
         {
             type Output = ();
             fn store(&self, into: &C) -> Result<(), $crate::StorageError> {
-                into.raw_query_write::<_, _>(|conn| {
+                into.raw_query::<_, _>(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -445,7 +429,7 @@ macro_rules! impl_store_or_ignore {
             type Output = ();
 
             fn store_or_ignore(&self, into: &C) -> Result<(), $crate::StorageError> {
-                into.raw_query_write(|conn| {
+                into.raw_query(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -568,5 +552,55 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    /// A query failing because the pool can't hand out a connection must report
+    /// `db_needs_connection()`. Uses a persistent store since only it has a pool to drop.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test]
+    async fn pool_failure_needs_connection() {
+        let db_path = tmp_path();
+        {
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = store.conn();
+
+            // Healthy pool: a query succeeds.
+            let ok: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            assert!(ok.is_ok());
+
+            // Drop the pool, then run a real query against it.
+            conn.disconnect().unwrap();
+            let res: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let err = res.expect_err("query against a disconnected pool should fail");
+
+            assert!(
+                err.db_needs_connection(),
+                "expected db_needs_connection() for a pool failure, got: {err:?}"
+            );
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod db_needs_connection_tests {
+    use crate::{ConnectionError, PlatformStorageError, StorageError};
+
+    /// Pool errors must classify as "needs reconnect" (direct and `Connection`-wrapped);
+    /// non-pool errors must not. `Pool(_)` is covered e2e in `pool_failure_needs_connection`.
+    #[test]
+    fn pool_errors_need_connection() {
+        assert!(
+            StorageError::Platform(PlatformStorageError::PoolNeedsConnection).db_needs_connection()
+        );
+        assert!(
+            StorageError::Connection(ConnectionError::Platform(
+                PlatformStorageError::PoolNeedsConnection
+            ))
+            .db_needs_connection()
+        );
+
+        // A non-pool error must NOT be classified as needing a reconnect.
+        assert!(!StorageError::DbSerialize.db_needs_connection());
     }
 }

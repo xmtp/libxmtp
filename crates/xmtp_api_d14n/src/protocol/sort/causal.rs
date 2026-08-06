@@ -59,7 +59,7 @@ impl<'b, 'a: 'b, E: Envelope<'a>> Sort<Vec<E>> for CausalSort<'b, E> {
                 self.topic_cursor.apply(env)?;
                 let newly_valid = self.recover_newly_valid(&mut missed);
                 i += 1;
-                self.envelopes.splice(i..i, newly_valid.into_iter());
+                self.envelopes.splice(i..i, newly_valid);
             } else {
                 let missed_envelope = self.envelopes.remove(i);
                 missed.push(Missed::new(missed_envelope, last_seen, topic));

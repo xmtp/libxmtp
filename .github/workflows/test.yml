@@ -19,10 +19,14 @@ jobs:
       workspace: ${{ steps.filter.outputs.workspace }}
       node: ${{ steps.filter.outputs.node }}
       wasm: ${{ steps.filter.outputs.wasm }}
+      node_sdk: ${{ steps.filter.outputs.node_sdk }}
+      browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
+      xdbg: ${{ steps.filter.outputs.xdbg }}
+      keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -39,6 +43,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'dev/docker/**'
               - 'dev/up'
+              - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             node:
@@ -47,6 +52,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'nix/**'
+              - 'flake.lock'
               - 'dev/docker/**'
               - 'dev/up'
               - '.github/workflows/test-node*'
@@ -56,13 +62,45 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'nix/**'
+              - 'flake.lock'
               - 'dev/docker/**'
               - '.github/workflows/test-wasm*'
+            node_sdk:
+              - 'sdks/js/node-sdk/**'
+              - 'sdks/js/package.json'
+              - 'sdks/js/yarn.lock'
+              - 'sdks/js/.yarnrc.yml'
+              - 'sdks/js/tsconfig.json'
+              - 'sdks/js/eslint.config.js'
+              - 'sdks/js/js.just'
+              - 'sdks/js/dev/**'
+              - 'bindings/node/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - '.github/workflows/test-node-sdk*'
+            browser_sdk:
+              - 'sdks/js/browser-sdk/**'
+              - 'sdks/js/package.json'
+              - 'sdks/js/yarn.lock'
+              - 'sdks/js/.yarnrc.yml'
+              - 'sdks/js/tsconfig.json'
+              - 'sdks/js/eslint.config.js'
+              - 'sdks/js/js.just'
+              - 'sdks/js/dev/**'
+              - 'bindings/wasm/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - '.github/workflows/test-browser-sdk*'
             ios:
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
               - 'crates/**'
               - 'nix/**'
+              - 'flake.lock'
               - 'Package.swift'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -72,6 +110,7 @@ jobs:
               - 'bindings/mobile/**'
               - 'crates/**'
               - 'nix/**'
+              - 'flake.lock'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/test-android*'
@@ -83,15 +122,50 @@ jobs:
               - 'dev/up'
               - 'rust-toolchain.toml'
               - '.cargo/**'
+              - 'flake.lock'
               - '.github/workflows/test-bindings*'
             devcontainer:
               - '.devcontainer/**'
               - '.github/workflows/test-devcontainer*'
+            xdbg:
+              - 'apps/xmtp_debug/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-xdbg.yml'
+            keepalive-probe:
+              - 'apps/keepalive-probe/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-keepalive-probe.yml'
 
   test-workspace:
     needs: detect-changes
     if: needs.detect-changes.outputs.workspace == 'true'
     uses: ./.github/workflows/test-workspace.yml
+    secrets: inherit
+
+  test-xdbg:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.xdbg == 'true'
+    uses: ./.github/workflows/test-xdbg.yml
+    secrets: inherit
+
+  test-keepalive-probe:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.keepalive-probe == 'true'
+    uses: ./.github/workflows/test-keepalive-probe.yml
     secrets: inherit
 
   test-node:
@@ -104,6 +178,26 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.wasm == 'true'
     uses: ./.github/workflows/test-wasm.yml
+    secrets: inherit
+
+  # Gated on test-node: runs after the node-bindings test job so the
+  # node-bindings-test nix build is a cache hit. Proceeds when test-node
+  # succeeded OR was skipped (bindings unchanged); aborts only if it failed.
+  test-node-sdk:
+    needs: [detect-changes, test-node]
+    if: >-
+      !cancelled() && needs.test-node.result != 'failure'
+      && needs.detect-changes.outputs.node_sdk == 'true'
+    uses: ./.github/workflows/test-node-sdk.yml
+    secrets: inherit
+
+  # Gated on test-wasm (wasm-bindings power browser-sdk). Same semantics as above.
+  test-browser-sdk:
+    needs: [detect-changes, test-wasm]
+    if: >-
+      !cancelled() && needs.test-wasm.result != 'failure'
+      && needs.detect-changes.outputs.browser_sdk == 'true'
+    uses: ./.github/workflows/test-browser-sdk.yml
     secrets: inherit
 
   test-ios:
@@ -150,8 +244,12 @@ jobs:
     if: always()
     needs:
       - test-workspace
+      - test-xdbg
+      - test-keepalive-probe
       - test-node
       - test-wasm
+      - test-node-sdk
+      - test-browser-sdk
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check

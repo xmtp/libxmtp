@@ -5,6 +5,7 @@ use napi_derive::napi;
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub fn consent_state(&self) -> Result<ConsentState> {
     let group = self.create_mls_group();
 
@@ -14,6 +15,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn update_consent_state(&self, state: ConsentState) -> Result<()> {
     let group = self.create_mls_group();
 

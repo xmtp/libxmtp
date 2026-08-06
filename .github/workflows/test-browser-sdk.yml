@@ -1,0 +1,30 @@
+name: Test Browser SDK
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: js
+jobs:
+  test:
+    name: Test (browser-sdk) shard ${{ matrix.shard }}
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just js install-ci
+      - name: Start backend
+        run: just backend up
+      - name: Run browser-sdk tests (shard ${{ matrix.shard }}/4)
+        run: just js test-browser-sdk-ci -- --shard ${{ matrix.shard }}/4

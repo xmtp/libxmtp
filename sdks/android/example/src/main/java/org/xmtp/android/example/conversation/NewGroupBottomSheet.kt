@@ -104,7 +104,9 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
                 dismiss()
             }
 
-            NewConversationViewModel.UiState.Unknown -> Unit
+            NewConversationViewModel.UiState.Unknown -> {
+                Unit
+            }
         }
     }
 

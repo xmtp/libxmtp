@@ -44,7 +44,7 @@ impl xmtp_common::RetryableError for PlatformStorageError {
 
 #[derive(Clone)]
 pub struct WasmDb {
-    conn: Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>,
+    conn: Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>,
     opts: StorageOption,
 }
 
@@ -198,16 +198,7 @@ impl WasmDbConnection {
 }
 
 impl ConnectionExt for WasmDbConnection {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        let mut conn = self.conn.borrow_mut();
-        Ok(fun(&mut conn)?)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -226,7 +217,8 @@ impl ConnectionExt for WasmDbConnection {
 }
 
 impl XmtpDb for WasmDb {
-    type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
+    type Connection =
+        Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>;
     type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {

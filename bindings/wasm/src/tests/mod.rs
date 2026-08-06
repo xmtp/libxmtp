@@ -23,6 +23,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
     path,
     None,
     Some(crate::client::DeviceSyncMode::Disabled),
+    None,
     Some(LogOptions {
       structured: Some(false),
       performance: Some(true),
@@ -66,6 +67,7 @@ pub async fn create_auth_test_client(
     None,
     None,
     Some(crate::client::DeviceSyncMode::Disabled),
+    None,
     Some(LogOptions {
       structured: Some(false),
       performance: Some(true),

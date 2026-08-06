@@ -1,7 +1,9 @@
 //! Tests for group creation, permissions, metadata, membership, listing, and pagination
 
 use super::*;
+use crate::FfiUpdateAppDataOptions;
 
+use xmtp_proto::types::GroupId;
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_create_group_with_members() {
     let amal = Tester::new().await;
@@ -331,7 +333,9 @@ async fn test_app_data_permission_update() {
     // Verify bola cannot update app_data (not an admin)
     bola_group
         .conversation
-        .update_app_data("bola's data".to_string())
+        .update_app_data(FfiUpdateAppDataOptions {
+            value: "bola's data".to_string(),
+        })
         .await
         .unwrap_err();
 
@@ -363,7 +367,9 @@ async fn test_app_data_permission_update() {
     // Now bola CAN update app_data
     bola_group
         .conversation
-        .update_app_data("bola's data".to_string())
+        .update_app_data(FfiUpdateAppDataOptions {
+            value: "bola's data".to_string(),
+        })
         .await
         .unwrap();
 
@@ -792,7 +798,7 @@ async fn test_disappearing_messages_deletion() {
         .inner_client
         .context
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         group_from_db
@@ -820,7 +826,7 @@ async fn test_disappearing_messages_deletion() {
     let bola_group_from_db = bola_provider
         .key_store()
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         bola_group_from_db
@@ -887,7 +893,7 @@ async fn test_disappearing_messages_deletion() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         group_from_db
@@ -980,7 +986,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
         .inner_client
         .context
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1008,7 +1014,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
     let bola_group_from_db = bola_provider
         .key_store()
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         bola_group_from_db
@@ -1058,7 +1064,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1138,7 +1144,7 @@ async fn test_set_disappearing_messages_when_creating_group() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         group_from_db

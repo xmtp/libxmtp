@@ -47,6 +47,7 @@ export function filterAndSortTags(
 export interface ComputeVersionOptions {
   rcNumber?: number;
   shortSha?: string;
+  nightlyDate?: string;
 }
 
 /**
@@ -73,5 +74,19 @@ export function computeVersion(
       }
       return `${normalized}-dev.${options.shortSha}`;
     }
+    case "nightly": {
+      if (!options.nightlyDate) {
+        throw new Error("nightlyDate is required for nightly releases");
+      }
+      if (!options.shortSha) {
+        throw new Error("shortSha is required for nightly releases");
+      }
+      return `${normalized}-nightly.${options.nightlyDate}.${options.shortSha}`;
+    }
   }
+}
+
+/** Today's date as a compact `YYYYMMDD` stamp for nightly version strings. */
+export function getNightlyDate(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, "");
 }

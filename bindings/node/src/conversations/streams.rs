@@ -31,16 +31,15 @@ impl From<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
 #[napi]
 impl Conversations {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream(
     &self,
     callback: ThreadsafeFunction<Conversation, ()>,
     on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
-    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
-      self.inner_client.clone(),
-      conversation_type.map(|ct| ct.into()),
-      move |convo| {
+    let on_conversation =
+      move |convo: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
         let status = callback.call(
           convo
             .map(Conversation::from)
@@ -49,17 +48,23 @@ impl Conversations {
           ThreadsafeFunctionCallMode::Blocking,
         );
         tracing::info!("Stream status: {:?}", status);
-      },
-      move || {
-        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-      false,
-    );
+      };
+    let on_close = move || {
+      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+    };
 
-    Ok(StreamCloser::new(stream_closer))
+    let handle = RustXmtpClient::stream_conversations_with_callback_dispatch(
+      self.inner_client.clone(),
+      conversation_type.map(|ct| ct.into()),
+      false,
+      on_conversation,
+      on_close,
+    );
+    Ok(StreamCloser::new(handle))
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_all_messages(
     &self,
     callback: ThreadsafeFunction<Message, ()>,
@@ -80,11 +85,8 @@ impl Conversations {
         .collect()
     });
 
-    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
-      self.inner_client.context.clone(),
-      conversation_type.map(Into::into),
-      consents,
-      move |message| {
+    let on_message =
+      move |message: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
         tracing::trace!(
             inbox_id,
             conversation_type = ?conversation_type,
@@ -125,16 +127,23 @@ impl Conversations {
             );
           }
         }
-      },
-      move || {
-        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
+      };
+    let on_close = move || {
+      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+    };
 
-    Ok(StreamCloser::new(stream_closer))
+    let handle = RustXmtpClient::stream_all_messages_with_callback_dispatch(
+      self.inner_client.clone(),
+      conversation_type.map(Into::into),
+      consents,
+      on_message,
+      on_close,
+    );
+    Ok(StreamCloser::new(handle))
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_consent(
     &self,
     callback: ThreadsafeFunction<Vec<Consent>, ()>,
@@ -170,6 +179,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_preferences(
     &self,
     callback: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ()>,
@@ -209,6 +219,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream_message_deletions(
     &self,
     callback: ThreadsafeFunction<DecodedMessage, ()>,
@@ -232,6 +243,7 @@ impl Conversations {
           );
         }
       },
+      || {},
     );
 
     Ok(StreamCloser::new(stream_closer))

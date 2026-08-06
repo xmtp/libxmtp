@@ -33,6 +33,7 @@ use xmtp_macro::log_event;
 use xmtp_proto::{
     ShortHex,
     api_client::{XmtpIdentityClient, XmtpMlsClient},
+    types::GroupId,
 };
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
@@ -488,13 +489,11 @@ where
     pub async fn get_installation_diff(
         &self,
         conn: &impl DbQuery,
-        group_id: &[u8], // used for logging
+        group_id: &GroupId, // used for logging
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        tracing::info!("Updating group membership...");
-
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
@@ -736,6 +735,7 @@ pub(crate) mod tests {
         ConnectionExt, db_connection::DbConnection, identity_update::StoredIdentityUpdate,
         prelude::*,
     };
+    use xmtp_proto::types::GroupId;
 
     use xmtp_common::rand_vec;
 
@@ -1088,7 +1088,7 @@ pub(crate) mod tests {
             .identity_updates()
             .get_installation_diff(
                 &other_conn,
-                &[],
+                &GroupId::default(),
                 &original_group_membership,
                 &new_group_membership,
                 &membership_diff,

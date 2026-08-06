@@ -64,14 +64,8 @@ impl GroupMembership {
 
         let added_inboxes = new_group_membership
             .members
-            .iter()
-            .filter_map(|(inbox_id, _)| {
-                if self.members.contains_key(inbox_id) {
-                    None
-                } else {
-                    Some(inbox_id)
-                }
-            })
+            .keys()
+            .filter(|&inbox_id| !self.members.contains_key(inbox_id))
             .collect::<Vec<&String>>();
 
         MembershipDiff {

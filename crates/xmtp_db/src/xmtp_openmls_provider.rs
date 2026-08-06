@@ -8,6 +8,39 @@ use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::{Entity, StorageProvider};
 use xmtp_common::{MaybeSend, MaybeSync};
 
+/// Outcome of a [`XmtpMlsStorageProvider::transaction`] or
+/// [`XmtpMlsStorageProvider::savepoint`] closure.
+///
+/// Returning `Ok(TransactionOutcome::Continue(value))` persists the transaction
+/// and returns `Ok(value)` to the caller.
+///
+/// Returning `Ok(TransactionOutcome::Rollback)` rolls back the transaction
+/// *without* recording a span error — the rollback was intentional.
+///
+/// Returning `Err(e)` rolls back the transaction *and* records `status=error`
+/// on the enclosing `#[db_span]` / `#[rpc_span]` span — the error was real.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransactionOutcome<T> {
+    /// Persist the transaction and return the enclosed value.
+    Continue(T),
+    /// Roll back the transaction without treating it as an error.
+    Rollback,
+}
+
+impl<T> TransactionOutcome<T> {
+    /// Unwrap the persisted value for call sites that never roll back.
+    ///
+    /// Panics if this is a `Rollback` (a bug at that call site).
+    pub fn into_continued(self) -> T {
+        match self {
+            TransactionOutcome::Continue(v) => v,
+            TransactionOutcome::Rollback => {
+                unreachable!("transaction caller never returns TransactionOutcome::Rollback")
+            }
+        }
+    }
+}
+
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
 /// This storage provider is likewise implemented on both &T and T references,
@@ -28,21 +61,26 @@ pub trait XmtpMlsStorageProvider:
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
-    /// Start a new transaction
-    fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    /// Start a new transaction.
+    ///
+    /// The closure returns `Ok(TransactionOutcome::Continue(v))` to persist or
+    /// `Ok(TransactionOutcome::Rollback)` to roll back without an error.
+    /// Returning `Err(e)` also rolls back and propagates `e` as a real error.
+    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
-    /// Start a savepoint within a transaction
-    /// Must only be used when already in a transaction
+    /// Start a savepoint within a transaction.
+    ///
+    /// Must only be used when already in a transaction.
     // TODO: enforce that this is only used within transactions
     // otherwise we run into sqlite race conditions b/c this does not
     // use BEGIN IMMEDIATE.
     // we can ensure this by checking sqlite transaction depth.
-    fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
+    fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}

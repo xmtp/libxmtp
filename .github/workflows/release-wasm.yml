@@ -15,6 +15,16 @@ on:
         required: true
         type: string
         description: "Git ref to build from"
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -41,6 +51,19 @@ jobs:
             VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
             VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            # Belt-and-suspenders: release.yml already skips this whole job when
+            # the gate isn't green or there are no conventional commits
+            # (nothing-pending), so pending-* are populated whenever we reach
+            # here. This guard only fires if that orchestration is bypassed.
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk wasm-bindings --release-type nightly \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
           else
             VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type final)
           fi
@@ -49,62 +72,30 @@ jobs:
 
   build:
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          workspaces: |
-            .
-            bindings/wasm
+          nix-disk: "false"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - uses: ./.github/actions/setup-release-tools
+      - name: Build wasm-bindings
+        run: nix build .#packages.x86_64-linux.wasm-bindings
 
-      - name: Set version in package.json
-        env:
-          VERSION: ${{ needs.setup.outputs.version }}
-        run: xmtp-release set-manifest-version --sdk wasm-bindings --version "$VERSION"
-
-      - name: Install wasm-bindgen
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen@0.2.108
-
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "bindings/wasm/yarn.lock"
-
-      - name: Install dependencies
-        working-directory: bindings/wasm
-        run: |
-          yarn
-
-      - name: Install emscripten toolchains
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-
-      - name: Build
-        working-directory: bindings/wasm
-        run: |
-          source ../../emsdk/emsdk_env.sh
-          yarn build
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#packages.x86_64-linux.wasm-bindings
 
       - name: Upload build output
         uses: actions/upload-artifact@v7
         with:
           name: wasm_build
-          path: |
-            bindings/wasm/dist
-            bindings/wasm/package.json
-            bindings/wasm/yarn.lock
+          path: result/dist
           retention-days: 1
 
   publish:
@@ -115,6 +106,7 @@ jobs:
       sdk: wasm-bindings
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: wasm_build
-      artifact-path: bindings/wasm
+      artifact-path: bindings/wasm/dist
       ignore-scripts: true
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit

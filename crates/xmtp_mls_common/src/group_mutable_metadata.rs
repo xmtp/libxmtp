@@ -33,6 +33,26 @@ pub enum GroupMutableMetadataError {
     NoUpdates,
     #[error("missing metadata field")]
     MissingMetadataField,
+    /// A well-known component in the AppData dictionary failed to
+    /// decode — surfaced by the migrated-group read paths when a
+    /// component's wire bytes can't be parsed.
+    ///
+    /// Structured rather than a flat `String` so downstream consumers
+    /// (bindings, error mapping) can match on the offending
+    /// `component_id` to discriminate failure modes without parsing a
+    /// display string. `component_id` is `Option` because the upstream
+    /// `ComponentSourceError` has a few variants that don't carry one
+    /// (e.g. wrapped legacy-metadata errors); those map to `None`. The
+    /// inner `reason` is diagnostic-only — typically a formatted
+    /// `ComponentSourceError` — and should not be matched against.
+    #[error("malformed app-data component {component_id:?}: {reason}")]
+    MalformedComponent {
+        /// Component whose wire bytes failed to decode. `None` for
+        /// errors that don't originate at a specific component.
+        component_id: Option<super::app_data::component_id::ComponentId>,
+        /// Diagnostic string (display-only; not a stable API).
+        reason: String,
+    },
 }
 
 /// Represents the "updateable" metadata fields for a group.
@@ -355,12 +375,234 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) ->
     })
 }
 
-pub fn extract_group_mutable_metadata(
+/// Read `GroupMutableMetadata` from the **legacy** group-context
+/// extension only.
+///
+/// Use only when the caller is certain the group is unmigrated — on
+/// post-bootstrap groups the legacy extension is gone and this returns
+/// [`GroupMutableMetadataError::MissingExtension`].
+///
+/// For capability-aware reads that handle both legacy and migrated
+/// groups, use `extract_group_mutable_metadata_capability_aware` in
+/// the `xmtp_mls` crate at
+/// `xmtp_mls::groups::app_data::component_source`.
+/// (`xmtp_mls_common` cannot rustdoc-link to it because the dependency
+/// direction is one-way — this comment is the pointer.)
+pub fn extract_legacy_group_mutable_metadata(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
     find_mutable_metadata_extension(group.extensions())
         .ok_or(GroupMutableMetadataError::MissingExtension)?
         .try_into()
+}
+
+/// Single source of truth for the `MetadataField` ↔ `ComponentId`
+/// bijection over the Bytes/String-typed mutable-metadata family. The
+/// dict↔legacy merge below and the lookup helpers in
+/// `xmtp_mls::groups::app_data::component_source` all derive from this
+/// table.
+pub const METADATA_FIELD_COMPONENT_MAP: &[(
+    MetadataField,
+    super::app_data::component_id::ComponentId,
+)] = &[
+    (
+        MetadataField::GroupName,
+        super::app_data::component_id::ComponentId::GROUP_NAME,
+    ),
+    (
+        MetadataField::Description,
+        super::app_data::component_id::ComponentId::GROUP_DESCRIPTION,
+    ),
+    (
+        MetadataField::GroupImageUrlSquare,
+        super::app_data::component_id::ComponentId::GROUP_IMAGE_URL,
+    ),
+    (
+        MetadataField::MessageDisappearFromNS,
+        super::app_data::component_id::ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
+    ),
+    (
+        MetadataField::MessageDisappearInNS,
+        super::app_data::component_id::ComponentId::MESSAGE_DISAPPEAR_IN_NS,
+    ),
+    (
+        MetadataField::MinimumSupportedProtocolVersion,
+        super::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
+    ),
+    (
+        MetadataField::CommitLogSigner,
+        super::app_data::component_id::ComponentId::COMMIT_LOG_SIGNER,
+    ),
+    (
+        MetadataField::AppData,
+        super::app_data::component_id::ComponentId::APP_DATA,
+    ),
+];
+
+/// Production migration predicate over raw extensions: the group is
+/// post-bootstrap iff the AppData dictionary carries the
+/// `COMPONENT_REGISTRY` entry (the bootstrap commit's first write).
+///
+/// `xmtp_mls::groups::app_data::is_migrated_extensions` layers a
+/// test-only registry override on top of this; use that one inside
+/// `xmtp_mls`. This variant exists for crates below `xmtp_mls` in the
+/// dependency graph (e.g. the archive exporter).
+pub fn extensions_are_migrated(extensions: &Extensions<GroupContext>) -> bool {
+    extensions
+        .app_data_dictionary()
+        .map(|ext| {
+            ext.dictionary()
+                .get(&super::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16())
+                .is_some()
+        })
+        .unwrap_or(false)
+}
+
+/// Overlay the AppData dictionary's metadata components onto `base` —
+/// the dict→legacy direction of the capability-aware read paths.
+///
+/// **Ungated**: callers decide migration state before calling (the
+/// `xmtp_mls` wrapper gates on its test-override-aware
+/// `is_migrated_extensions`; the archive exporter gates on
+/// [`extensions_are_migrated`]). No-op when the extensions carry no
+/// AppData dictionary.
+///
+/// Value translation per component family:
+/// - `MESSAGE_DISAPPEAR_*`: 8-byte BE `i64` on the wire → base-10
+///   string for the legacy reader.
+/// - `COMMIT_LOG_SIGNER`: raw 32 key bytes → hex string.
+/// - Every other metadata attribute: UTF-8 passthrough.
+/// - `ADMIN_LIST` / `SUPER_ADMIN_LIST`: `TlsSet<InboxId>` → hex-string
+///   lists (dict is authoritative on migrated groups).
+pub fn merge_dict_into_mutable_metadata(
+    base: &mut GroupMutableMetadata,
+    extensions: &Extensions<GroupContext>,
+) -> Result<(), GroupMutableMetadataError> {
+    use super::app_data::component_id::ComponentId;
+
+    let Some(ext) = extensions.app_data_dictionary() else {
+        return Ok(());
+    };
+    let dict = ext.dictionary();
+
+    for (field, id) in METADATA_FIELD_COMPONENT_MAP {
+        if let Some(bytes) = dict.get(&id.as_u16()) {
+            let legacy_value = decode_metadata_component(*id, bytes)?;
+            base.attributes
+                .insert(field.as_str().to_string(), legacy_value);
+        }
+    }
+
+    for (component_id, list) in [
+        (ComponentId::ADMIN_LIST, &mut base.admin_list),
+        (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
+    ] {
+        if let Some(bytes) = dict.get(&component_id.as_u16()) {
+            *list = decode_inbox_id_list(component_id, bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort variant of [`merge_dict_into_mutable_metadata`] that
+/// degrades per-field instead of failing per-group: every component
+/// that decodes is applied to `base`, every component that doesn't is
+/// skipped, and the errors are returned so the caller can log them
+/// (empty vec = clean merge).
+///
+/// Exists for the archive exporter, where one malformed component must
+/// not drop the whole group from a backup — the group's messages are
+/// exported unconditionally, so a missing group row orphans them and
+/// aborts the entire restore on a foreign-key violation. Non-export
+/// callers that want fail-fast semantics keep using the strict variant
+/// above.
+pub fn merge_dict_into_mutable_metadata_lossy(
+    base: &mut GroupMutableMetadata,
+    extensions: &Extensions<GroupContext>,
+) -> Vec<GroupMutableMetadataError> {
+    use super::app_data::component_id::ComponentId;
+
+    let Some(ext) = extensions.app_data_dictionary() else {
+        return Vec::new();
+    };
+    let dict = ext.dictionary();
+    let mut errors = Vec::new();
+
+    for (field, id) in METADATA_FIELD_COMPONENT_MAP {
+        if let Some(bytes) = dict.get(&id.as_u16()) {
+            match decode_metadata_component(*id, bytes) {
+                Ok(legacy_value) => {
+                    base.attributes
+                        .insert(field.as_str().to_string(), legacy_value);
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+    }
+
+    for (component_id, list) in [
+        (ComponentId::ADMIN_LIST, &mut base.admin_list),
+        (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
+    ] {
+        if let Some(bytes) = dict.get(&component_id.as_u16()) {
+            match decode_inbox_id_list(component_id, bytes) {
+                Ok(ids) => *list = ids,
+                Err(e) => errors.push(e),
+            }
+        }
+    }
+    errors
+}
+
+/// Decode one Bytes/String-family component's wire bytes into its
+/// legacy string value, per the translation rules documented on
+/// [`merge_dict_into_mutable_metadata`]. Shared by the strict and
+/// lossy merge variants so both apply identical translations.
+fn decode_metadata_component(
+    id: super::app_data::component_id::ComponentId,
+    bytes: &[u8],
+) -> Result<String, GroupMutableMetadataError> {
+    use super::app_data::component_id::ComponentId;
+
+    match id {
+        ComponentId::MESSAGE_DISAPPEAR_FROM_NS | ComponentId::MESSAGE_DISAPPEAR_IN_NS => {
+            let arr: [u8; 8] =
+                bytes
+                    .try_into()
+                    .map_err(|_| GroupMutableMetadataError::MalformedComponent {
+                        component_id: Some(id),
+                        reason: format!("expected 8 bytes (BE i64), got {}", bytes.len()),
+                    })?;
+            Ok(i64::from_be_bytes(arr).to_string())
+        }
+        ComponentId::COMMIT_LOG_SIGNER => Ok(hex::encode(bytes)),
+        _ => Ok(std::str::from_utf8(bytes)
+            .map_err(|e| GroupMutableMetadataError::MalformedComponent {
+                component_id: Some(id),
+                reason: format!("non-UTF-8 bytes: {e}"),
+            })?
+            .to_string()),
+    }
+}
+
+/// Decode an `ADMIN_LIST` / `SUPER_ADMIN_LIST` component's wire bytes
+/// (`TlsSet<InboxId>`) into the legacy hex-string list form. Shared by
+/// the strict and lossy merge variants.
+fn decode_inbox_id_list(
+    component_id: super::app_data::component_id::ComponentId,
+    bytes: &[u8],
+) -> Result<Vec<String>, GroupMutableMetadataError> {
+    use super::inbox_id::InboxId;
+    use super::tls_set::TlsSet;
+    use tls_codec::Deserialize as _;
+
+    let set = TlsSet::<InboxId>::tls_deserialize_exact(bytes).map_err(|e| {
+        GroupMutableMetadataError::MalformedComponent {
+            component_id: Some(component_id),
+            reason: format!("invalid TlsSet<InboxId>: {e}"),
+        }
+    })?;
+    Ok(set.iter().map(|id| id.to_hex()).collect())
 }
 
 #[cfg(test)]
@@ -398,5 +640,67 @@ mod tests {
 
         let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
         assert!(bad_metadata.commit_log_signer().is_none());
+    }
+
+    #[xmtp_common::test]
+    fn test_lossy_merge_applies_good_fields_and_reports_bad_ones() {
+        use super::super::app_data::component_id::ComponentId;
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+        use openmls::group::GroupContext;
+
+        // One valid component (GROUP_NAME), two malformed ones
+        // (MESSAGE_DISAPPEAR_FROM_NS with the wrong byte width,
+        // ADMIN_LIST with bytes that aren't a TlsSet<InboxId>).
+        let mut dict = AppDataDictionary::new();
+        let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), b"Good Name".to_vec());
+        let _ = dict.insert(
+            ComponentId::MESSAGE_DISAPPEAR_FROM_NS.as_u16(),
+            vec![0x01; 3],
+        );
+        let _ = dict.insert(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff]);
+        let extensions: Extensions<GroupContext> =
+            Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dict),
+            )])
+            .unwrap();
+
+        // The strict variant fails on the first malformed component.
+        let mut strict_base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
+        assert!(merge_dict_into_mutable_metadata(&mut strict_base, &extensions).is_err());
+
+        // The lossy variant applies the good field, leaves the bad
+        // ones untouched, and reports both errors with their ids.
+        let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
+        let errors = merge_dict_into_mutable_metadata_lossy(&mut base, &extensions);
+
+        assert_eq!(
+            base.attributes
+                .get(MetadataField::GroupName.as_str())
+                .map(String::as_str),
+            Some("Good Name"),
+        );
+        assert!(
+            !base
+                .attributes
+                .contains_key(MetadataField::MessageDisappearFromNS.as_str())
+        );
+        assert!(base.admin_list.is_empty());
+
+        let error_ids: Vec<_> = errors
+            .iter()
+            .map(|e| match e {
+                GroupMutableMetadataError::MalformedComponent { component_id, .. } => {
+                    component_id.unwrap()
+                }
+                other => panic!("expected MalformedComponent, got: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            error_ids,
+            vec![
+                ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
+                ComponentId::ADMIN_LIST
+            ]
+        );
     }
 }

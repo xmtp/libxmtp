@@ -23,24 +23,18 @@ prost.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tracing = { workspace = true, features = ["release_max_level_debug"] }
-tracing-appender = "0.2"
-tracing-subscriber = { workspace = true, features = [
-  "registry",
-  "env-filter",
-  "fmt",
-  "json",
-] }
-uniffi = { version = "0.31.0", default-features = false, features = ["tokio"] }
+tracing.workspace = true
+uniffi = { version = "0.32.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
-xmtp_common = { workspace = true, features = ["logging"] }
+xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
+xmtp_logging.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 
@@ -51,15 +45,8 @@ fdlimit = { version = "0.3", optional = true }
 xmtp-workspace-hack.workspace = true
 
 
-[target.'cfg(target_os = "android")'.dependencies]
-paranoid-android = "0.2"
-tracing_android_trace = "0.1"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-tracing-oslog = "0.3"
-
 [build-dependencies]
-uniffi = { version = "0.31.0", features = ["build"] }
+uniffi = { version = "0.32.0", features = ["build"] }
 vergen-gix = { workspace = true, features = ["build"] }
 
 [[bin]]
@@ -80,13 +67,14 @@ ctor.workspace = true
 fdlimit.workspace = true
 rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-uniffi = { version = "0.31.0", features = ["bindgen-tests"] }
+uniffi = { version = "0.32.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_archive = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_macro.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }

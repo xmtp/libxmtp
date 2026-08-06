@@ -15,6 +15,16 @@ on:
         required: true
         type: string
         description: "Git ref to build from"
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
     outputs:
       version:
         description: "The published version string"
@@ -38,6 +48,19 @@ jobs:
             VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
             VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            # Belt-and-suspenders: release.yml already skips this whole job when
+            # the gate isn't green or there are no conventional commits
+            # (nothing-pending), so pending-* are populated whenever we reach
+            # here. This guard only fires if that orchestration is bypassed.
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk node-bindings --release-type nightly \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
           else
             VERSION=$(xmtp-release compute-version --sdk node-bindings --release-type final)
           fi
@@ -46,7 +69,7 @@ jobs:
 
   build-linux:
     needs: setup
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2204
     strategy:
       fail-fast: false
       matrix:
@@ -61,11 +84,15 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
         with:
+          nix-disk: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build ${{ matrix.target }}
         run: nix build .#node-bindings-${{ matrix.target }} -L
+
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#node-bindings-${{ matrix.target }}
 
       - name: Upload binding
         uses: actions/upload-artifact@v7
@@ -81,7 +108,6 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - darwin-x64
           - darwin-arm64
     steps:
       - uses: actions/checkout@v6
@@ -89,6 +115,7 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
         with:
+          nix-disk: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
@@ -113,6 +140,7 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-nix
         with:
+          nix-disk: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
@@ -156,7 +184,6 @@ jobs:
           workspaces: |
             .
             bindings/node
-          warp: "true"
 
       - uses: ./.github/actions/setup-release-tools
 
@@ -208,38 +235,12 @@ jobs:
           path: bindings/node/bindings_node.${{ matrix.output_target }}.node
           retention-days: 1
 
-  build-macos-universal:
-    needs: [setup, build-macos]
-    runs-on: warp-macos-latest-arm64-6x
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: bindings_node_darwin-x64
-          path: artifacts/
-      - uses: actions/download-artifact@v8
-        with:
-          name: bindings_node_darwin-arm64
-          path: artifacts/
-      - name: Create universal binary
-        run: |
-          lipo -create \
-            artifacts/bindings_node.darwin-x64.node \
-            artifacts/bindings_node.darwin-arm64.node \
-            -output bindings_node.darwin-universal.node
-          lipo -info bindings_node.darwin-universal.node
-      - uses: actions/upload-artifact@v7
-        with:
-          name: bindings_node_darwin-universal
-          path: bindings_node.darwin-universal.node
-          retention-days: 1
-
   publish:
     needs:
       [
         setup,
         build-linux,
         build-macos,
-        build-macos-universal,
         build-js,
         build-windows,
       ]
@@ -250,4 +251,5 @@ jobs:
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: bindings_node_*
       artifact-path: bindings/node/dist
+      dry-run: ${{ inputs.dry-run }}
     secrets: inherit

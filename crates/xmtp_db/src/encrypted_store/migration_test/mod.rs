@@ -28,7 +28,7 @@ fn migrate(db: impl ConnectionExt, name: &str, index_change: i32) {
     // index is 0-based position, so we need index+1 migrations to include the named one
     // with index_change: -1 = before, 0 = to (including), 1 = after
     let target_index = ((index + 1) as i32 + index_change) as usize;
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         for _ in 0..target_index {
             conn.run_next_migration(MIGRATIONS).unwrap();
         }
@@ -38,7 +38,7 @@ fn migrate(db: impl ConnectionExt, name: &str, index_change: i32) {
 }
 
 fn finish_migrations(db: impl ConnectionExt) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         conn.run_pending_migrations(MIGRATIONS).unwrap();
         Ok(())
     })

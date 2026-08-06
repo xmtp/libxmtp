@@ -2,49 +2,116 @@ use crate::ErrorWrapper;
 use crate::client::Client;
 use crate::client::backend::Backend;
 use crate::client::gateway_auth::{AuthCallback, AuthHandle};
-use crate::client::options::{ClientMode, LogOptions, SyncWorkerMode};
+use crate::client::options::{
+  ClientMode, LogLevel, LogOptions, SyncWorkerMode, WorkerConfigOptions,
+};
 use crate::identity::Identifier;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
+use xmtp_logging::{Level, LoggingConfig, TelemetryConfig, XmtpLoggingBuilder};
 use xmtp_mls::XmtpApiClient;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::identity::IdentityStrategy;
 
-static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
+// Holds the global logging handle for the process so `flush_telemetry` can flush
+// spans before exit. Installed exactly once on first `create_client` call.
+static LOGGING_HANDLE: std::sync::OnceLock<xmtp_logging::LoggingHandle> =
+  std::sync::OnceLock::new();
+
+fn map_level(l: &LogLevel) -> Level {
+  match l {
+    LogLevel::Off => Level::Off,
+    LogLevel::Error => Level::Error,
+    LogLevel::Warn => Level::Warn,
+    LogLevel::Info => Level::Info,
+    LogLevel::Debug => Level::Debug,
+    LogLevel::Trace => Level::Trace,
+  }
+}
 
 fn init_logging(options: LogOptions) -> Result<()> {
-  LOGGER_INIT
-    .get_or_init(|| {
-      let filter = if let Some(f) = options.level {
-        xmtp_common::filter_directive(&f.to_string())
-      } else {
-        EnvFilter::builder().parse_lossy("info")
-      };
-      if options.structured.unwrap_or_default() {
-        let fmt = tracing_subscriber::fmt::layer()
-          .json()
-          .flatten_event(true)
-          .with_level(true)
-          .with_target(true);
+  // Already installed (by us or another crate) — nothing to do.
+  if LOGGING_HANDLE.get().is_some() {
+    return Ok(());
+  }
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
-      } else {
-        tracing_subscriber::registry()
-          .with(fmt::layer())
-          .with(filter)
-          .init();
-      }
+  // Preserve the old default of "info" when no level is provided.
+  let level = options.level.as_ref().map(map_level).unwrap_or(Level::Info);
+
+  // stdout console level override: `None` follows the global `level` (unchanged
+  // behavior). Set to e.g. `warn` to quiet stdout below the OTLP export level and
+  // avoid duplicate logs.
+  let stdout_level = options.stdout_level.as_ref().map(map_level);
+
+  // Only configure telemetry when an endpoint is set, so we don't spawn an
+  // exporter that just logs connection errors.
+  let telemetry = options.otel_endpoint.clone().map(|endpoint| {
+    let resource_attributes: Vec<(String, String)> = options
+      .resource_attributes
+      .clone()
+      .unwrap_or_default()
+      .into_iter()
+      .collect();
+    TelemetryConfig {
+      endpoint: Some(endpoint),
+      resource_attributes,
+    }
+  });
+
+  let cfg = LoggingConfig {
+    level,
+    // native_level only affects the server-compact native layer (native = true);
+    // node uses the plain stdout layer, so `None` (follow global) is fine.
+    native_level: None,
+    stdout_level,
+    json: options.structured.unwrap_or_default(),
+    file: None,
+    telemetry,
+    native: false,
+    performance: false,
+  };
+
+  // `install()` installs a global subscriber and only succeeds once per process.
+  match XmtpLoggingBuilder::from_config(cfg).install() {
+    Ok(handle) => {
+      let _ = LOGGING_HANDLE.set(handle);
       Ok(())
-    })
-    .as_ref()
-    .map_err(|e| Error::from_reason(e.reason.clone()))?;
-  Ok(())
+    }
+    // Someone else installed first (e.g. another crate) — treat as success.
+    Err(xmtp_logging::Error::AlreadyInitialized) => Ok(()),
+    Err(e) => Err(Error::from_reason(format!(
+      "failed to initialize logging: {e}"
+    ))),
+  }
+}
+
+/// Initialize the global logging pipeline (stdout + optional OTLP trace/log
+/// export) before any client is created. Process-global and idempotent: the
+/// first call wins, later calls (including the implicit one inside
+/// `createClient`) are no-ops, so it is safe to call this early and still pass
+/// `logOptions` to `createClient`. Pass the same `LogOptions` you would give
+/// `createClient` (level, stdoutLevel, structured, otelEndpoint,
+/// resourceAttributes).
+///
+/// `async` is load-bearing: it runs on napi's Tokio runtime so the OTLP tonic exporter build has a reactor (a sync `#[napi] pub fn` runs reactor-less on the JS thread and panics).
+#[napi(js_name = "initLogging")]
+#[xmtp_common::err_span]
+pub async fn init_logging_export(options: Option<LogOptions>) -> Result<()> {
+  init_logging(options.unwrap_or_default())
+}
+
+/// Flush buffered telemetry spans before process exit. Call once on graceful
+/// shutdown; no-op if telemetry was never enabled. Process-global (not per-client).
+#[napi]
+pub fn flush_telemetry() {
+  if let Some(h) = LOGGING_HANDLE.get() {
+    h.flush();
+  }
 }
 
 #[napi(object)]
@@ -53,6 +120,10 @@ pub struct DbOptions {
   pub encryption_key: Option<Uint8Array>,
   pub max_db_pool_size: Option<u32>,
   pub min_db_pool_size: Option<u32>,
+  /// When true, the native DB uses a single connection instead of a pool
+  /// (one file descriptor). Pool-size options are ignored. Intended for
+  /// services running many clients in one process.
+  pub use_single_connection: Option<bool>,
 }
 
 impl DbOptions {
@@ -61,12 +132,14 @@ impl DbOptions {
     encryption_key: Option<Uint8Array>,
     max_db_pool_size: Option<u32>,
     min_db_pool_size: Option<u32>,
+    use_single_connection: Option<bool>,
   ) -> Self {
     Self {
       db_path,
       encryption_key,
       max_db_pool_size,
       min_db_pool_size,
+      use_single_connection,
     }
   }
 }
@@ -77,34 +150,48 @@ fn build_store(db: DbOptions) -> Result<EncryptedMessageStore<NativeDb>> {
     encryption_key,
     max_db_pool_size,
     min_db_pool_size,
+    use_single_connection,
   } = db;
 
-  let db = if let Some(path) = db_path {
+  let single = use_single_connection.unwrap_or(false);
+
+  let base = if let Some(path) = db_path {
     NativeDb::builder().persistent(path)
   } else {
     NativeDb::builder().ephemeral()
   };
 
-  let db = if let Some(max_size) = max_db_pool_size {
-    db.max_pool_size(max_size)
+  // `single_connection()`, `max_pool_size(..)` and `min_pool_size(..)` return
+  // the bon builder in different typestates, so a unifying `if/else` after the
+  // branch won't type-check. Instead, duplicate the key + build finishing step
+  // into each arm so each branch produces a fully-built `NativeDb`.
+  let db = if single {
+    if max_db_pool_size.is_some() || min_db_pool_size.is_some() {
+      tracing::info!("use_single_connection is set; ignoring max/min db pool size options");
+    }
+    let b = base.single_connection();
+    if let Some(key) = encryption_key {
+      let key: Vec<u8> = key.deref().into();
+      let key: EncryptionKey = key
+        .try_into()
+        .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
+      b.key(key).build()
+    } else {
+      b.build_unencrypted()
+    }
   } else {
-    db.max_pool_size(MAX_DB_POOL_SIZE)
-  };
-
-  let db = if let Some(min_size) = min_db_pool_size {
-    db.min_pool_size(min_size)
-  } else {
-    db.min_pool_size(MIN_DB_POOL_SIZE)
-  };
-
-  let db = if let Some(key) = encryption_key {
-    let key: Vec<u8> = key.deref().into();
-    let key: EncryptionKey = key
-      .try_into()
-      .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
-    db.key(key).build()
-  } else {
-    db.build_unencrypted()
+    let b = base
+      .max_pool_size(max_db_pool_size.unwrap_or(MAX_DB_POOL_SIZE))
+      .min_pool_size(min_db_pool_size.unwrap_or(MIN_DB_POOL_SIZE));
+    if let Some(key) = encryption_key {
+      let key: Vec<u8> = key.deref().into();
+      let key: EncryptionKey = key
+        .try_into()
+        .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
+      b.key(key).build()
+    } else {
+      b.build_unencrypted()
+    }
   }
   .map_err(ErrorWrapper::from)?;
 
@@ -130,24 +217,28 @@ fn parse_nonce(nonce: Option<BigInt>) -> Result<u64> {
 #[allow(clippy::too_many_arguments)]
 async fn create_client_inner(
   api_client: XmtpApiClient,
-  sync_api_client: XmtpApiClient,
   store: EncryptedMessageStore<NativeDb>,
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<SyncWorkerMode>,
+  worker_config: Option<WorkerConfigOptions>,
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
 ) -> Result<Client> {
+  // Install the rustls crypto provider explicitly rather than relying solely on the
+  // `#[ctor::ctor(unsafe)]` in `xmtp_cryptography`, whose constructor link section does not run on
+  // some platforms (notably Apple). Without it, the device-sync worker's history-server HTTP
+  // client panics with "No provider set". Idempotent. See issue #3846.
+  xmtp_cryptography::install_crypto_provider();
+
   let root_identifier = account_identifier.clone();
   let internal_account_identifier = account_identifier.try_into()?;
   let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_clients(api_client, sync_api_client)
+    .api_client(api_client)
     .enable_api_stats()
-    .map_err(ErrorWrapper::from)?
-    .enable_api_debug_wrapper()
     .map_err(ErrorWrapper::from)?
     .with_remote_verifier()
     .map_err(ErrorWrapper::from)?
@@ -157,6 +248,10 @@ async fn create_client_inner(
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   };
+
+  if let Some(worker_config) = worker_config {
+    builder = builder.worker_config(worker_config.into());
+  }
 
   let xmtp_client = builder
     .default_mls_store()
@@ -181,6 +276,7 @@ async fn create_client_inner(
  */
 #[allow(clippy::too_many_arguments)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn create_client(
   v3_host: String,
   gateway_host: Option<String>,
@@ -188,6 +284,7 @@ pub async fn create_client(
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<SyncWorkerMode>,
+  worker_config: Option<WorkerConfigOptions>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   app_version: Option<String>,
@@ -213,22 +310,15 @@ pub async fn create_client(
 
   let cursor_store = SqliteCursorStore::new(store.db());
   backend.cursor_store(cursor_store);
-  let api_client = backend
-    .clone()
-    .build_optional_d14n()
-    .map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend
-    .clone()
-    .build_optional_d14n()
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.build_optional_d14n().map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    worker_config,
     allow_offline,
     app_version,
     nonce,
@@ -242,12 +332,14 @@ pub async fn create_client(
 /// This function only needs identity and database configuration.
 #[allow(clippy::too_many_arguments)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn create_client_with_backend(
   backend: &Backend,
   db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
   device_sync_worker_mode: Option<SyncWorkerMode>,
+  worker_config: Option<WorkerConfigOptions>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   nonce: Option<BigInt>,
@@ -261,20 +353,16 @@ pub async fn create_client_with_backend(
   let mut mbb = MessageBackendBuilder::default();
   mbb.cursor_store(cursor_store);
   let api_client = mbb
-    .clone()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
-  let sync_api_client = mbb
     .from_bundle(backend.bundle.clone())
     .map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    worker_config,
     allow_offline,
     Some(backend.app_version()),
     nonce,

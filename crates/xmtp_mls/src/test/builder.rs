@@ -209,10 +209,7 @@ async fn test_client_creation() {
         let result = Client::builder(test_case.strategy)
             .temp_store()
             .await
-            .api_clients(
-                DefaultTestClientCreator::create().build().unwrap(),
-                DefaultTestClientCreator::create().build().unwrap(),
-            )
+            .api_client(DefaultTestClientCreator::create().build().unwrap())
             .default_mls_store()
             .unwrap()
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
@@ -254,10 +251,7 @@ async fn test_2nd_time_client_creation() {
 
     let client1 = Client::builder(identity_strategy.clone())
         .store(store.clone())
-        .api_clients(
-            DefaultTestClientCreator::create().build().unwrap(),
-            DefaultTestClientCreator::create().build().unwrap(),
-        )
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
@@ -268,10 +262,7 @@ async fn test_2nd_time_client_creation() {
 
     let client2 = Client::builder(IdentityStrategy::CachedOnly)
         .store(store.clone())
-        .api_clients(
-            DefaultTestClientCreator::create().build().unwrap(),
-            DefaultTestClientCreator::create().build().unwrap(),
-        )
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
@@ -289,10 +280,7 @@ async fn test_2nd_time_client_creation() {
         None,
     ))
     .store(store.clone())
-    .api_clients(
-        DefaultTestClientCreator::create().build().unwrap(),
-        DefaultTestClientCreator::create().build().unwrap(),
-    )
+    .api_client(DefaultTestClientCreator::create().build().unwrap())
     .default_mls_store()
     .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
@@ -306,10 +294,7 @@ async fn test_2nd_time_client_creation() {
     let client4 = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .api_clients(
-            DefaultTestClientCreator::create().build().unwrap(),
-            DefaultTestClientCreator::create().build().unwrap(),
-        )
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
@@ -542,10 +527,7 @@ async fn identity_persistence_test() {
         nonce,
         None,
     ))
-    .api_clients(
-        DefaultTestClientCreator::create().build().unwrap(),
-        DefaultTestClientCreator::create().build().unwrap(),
-    )
+    .api_client(DefaultTestClientCreator::create().build().unwrap())
     .store(store_a)
     .default_mls_store()
     .unwrap()
@@ -567,10 +549,7 @@ async fn identity_persistence_test() {
         nonce,
         None,
     ))
-    .api_clients(
-        DefaultTestClientCreator::create().build().unwrap(),
-        DefaultTestClientCreator::create().build().unwrap(),
-    )
+    .api_client(DefaultTestClientCreator::create().build().unwrap())
     .store(store_b)
     .default_mls_store()
     .unwrap()
@@ -603,10 +582,7 @@ async fn identity_persistence_test() {
     // Use cached only strategy
     let store_d = xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await;
     let client_d = Client::builder(IdentityStrategy::CachedOnly)
-        .api_clients(
-            DefaultTestClientCreator::create().build().unwrap(),
-            DefaultTestClientCreator::create().build().unwrap(),
-        )
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
         .store(store_d)
         .default_mls_store()
         .unwrap()

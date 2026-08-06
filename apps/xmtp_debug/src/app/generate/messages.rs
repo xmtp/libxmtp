@@ -1,28 +1,68 @@
 use crate::DbgClient;
 use crate::app::store::Database;
-use crate::app::types::InboxId;
+use crate::app::types::{InboxId, Message};
 use crate::app::{App, load_all_identities};
-use crate::args::BackendOpts;
 use crate::metrics::record_phase_metric;
 use crate::{
     app::{
         self,
-        store::{GroupStore, IdentityStore, RandomDatabase},
+        store::{GroupStore, IdentityStore, MessageStore, RandomDatabase},
     },
     args,
 };
-use alloy::primitives::map::HashSet;
 use color_eyre::eyre::WrapErr;
 use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::{RngExt, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::IndexedRandom};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::summary::SyncSummary;
+
+/// Mirror a successfully-sent message to redb's `MessageStore`. Soft
+/// errors only — generate is best-effort, so logged-and-skipped rather
+/// than aborted. Non-16-byte group_id or non-32-byte message_id would
+/// indicate a libxmtp invariant break the validator path already
+/// surfaces; we just don't record those rows.
+fn record_generated_message(
+    store: &MessageStore<'static>,
+    group_id: &[u8],
+    message_id: &[u8],
+    sender_inbox_id: InboxId,
+) {
+    let Ok(group_id_bytes) = <[u8; 16]>::try_from(group_id) else {
+        tracing::warn!(
+            target: "generate",
+            len = group_id.len(),
+            "expected 16-byte group_id; skipping redb message record",
+        );
+        return;
+    };
+    let Ok(message_id_bytes) = <[u8; 32]>::try_from(message_id) else {
+        tracing::warn!(
+            target: "generate",
+            len = message_id.len(),
+            "expected 32-byte message_id; skipping redb message record",
+        );
+        return;
+    };
+    let sent_at_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as i64)
+        .unwrap_or(0);
+    let msg = Message::new(
+        message_id_bytes,
+        group_id_bytes,
+        sender_inbox_id,
+        sent_at_ns,
+    );
+    if let Err(e) = store.set(msg) {
+        tracing::warn!(target: "generate", error = %e, "redb set failed; skipping message record");
+    }
+}
 
 mod content_type;
 
@@ -48,39 +88,33 @@ enum MessageSendError {
 }
 
 pub struct GenerateMessages {
-    network: args::BackendOpts,
     opts: args::MessageGenerateOpts,
     identity_store: IdentityStore<'static>,
     group_store: GroupStore<'static>,
+    message_store: MessageStore<'static>,
     identities: IdentityMap,
     semaphore: ConcSemaphore,
 }
 
 impl GenerateMessages {
-    pub fn new(
-        network: args::BackendOpts,
-        opts: args::MessageGenerateOpts,
-        concurrency: usize,
-    ) -> Result<Self> {
-        let (identity_store, group_store) = {
-            if opts.add_and_change_description || opts.change_description {
-                let db = App::db().wrap_err(
-                    "must have exclusive write access for adding members or changing description",
-                )?;
-                (db.clone().into(), db.into())
-            } else {
-                let db = App::readonly_db()?;
-                (db.clone().into(), db.into())
-            }
-        };
-        let identities = load_all_identities(&identity_store, &network)?;
+    pub async fn new(opts: args::MessageGenerateOpts, concurrency: usize) -> Result<Self> {
+        // Always open write-capable redb so we can mirror sent messages
+        // into `MessageStore`. add_member/change_description already
+        // required write; default path now does too because we record
+        // every successful send.
+        let db = App::db()
+            .wrap_err("must have exclusive write access to record sent messages in redb")?;
+        let identity_store: IdentityStore<'static> = db.clone().into();
+        let group_store: GroupStore<'static> = db.clone().into();
+        let message_store: MessageStore<'static> = db.into();
+        let identities = load_all_identities(&identity_store).await?;
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
         Ok(Self {
-            network,
             opts,
             identity_store,
             group_store,
+            message_store,
             identities,
             semaphore,
         })
@@ -113,7 +147,6 @@ impl GenerateMessages {
                 tokio::time::sleep(*interval).await;
                 let semaphore = self.semaphore.clone();
                 let group_store = self.group_store.clone();
-                let network = self.network.clone();
                 let identities = self.identities.clone();
                 let (latencies, _, _) = tokio::try_join!(
                     self.send_many_messages(n),
@@ -121,14 +154,12 @@ impl GenerateMessages {
                         add_and_change_description,
                         add_up_to,
                         semaphore.clone(),
-                        network.clone(),
                         group_store.clone(),
                         identities.clone()
                     ))),
                     flatten(tokio::spawn(Self::change_group_description(
                         change_description || add_and_change_description,
                         semaphore.clone(),
-                        network.clone(),
                         group_store.clone(),
                         identities.clone()
                     ))),
@@ -143,7 +174,6 @@ impl GenerateMessages {
         run: bool,
         add_up_to: u32,
         semaphore: ConcSemaphore,
-        network: BackendOpts,
         group_store: GroupStore<'static>,
         identities: IdentityMap,
     ) -> Result<()> {
@@ -153,7 +183,7 @@ impl GenerateMessages {
         info!(time = ?std::time::Instant::now(), "adding new member");
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let group = group_store
-            .random(&network, rng)?
+            .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
         if group.members.len() >= add_up_to.try_into()? {
             // added up to required amount
@@ -170,10 +200,10 @@ impl GenerateMessages {
             .get(&group.created_by)
             .ok_or(eyre!("group has no owner"))?;
         let owner = owner.lock().await;
-        let owner_group = owner.group(&group.id.to_vec()).wrap_err(format!(
+        let owner_group = owner.group(&group.id()).wrap_err(format!(
             "owner {} of group {} failed to look up in sqlite db",
             hex::encode(group.created_by),
-            hex::encode(group.id)
+            group.id()
         ))?;
         owner_group
             .add_members(&[hex::encode(not_in_group)])
@@ -184,7 +214,7 @@ impl GenerateMessages {
         new_group.members.push(*not_in_group);
         new_group.member_size += 1;
         group_store
-            .set(new_group, network)
+            .set(new_group)
             .wrap_err("failed to update group with new member in redb index")?;
         Ok(())
     }
@@ -192,7 +222,6 @@ impl GenerateMessages {
     async fn change_group_description(
         run: bool,
         semaphore: ConcSemaphore,
-        network: BackendOpts,
         group_store: GroupStore<'static>,
         identities: IdentityMap,
     ) -> Result<()> {
@@ -203,7 +232,7 @@ impl GenerateMessages {
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let clients = identities.clone();
         let group = group_store
-            .random(&network, rng)?
+            .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
         if let Some(inbox_id) = group.members.choose(rng) {
             let client = clients
@@ -211,7 +240,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let mls_group = client.group(&group.id.into())?;
+            let mls_group = client.group(&group.id())?;
             mls_group.sync_with_conn().await?;
             mls_group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..10);
@@ -229,7 +258,7 @@ impl GenerateMessages {
 
     /// Returns a Vec of send_message latencies (only the actual send, not sync overhead)
     async fn send_many_messages(&self, n: usize) -> Result<Vec<Duration>> {
-        let Self { network, opts, .. } = self;
+        let Self { opts, .. } = self;
 
         let style = ProgressStyle::with_template(
             "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
@@ -240,17 +269,20 @@ impl GenerateMessages {
         let clients = self.identities.clone();
         let mut set: tokio::task::JoinSet<Result<Duration, eyre::Error>> =
             tokio::task::JoinSet::new();
-        let stores = (self.identity_store.clone(), self.group_store.clone());
+        let stores = (
+            self.identity_store.clone(),
+            self.group_store.clone(),
+            self.message_store.clone(),
+        );
         for _ in 0..n {
             let bar_pointer = bar.clone();
-            let n = network.clone();
-            let opts = opts.clone();
-            let (_, group) = stores.clone();
+            let opts = *opts;
+            let (_, group, messages) = stores.clone();
             let semaphore = semaphore.clone();
             let cs = clients.clone();
             set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
-                let latency = Self::send_message(&group, cs, n, opts)
+                let latency = Self::send_message(&group, &messages, cs, opts)
                     .await
                     .inspect_err(|e| error!("{}", e))?;
                 bar_pointer.inc(1);
@@ -271,6 +303,15 @@ impl GenerateMessages {
 
         if !errors.is_empty() {
             info!(errors = ?errors, "errors");
+            if crate::fail_fast() {
+                let first = errors[0].to_string();
+                return Err(eyre!(
+                    "{} of {} send_message tasks failed (--fail-fast): {}",
+                    errors.len(),
+                    res.len(),
+                    first
+                ));
+            }
         }
 
         let latencies: Vec<Duration> = res.into_iter().filter_map(|r| r.ok()).collect();
@@ -280,8 +321,8 @@ impl GenerateMessages {
     /// Returns the duration of just the send_message() call (excluding sync overhead)
     async fn send_message(
         group_store: &GroupStore<'static>,
+        message_store: &MessageStore<'static>,
         clients: Arc<HashMap<InboxId, Mutex<DbgClient>>>,
-        network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
     ) -> Result<Duration, MessageSendError> {
         let args::MessageGenerateOpts {
@@ -290,43 +331,51 @@ impl GenerateMessages {
         } = opts;
 
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
-        let group = group_store
-            .random(&network, rng)?
+        let stored_group = group_store
+            .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
-        info!(time = ?Instant::now(), group = hex::encode(group.id), "sending message");
-        if let Some(inbox_id) = group.members.choose(rng) {
-            let client = clients
-                .get(inbox_id.as_slice())
-                .ok_or(eyre!("client does not exist"))?;
-            let client = client.lock().await;
-            client.sync_welcomes().await?;
-            let group = client.group(&group.id.into())?;
-            group.sync_with_conn().await?;
-            group.maybe_update_installations(None).await?;
-            let words = rng.random_range(0..*max_message_size);
-            let words = lipsum::lipsum_words(words as usize);
-            let message = content_type::new_message(words);
+        info!(time = ?Instant::now(), group = %stored_group.id(), "sending message");
+        let Some(sender_inbox_id) = stored_group.members.choose(rng).copied() else {
+            return Err(MessageSendError::NoGroup);
+        };
+        let client = clients
+            .get(sender_inbox_id.as_slice())
+            .ok_or(eyre!("client does not exist"))?;
+        let client = client.lock().await;
+        client.sync_welcomes().await?;
+        let mls_group = client.group(&stored_group.id())?;
+        mls_group.sync_with_conn().await?;
+        mls_group.maybe_update_installations(None).await?;
+        let words = rng.random_range(0..*max_message_size);
+        let words = lipsum::lipsum_words(words as usize);
+        let message = content_type::new_message(words);
 
-            // Time ONLY the send_message() call
-            let start = Instant::now();
-            group
-                .send_message(
-                    &message,
-                    SendMessageOptsBuilder::default()
-                        .should_push(true)
-                        .build()
-                        .unwrap(),
-                )
-                .await?;
-            let send_latency = start.elapsed();
-            let send_secs = send_latency.as_secs_f64();
+        // Time ONLY the send_message() call
+        let start = Instant::now();
+        let message_id = mls_group
+            .send_message(
+                &message,
+                SendMessageOptsBuilder::default()
+                    .should_push(true)
+                    .build()
+                    .unwrap(),
+            )
+            .await?;
+        let send_latency = start.elapsed();
+        let send_secs = send_latency.as_secs_f64();
 
-            record_phase_metric("send_message", send_secs, "send_message", "xdbg_debug").await;
+        record_phase_metric("send_message", send_secs, "send_message", "xdbg_debug").await;
 
-            Ok(send_latency)
-        } else {
-            Err(MessageSendError::NoGroup)
-        }
+        // Mirror to redb so healthcheck's `NoMissingMessages` validator
+        // and any cross-tool inspection can find this message later.
+        record_generated_message(
+            message_store,
+            &*stored_group.id(),
+            &message_id,
+            sender_inbox_id,
+        );
+
+        Ok(send_latency)
     }
 }
 

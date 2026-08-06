@@ -26,7 +26,7 @@ resolver = "3"
 
 [workspace.package]
 license = "MIT"
-version = "1.10.0"
+version = "1.12.0-dev"
 rust-version = "1.94.0"
 publish = false
 edition = "2024"
@@ -34,83 +34,86 @@ edition = "2024"
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
 alloy = { version = "2", default-features = false }
+alloy-primitives = { version = "1", default-features = false, features = [
+  "std",
+] }
+alloy-signer-local = { version = "2", default-features = false }
 anyhow = "1.0"
-arc-swap = "1.7"
+arc-swap = "1.9"
 async-compression = { default-features = false, version = "0.4", features = [
   "futures-io",
   "zstd",
 ] }
-async-trait = "0.1.77"
-base64 = "0.22"
+async-trait = "0.1.91"
+base64 = "0.23"
 bincode = { version = "1.3" }
-bon = "3.8"
-bytes = "1.11.1"
-chrono = "0.4.38"
+bon = "3.9"
+bytes = "1.12.1"
+chrono = "0.4.45"
 clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
 const_panic = "0.2"
 criterion = { version = "0.8.2", features = ["html_reports", "async_tokio"] }
-ctor = "0.10"
+ctor = "1.0"
 derive_builder = "0.20"
 diesel = { version = "2.3", default-features = false }
-diesel_migrations = { version = "2.2", default-features = false }
+diesel_migrations = { version = "2.3", default-features = false }
 dyn-clone = "1"
 ecdsa = "0.16"
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 fdlimit = "0.3"
-futures = { version = "0.3.30", default-features = false }
+futures = { version = "0.3.33", default-features = false }
 futures-test = { version = "0.3" }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 getrandom = { version = "0.4", default-features = false }
 gloo-timers = "0.4"
-hex = { package = "const-hex", version = "1.14" }
-hkdf = "0.12.3"
+hex = { package = "const-hex", version = "1.19" }
+# must stay on this version for compatibility with sha2 and ed25519_dalek
+hkdf = "0.12.4"
 hpke-rs = { version = "0.6", features = ["hazmat", "serialization", "libcrux"] }
-http = "1.2"
-hyper = { version = "1.7", default-features = false }
+http = "1.4"
+hyper = { version = "1.11", default-features = false }
 hyper-util = "0.1"
 indicatif = "0.18"
-itertools = "0.14"
+itertools = "0.15"
 js-sys = "0.3"
-libcrux-ed25519 = "0.0.7"
-lru = "0.16"
-mockall = { version = "0.14" }
+libcrux-ed25519 = "0.0.9"
+lru = "0.18"
+mockall = { version = "0.15" }
 mockall_double = "0.3.1"
-once_cell = "1.2"
-warp = { version = "0.4", features = ["server"] }
-# This git hash does not point to main because the single line change to it (rusqlite = 0.37) has a conflict
-# with sqlx that doesn't allow cargo to resolve crates and so all of CI fails. To ensure that ongoing changes
-# to main work, we will keep it on a separate branch until this can get resolved. xmtp/openmls/main is currently
-# at 382a4649ae4e937ce933adb259e26d6381745731
-openmls = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = [
-  "extensions-draft-08",
+once_cell = "1.21.4"
+openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = [
+  "extensions-draft",
+  "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", features = [
-  "extensions-draft-08",
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+  "extensions-draft",
+  "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", features = [
-  "extensions-draft-08",
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+  "extensions-draft",
+  "draft-ietf-mls-pq-ciphersuites",
 ] }
-owo-colors = { version = "4.1" }
+owo-colors = { version = "4.3" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
-parking_lot = "0.12.3"
+parking_lot = "0.12.5"
 pbjson = "0.9"
 pbjson-types = "0.9"
 pin-project = "1.1"
 proc-macro2 = "1.0"
-proptest = { version = "1.9", default-features = false, features = ["std"] }
+proptest = { version = "1.11", default-features = false, features = ["std"] }
 prost = { version = "0.14", default-features = false }
 prost-types = { version = "0.14", default-features = false }
 quote = "1.0"
-rand = "0.10.0"
+rand = "0.10.2"
 rand_chacha = "0.10.0"
-regex = "1.10.4"
-reqwest = { version = "0.13.2", default-features = false, features = [
+regex = "1.13.1"
+reqwest = { version = "0.13.4", default-features = false, features = [
   "rustls-no-provider",
   "json",
   "stream",
@@ -118,11 +121,15 @@ reqwest = { version = "0.13.2", default-features = false, features = [
 rstest = "0.26"
 rstest_reuse = "0.7.0"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+semver = "1.0"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 serde_bytes = "0.11"
 serde_json = { version = "1.0", default-features = false }
-sha2 = "0.10.8"
+serde_path_to_error = "0.1"
+# must stay on this version for compatibility with ed25519_dalek
+sha2 = "0.10.9"
+strum = { version = "0.28", features = ["derive"] }
 syn = { version = "2.0", features = [
   "parsing",
   "proc-macro",
@@ -133,8 +140,8 @@ syn = { version = "2.0", features = [
   "extra-traits",
 ] }
 thiserror = "2.0"
-tls_codec = "0.4.1"
-tokio = { version = "1.47.0", default-features = false, features = [
+tls_codec = "0.5"
+tokio = { version = "1.53.1", default-features = false, features = [
   "macros",
   "rt",
   "time",
@@ -145,22 +152,36 @@ tokio-stream = { version = "0.1", default-features = false }
 tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
-toml = "1.0.1"
+toml = "1.1.3"
 tonic = { version = "0.14", default-features = false }
 tonic-web-wasm-client = "0.9"
 tower = { version = "0.5", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 tracing = { version = "0.1", features = ["log"] }
-tracing-forest = { version = "0.3", features = ["chrono"] }
+tracing-appender = "0.2"
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 tracing-web = "0.1"
-trait-variant = "0.1.2"
+# OpenTelemetry trace-export stack (native-only; see crates/xmtp_common/src/telemetry.rs).
+opentelemetry = "0.32"
+opentelemetry-appender-tracing = "0.32"
+opentelemetry-otlp = { version = "0.32", features = [
+  "grpc-tonic",
+  "trace",
+  "logs",
+] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+tracing-opentelemetry = "0.33"
+trait-variant = "0.1.3"
 tsify = { version = "0.5", default-features = false, features = ["js"] }
-url = { version = "2.5.0", default-features = false }
-uuid = "1.12"
+url = { version = "2.5.8", default-features = false }
+uuid = "1.24"
 valuable = { version = "0.1", features = ["derive"] }
 vergen-gix = "9.1"
+warp = { version = "0.4", features = ["server"] }
+# 0.5 must match reqwest + tonic-web-wasm-client — two wasm-streams versions
+# in the graph collide on wasm-bindgen export symbols (duplicate symbol errors
+# from rust-lld). Bump only when both deps move to 0.6.
 wasm-streams = "0.5"
 # zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
 
@@ -168,13 +189,14 @@ wasm-streams = "0.5"
 clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
 http-body-util = { version = "0.1" }
 smallvec = { version = "1.15", features = ["union"] }
-time = "0.3.47"
-wasm-bindgen = "=0.2.114"
-wasm-bindgen-futures = "0.4.51"
-wasm-bindgen-test = "0.3.51"
+time = "0.3.54"
+wasm-bindgen = "=0.2.126"
+wasm-bindgen-futures = "0.4.76"
+wasm-bindgen-test = "0.3.76"
 web-sys = "0.3"
 web-time = "1.1"
-zeroize = "1.8"
+webpki-roots = "1"
+zeroize = "1.9"
 
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings/wasm" }
@@ -189,14 +211,13 @@ xmtp_configuration = { path = "crates/xmtp_configuration" }
 xmtp_content_types = { path = "crates/xmtp_content_types" }
 xmtp_cryptography = { path = "crates/xmtp_cryptography" }
 xmtp_db = { path = "crates/xmtp_db" }
-xmtp_db_test = { path = "crates/xmtp_db_test" }
 xmtp_id = { path = "crates/xmtp_id" }
+xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_proto = { path = "crates/xmtp_proto" }
 xnet-cli = { path = "apps/xnet/cli" }
-xnet-gui = { path = "apps/xnet/gui" }
 xnet-lib = { path = "apps/xnet/lib" }
 
 [profile.dbg]
@@ -232,6 +253,19 @@ lto = true
 [patch.crates-io]
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+# xmtp/hpke-rs fork of v0.6.1 with one extra commit adding
+# XWingDraft06Obsolete dispatch in the libcrux backend. Lets the
+# welcome wrapper pin to the obsolete 0x004D codepoint for wire compat
+# with v1.9 / v1.10 clients (hpke-rs 0.4). All four sister crates patch
+# together: they're one workspace with internal path deps, so patching
+# only the backend produces two HpkeCrypto trait versions in the graph
+# and breaks openmls_libcrux_crypto. Remove when the d14n cutover
+# migrates everyone to 0x647a (#3661).
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+tracing-oslog = { git = "https://github.com/xmtp/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
 
 [patch.crates-io.xmtp-workspace-hack]
 path = "crates/xmtp-workspace-hack"

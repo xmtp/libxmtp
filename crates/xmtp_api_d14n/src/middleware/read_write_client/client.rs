@@ -37,6 +37,12 @@ where
     Read: Client,
     Write: Client,
 {
+    // The read side: connection identity here keys receive-only shared
+    // state (the bidi wire), and reads are where this client receives.
+    fn host(&self) -> &str {
+        self.read.host()
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,
@@ -60,6 +66,19 @@ where
             self.write.stream(request, path, body).await
         } else {
             self.read.stream(request, path, body).await
+        }
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        if path.path().contains(&self.filter) {
+            self.write.bidi_stream(request, path, body).await
+        } else {
+            self.read.bidi_stream(request, path, body).await
         }
     }
 }

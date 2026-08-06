@@ -1,6 +1,5 @@
 [![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
 [![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
-[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fxmtp%2Flibxmtp%3Fbranch%3Dmain)](https://garnix.io/repo/xmtp/libxmtp)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
 <!-- LOGO -->
@@ -53,9 +52,9 @@ Start Docker Desktop.
 
   Specifically, this command creates and runs an XMTP node in Docker Desktop.
 
-- This project uses [`just`](https://github.com/casey/just) as a command
-  runner. Run `just` to list all available recipes, including submodules for
-  Android, iOS, Node.js, and WASM:
+- This project uses [`just`](https://github.com/casey/just) as a command runner.
+  Run `just` to list all available recipes, including submodules for Android,
+  iOS, Node.js, and WASM:
 
   ```bash
   just          # List all recipes
@@ -84,11 +83,15 @@ Start Docker Desktop.
   just wasm test
   ```
 
- Note: If the tests fail with "bind() failed: Cannot assign requested address," Chrome is unable to bind to IPv6 and will fall back to IPv4. Although this should be a warning, Chromedriver currently logs this message as SEVERE, which halts the wasm-bindgen-test. You can optionally disable the Chromedriver logs output to prevent this.
+Note: If the tests fail with "bind() failed: Cannot assign requested address,"
+Chrome is unable to bind to IPv6 and will fall back to IPv4. Although this
+should be a warning, Chromedriver currently logs this message as SEVERE, which
+halts the wasm-bindgen-test. You can optionally disable the Chromedriver logs
+output to prevent this.
 
-  ```bash
-  CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
-  ```
+```bash
+CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
+```
 
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
 
@@ -196,10 +199,9 @@ libxmtp/
 
 ├ apps/
 
-│ ├ [`android`](./apps/android): Example Android app (in progress)
-
-│ ├ [`cli`](./apps/cli): Example XMTP console client. Use the CLI to try out
-sending double ratchet messages on the XMTP `dev` network.
+│ ├ [`android`](./apps/android): Example Android app (in progress) │ ├
+[`xdbg`](./apps/xmtp_debug): comprehensive CLI for sending/load testing XMTP
+clients & network
 
 │ └ [`mls_validation_service`](./apps/mls_validation_service): MLS validation
 service
@@ -226,7 +228,11 @@ protocol buffers
 
 ├ sdks/
 
-│ └ [`android`](./sdks/android): Android SDK (Kotlin)
+│ ├ [`android`](./sdks/android): Android SDK (Kotlin)
+
+│ ├ [`ios`](./sdks/ios): iOS SDK (Swift)
+
+│ └ [`js`](./sdks/js): Browser and Node SDK (TypeScript)
 
 ### Run the benchmarks
 

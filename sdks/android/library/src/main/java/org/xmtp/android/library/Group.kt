@@ -18,6 +18,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.GroupMembershipCapabilities
 import org.xmtp.android.library.libxmtp.GroupMembershipResult
 import org.xmtp.android.library.libxmtp.GroupMembershipState
 import org.xmtp.android.library.libxmtp.Member
@@ -30,6 +31,7 @@ import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiDirection
+import uniffi.xmtpv3.FfiEnableProposalsOptions
 import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiGroupMembershipState
 import uniffi.xmtpv3.FfiGroupPermissions
@@ -40,6 +42,7 @@ import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.FfiSortBy
+import uniffi.xmtpv3.FfiUpdateAppDataOptions
 import java.util.Date
 
 class Group(
@@ -188,7 +191,11 @@ class Group(
             if (compression != null) {
                 encoded = encoded.compress(compression)
             }
-            val sendOpts = MessageVisibilityOptions(shouldPush = typedCodec.shouldPush(content))
+            val sendOpts =
+                MessageVisibilityOptions(
+                    shouldPush = typedCodec.shouldPush(content),
+                    idempotencyKey = options?.idempotencyKey,
+                )
             return Pair(encoded, sendOpts)
         } catch (e: Exception) {
             throw XMTPException("Codec type is not registered")
@@ -209,7 +216,7 @@ class Group(
     ): String =
         withContext(Dispatchers.IO) {
             if (noSend) {
-                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush).toHex()
+                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush, opts.idempotencyKey).toHex()
             } else {
                 libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
             }
@@ -311,23 +318,31 @@ class Group(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
+                                    MessageDeliveryStatus.PUBLISHED -> {
                                         FfiDeliveryStatus.PUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                    MessageDeliveryStatus.UNPUBLISHED -> {
                                         FfiDeliveryStatus.UNPUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.FAILED ->
+                                    MessageDeliveryStatus.FAILED -> {
                                         FfiDeliveryStatus.FAILED
+                                    }
 
-                                    else -> null
+                                    else -> {
+                                        null
+                                    }
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING ->
+                                    SortDirection.ASCENDING -> {
                                         FfiDirection.ASCENDING
+                                    }
 
-                                    else -> FfiDirection.DESCENDING
+                                    else -> {
+                                        FfiDirection.DESCENDING
+                                    }
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
@@ -365,23 +380,31 @@ class Group(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
+                                    MessageDeliveryStatus.PUBLISHED -> {
                                         FfiDeliveryStatus.PUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                    MessageDeliveryStatus.UNPUBLISHED -> {
                                         FfiDeliveryStatus.UNPUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.FAILED ->
+                                    MessageDeliveryStatus.FAILED -> {
                                         FfiDeliveryStatus.FAILED
+                                    }
 
-                                    else -> null
+                                    else -> {
+                                        null
+                                    }
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING ->
+                                    SortDirection.ASCENDING -> {
                                         FfiDirection.ASCENDING
+                                    }
 
-                                    else -> FfiDirection.DESCENDING
+                                    else -> {
+                                        FfiDirection.DESCENDING
+                                    }
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
@@ -439,23 +462,31 @@ class Group(
                             limit = limit?.toLong(),
                             deliveryStatus =
                                 when (deliveryStatus) {
-                                    MessageDeliveryStatus.PUBLISHED ->
+                                    MessageDeliveryStatus.PUBLISHED -> {
                                         FfiDeliveryStatus.PUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.UNPUBLISHED ->
+                                    MessageDeliveryStatus.UNPUBLISHED -> {
                                         FfiDeliveryStatus.UNPUBLISHED
+                                    }
 
-                                    MessageDeliveryStatus.FAILED ->
+                                    MessageDeliveryStatus.FAILED -> {
                                         FfiDeliveryStatus.FAILED
+                                    }
 
-                                    else -> null
+                                    else -> {
+                                        null
+                                    }
                                 },
                             direction =
                                 when (direction) {
-                                    SortDirection.ASCENDING ->
+                                    SortDirection.ASCENDING -> {
                                         FfiDirection.ASCENDING
+                                    }
 
-                                    else -> FfiDirection.DESCENDING
+                                    else -> {
+                                        FfiDirection.DESCENDING
+                                    }
                                 },
                             contentTypes = null,
                             excludeContentTypes = excludeContentTypes,
@@ -586,9 +617,60 @@ class Group(
     suspend fun updateAppData(appData: String) =
         withContext(Dispatchers.IO) {
             try {
-                libXMTPGroup.updateAppData(appData)
+                libXMTPGroup.updateAppData(FfiUpdateAppDataOptions(value = appData))
             } catch (e: Exception) {
                 throw XMTPException("Permission denied: Unable to update group app data", e)
+            }
+        }
+
+    /**
+     * Pre-release APIs, grouped under [UnstableGroup]. The `@UnstableApi`
+     * opt-in is applied once here, so every function on [UnstableGroup] is
+     * covered without a per-function annotation. Call sites must
+     * `@OptIn(UnstableApi::class)`; when a function graduates it moves onto
+     * [Group] and the opt-in stops resolving, forcing a migration.
+     */
+    @UnstableApi(
+        "APIs on Group.unstable are pre-release: shapes may change and some (e.g. enableProposals) are one-way and irreversible.",
+    )
+    val unstable: UnstableGroup
+        get() = UnstableGroup(libXMTPGroup)
+
+    /**
+     * Whether this group has migrated to AppData-proposal-based metadata
+     * updates. `false` means the group is still on the legacy
+     * GroupContextExtensions path. Prefer this semantic bool over scanning
+     * [membershipCapabilities] for the marker extension.
+     */
+    suspend fun proposalsEnabled(): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                libXMTPGroup.proposalsEnabled()
+            } catch (e: Exception) {
+                throw XMTPException("Unable to read proposals enabled state on group", e)
+            }
+        }
+
+    /**
+     * Snapshot this group's membership capabilities: the group context's
+     * extension types plus, per member inbox and installation, the extension
+     * types each advertises.
+     *
+     * These are generic facts you filter to a specific question. For the
+     * proposal (app-data-dictionary) migration: use [proposalsEnabled] to ask
+     * "is this group migrated" — this snapshot answers the other question: an
+     * inbox blocks migration when one of its installations'
+     * [org.xmtp.android.library.libxmtp.InstallationCapabilities.supportedExtensions]
+     * does not contain
+     * [org.xmtp.android.library.libxmtp.MlsExtensionType.AppDataDictionary].
+     * Pair with [UnstableGroup.enableProposals].
+     */
+    suspend fun membershipCapabilities(): GroupMembershipCapabilities =
+        withContext(Dispatchers.IO) {
+            try {
+                GroupMembershipCapabilities(libXMTPGroup.membershipCapabilities())
+            } catch (e: Exception) {
+                throw XMTPException("Unable to read membership capabilities on group", e)
             }
         }
 
@@ -817,16 +899,21 @@ class Group(
                         limit = null,
                         deliveryStatus =
                             when (deliveryStatus) {
-                                MessageDeliveryStatus.PUBLISHED ->
+                                MessageDeliveryStatus.PUBLISHED -> {
                                     FfiDeliveryStatus.PUBLISHED
+                                }
 
-                                MessageDeliveryStatus.UNPUBLISHED ->
+                                MessageDeliveryStatus.UNPUBLISHED -> {
                                     FfiDeliveryStatus.UNPUBLISHED
+                                }
 
-                                MessageDeliveryStatus.FAILED ->
+                                MessageDeliveryStatus.FAILED -> {
                                     FfiDeliveryStatus.FAILED
+                                }
 
-                                else -> null
+                                else -> {
+                                    null
+                                }
                             },
                         direction = null,
                         contentTypes = null,

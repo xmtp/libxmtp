@@ -7,7 +7,7 @@ use diesel::prelude::*;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::types::{
-    Cursor, OriginatorId, OrphanedEnvelope, OrphanedEnvelopeBuilder, SequenceId,
+    Cursor, GroupId, OriginatorId, OrphanedEnvelope, OrphanedEnvelopeBuilder, SequenceId,
 };
 
 mod types;
@@ -30,7 +30,7 @@ mod types;
 pub struct Icebox {
     pub originator_id: i64,
     pub sequence_id: i64,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub envelope_payload: Vec<u8>,
 }
 
@@ -125,7 +125,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         &self,
         query_str: String,
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             diesel::sql_query(query_str)
                 .load_iter::<IceboxWithDep, _>(conn)?
                 .process_results(|iter| {
@@ -133,7 +133,7 @@ impl<C: ConnectionExt> DbConnection<C> {
                     // to optimize, we load a *const [u8] into `IceboxWithDep` for group_id and
                     // envelope_payload, cloning it only once in `fold_with`.
                     // as long as we are in the scope of `load_iter` (attached to the lifetime of
-                    // `conn` or `&mut SqliteConnection` within `raw_query_read`) the lifetime of group_id and
+                    // `conn` or `&mut SqliteConnection` within `raw_query`) the lifetime of group_id and
                     // envelope_payload is safe.
                     // the other raw pointers are safe as long as they aren't accessed once
                     // iteration ends, which is guaranteed by the end of grouping operation and
@@ -154,8 +154,10 @@ impl<C: ConnectionExt> DbConnection<C> {
                                         row.sequence_id as SequenceId,
                                         row.originator_id as OriginatorId,
                                     ))
-                                    .payload(payload)
-                                    .group_id(group_id);
+                                    .payload(payload);
+                                if let Ok(gid) = GroupId::try_from(group_id) {
+                                    builder.group_id(gid);
+                                }
                                 builder
                             },
                             |mut acc, _key, row| {
@@ -302,7 +304,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         if orphans.is_empty() {
             return Ok(0);
         }
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let mut total = 0;
 
@@ -332,7 +334,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         use super::refresh_state::EntityKind;
         use super::schema::{icebox, refresh_state};
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::delete(
                 icebox::table.filter(diesel::dsl::exists(
                     refresh_state::table
@@ -358,6 +360,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_common::Generate;
     use xmtp_proto::types::Cursor;
 
     use crate::Store;
@@ -366,10 +369,10 @@ mod tests {
 
     use super::*;
 
-    fn create_test_group(conn: &impl crate::DbQuery) -> Vec<u8> {
-        let group_id = xmtp_common::rand_vec::<24>();
+    fn create_test_group(conn: &impl crate::DbQuery) -> GroupId {
+        let group_id = GroupId::generate();
         let group = StoredGroup {
-            id: group_id.clone(),
+            id: group_id,
             created_at_ns: 0,
             membership_state: GroupMembershipState::Allowed,
             installations_last_checked: 0,
@@ -394,20 +397,20 @@ mod tests {
         group_id
     }
 
-    fn iced(group_id: Vec<u8>) -> Vec<OrphanedEnvelope> {
+    fn iced(group_id: GroupId) -> Vec<OrphanedEnvelope> {
         vec![
             OrphanedEnvelope::builder()
                 .cursor(Cursor::new(41, 1u32))
                 .depending_on(Cursor::new(40, 1u32))
                 .payload(vec![1, 2, 3])
-                .group_id(group_id.clone())
+                .group_id(group_id)
                 .build()
                 .unwrap(),
             OrphanedEnvelope::builder()
                 .cursor(Cursor::new(40, 1u32))
                 .depending_on(Cursor::new(39, 2u32))
                 .payload(vec![1, 2, 3])
-                .group_id(group_id.clone())
+                .group_id(group_id)
                 .build()
                 .unwrap(),
             OrphanedEnvelope::builder()
@@ -454,7 +457,7 @@ mod tests {
         with_connection(|conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the originator
-            let mut orphans = iced(group_id.clone());
+            let mut orphans = iced(group_id);
             // Change envelope (39, 2) to (39, 1), breaking the chain
             orphans[2] = OrphanedEnvelope::builder()
                 .cursor(Cursor::new(39, 1u32))
@@ -487,7 +490,7 @@ mod tests {
         with_connection(|conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the sequence_id to a non-conflicting value
-            let mut orphans = iced(group_id.clone());
+            let mut orphans = iced(group_id);
             // Change envelope (39, 2) to (100, 2), breaking the chain
             orphans[2] = OrphanedEnvelope::builder()
                 .cursor(Cursor::new(100, 2u32))
@@ -526,7 +529,7 @@ mod tests {
                     .cursor(Cursor::new(1, 100u32))
                     .depending_on(Cursor::new(10, 0u32))
                     .payload(vec![1; 5])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
@@ -567,14 +570,14 @@ mod tests {
                     .cursor(Cursor::new(1, 100u32))
                     .depending_on(Cursor::new(3, 0u32))
                     .payload(vec![1])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(2, 100u32))
                     .depending_on(Cursor::new(3, 0u32))
                     .payload(vec![1])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
@@ -678,35 +681,35 @@ mod tests {
                     .cursor(Cursor::new(10, 1u32))
                     .depending_on(Cursor::new(9, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(20, 1u32))
                     .depending_on(Cursor::new(19, 1u32))
                     .payload(vec![4, 5, 6])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(30, 1u32))
                     .depending_on(Cursor::new(29, 1u32))
                     .payload(vec![7, 8, 9])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(10, 10u32))
                     .depending_on(Cursor::new(1, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 20,
                 originator_id: 1,
@@ -720,9 +723,8 @@ mod tests {
             );
 
             // Verify entry 30 remains
-            let mut remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let mut remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             remaining.sort_by_key(|e| e.originator_id);
 
             assert_eq!(remaining.len(), 2, "Should have 2 entries remaining");
@@ -746,21 +748,21 @@ mod tests {
                     .cursor(Cursor::new(50, 1u32))
                     .depending_on(Cursor::new(49, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(60, 1u32))
                     .depending_on(Cursor::new(59, 1u32))
                     .payload(vec![4, 5, 6])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 40,
                 originator_id: 1,
@@ -770,9 +772,8 @@ mod tests {
             let deleted = conn.prune_icebox()?;
             assert_eq!(deleted, 0, "Should not delete any entries");
 
-            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 2);
         })
     }
@@ -790,14 +791,14 @@ mod tests {
                     .cursor(Cursor::new(10, 1u32))
                     .depending_on(Cursor::new(9, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::Welcome,
                 sequence_id: 100,
                 originator_id: 1,
@@ -807,9 +808,8 @@ mod tests {
             let deleted = conn.prune_icebox()?;
             assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
 
-            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 1);
         })
     }
@@ -827,14 +827,14 @@ mod tests {
                     .cursor(Cursor::new(10, 1u32))
                     .depending_on(Cursor::new(9, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             use crate::schema::icebox_dependencies::dsl as dep_dsl;
-            let deps: Vec<IceboxDependency> = conn.raw_query_read(|conn| {
+            let deps: Vec<IceboxDependency> = conn.raw_query(|conn| {
                 icebox_dependencies::table
                     .filter(dep_dsl::envelope_originator_id.eq(1))
                     .filter(dep_dsl::envelope_sequence_id.eq(10))
@@ -843,7 +843,7 @@ mod tests {
             assert_eq!(deps.len(), 1);
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 10,
                 originator_id: 1,
@@ -853,12 +853,11 @@ mod tests {
             let deleted = conn.prune_icebox()?;
             assert_eq!(deleted, 1, "Should delete the icebox entry");
 
-            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 0);
 
-            let deps: Vec<IceboxDependency> = conn.raw_query_read(|conn| {
+            let deps: Vec<IceboxDependency> = conn.raw_query(|conn| {
                 icebox_dependencies::table
                     .filter(dep_dsl::envelope_originator_id.eq(1))
                     .filter(dep_dsl::envelope_sequence_id.eq(10))

@@ -14,6 +14,7 @@ mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_send_message_opts;
+mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 
@@ -30,6 +31,7 @@ use prost::Message;
 use tls_codec::Deserialize;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_configuration::Originators;
+use xmtp_db::ConnectionExt;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_id::InboxOwner;
@@ -63,7 +65,6 @@ use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use rstest::*;
-use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
 use xmtp_common::time::now_ns;
 use xmtp_common::{assert_err, assert_ok};
@@ -168,7 +169,7 @@ async fn test_send_message() {
     let messages = alix
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await?;
 
     group.sync().await?;
@@ -323,7 +324,7 @@ async fn test_add_member_conflict() {
 
     let amal_uncommitted_intents = amal_db
         .find_group_intents(
-            amal_group.group_id.clone(),
+            amal_group.group_id,
             Some(vec![
                 IntentState::ToPublish,
                 IntentState::Published,
@@ -335,11 +336,7 @@ async fn test_add_member_conflict() {
     assert_eq!(amal_uncommitted_intents.len(), 0);
 
     let bola_failed_intents = bola_db
-        .find_group_intents(
-            bola_group.group_id.clone(),
-            Some(vec![IntentState::Error]),
-            None,
-        )
+        .find_group_intents(bola_group.group_id, Some(vec![IntentState::Error]), None)
         .unwrap();
     // Bola's attempted add should be deleted, since it will have been a no-op on the second try
     assert_eq!(bola_failed_intents.len(), 0);
@@ -437,7 +434,7 @@ async fn test_dm_stitching() {
     let alix_groups = alix
         .context
         .db()
-        .raw_query_read(|conn| {
+        .raw_query(|conn| {
             groups::table
                 .order(groups::created_at_ns.desc())
                 .load::<StoredGroup>(conn)
@@ -496,7 +493,7 @@ async fn test_add_inbox() {
     let messages = client
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group_id), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 1);
@@ -575,7 +572,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_bola_1 = bola_1
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap();
 
@@ -586,7 +583,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     let messages_alix = alix
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap();
 
@@ -1064,7 +1061,7 @@ async fn test_remove_inbox() {
     let messages = client_1
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group_id), None)
         .await
         .expect("read topic");
 
@@ -1299,29 +1296,16 @@ async fn test_self_removal() {
         .membership_state;
     assert_eq!(amal_group_member_state, GroupMembershipState::Allowed);
 
-    // Check Bola's other installations
+    // Check Bola's other installation. Note: with the event-driven self-remove,
+    // the super-admin (Amal) removes Bola promptly via the TaskRunner rather than
+    // after a fixed poll interval, so Bola_i2 may observe either the transient
+    // PendingRemove state or the already-removed state depending on timing. We
+    // therefore assert the eventual, deterministic outcome (Bola removed) rather
+    // than the transient pending window.
     bola_i2.sync_welcomes().await.unwrap();
     let bola_i2_groups = bola_i2.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_i2_groups.len(), 1);
     let bola_i2_group = bola_i2_groups.first().unwrap();
-    assert_eq!(bola_i2_group.members().await.unwrap().len(), 2);
-    bola_i2_group.sync().await.unwrap();
-
-    let bola_i2_group_pending_leave_users = bola_i2
-        .db()
-        .get_pending_remove_users(&bola_i2_group.group_id)
-        .unwrap();
-    // Bola's inboxId should be in the pending-remove list
-    assert!(bola_i2_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
-    // The pending-remove list should only contain one item
-    assert_eq!(bola_i2_group_pending_leave_users.len(), 1);
-    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
-
-    // group's state should be set to PendingRemove on Bola's other installation
-    assert_eq!(
-        bola_i2_group_state_in_db.unwrap().membership_state,
-        GroupMembershipState::PendingRemove
-    );
 
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -1829,10 +1813,14 @@ async fn test_clean_pending_remove_list_on_member_removal() {
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_super_admin_promotion_marks_pending_leave_requests() {
     // Test that when a user is promoted to super_admin and there are pending remove users,
-    // the group is marked as having pending leave requests
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
+    // the group is marked as having pending leave requests.
+    //
+    // Workers are disabled so the TaskRunner doesn't immediately process the
+    // removal (which would clear the flag) — this test asserts the transient
+    // flag-marking on promotion, not the eventual removal.
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    tester!(caro, disable_workers);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -1892,10 +1880,13 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_super_admin_demotion_clears_pending_leave_requests() {
-    // Test that when a user is demoted from super_admin, the pending leave request flag is cleared
-    tester!(amal);
-    tester!(bola);
-    tester!(caro);
+    // Test that when a user is demoted from super_admin, the pending leave request flag is cleared.
+    //
+    // Workers are disabled so the TaskRunner doesn't process the removal and
+    // clear the flag on its own — this isolates the demotion-clears-flag path.
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    tester!(caro, disable_workers);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -2157,7 +2148,7 @@ async fn test_key_update() {
     let messages = client
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -2290,7 +2281,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
 
     let bola_group = TestMlsGroup::new(
         bola.context.clone(),
-        amal_group.group_id.clone(),
+        amal_group.group_id,
         amal_group.dm_id.clone(),
         amal_group.conversation_type,
         amal_group.created_at_ns,
@@ -3102,7 +3093,7 @@ async fn test_staged_welcome() {
     // Bola gets the group id. This will be needed to fetch the group from
     // the database.
     let bola_group = bola_groups.first().unwrap();
-    let bola_group_id = bola_group.group_id.clone();
+    let bola_group_id = bola_group.group_id;
 
     // Bola fetches group from the database
     let bola_fetched_group = bola.group(&bola_group_id).unwrap();
@@ -3429,14 +3420,14 @@ async fn process_messages_abort_on_retryable_error() {
     let bo_messages = bo
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&bo_group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(bo_group.group_id), None)
         .await
         .unwrap()
         .group_messages()
         .unwrap();
 
     let db = bo.context.store().db();
-    db.raw_query_write(|c| {
+    db.raw_query(|c| {
         c.batch_execute("BEGIN EXCLUSIVE").unwrap();
         Ok::<_, diesel::result::Error>(())
     })
@@ -3472,7 +3463,7 @@ async fn skip_already_processed_messages() {
     let mut bo_messages_from_api = bo
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&bo_group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(bo_group.group_id), None)
         .await
         .unwrap()
         .group_messages()
@@ -3492,7 +3483,7 @@ async fn skip_already_processed_messages() {
     // get new, unprocessed messages
     let new_message = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id)
+        .query_group_messages(bo_group.group_id)
         .await
         .unwrap();
     bo_messages_from_api.extend(new_message);
@@ -3526,11 +3517,7 @@ async fn skip_already_processed_intents() {
     let intent = bo_client
         .context
         .db()
-        .find_group_intents(
-            bo_group.clone().group_id,
-            Some(vec![IntentState::Processed]),
-            None,
-        )
+        .find_group_intents(bo_group.group_id, Some(vec![IntentState::Processed]), None)
         .unwrap();
     assert_eq!(intent.len(), 2); //key_update and send_message
 
@@ -3581,7 +3568,7 @@ async fn test_parallel_syncs() {
         .context
         .api()
         .query_at(
-            TopicKind::GroupMessagesV1.create(&alix1_group.group_id),
+            TopicKind::GroupMessagesV1.create(alix1_group.group_id),
             None,
         )
         .await
@@ -3691,7 +3678,7 @@ async fn add_missing_installs_reentrancy() {
         .context
         .api()
         .query_at(
-            TopicKind::GroupMessagesV1.create(&alix1_group.group_id),
+            TopicKind::GroupMessagesV1.create(alix1_group.group_id),
             None,
         )
         .await
@@ -3746,7 +3733,7 @@ async fn respect_allow_epoch_increment() {
     let messages = client
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
         .await
         .unwrap()
         .group_messages()
@@ -4876,7 +4863,7 @@ async fn can_stream_out_of_order_without_forking() {
     let messages = client_b
         .context
         .api()
-        .query_at(TopicKind::GroupMessagesV1.create(&group_b.group_id), None)
+        .query_at(TopicKind::GroupMessagesV1.create(group_b.group_id), None)
         .await
         .unwrap()
         .group_messages()
@@ -4905,7 +4892,7 @@ async fn can_stream_out_of_order_without_forking() {
 }
 
 #[xmtp_common::test(flavor = "multi_thread")]
-async fn non_retryable_error_increments_cursor() {
+async fn own_message_without_intent_skips_and_increments_cursor() {
     let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
     // Create a group
@@ -4914,9 +4901,14 @@ async fn non_retryable_error_increments_cursor() {
 
     let storage = alice.context.mls_storage();
 
-    // create a fake message with an invalid body
-    // an envelope with an empty content is a non-retryable error.
-    // since we are also trying to decrypt our own message, this is also non-retryable.
+    // Create a message authored by this client, then feed it back through
+    // processing as if the delivery service fanned it out and the matching
+    // published intent were already gone. The own sender ratchet is
+    // encryption-only, so the content is undecryptable — openmls surfaces
+    // this as `ProcessedMessageContent::OwnPrivateMessage` (older versions
+    // produced an opaque decryption error) and processing must skip the
+    // message while still advancing the cursor past it. The payload
+    // contents never matter here; decryption is skipped before parsing.
     let invalid_payload_message = PlaintextEnvelope { content: None };
     let invalid_message_bytes = invalid_payload_message.encode_to_vec();
     let message = group
@@ -4943,7 +4935,7 @@ async fn non_retryable_error_increments_cursor() {
     let message = xmtp_proto::types::GroupMessage {
         cursor: new_cursor,
         created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()),
-        group_id: group.group_id.clone().into(),
+        group_id: group.group_id,
         message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice())
             .unwrap()
             .try_into_protocol_message()
@@ -4955,13 +4947,12 @@ async fn non_retryable_error_increments_cursor() {
     };
 
     let res = group.process_message(&message, true).await;
-    assert!(res.is_err());
-    assert!(!res.unwrap_err().is_retryable());
+    assert!(res.is_ok());
     let last_cursor = alice
         .context
         .db()
         .get_last_cursor_for_originator(
-            &group.group_id,
+            group.group_id,
             EntityKind::ApplicationMessage,
             Originators::MLS_COMMITS,
         )

@@ -19,6 +19,7 @@ use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
+use xmtp_proto::types::GroupId;
 #[derive(Default)]
 struct ImportContext {
     group_timestamps: HashMap<Vec<u8>, Option<i64>>,
@@ -31,14 +32,13 @@ impl ImportContext {
 
         // We want to update the group timestamps to either be what they were before the import,
         // or what they are in the archive group field.
+        // Propagate update errors to the supervisor rather than swallowing them.
         for (group_id, timestamp) in &self.group_timestamps {
-            if let Err(err) = context.db().raw_query_write(|conn| {
+            context.db().raw_query(|conn| {
                 xmtp_db::diesel::update(dsl::groups.find(group_id))
                     .set(dsl::last_message_ns.eq(*timestamp))
                     .execute(conn)
-            }) {
-                tracing::warn!("Unable to update last_message_ns for group {group_id:?}: {err:?}");
-            }
+            })?;
         }
 
         Ok(())
@@ -53,9 +53,8 @@ pub async fn insert_importer(
 
     while let Some(element) = importer.next().await {
         let element = element?;
-        if let Err(err) = insert(element, context, &mut import_ctx) {
-            tracing::warn!("Unable to insert record: {err:?}");
-        };
+        // Propagate insert failures to the supervisor rather than skipping the record.
+        insert(element, context, &mut import_ctx)?;
     }
 
     import_ctx.post_import(context)?;
@@ -78,7 +77,12 @@ fn insert(
             context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(existing_group)) = context.db().find_group(&save.id) {
+            // Propagate a lookup error (incl. a dropped pool); only a genuine
+            // "not found" falls through to restore the group.
+            if let Some(existing_group) = context
+                .db()
+                .find_group(&GroupId::try_from(save.id.as_slice())?)?
+            {
                 let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
                     (Some(e), Some(s)) => Some(e.max(s)),
                     (None, Some(s)) => Some(s),
@@ -88,7 +92,7 @@ fn insert(
 
                 import_context
                     .group_timestamps
-                    .insert(existing_group.id, timestamp);
+                    .insert(existing_group.id.to_vec(), timestamp);
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -365,7 +369,7 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 0);
 
@@ -380,7 +384,7 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -420,21 +424,21 @@ mod tests {
         let mut consent_records: Vec<StoredConsentRecord> = alix
             .context
             .db()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop()?;
 
         let mut groups: Vec<StoredGroup> = alix
             .context
             .db()
-            .raw_query_read(|conn| groups::table.load(conn))?;
+            .raw_query(|conn| groups::table.load(conn))?;
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
         let old_messages: Vec<StoredGroupMessage> = alix
             .context
             .db()
-            .raw_query_read(|conn| group_messages::table.load(conn))?;
+            .raw_query(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 4);
 
         let opts = ArchiveOptions {
@@ -460,7 +464,7 @@ mod tests {
         let consent_records: Vec<StoredConsentRecord> = alix2
             .context
             .db()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
@@ -472,12 +476,12 @@ mod tests {
         let consent_records: Vec<StoredConsentRecord> = alix2
             .context
             .db()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
+        let groups: Vec<StoredGroup> = alix2.context.db().raw_query(|conn| {
             groups::table
                 .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
                 .load(conn)
@@ -486,7 +490,7 @@ mod tests {
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query_read(|conn| {
+        let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query(|conn| {
             group_messages::table
                 .filter(group_messages::group_id.eq(&groups[0].id))
                 .load(conn)
@@ -557,5 +561,101 @@ mod tests {
 
         let result = insert_importer(&mut importer, &alix.context).await;
         assert!(result.is_ok());
+    }
+
+    /// Migrated (post-bootstrap) groups must survive the backup
+    /// round-trip. The bootstrap commit strips the legacy
+    /// `ImmutableMetadata` / `GroupMutableMetadata` extensions, and the
+    /// exporter used to read only those — so every migrated group was
+    /// silently omitted from the archive (`filter_map` + `?`), i.e.
+    /// conversation loss on restore. The exporter is now
+    /// capability-aware and reads the AppData dictionary on migrated
+    /// groups.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_archive_includes_migrated_groups() {
+        use crate::groups::EnableProposalsOptions;
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+
+        let alix_group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        alix_group.send_message(b"hi", Default::default()).await?;
+
+        // Migrate, then set metadata POST-migration so the exported
+        // values can only have come from the AppData dict.
+        alix_group
+            .enable_proposals(EnableProposalsOptions::test_default())
+            .await?;
+        alix_group
+            .update_group_name("post-migration name".to_string())
+            .await?;
+        alix_group
+            .update_group_description("post-migration description".to_string())
+            .await?;
+        alix_group
+            .update_group_image_url_square("https://example.com/post-migration.png".to_string())
+            .await?;
+
+        // A second, unmigrated group in the same archive pins the
+        // mixed legacy+migrated export: both read paths must produce
+        // restorable groups side by side.
+        let legacy_group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        legacy_group
+            .update_group_name("legacy name".to_string())
+            .await?;
+
+        let key = vec![7; 32];
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
+            exclude_disappearing_messages: false,
+        };
+        let export = {
+            let mut file = vec![];
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            exporter.read_to_end(&mut file).await?;
+            file
+        };
+
+        // Fresh installation of the same inbox restores from the
+        // archive only (workers disabled, no welcome sync).
+        tester!(alix2, from: alix);
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let restored = alix2.db().find_group(&alix_group.group_id)?;
+        assert!(
+            restored.is_some(),
+            "migrated group missing from restored archive — the exporter \
+             dropped it (pre-fix behavior: legacy-extension read on a \
+             migrated group)"
+        );
+
+        // Presence isn't enough: the metadata written after migration
+        // must round-trip through the archive, or per-field loss in
+        // the exporter's dict read would go unnoticed.
+        let restored_group = alix2.group(&alix_group.group_id)?;
+        assert_eq!(restored_group.group_name()?, "post-migration name");
+        assert_eq!(
+            restored_group.group_description()?,
+            "post-migration description"
+        );
+        assert_eq!(
+            restored_group.group_image_url_square()?,
+            "https://example.com/post-migration.png"
+        );
+
+        // The legacy group in the same archive restores alongside it.
+        let restored_legacy = alix2.group(&legacy_group.group_id)?;
+        assert_eq!(restored_legacy.group_name()?, "legacy name");
     }
 }

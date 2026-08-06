@@ -1,5 +1,9 @@
+pub mod app_data;
 pub mod group;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
+pub mod inbox_id;
+pub mod invite;
+pub mod mls_ext;
 pub mod tls_map;
 pub mod tls_set;

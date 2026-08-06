@@ -6,6 +6,7 @@ use crate::message::{
     FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
 };
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
+use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
@@ -63,7 +64,10 @@ use xmtp_id::{
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
-use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::groups::{
+    ConversationDebugInfo, GroupMembershipCapabilities, InboxCapabilities,
+    InstallationCapabilities, MlsExtensionType,
+};
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
@@ -73,6 +77,7 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls::subscriptions::router_callbacks::stream_conversation_messages_with_callback_dispatch;
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -134,6 +139,7 @@ impl XmtpApiClient {
 /// and assumes `host` is set to the correct
 /// d14n backend url.
 #[uniffi::export(async_runtime = "tokio")]
+#[tracing::instrument(level = "debug", skip_all, fields(v3_host, ?gateway_host, app_version))]
 pub async fn connect_to_backend(
     v3_host: String,
     gateway_host: Option<String>,
@@ -143,6 +149,11 @@ pub async fn connect_to_backend(
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, FfiError> {
     init_logger();
+    // Install the rustls crypto provider explicitly. On Apple platforms the `#[ctor::ctor(unsafe)]`
+    // in `xmtp_cryptography` never fires (the constructor link section is unsupported), so
+    // relying on it would leave reqwest without a provider and panic on the history-sync HTTP
+    // path. Idempotent, so it is safe to call on every entry point. See issue #3846.
+    xmtp_cryptography::install_crypto_provider();
 
     let client_mode = client_mode.unwrap_or_default();
 
@@ -181,10 +192,42 @@ pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
     api.wrapper.api_client.is_connected().await
 }
 
+/// Take the streaming wire off the network — the "app entered background" half
+/// of the lifecycle pair. Kept subscriptions and their wire positions survive;
+/// nothing reconnects until [`resume_streams`]. A no-op when nothing is
+/// streaming (the bidi path is off, or no stream was ever opened), so it is
+/// always safe to call.
+///
+/// Process-scoped: one streaming wire is shared across every client in the
+/// process, so this is a free function, not a client method.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn suspend_streams() -> Result<(), FfiError> {
+    xmtp_mls::subscriptions::router_callbacks::suspend_bidi_streams().await?;
+    Ok(())
+}
+
+/// Bring the streaming wire back after [`suspend_streams`] — the "app entered
+/// foreground" half. **Fire-and-forget**: it enqueues the resume and returns
+/// immediately; the reconnect (and its catch-up wave) proceeds in the
+/// background, unbounded while the network is down. Do **not** treat its return
+/// as "synced" — replayed messages are still arriving via the stream callbacks
+/// behind it. Let those callbacks update the UI as messages land, and use
+/// [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable "I am
+/// current now". A no-op when nothing is streaming.
+///
+/// Process-scoped: one streaming wire is shared across every client in the
+/// process, so this is a free function, not a client method.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn resume_streams() -> Result<(), FfiError> {
+    xmtp_mls::subscriptions::router_callbacks::resume_bidi_streams().await?;
+    Ok(())
+}
+
 /**
  * Static Get the inbox state for each `inbox_id`.
  */
 #[uniffi::export(async_runtime = "tokio")]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
@@ -241,16 +284,18 @@ impl TryFrom<GroupMessageMetadata> for FfiMessageMetadata {
 }
 
 #[uniffi::export(async_runtime = "tokio")]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn get_newest_message_metadata(
     api: Arc<XmtpApiClient>,
     group_ids: Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, FfiError> {
-    let group_id_refs: Vec<&[u8]> = group_ids.iter().map(|id| id.as_slice()).collect();
+    let group_ids: Vec<xmtp_proto::types::GroupId> = group_ids
+        .into_iter()
+        .map(xmtp_proto::types::GroupId::try_from)
+        .collect::<Result<_, _>>()
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
-    let metadata = api
-        .wrapper
-        .get_newest_message_metadata(group_id_refs)
-        .await?;
+    let metadata = api.wrapper.get_newest_message_metadata(&group_ids).await?;
 
     metadata
         .into_iter()
@@ -262,6 +307,7 @@ pub async fn get_newest_message_metadata(
  * Static revoke a list of installations
  */
 #[uniffi::export]
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn revoke_installations(
     api: Arc<XmtpApiClient>,
     recovery_identifier: FfiIdentifier,
@@ -283,6 +329,7 @@ pub fn revoke_installations(
  * Static apply a signature request
  */
 #[uniffi::export(async_runtime = "tokio")]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn apply_signature_request(
     api: Arc<XmtpApiClient>,
     signature_request: Arc<FfiSignatureRequest>,
@@ -302,6 +349,11 @@ pub struct DbOptions {
     pub encryption_key: Option<Vec<u8>>,
     pub max_db_pool_size: Option<u32>,
     pub min_db_pool_size: Option<u32>,
+    /// When true, use a single DB connection instead of a pool (one file
+    /// descriptor). Pool-size options are ignored. Defaults to unset so existing
+    /// foreign callers that construct `DbOptions` without this field still compile.
+    #[uniffi(default = None)]
+    pub use_single_connection: Option<bool>,
 }
 
 impl DbOptions {
@@ -310,12 +362,14 @@ impl DbOptions {
         encryption_key: Option<Vec<u8>>,
         max_db_pool_size: Option<u32>,
         min_db_pool_size: Option<u32>,
+        use_single_connection: Option<bool>,
     ) -> Self {
         Self {
             db,
             encryption_key,
             max_db_pool_size,
             min_db_pool_size,
+            use_single_connection,
         }
     }
 }
@@ -341,9 +395,9 @@ impl DbOptions {
 /// ```
 #[allow(clippy::too_many_arguments)]
 #[uniffi::export(async_runtime = "tokio")]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
-    sync_api: Arc<XmtpApiClient>,
     db: DbOptions,
     inbox_id: &InboxId,
     account_identifier: FfiIdentifier,
@@ -352,15 +406,20 @@ pub async fn create_client(
     device_sync_mode: Option<FfiDeviceSyncMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    worker_config: Option<FfiWorkerConfig>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
+    // See `connect_to_backend` — ensure the rustls provider is installed before the
+    // device-sync worker builds its history-server HTTP client. Idempotent. See issue #3846.
+    xmtp_cryptography::install_crypto_provider();
 
     let DbOptions {
         db,
         encryption_key,
         max_db_pool_size,
         min_db_pool_size,
+        use_single_connection,
     } = db;
 
     log::info!(
@@ -370,30 +429,39 @@ pub async fn create_client(
         encryption_key.as_ref().map(|k| k.len())
     );
 
-    let db = if let Some(path) = db {
+    let single = use_single_connection.unwrap_or(false);
+
+    let base = if let Some(path) = db {
         NativeDb::builder().persistent(path)
     } else {
         NativeDb::builder().ephemeral()
     };
-    let db = if let Some(max_size) = max_db_pool_size {
-        db.max_pool_size(max_size)
-    } else {
-        db.max_pool_size(MAX_DB_POOL_SIZE)
-    };
 
-    let db = if let Some(min_size) = min_db_pool_size {
-        db.min_pool_size(min_size)
+    let db = if single {
+        if max_db_pool_size.is_some() || min_db_pool_size.is_some() {
+            log::info!("use_single_connection is set; ignoring max/min db pool size options");
+        }
+        let b = base.single_connection();
+        if let Some(key) = encryption_key {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            b.key(key).build()
+        } else {
+            b.build_unencrypted()
+        }
     } else {
-        db.min_pool_size(MIN_DB_POOL_SIZE)
-    };
-
-    let db = if let Some(key) = encryption_key {
-        let key: EncryptionKey = key
-            .try_into()
-            .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-        db.key(key).build()
-    } else {
-        db.build_unencrypted()
+        let b = base
+            .max_pool_size(max_db_pool_size.unwrap_or(MAX_DB_POOL_SIZE))
+            .min_pool_size(min_db_pool_size.unwrap_or(MIN_DB_POOL_SIZE));
+        if let Some(key) = encryption_key {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            b.key(key).build()
+        } else {
+            b.build_unencrypted()
+        }
     }?;
 
     let store = EncryptedMessageStore::new(db)?;
@@ -407,17 +475,14 @@ pub async fn create_client(
     );
 
     let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).client_bundle;
-    let sync_api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(sync_api).client_bundle;
     let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
     let mut backend = MessageBackendBuilder::default();
     backend.cursor_store(cursor_store);
-    let api_client = backend.clone().from_bundle(api_client)?;
-    let sync_api_client = backend.from_bundle(sync_api_client)?;
+    let api_client = backend.from_bundle(api_client)?;
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
-        .api_clients(api_client, sync_api_client)
+        .api_client(api_client)
         .enable_api_stats()?
-        .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .store(store);
@@ -428,6 +493,10 @@ pub async fn create_client(
 
     if let Some(fork_recovery_opts) = fork_recovery_opts {
         builder = builder.fork_recovery_opts(fork_recovery_opts.into());
+    }
+
+    if let Some(worker_config) = worker_config {
+        builder = builder.worker_config(worker_config.into());
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
@@ -448,6 +517,7 @@ pub async fn create_client(
 
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
     account_identifier: FfiIdentifier,
@@ -482,6 +552,7 @@ pub struct FfiPasskeySignature {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSignatureRequest {
     // Signature that's signed by EOA wallet
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), FfiError> {
         let mut inner = self.inner.lock().await;
         inner
@@ -494,6 +565,7 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_passkey_signature(
         &self,
         signature: FfiPasskeySignature,
@@ -515,6 +587,7 @@ impl FfiSignatureRequest {
     }
 
     // Signature that's signed by smart contract wallet
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_scw_signature(
         &self,
         signature_bytes: Vec<u8>,
@@ -542,11 +615,13 @@ impl FfiSignatureRequest {
         self.inner.lock().await.is_ready()
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn signature_text(&self) -> Result<String, FfiError> {
         Ok(self.inner.lock().await.signature_text())
     }
 
     /// missing signatures that are from `MemberKind::Address`
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn missing_address_signatures(&self) -> Result<Vec<String>, FfiError> {
         let inner = self.inner.lock().await;
         Ok(inner
@@ -594,23 +669,29 @@ impl FfiXmtpClient {
         self.inner_client.clear_stats()
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn inbox_id(&self) -> InboxId {
         self.inner_client.inbox_id().to_string()
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn conversations(&self) -> Arc<FfiConversations> {
         Arc::new(FfiConversations {
             inner_client: self.inner_client.clone(),
         })
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, FfiError> {
+        let conversation_id = xmtp_proto::types::GroupId::try_from(conversation_id)
+            .map_err(|e| FfiError::generic(e.to_string()))?;
         self.inner_client
             .stitched_group(&conversation_id)
             .map(Into::into)
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn dm_conversation(&self, target_inbox_id: String) -> Result<FfiConversation, FfiError> {
         let convo = self
             .inner_client
@@ -618,21 +699,25 @@ impl FfiXmtpClient {
         Ok(convo.into())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, FfiError> {
         let message = self.inner_client.message(message_id)?;
         Ok(message.into())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn enriched_message(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, FfiError> {
         let message = self.inner_client.message_v2(message_id)?;
         Ok(message.into())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, FfiError> {
         let deleted_count = self.inner_client.delete_message(message_id)?;
         Ok(deleted_count as u32)
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn can_message(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
@@ -655,18 +740,60 @@ impl FfiXmtpClient {
         Ok(results)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn installation_id(&self) -> Vec<u8> {
         self.inner_client.installation_public_key().to_vec()
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn release_db_connection(&self) -> Result<(), FfiError> {
         Ok(self.inner_client.release_db_connection()?)
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn db_reconnect(&self) -> Result<(), FfiError> {
         Ok(self.inner_client.reconnect_db()?)
     }
 
+    /// Cleanly shut down this client: cancel in-flight workers and detached
+    /// streams, then release the DB connection. Idempotent — a second call
+    /// resolves to `Ok`.
+    ///
+    /// `await` this before deleting the SQLite file or dropping the client
+    /// reference to avoid late log spew from detached workers/streams firing
+    /// against a dead DB.
+    ///
+    /// Named `shutdown` rather than `close` because uniffi reserves `close`
+    /// on every exported object for the Kotlin `Disposable` handle-disposal
+    /// method, which would conflict with this one.
+    #[tracing::instrument(skip_all)]
+    pub async fn shutdown(&self) -> Result<(), FfiError> {
+        Ok(self.inner_client.close().await?)
+    }
+
+    /// Bring the local store current with the server, then stop — for background
+    /// fetch and cold start, where a live stream would be wasted because the
+    /// process is about to be suspended. Pending welcomes are joined and every
+    /// conversation's missed messages are replayed from durable cursors and
+    /// persisted, then the wire closes.
+    ///
+    /// `opts.timeout_ms` bounds the whole call (`None` = unbounded). On the
+    /// deadline the returned summary has `completed = false` and its counts are
+    /// the partial total already persisted before the cut (the bidi path; the
+    /// legacy fallback reports zero). A later call resumes from durable state, so
+    /// cutting it short is always safe.
+    #[tracing::instrument(skip_all)]
+    pub async fn catch_up_to_live(
+        &self,
+        opts: Option<FfiCatchUpOptions>,
+    ) -> Result<FfiCatchUpSummary, FfiError> {
+        let timeout = opts
+            .and_then(|o| o.timeout_ms)
+            .map(std::time::Duration::from_millis);
+        Ok(self.inner_client.catch_up_to_live(timeout).await?.into())
+    }
+
+    #[tracing::instrument(skip_all)]
     pub async fn find_inbox_id(
         &self,
         identifier: FfiIdentifier,
@@ -685,6 +812,7 @@ impl FfiXmtpClient {
      * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
      * Otherwise, the state will be read from the local database.
      */
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<FfiInboxState, FfiError> {
         let state = self.inner_client.inbox_state(refresh_from_network).await?;
         let inbox_id = state.inbox_id();
@@ -702,6 +830,7 @@ impl FfiXmtpClient {
     }
 
     // Returns a HashMap of installation_id to FfiKeyPackageStatus
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn get_key_package_statuses_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -736,6 +865,7 @@ impl FfiXmtpClient {
      * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
      * Otherwise, the state will be read from the local database.
      */
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn addresses_from_inbox_id(
         &self,
         refresh_from_network: bool,
@@ -751,6 +881,7 @@ impl FfiXmtpClient {
         Ok(state.into_iter().map(Into::into).collect())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn get_latest_inbox_state(
         &self,
         inbox_id: String,
@@ -773,6 +904,7 @@ impl FfiXmtpClient {
         Ok(ffi_state)
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(refresh_from_network))]
     pub async fn fetch_inbox_updates_count(
         &self,
         refresh_from_network: bool,
@@ -785,6 +917,7 @@ impl FfiXmtpClient {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn fetch_own_inbox_updates_count(
         &self,
         refresh_from_network: bool,
@@ -795,6 +928,7 @@ impl FfiXmtpClient {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn set_consent_states(&self, records: Vec<FfiConsent>) -> Result<(), FfiError> {
         let inner = self.inner_client.as_ref();
         let stored_records: Vec<StoredConsentRecord> =
@@ -804,6 +938,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_consent_state(
         &self,
         entity_type: FfiConsentEntityType,
@@ -816,12 +951,14 @@ impl FfiXmtpClient {
     }
 
     /// A utility function to sign a piece of text with this installation's private key.
+    #[tracing::instrument(skip_all)]
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, FfiError> {
         let inner = self.inner_client.as_ref();
         Ok(inner.context.sign_with_public_context(text)?)
     }
 
     /// A utility function to easily verify that a piece of text was signed by this installation.
+    #[tracing::instrument(skip_all)]
     pub fn verify_signed_with_installation_key(
         &self,
         signature_text: &str,
@@ -835,6 +972,7 @@ impl FfiXmtpClient {
 
     /// A utility function to easily verify that a string has been signed by another libXmtp installation.
     /// Only works for verifying libXmtp public context signatures.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn verify_signed_with_public_key(
         &self,
         signature_text: &str,
@@ -868,10 +1006,12 @@ impl FfiXmtpClient {
         )?)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, FfiError> {
         self.sync_all_device_sync_groups().await
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
         let scw_verifier = self.inner_client.scw_verifier().clone();
         self.inner_client
@@ -885,6 +1025,7 @@ impl FfiXmtpClient {
             })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn register_identity(
         &self,
         signature_request: Arc<FfiSignatureRequest>,
@@ -907,6 +1048,7 @@ impl FfiXmtpClient {
     }
 
     /// Adds a wallet address to the existing client
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_identity(
         &self,
         new_identity: FfiIdentifier,
@@ -925,6 +1067,7 @@ impl FfiXmtpClient {
         Ok(request)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn apply_signature_request(
         &self,
         signature_request: Arc<FfiSignatureRequest>,
@@ -939,6 +1082,7 @@ impl FfiXmtpClient {
     }
 
     /// Revokes or removes an identity from the existing client
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn revoke_identity(
         &self,
         identifier: FfiIdentifier,
@@ -963,6 +1107,7 @@ impl FfiXmtpClient {
      * Returns Some FfiSignatureRequest if we have installations to revoke.
      * If we have no other installations to revoke, returns None.
      */
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn revoke_all_other_installations_signature_request(
         &self,
     ) -> Result<Option<Arc<FfiSignatureRequest>>, FfiError> {
@@ -993,6 +1138,7 @@ impl FfiXmtpClient {
     /**
      * Revoke a list of installations
      */
+    #[tracing::instrument(skip_all)]
     pub async fn revoke_installations(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -1012,6 +1158,7 @@ impl FfiXmtpClient {
     /**
      * Change the recovery identifier for your inboxId
      */
+    #[tracing::instrument(skip_all)]
     pub async fn change_recovery_identifier(
         &self,
         new_recovery_identifier: FfiIdentifier,
@@ -1032,6 +1179,7 @@ impl FfiXmtpClient {
     ///
     /// `options` controls the quorum, timeout, and polling interval.
     /// Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+    #[xmtp_common::err_span]
     pub async fn wait_for_registration_visible(
         &self,
         options: Option<FfiVisibilityConfirmationOptions>,
@@ -1055,6 +1203,51 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for FfiGroupSyncSumm
         Self {
             num_eligible: summary.num_eligible as u64,
             num_synced: summary.num_synced as u64,
+        }
+    }
+}
+
+/// Options for [`FfiXmtpClient::catch_up_to_live`]. Taken as a struct (rather
+/// than a bare argument) so future knobs can be added as defaulted fields
+/// without breaking the exported signature — same pattern as
+/// [`FfiUpdateAppDataOptions`].
+///
+/// WARNING: uniffi Records get NO default field values unless the field
+/// carries `#[uniffi(default = ...)]`. Any field added later MUST carry a
+/// uniffi default, or the generated Swift/Kotlin constructors change and the
+/// addition breaks compiled apps.
+#[derive(uniffi::Record, Default, Clone, Debug)]
+pub struct FfiCatchUpOptions {
+    /// Wall-clock bound on the whole catch-up. `None` runs to completion
+    /// (unbounded); on the deadline the returned summary is the partial persisted
+    /// so far with `completed == false`, and a later call resumes from durable
+    /// state.
+    #[uniffi(default = None)]
+    pub timeout_ms: Option<u64>,
+}
+
+/// Outcome of [`FfiXmtpClient::catch_up_to_live`].
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct FfiCatchUpSummary {
+    /// Application messages newly persisted by this call. On a deadline
+    /// (`completed == false`) this is the partial total persisted before the cut
+    /// on the bidi path, or `0` on the legacy fallback — the messages themselves
+    /// are stored either way.
+    pub messages: u64,
+    /// Conversations newly joined by this call. Same caveat as `messages`.
+    pub conversations: u64,
+    /// Whether catch-up finished before the deadline. `false` means `timeout_ms`
+    /// elapsed first; messages processed before then are persisted, and a later
+    /// call resumes from durable state.
+    pub completed: bool,
+}
+
+impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for FfiCatchUpSummary {
+    fn from(summary: xmtp_mls::subscriptions::catch_up::CatchUpSummary) -> Self {
+        Self {
+            messages: summary.messages,
+            conversations: summary.conversations,
+            completed: summary.completed,
         }
     }
 }
@@ -1098,6 +1291,28 @@ impl From<FfiVisibilityConfirmationOptions>
         Self {
             quorum,
             timeout_ms: opts.timeout_ms.unwrap_or(defaults.timeout_ms),
+        }
+    }
+}
+
+/// Options for [`FfiConversation::enable_proposals`]. Mirrors
+/// [`xmtp_mls::groups::EnableProposalsOptions`].
+#[derive(uniffi::Record, Default, Clone, Debug)]
+pub struct FfiEnableProposalsOptions {
+    /// Skip the pre-flight key-package capability check. Post-d14n
+    /// every client supports proposals by version floor alone; set
+    /// `true` to bypass the per-member scan in that environment.
+    pub force: Option<bool>,
+    /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+    /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+    pub min_version: Option<String>,
+}
+
+impl From<FfiEnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
+    fn from(opts: FfiEnableProposalsOptions) -> Self {
+        xmtp_mls::groups::EnableProposalsOptions {
+            force: opts.force.unwrap_or(false),
+            min_version: opts.min_version,
         }
     }
 }
@@ -1227,12 +1442,19 @@ impl From<FfiGroupQueryOrderBy> for GroupQueryOrderBy {
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiSendMessageOpts {
     pub should_push: bool,
+    /// Optional idempotency key. Re-sending identical content with the same key
+    /// produces the same message id and is deduplicated. Defaults to a timestamp.
+    /// Defaults to unset so existing foreign callers that construct
+    /// `FfiSendMessageOpts` without this field still compile.
+    #[uniffi(default = None)]
+    pub idempotency_key: Option<String>,
 }
 
 impl From<FfiSendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
     fn from(opts: FfiSendMessageOpts) -> Self {
         xmtp_mls::groups::send_message_opts::SendMessageOpts {
             should_push: opts.should_push,
+            idempotency_key: opts.idempotency_key,
         }
     }
 }
@@ -1481,12 +1703,32 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
     }
 }
 
+/// Options for [`FfiConversation::update_app_data`]. A record (rather
+/// than a bare `String` parameter) so future knobs can be added
+/// without breaking compiled apps — same pattern as
+/// [`FfiEnableProposalsOptions`].
+///
+/// WARNING: uniffi Records get NO default field values unless the field
+/// carries `#[uniffi(default = ...)]`. Any field added later MUST carry
+/// a uniffi default (and a serde/napi default on the wasm/node
+/// `UpdateAppDataOptions`), or the generated Swift/Kotlin constructors
+/// change and the addition breaks compiled apps.
+#[derive(uniffi::Record, Clone, Default, Debug)]
+pub struct FfiUpdateAppDataOptions {
+    /// The new value for the group's opaque `APP_DATA` string slot.
+    pub value: String,
+}
+
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
     AppData,
+    // Present on the wasm and node bindings from the start; added here
+    // so the three bindings expose the same field set.
+    MessageExpirationFromNs,
+    MessageExpirationInNs,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -1496,12 +1738,38 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
             FfiMetadataField::AppData => MetadataField::AppData,
+            FfiMetadataField::MessageExpirationFromNs => MetadataField::MessageDisappearFromNS,
+            FfiMetadataField::MessageExpirationInNs => MetadataField::MessageDisappearInNS,
         }
+    }
+}
+
+impl FfiConversations {
+    /// One seam for every conversation stream: xmtp_mls dispatches between
+    /// the shared bidi wire and the legacy subscriptions. Lives outside the
+    /// exported impl (uniffi must not see the rust-only types).
+    fn stream_conversations_dispatch(
+        &self,
+        conversation_type: Option<ConversationType>,
+        callback: Arc<dyn FfiConversationCallback>,
+    ) -> FfiStreamCloser {
+        let close_cb = callback.clone();
+        FfiStreamCloser::new(RustXmtpClient::stream_conversations_with_callback_dispatch(
+            self.inner_client.clone(),
+            conversation_type,
+            false,
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => callback.on_error(e.into()),
+            },
+            move || close_cb.on_close(),
+        ))
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn create_group_optimistic(
         &self,
         opts: FfiCreateGroupOptions,
@@ -1544,6 +1812,7 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn create_group_by_identity(
         &self,
         account_identities: Vec<FfiIdentifier>,
@@ -1569,6 +1838,7 @@ impl FfiConversations {
         Ok(convo)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn create_group(
         &self,
         inbox_ids: Vec<String>,
@@ -1590,6 +1860,7 @@ impl FfiConversations {
         Ok(convo)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn find_or_create_dm_by_identity(
         &self,
         target_identity: FfiIdentifier,
@@ -1604,6 +1875,7 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn find_or_create_dm(
         &self,
         inbox_id: String,
@@ -1617,6 +1889,7 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -1628,13 +1901,14 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync(&self) -> Result<(), FfiError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
@@ -1647,6 +1921,7 @@ impl FfiConversations {
         Ok(summary.into())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn list(
         &self,
         opts: FfiListConversationsOptions,
@@ -1669,6 +1944,7 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
@@ -1694,6 +1970,7 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
@@ -1719,58 +1996,21 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_groups(
         &self,
         callback: Arc<dyn FfiConversationCallback>,
     ) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
-        let close_cb = callback.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            Some(ConversationType::Group),
-            move |convo| match convo {
-                Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-            false,
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_conversations_dispatch(Some(ConversationType::Group), callback)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_dms(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
-        let close_cb = callback.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            Some(ConversationType::Dm),
-            move |convo| match convo {
-                Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-            false,
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_conversations_dispatch(Some(ConversationType::Dm), callback)
     }
 
     pub async fn stream(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
-        let client = self.inner_client.clone();
-        let close_cb = callback.clone();
-        let handle = RustXmtpClient::stream_conversations_with_callback(
-            client.clone(),
-            None,
-            move |convo| match convo {
-                Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-            false,
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_conversations_dispatch(None, callback)
     }
 
     pub async fn stream_all_group_messages(
@@ -1817,8 +2057,8 @@ impl FfiConversations {
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let close_cb = message_callback.clone();
-        let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.context.clone(),
+        FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback_dispatch(
+            self.inner_client.clone(),
             conversation_type.map(Into::into),
             consents,
             move |msg| match msg {
@@ -1826,9 +2066,7 @@ impl FfiConversations {
                 Err(e) => message_callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
-        );
-
-        FfiStreamCloser::new(handle)
+        ))
     }
 
     /// Get notified when there is a new consent update either locally or is synced from another device
@@ -1882,11 +2120,13 @@ impl FfiConversations {
                     callback.on_message_deleted(Arc::new(ffi_message))
                 }
             },
+            || {},
         );
 
         FfiStreamCloser::new(handle)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
@@ -1896,7 +2136,7 @@ impl FfiConversations {
 
         let mut hmac_map = HashMap::new();
         for conversation in conversations {
-            let id = conversation.group_id.clone();
+            let id = conversation.group_id.to_vec();
             let keys = conversation
                 .hmac_keys(-1..=1)?
                 .into_iter()
@@ -2084,6 +2324,110 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
             value.remote_commit_log,
             value.cursor,
         )
+    }
+}
+
+/// An MLS extension type advertised by an installation's key package or
+/// present in a group's context. Mirrors
+/// [`xmtp_mls::groups::MlsExtensionType`].
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
+pub enum FfiMlsExtensionType {
+    ApplicationId,
+    RatchetTree,
+    RequiredCapabilities,
+    ExternalPub,
+    ExternalSenders,
+    LastResort,
+    ImmutableMetadata,
+    AppDataDictionary,
+    Unknown { id: u16 },
+    Grease { id: u16 },
+}
+
+impl From<MlsExtensionType> for FfiMlsExtensionType {
+    fn from(value: MlsExtensionType) -> Self {
+        match value {
+            MlsExtensionType::ApplicationId => FfiMlsExtensionType::ApplicationId,
+            MlsExtensionType::RatchetTree => FfiMlsExtensionType::RatchetTree,
+            MlsExtensionType::RequiredCapabilities => FfiMlsExtensionType::RequiredCapabilities,
+            MlsExtensionType::ExternalPub => FfiMlsExtensionType::ExternalPub,
+            MlsExtensionType::ExternalSenders => FfiMlsExtensionType::ExternalSenders,
+            MlsExtensionType::LastResort => FfiMlsExtensionType::LastResort,
+            MlsExtensionType::ImmutableMetadata => FfiMlsExtensionType::ImmutableMetadata,
+            MlsExtensionType::AppDataDictionary => FfiMlsExtensionType::AppDataDictionary,
+            MlsExtensionType::Unknown(id) => FfiMlsExtensionType::Unknown { id },
+            MlsExtensionType::Grease(id) => FfiMlsExtensionType::Grease { id },
+        }
+    }
+}
+
+/// Capabilities for a single installation (device) in a group. Mirrors
+/// [`xmtp_mls::groups::InstallationCapabilities`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiInstallationCapabilities {
+    pub installation_id: Vec<u8>,
+    pub is_own: bool,
+    pub supported_extensions: Vec<FfiMlsExtensionType>,
+    pub capabilities_known: bool,
+}
+
+/// Per-inbox installation capabilities. Mirrors
+/// [`xmtp_mls::groups::InboxCapabilities`].
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiInboxCapabilities {
+    pub inbox_id: String,
+    pub installations: Vec<FfiInstallationCapabilities>,
+}
+
+/// A generic membership/capability snapshot for a group. Mirrors
+/// [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
+/// an inbox blocks the proposal migration when one of its
+/// installations' `supported_extensions` lacks `AppDataDictionary`.
+///
+/// To ask "is this group migrated?", use
+/// [`FfiConversation::proposals_enabled`] instead of scanning
+/// `context_extensions` — the marker extension is an internal
+/// protocol detail and the semantic bool is the stable contract.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiGroupMembershipCapabilities {
+    pub context_extensions: Vec<FfiMlsExtensionType>,
+    pub members: Vec<FfiInboxCapabilities>,
+}
+
+impl From<InstallationCapabilities> for FfiInstallationCapabilities {
+    fn from(value: InstallationCapabilities) -> Self {
+        FfiInstallationCapabilities {
+            installation_id: value.installation_id,
+            is_own: value.is_own,
+            supported_extensions: value
+                .supported_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            capabilities_known: value.capabilities_known,
+        }
+    }
+}
+
+impl From<InboxCapabilities> for FfiInboxCapabilities {
+    fn from(value: InboxCapabilities) -> Self {
+        FfiInboxCapabilities {
+            inbox_id: value.inbox_id,
+            installations: value.installations.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<GroupMembershipCapabilities> for FfiGroupMembershipCapabilities {
+    fn from(value: GroupMembershipCapabilities) -> Self {
+        FfiGroupMembershipCapabilities {
+            context_extensions: value
+                .context_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            members: value.members.into_iter().map(Into::into).collect(),
+        }
     }
 }
 
@@ -2362,6 +2706,7 @@ impl FfiCreateDMOptions {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn send(
         &self,
         content_bytes: Vec<u8>,
@@ -2374,17 +2719,22 @@ impl FfiConversation {
         Ok(message_id)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn send_text(&self, text: &str) -> Result<Vec<u8>, FfiError> {
         let content =
             TextCodec::encode(text.to_string()).map_err(|e| FfiError::generic(e.to_string()))?;
         self.send(
             encoded_content_to_bytes(content),
-            FfiSendMessageOpts { should_push: true },
+            FfiSendMessageOpts {
+                should_push: true,
+                idempotency_key: None,
+            },
         )
         .await
     }
 
     /// send a message without immediately publishing to the delivery service.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn send_optimistic(
         &self,
         content_bytes: Vec<u8>,
@@ -2398,12 +2748,14 @@ impl FfiConversation {
     }
 
     /// Delete a message by its ID. Returns the ID of the deletion message.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, FfiError> {
         let deletion_id = self.inner.delete_message(message_id)?;
         Ok(deletion_id)
     }
 
     /// Publish all unpublished messages
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn publish_messages(&self) -> Result<(), FfiError> {
         self.inner.publish_messages().await?;
         Ok(())
@@ -2411,29 +2763,36 @@ impl FfiConversation {
 
     /// Prepare a message for later publishing.
     /// Stores the message locally without publishing. Returns the message ID.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn prepare_message(
         &self,
         content_bytes: Vec<u8>,
         should_push: bool,
+        idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, FfiError> {
-        let id = self
-            .inner
-            .prepare_message_for_later_publish(content_bytes.as_slice(), should_push)?;
+        let id = self.inner.prepare_message_for_later_publish(
+            content_bytes.as_slice(),
+            should_push,
+            idempotency_key,
+        )?;
         Ok(id)
     }
 
     /// Publish a previously prepared message by ID.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn publish_stored_message(&self, message_id: Vec<u8>) -> Result<(), FfiError> {
         self.inner.publish_stored_message(&message_id).await?;
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync(&self) -> Result<(), FfiError> {
         self.inner.sync().await?;
 
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn find_messages(
         &self,
         opts: FfiListMessagesOptions,
@@ -2448,12 +2807,14 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, FfiError> {
         let count = self.inner.count_messages(&opts.into())?;
 
         Ok(count)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
@@ -2467,6 +2828,7 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn find_enriched_messages(
         &self,
         opts: FfiListMessagesOptions,
@@ -2480,6 +2842,7 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -2491,6 +2854,7 @@ impl FfiConversation {
         Ok(message.into_iter().map(Into::into).collect())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, FfiError> {
         let members: Vec<FfiConversationMember> = self
             .inner
@@ -2513,11 +2877,13 @@ impl FfiConversation {
         Ok(members)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn membership_state(&self) -> Result<FfiGroupMembershipState, FfiError> {
         let state = self.inner.membership_state()?;
         Ok(state.into())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_members_by_identity(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
@@ -2539,6 +2905,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_members(
         &self,
         inbox_ids: Vec<String>,
@@ -2552,6 +2919,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn remove_members_by_identity(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
@@ -2562,37 +2930,90 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn remove_members(&self, inbox_ids: Vec<String>) -> Result<(), FfiError> {
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         self.inner.remove_members(ids.as_slice()).await?;
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn leave_group(&self) -> Result<(), FfiError> {
         self.inner.leave_group().await?;
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_group_name(&self, group_name: String) -> Result<(), FfiError> {
         self.inner.update_group_name(group_name).await?;
         Ok(())
     }
 
+    /// Enable AppData-proposal-based metadata updates on this group.
+    ///
+    /// Builds and stages the bootstrap commit that migrates this
+    /// group's per-field metadata, admin lists, permissions, and
+    /// membership from the legacy `GroupContextExtensions` shape into
+    /// the unified OpenMLS `AppDataDictionary`. After it returns
+    /// successfully, all subsequent metadata updates flow as
+    /// `AppDataUpdate` proposals rather than GCE proposals.
+    ///
+    /// **Requires**: every existing member's latest key package must
+    /// advertise `ProposalType::AppDataUpdate`. Hosts should ramp
+    /// adoption with the migration code shipped before flipping any
+    /// group; the call hard-fails with `ProposalsNotSupported` if
+    /// any member lags. (The error currently surfaces a static
+    /// message; structured per-inbox lag info is a future
+    /// enhancement.)
+    ///
+    /// **One-way**: a migrated group cannot return to the legacy
+    /// path. Operationally treated as a flag day per group.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn enable_proposals(
+        &self,
+        options: FfiEnableProposalsOptions,
+    ) -> Result<(), FfiError> {
+        self.inner
+            .enable_proposals(options.into())
+            .await
+            .map_err(Into::into)
+    }
+
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn group_name(&self) -> Result<String, FfiError> {
         let group_name = self.inner.group_name()?;
         Ok(group_name)
     }
 
-    pub async fn update_app_data(&self, app_data: String) -> Result<(), FfiError> {
-        self.inner.update_app_data(app_data).await?;
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn update_app_data(&self, options: FfiUpdateAppDataOptions) -> Result<(), FfiError> {
+        self.inner.update_app_data(options.value).await?;
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn app_data(&self) -> Result<String, FfiError> {
         let app_data = self.inner.app_data()?;
         Ok(app_data)
     }
 
+    /// Whether this group has migrated to AppData-proposal-based
+    /// metadata updates (the `AppDataDictionary` group-context
+    /// extension is present). `false` means the group is still on
+    /// the legacy GroupContextExtensions path.
+    ///
+    /// Prefer this semantic bool over scanning
+    /// [`FfiGroupMembershipCapabilities::context_extensions`] for
+    /// `AppDataDictionary` — the capabilities snapshot answers
+    /// "which members block migration", not "is this group migrated",
+    /// and the marker extension is an internal protocol detail.
+    /// Mirrors `proposalsEnabled` on the wasm and node bindings.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn proposals_enabled(&self) -> Result<bool, FfiError> {
+        Ok(self.inner.is_proposals_enabled()?)
+    }
+
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,
@@ -2604,10 +3025,12 @@ impl FfiConversation {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn group_image_url_square(&self) -> Result<String, FfiError> {
         Ok(self.inner.group_image_url_square()?)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_group_description(
         &self,
         group_description: String,
@@ -2619,10 +3042,12 @@ impl FfiConversation {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn group_description(&self) -> Result<String, FfiError> {
         Ok(self.inner.group_description()?)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_conversation_message_disappearing_settings(
         &self,
         settings: FfiMessageDisappearingSettings,
@@ -2636,6 +3061,7 @@ impl FfiConversation {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn remove_conversation_message_disappearing_settings(&self) -> Result<(), FfiError> {
         self.inner
             .remove_conversation_message_disappearing_settings()
@@ -2644,6 +3070,7 @@ impl FfiConversation {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<Option<FfiMessageDisappearingSettings>, FfiError> {
@@ -2655,6 +3082,7 @@ impl FfiConversation {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, FfiError> {
         self.conversation_message_disappearing_settings()
             .map(|settings| {
@@ -2664,24 +3092,29 @@ impl FfiConversation {
             })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn admin_list(&self) -> Result<Vec<String>, FfiError> {
         self.inner.admin_list().map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn super_admin_list(&self) -> Result<Vec<String>, FfiError> {
         self.inner.super_admin_list().map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn is_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
         let admin_list = self.admin_list()?;
         Ok(admin_list.contains(inbox_id))
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
         let super_admin_list = self.super_admin_list()?;
         Ok(super_admin_list.contains(inbox_id))
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::Add, inbox_id)
@@ -2689,6 +3122,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn remove_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::Remove, inbox_id)
@@ -2696,6 +3130,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
@@ -2703,6 +3138,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
@@ -2710,6 +3146,7 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, FfiError> {
         let permissions = self.inner.permissions()?;
         Ok(Arc::new(FfiGroupPermissions {
@@ -2717,6 +3154,7 @@ impl FfiConversation {
         }))
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_permission_policy(
         &self,
         permission_update_type: FfiPermissionUpdateType,
@@ -2733,18 +3171,18 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let close_cb = message_callback.clone();
-        let handle = MlsGroup::stream_with_callback(
+        let handle = stream_conversation_messages_with_callback_dispatch(
             self.inner.context.clone(),
-            self.id(),
+            self.inner.group_id,
             move |message| match message {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
         );
-
         FfiStreamCloser::new(handle)
     }
 
@@ -2752,14 +3190,17 @@ impl FfiConversation {
         self.inner.created_at_ns
     }
 
+    #[xmtp_common::err_span]
     pub fn is_active(&self) -> Result<bool, FfiError> {
         self.inner.is_active().map_err(Into::into)
     }
 
+    #[xmtp_common::err_span]
     pub fn paused_for_version(&self) -> Result<Option<String>, FfiError> {
         self.inner.paused_for_version().map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn consent_state(&self) -> Result<FfiConsentState, FfiError> {
         self.inner
             .consent_state()
@@ -2767,16 +3208,19 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), FfiError> {
         self.inner
             .update_consent_state(state.into())
             .map_err(Into::into)
     }
 
+    #[xmtp_common::err_span]
     pub fn added_by_inbox_id(&self) -> Result<String, FfiError> {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, FfiError> {
         let metadata = self.inner.metadata().await?;
         Ok(Arc::new(FfiConversationMetadata {
@@ -2784,6 +3228,7 @@ impl FfiConversation {
         }))
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn dm_peer_inbox_id(&self) -> Option<String> {
         self.inner
             .dm_id
@@ -2791,12 +3236,13 @@ impl FfiConversation {
             .map(|dm_id| dm_id.other_inbox_id(self.inner.context.inbox_id()))
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let duplicate_dms = self.inner.find_duplicate_dms()?;
 
         let mut hmac_map = HashMap::new();
         for conversation in duplicate_dms {
-            let id = conversation.group_id.clone();
+            let id = conversation.group_id.to_vec();
             let keys = conversation
                 .hmac_keys(-1..=1)?
                 .into_iter()
@@ -2818,11 +3264,26 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
+    #[xmtp_common::err_span]
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, FfiError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
     }
 
+    /// Snapshot this group's membership capabilities: the group context's
+    /// extension types plus, per member inbox and installation, the extension
+    /// types each advertises. Generic facts the caller filters — e.g. to
+    /// answer whether the group is migrated to the proposal flow and which
+    /// members block it. See
+    /// [`xmtp_mls::groups::MlsGroup::membership_capabilities`].
+    pub async fn membership_capabilities(
+        &self,
+    ) -> Result<FfiGroupMembershipCapabilities, FfiError> {
+        let capabilities = self.inner.membership_capabilities().await?;
+        Ok(capabilities.into())
+    }
+
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, FfiError> {
         let dms = self.inner.find_duplicate_dms()?;
 
@@ -2832,6 +3293,7 @@ impl FfiConversation {
         Ok(ffi_conversations)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn get_last_read_times(&self) -> Result<HashMap<String, i64>, FfiError> {
         let latest_read_times = self.inner.get_last_read_times()?;
         Ok(latest_read_times)
@@ -2841,7 +3303,7 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        self.inner.group_id.clone()
+        self.inner.group_id.to_vec()
     }
 
     pub fn conversation_type(&self) -> FfiConversationType {
@@ -2903,6 +3365,7 @@ impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, FfiError> {
     // Convert FfiReaction to Reaction
     let reaction: ReactionV2 = reaction.into();
@@ -2920,6 +3383,7 @@ pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, FfiError
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, FfiError> {
     // Decode bytes into EncodedContent
     let encoded_content =
@@ -2934,6 +3398,7 @@ pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, FfiError> {
 // RemoteAttachmentInfo and MultiRemoteAttachment FFI structures - using types from message module
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_multi_remote_attachment(
     ffi_multi_remote_attachment: FfiMultiRemoteAttachment,
 ) -> Result<Vec<u8>, FfiError> {
@@ -2954,6 +3419,7 @@ pub fn encode_multi_remote_attachment(
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_multi_remote_attachment(
     bytes: Vec<u8>,
 ) -> Result<FfiMultiRemoteAttachment, FfiError> {
@@ -2970,6 +3436,7 @@ pub fn decode_multi_remote_attachment(
 // TransactionReference FFI structures - using types from message module
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_transaction_reference(
     reference: FfiTransactionReference,
 ) -> Result<Vec<u8>, FfiError> {
@@ -2987,6 +3454,7 @@ pub fn encode_transaction_reference(
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_transaction_reference(bytes: Vec<u8>) -> Result<FfiTransactionReference, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -2999,6 +3467,7 @@ pub fn decode_transaction_reference(bytes: Vec<u8>) -> Result<FfiTransactionRefe
 // Attachment FFI structures - using FfiAttachment from message module
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_attachment(attachment: FfiAttachment) -> Result<Vec<u8>, FfiError> {
     let attachment: Attachment = attachment.into();
 
@@ -3014,6 +3483,7 @@ pub fn encode_attachment(attachment: FfiAttachment) -> Result<Vec<u8>, FfiError>
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_attachment(bytes: Vec<u8>) -> Result<FfiAttachment, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3024,6 +3494,7 @@ pub fn decode_attachment(bytes: Vec<u8>) -> Result<FfiAttachment, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, FfiError> {
     let reply: Reply = reply.into();
 
@@ -3038,6 +3509,7 @@ pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_reply(bytes: Vec<u8>) -> Result<FfiReply, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3050,6 +3522,7 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<FfiReply, FfiError> {
 // ReadReceipt FFI structures - using FfiReadReceipt from message module
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_read_receipt(read_receipt: FfiReadReceipt) -> Result<Vec<u8>, FfiError> {
     let read_receipt: ReadReceipt = read_receipt.into();
 
@@ -3065,6 +3538,7 @@ pub fn encode_read_receipt(read_receipt: FfiReadReceipt) -> Result<Vec<u8>, FfiE
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3077,6 +3551,7 @@ pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, FfiError> {
 // RemoteAttachment FFI structures - using FfiRemoteAttachment from message module
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_remote_attachment(
     remote_attachment: FfiRemoteAttachment,
 ) -> Result<Vec<u8>, FfiError> {
@@ -3094,6 +3569,7 @@ pub fn encode_remote_attachment(
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3106,6 +3582,7 @@ pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, F
 // Intent FFI encode/decode functions
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_intent(intent: FfiIntent) -> Result<Vec<u8>, FfiError> {
     let intent: Intent = intent.try_into()?;
 
@@ -3120,6 +3597,7 @@ pub fn encode_intent(intent: FfiIntent) -> Result<Vec<u8>, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3133,6 +3611,7 @@ pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, FfiError> {
 // Actions FFI encode/decode functions
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_actions(actions: FfiActions) -> Result<Vec<u8>, FfiError> {
     let actions: Actions = actions.into();
 
@@ -3147,6 +3626,7 @@ pub fn encode_actions(actions: FfiActions) -> Result<Vec<u8>, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3159,6 +3639,7 @@ pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, FfiError> {
 
 // LeaveRequest FFI encode function
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_leave_request(request: FfiLeaveRequest) -> Result<Vec<u8>, FfiError> {
     let leave_request: LeaveRequest = request.into();
 
@@ -3175,6 +3656,7 @@ pub fn encode_leave_request(request: FfiLeaveRequest) -> Result<Vec<u8>, FfiErro
 
 // LeaveRequest FFI decode function
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3186,6 +3668,7 @@ pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, FfiError>
 
 // DeleteMessage FFI encode function
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_delete_message(request: FfiDeleteMessage) -> Result<Vec<u8>, FfiError> {
     let delete_message: DeleteMessage = request.into();
 
@@ -3202,6 +3685,7 @@ pub fn encode_delete_message(request: FfiDeleteMessage) -> Result<Vec<u8>, FfiEr
 
 // DeleteMessage FFI decode function
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3212,6 +3696,7 @@ pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, FfiErro
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3222,6 +3707,7 @@ pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, FfiError>
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_text(text: String) -> Result<Vec<u8>, FfiError> {
     let encoded = TextCodec::encode(text).map_err(|e| FfiError::generic(e.to_string()))?;
 
@@ -3234,6 +3720,7 @@ pub fn encode_text(text: String) -> Result<Vec<u8>, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_text(bytes: Vec<u8>) -> Result<String, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3242,6 +3729,7 @@ pub fn decode_text(bytes: Vec<u8>) -> Result<String, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_markdown(text: String) -> Result<Vec<u8>, FfiError> {
     let encoded = MarkdownCodec::encode(text).map_err(|e| FfiError::generic(e.to_string()))?;
 
@@ -3254,6 +3742,7 @@ pub fn encode_markdown(text: String) -> Result<Vec<u8>, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_markdown(bytes: Vec<u8>) -> Result<String, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3262,6 +3751,7 @@ pub fn decode_markdown(bytes: Vec<u8>) -> Result<String, FfiError> {
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn encode_wallet_send_calls(
     wallet_send_calls: FfiWalletSendCalls,
 ) -> Result<Vec<u8>, FfiError> {
@@ -3277,6 +3767,7 @@ pub fn encode_wallet_send_calls(
 }
 
 #[uniffi::export]
+#[tracing::instrument(skip_all)]
 pub fn decode_wallet_send_calls(bytes: Vec<u8>) -> Result<FfiWalletSendCalls, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3306,7 +3797,7 @@ impl From<StoredGroupMessage> for FfiMessage {
         Self {
             id: msg.id,
             sent_at_ns: msg.sent_at_ns,
-            conversation_id: msg.group_id,
+            conversation_id: msg.group_id.into(),
             sender_inbox_id: msg.sender_inbox_id,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
@@ -3412,11 +3903,13 @@ impl FfiStreamCloser {
 impl FfiStreamCloser {
     /// Signal the stream to end
     /// Does not wait for the stream to end.
+    #[tracing::instrument(level = "debug", name = "end_stream", skip_all)]
     pub fn end(&self) {
         self.abort_handle.end();
     }
 
     /// End the stream and asynchronously wait for it to shutdown
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn end_and_wait(&self) -> Result<(), FfiError> {
         use xmtp_common::StreamHandleError::*;
 
@@ -3439,10 +3932,12 @@ impl FfiStreamCloser {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn is_closed(&self) -> bool {
         self.abort_handle.is_finished()
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn wait_for_ready(&self) {
         let mut stream_handle = self.stream_handle.lock().await;
         if let Some(ref mut h) = *stream_handle {
@@ -3517,6 +4012,7 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
+    #[xmtp_common::err_span]
     pub fn policy_type(&self) -> Result<FfiGroupPermissionsOptions, FfiError> {
         if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
             Ok(preconfigured_policy.into())
@@ -3525,6 +4021,7 @@ impl FfiGroupPermissions {
         }
     }
 
+    #[xmtp_common::err_span]
     pub fn policy_set(&self) -> Result<FfiPermissionPolicySet, FfiError> {
         let policy_set = &self.inner.policies;
         let metadata_policy_map = &policy_set.update_metadata_policy;

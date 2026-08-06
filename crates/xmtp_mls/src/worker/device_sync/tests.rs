@@ -4,6 +4,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::{
+    ConnectionExt,
     consent_record::ConsentState,
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
@@ -315,7 +316,7 @@ async fn test_only_added_to_correct_groups() {
     old_group
         .send_message(b"hi there", SendMessageOpts::default())
         .await?;
-    alix1.context.db().raw_query_write(|conn| {
+    alix1.context.db().raw_query(|conn| {
         diesel::update(dsl::groups.find(&old_group.group_id))
             .set((dsl::last_message_ns.eq(0), dsl::created_at_ns.eq(0)))
             .execute(conn)
@@ -351,23 +352,26 @@ async fn test_only_added_to_correct_groups() {
         .register_interest(SyncMetric::SyncGroupWelcomesProcessed, 1)
         .wait()
         .await?;
-    alix2.sync_welcomes().await?;
 
-    // Added to new fresh group
-    let alix2_new_group = alix2.group(&new_group.group_id);
-    assert!(alix2_new_group.is_ok());
+    // The adds are durable TaskRunner work now — the metric above fires when
+    // the tasks are scheduled, not when the commits land. Poll until alix2
+    // has been welcomed into every eligible group: the new fresh group, the
+    // unknown-consent group, and the consented DM.
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2.sync_welcomes().await;
+        (alix2.group(&new_group.group_id).is_ok()
+            && alix2.group(&alix_bo_group_unknown.group_id).is_ok()
+            && alix2.group(&alix_bo_dm.group_id).is_ok())
+        .then_some(())
+    })
+    .await
+    .expect("alix2 must be added to all eligible groups");
 
+    // The negatives are meaningful once the positive set has converged: the
+    // filtered-out groups never get an AddMissingInstallations task at all.
     // Not added to old stale group
     let alix2_old_group = alix2.group(&old_group.group_id);
     assert!(alix2_old_group.is_err());
-
-    // Added to group with unknown consent state
-    let alix2_bo_group_unknown = alix2.group(&alix_bo_group_unknown.group_id);
-    assert!(alix2_bo_group_unknown.is_ok());
-
-    // Added to consented DM
-    let alix2_bo_dm = alix2.group(&alix_bo_dm.group_id);
-    assert!(alix2_bo_dm.is_ok());
 
     // Not added to denied group from Bo
     let alix2_bo_group_denied = alix2.group(&alix_bo_group_denied.group_id);
@@ -395,7 +399,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     }
 
     // alix1 should have it's own created sync group and alix2's sync group
-    let alix1_sync_groups: Vec<StoredGroup> = alix1.context.db().raw_query_read(|conn| {
+    let alix1_sync_groups: Vec<StoredGroup> = alix1.context.db().raw_query(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .load(conn)
@@ -405,7 +409,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     // alix2 should not be added to alix1's old sync group
 
     alix2.sync_welcomes().await?;
-    let alix2_sync_groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
+    let alix2_sync_groups: Vec<StoredGroup> = alix2.context.db().raw_query(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .load(conn)
@@ -494,4 +498,126 @@ async fn test_incremental_consent() {
 
     let dm2 = alix2.group(&dm.group_id)?;
     assert_eq!(dm2.consent_state()?, ConsentState::Allowed);
+}
+
+#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_task_runner_adds_new_installation_to_groups() {
+    // Live sync worker + live TaskRunner (tester! defaults enable the runner).
+    // `stream` keeps alix1 receiving welcomes so the sync-group welcome from
+    // alix2's registration reaches alix1's device-sync worker.
+    tester!(alix1, stream, sync_worker);
+    tester!(bo);
+
+    let group = alix1
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    tester!(alix2, from: alix1);
+
+    // The welcome handler enqueues the task; the TaskRunner publishes the
+    // membership commit; alix2 then receives the group via welcome. Poll —
+    // the whole chain is async.
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2.sync_welcomes().await;
+        alix2.group(&group.group_id).ok().map(|_| ())
+    })
+    .await
+    .expect("alix2 must receive the group via the TaskRunner membership add");
+}
+
+#[xmtp_common::timeout(std::time::Duration::from_secs(30))]
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_sync_group_creation_leaves_no_reconcile_task() {
+    use crate::worker::{WorkerConfig, WorkerKind};
+    use prost::Message;
+    use xmtp_db::tasks::QueryTasks;
+    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+
+    // TaskRunner disabled so any enqueued row would be observable (not consumed).
+    let mut cfg = WorkerConfig::default();
+    cfg.enabled.insert(WorkerKind::TaskRunner, false);
+    tester!(alix, worker_config: cfg);
+
+    alix.device_sync_client().get_sync_group().await?;
+
+    // The durable reconcile task is armed only from the inline add's error
+    // path. A successful creation must NOT leave one behind — an enqueue-first
+    // version duplicated the reconcile (and its identity fetch) on every
+    // sync-group creation, breaking the pinned network-call-count tests on
+    // mobile bindings.
+    let has_task = alix.context.db().get_tasks()?.iter().any(|t| {
+        matches!(
+            TaskProto::decode(t.data.as_slice())
+                .ok()
+                .and_then(|p| p.task),
+            Some(TaskKind::AddMissingInstallations(_))
+        )
+    });
+    assert!(
+        !has_task,
+        "successful sync-group creation must not enqueue a reconcile task"
+    );
+}
+
+#[xmtp_common::timeout(std::time::Duration::from_secs(30))]
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_welcome_schedules_add_installation_tasks() {
+    use crate::worker::{WorkerConfig, WorkerKind};
+    use prost::Message;
+    use xmtp_db::tasks::QueryTasks;
+    use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
+
+    // TaskRunner disabled so enqueued rows are observable (not consumed).
+    let mut cfg = WorkerConfig::default();
+    cfg.enabled.insert(WorkerKind::TaskRunner, false);
+    tester!(alix1, worker_config: cfg);
+    tester!(bo);
+
+    let group = alix1
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    let count_add_tasks = || -> Vec<Vec<u8>> {
+        alix1
+            .context
+            .db()
+            .get_tasks()
+            .unwrap()
+            .iter()
+            .filter_map(|t| match TaskProto::decode(t.data.as_slice()).ok()?.task {
+                Some(TaskKind::AddMissingInstallations(a)) => Some(a.group_id),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // Call the schedule path directly (unit level — no live sync worker needed).
+    let scheduled = alix1
+        .device_sync_client()
+        .schedule_add_installations_to_groups()?;
+    assert!(scheduled >= 1);
+
+    let add_tasks = count_add_tasks();
+    assert!(
+        add_tasks.iter().any(|gid| gid == &group.group_id.to_vec()),
+        "expected an AddMissingInstallations task for the conversation group"
+    );
+
+    // Re-scheduling dedups on payload hash: row count stays put.
+    alix1
+        .device_sync_client()
+        .schedule_add_installations_to_groups()?;
+    let after = count_add_tasks();
+    assert_eq!(
+        add_tasks.len(),
+        after.len(),
+        "create_or_ignore must dedup identical payloads"
+    );
 }

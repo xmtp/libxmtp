@@ -69,7 +69,9 @@ fun EncodedContent.decompressContent(): EncodedContent {
                     }.build()
         }
 
-        else -> return copy
+        else -> {
+            return copy
+        }
     }
     return copy
 }

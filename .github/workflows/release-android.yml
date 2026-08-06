@@ -15,6 +15,12 @@ on:
         required: true
         type: string
         description: "Git ref to build from"
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
     outputs:
       version:
         description: "The published version string"
@@ -22,7 +28,7 @@ on:
 
 jobs:
   publish:
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -32,6 +38,8 @@ jobs:
       - uses: ./.github/actions/setup-release-tools
       - uses: ./.github/actions/setup-nix
         with:
+          nix-disk: "false"
+          gradle-disk: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
@@ -42,6 +50,19 @@ jobs:
             VERSION=$(xmtp-release compute-version --sdk android --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
             VERSION=$(xmtp-release compute-version --sdk android --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            # Belt-and-suspenders: release.yml already skips this whole job when
+            # the gate isn't green or there are no conventional commits
+            # (nothing-pending), so pending-* are populated whenever we reach
+            # here. This guard only fires if that orchestration is bypassed.
+            if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk android --release-type nightly \
+              --pending-version "${{ inputs.pending-version }}" \
+              --pending-kind "${{ inputs.pending-kind }}")
           else
             VERSION=$(xmtp-release compute-version --sdk android --release-type final)
           fi

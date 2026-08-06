@@ -28,7 +28,7 @@ use xmtp_content_types::{
     membership_change, multi_remote_attachment, reaction, read_receipt, remote_attachment, reply,
     text, transaction_reference, wallet_send_calls,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GroupId};
 
 mod convert;
 #[cfg(test)]
@@ -47,7 +47,7 @@ pub struct StoredGroupMessage {
     /// Id of the message.
     pub id: Vec<u8>,
     /// Id of the group this message is tied to.
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     /// Contents of message after decryption.
     pub decrypted_message_bytes: Vec<u8>,
     /// Time in nanoseconds the message was sent.
@@ -81,6 +81,9 @@ pub struct StoredGroupMessage {
     pub expire_at_ns: Option<i64>,
     /// Whether to send a push notification when publishing this message
     pub should_push: bool,
+    /// The idempotency key the message id is derived from. Defaults to the send
+    /// timestamp, but callers may supply their own to make retries idempotent.
+    pub idempotency_key: String,
 }
 
 impl StoredGroupMessage {
@@ -94,7 +97,7 @@ impl StoredGroupMessage {
 #[diesel(table_name = group_messages)]
 struct NewStoredGroupMessage {
     pub id: Vec<u8>,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub decrypted_message_bytes: Vec<u8>,
     pub sent_at_ns: i64,
     pub kind: GroupMessageKind,
@@ -111,13 +114,14 @@ struct NewStoredGroupMessage {
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
     pub should_push: bool,
+    pub idempotency_key: String,
 }
 
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
     fn from(msg: &StoredGroupMessage) -> Self {
         Self {
             id: msg.id.clone(),
-            group_id: msg.group_id.clone(),
+            group_id: msg.group_id,
             decrypted_message_bytes: msg.decrypted_message_bytes.clone(),
             sent_at_ns: msg.sent_at_ns,
             kind: msg.kind,
@@ -133,6 +137,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             sequence_id: msg.sequence_id,
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
+            idempotency_key: msg.idempotency_key.clone(),
         }
     }
 }
@@ -414,7 +419,7 @@ where
     type Output = ();
     fn store(&self, into: &C) -> Result<(), crate::StorageError> {
         let new_msg = NewStoredGroupMessage::from(self);
-        into.raw_query_write::<_, _>(|conn| {
+        into.raw_query::<_, _>(|conn| {
             diesel::insert_into(group_messages::table)
                 .values(&new_msg)
                 .execute(conn)
@@ -433,7 +438,7 @@ where
 
     fn store_or_ignore(&self, into: &C) -> Result<(), crate::StorageError> {
         let new_msg = NewStoredGroupMessage::from(self);
-        into.raw_query_write(|conn| {
+        into.raw_query(|conn| {
             diesel::insert_or_ignore_into(group_messages::table)
                 .values(&new_msg)
                 .execute(conn)
@@ -514,16 +519,26 @@ pub trait QueryGroupMessage {
     /// Query for group messages
     fn get_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
     /// Count group messages matching the given criteria
     fn count_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<i64, crate::ConnectionError>;
+
+    /// Return all `Application`-kind messages stored locally for `group_id`
+    /// whose `sequence_id` is NOT in the provided list. Used by tools that
+    /// compare local state against an authoritative set of sequence ids
+    /// (e.g. xdbg's healthcheck validator).
+    fn missing_messages(
+        &self,
+        group_id: &GroupId,
+        sequence_ids: &[u64],
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
     fn group_messages_paged(
         &self,
@@ -534,26 +549,26 @@ pub trait QueryGroupMessage {
     /// Query for group messages with their reactions
     fn get_group_messages_with_reactions(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError>;
 
     fn get_inbound_relations(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<InboundRelations, crate::ConnectionError>;
 
     fn get_outbound_relations(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
     ) -> Result<OutboundRelations, crate::ConnectionError>;
 
     fn get_inbound_relation_counts(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError>;
@@ -564,9 +579,9 @@ pub trait QueryGroupMessage {
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
-    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+    fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         allowed_content_types: &[ContentType],
     ) -> Result<LatestMessageTimeBySender, crate::ConnectionError>;
 
@@ -576,15 +591,15 @@ pub trait QueryGroupMessage {
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
-    fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
-    fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         sequence_id: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
@@ -603,15 +618,26 @@ pub trait QueryGroupMessage {
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// The soonest `expire_at_ns` among published Application messages that have
+    /// an expiry set, or `None` if no disappearing messages exist. Note this can
+    /// return a timestamp already in the past (an expiry that elapsed while the
+    /// worker was asleep) — the caller clamps the resulting sleep to `>= 0` and
+    /// deletes on the next wake. Same filters as `delete_expired_messages`
+    /// without its `expire_at_ns <= now` bound.
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
+    /// Stored messages above each group's cursor, attributed to their group.
+    /// The attribution matters: sequence ids are not scoped per group, so a
+    /// caller folding these into per-group state must never mix groups.
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
     /// Clear messages from the database with optional filtering.
     ///
@@ -623,7 +649,7 @@ pub trait QueryGroupMessage {
     /// The number of messages deleted.
     fn clear_messages(
         &self,
-        group_ids: Option<&[Vec<u8>]>,
+        group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError>;
 }
@@ -635,7 +661,7 @@ where
     /// Query for group messages
     fn get_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_messages(group_id, args)
@@ -644,10 +670,18 @@ where
     /// Count group messages matching the given criteria
     fn count_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<i64, crate::ConnectionError> {
         (**self).count_group_messages(group_id, args)
+    }
+
+    fn missing_messages(
+        &self,
+        group_id: &GroupId,
+        sequence_ids: &[u64],
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).missing_messages(group_id, sequence_ids)
     }
 
     fn group_messages_paged(
@@ -661,7 +695,7 @@ where
     /// Query for group messages with their reactions
     fn get_group_messages_with_reactions(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
         (**self).get_group_messages_with_reactions(group_id, args)
@@ -669,7 +703,7 @@ where
 
     fn get_inbound_relations(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<InboundRelations, crate::ConnectionError> {
@@ -678,7 +712,7 @@ where
 
     fn get_outbound_relations(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
     ) -> Result<OutboundRelations, crate::ConnectionError> {
         (**self).get_outbound_relations(group_id, message_ids)
@@ -686,16 +720,16 @@ where
 
     fn get_inbound_relation_counts(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError> {
         (**self).get_inbound_relation_counts(group_id, message_ids, relation_query)
     }
 
-    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+    fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         allowed_content_types: &[ContentType],
     ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
         (**self).get_latest_message_times_by_sender(group_id, allowed_content_types)
@@ -717,17 +751,17 @@ where
         (**self).write_conn_get_group_message(id)
     }
 
-    fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_message_by_timestamp(group_id, timestamp)
     }
 
-    fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_message_by_cursor(group_id, cursor)
@@ -754,6 +788,10 @@ where
         (**self).delete_expired_messages()
     }
 
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+        (**self).min_expire_at_ns()
+    }
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
@@ -764,13 +802,13 @@ where
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         (**self).messages_newer_than(cursors_by_group)
     }
 
     fn clear_messages(
         &self,
-        group_ids: Option<&[Vec<u8>]>,
+        group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).clear_messages(group_ids, retention_days)
@@ -832,16 +870,17 @@ macro_rules! apply_message_filters {
 
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
+    #[xmtp_common::db_span]
     fn get_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         use crate::schema::group_messages::dsl;
 
         // Start with base query
         let mut query = dsl::group_messages
-            .filter(group_id_filter(group_id))
+            .filter(group_id_filter(group_id.as_ref()))
             .into_boxed();
 
         // Apply common filters using macro
@@ -873,19 +912,20 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
+        self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Count group messages matching the given criteria
+    #[xmtp_common::db_span]
     fn count_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<i64, crate::ConnectionError> {
         use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
 
         // Check if this is a DM group
-        let is_dm = self.raw_query_read(|conn| {
+        let is_dm = self.raw_query(|conn| {
             groups_dsl::groups
                 .filter(groups_dsl::id.eq(group_id))
                 .select(groups_dsl::conversation_type)
@@ -900,7 +940,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         // Start with base query
         let mut query = dsl::group_messages
-            .filter(group_id_filter(group_id))
+            .filter(group_id_filter(group_id.as_ref()))
             .into_boxed();
 
         // For DM groups, exclude GroupUpdated messages unless specifically requested
@@ -917,11 +957,32 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         query = apply_message_filters!(query, args);
 
         let count =
-            self.raw_query_read(|conn| query.select(diesel::dsl::count_star()).first::<i64>(conn))?;
+            self.raw_query(|conn| query.select(diesel::dsl::count_star()).first::<i64>(conn))?;
 
         Ok(count)
     }
 
+    #[xmtp_common::db_span]
+    fn missing_messages(
+        &self,
+        group_id: &GroupId,
+        sequence_ids: &[u64],
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        use crate::schema::group_messages::{self, dsl};
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+
+        let sequence_ids: Vec<i64> = sequence_ids.iter().copied().map(|id| id as i64).collect();
+        let query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::sequence_id.is_not_null())
+            .filter(group_messages::sequence_id.ne_all(sequence_ids))
+            .filter(group_messages::kind.eq(GroupMessageKind::Application))
+            .order(group_messages::sequence_id.asc());
+
+        self.raw_query(|conn| query.load(conn))
+    }
+
+    #[xmtp_common::db_span]
     fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
@@ -962,7 +1023,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             query
                 .select(group_messages::all_columns)
                 .load::<StoredGroupMessage>(conn)
@@ -970,9 +1031,10 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     /// Query for group messages with their reactions
+    #[xmtp_common::db_span]
     fn get_group_messages_with_reactions(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
         // First get all the main messages
@@ -1004,7 +1066,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
 
         let mut reactions_query = dsl::group_messages
-            .filter(group_id_filter(group_id))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -1016,7 +1078,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         };
 
         let reactions: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| reactions_query.load::<StoredGroupMessage>(conn))?;
+            self.raw_query(|conn| reactions_query.load::<StoredGroupMessage>(conn))?;
 
         // Group reactions by parent message id
         let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
@@ -1047,16 +1109,17 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(messages_with_reactions)
     }
 
+    #[xmtp_common::db_span]
     fn get_inbound_relations(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<InboundRelations, crate::ConnectionError> {
         let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
 
         let mut inbound_relations_query = dsl::group_messages
-            .filter(group_id_filter(group_id))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -1077,7 +1140,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
 
         let raw_inbound_relations: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| inbound_relations_query.load::<StoredGroupMessage>(conn))?;
+            self.raw_query(|conn| inbound_relations_query.load::<StoredGroupMessage>(conn))?;
 
         for inbound_reference in raw_inbound_relations {
             if let Some(reference_id) = &inbound_reference.reference_id {
@@ -1091,18 +1154,19 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         Ok(inbound_relations)
     }
 
+    #[xmtp_common::db_span]
     fn get_outbound_relations(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         reference_ids: &[&[u8]],
     ) -> Result<OutboundRelations, crate::ConnectionError> {
         let outbound_references_query = dsl::group_messages
-            .filter(group_id_filter(group_id))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::id.eq_any(reference_ids))
             .into_boxed();
 
         let raw_outbound_references: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| outbound_references_query.load::<StoredGroupMessage>(conn))?;
+            self.raw_query(|conn| outbound_references_query.load::<StoredGroupMessage>(conn))?;
 
         Ok(raw_outbound_references
             .into_iter()
@@ -1110,14 +1174,15 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect())
     }
 
+    #[xmtp_common::db_span]
     fn get_inbound_relation_counts(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         message_ids: &[&[u8]],
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError> {
         let mut count_query = dsl::group_messages
-            .filter(group_id_filter(group_id))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .group_by(dsl::reference_id)
@@ -1129,7 +1194,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
 
         let raw_counts: Vec<(Option<Vec<u8>>, i64)> =
-            self.raw_query_read(|conn| count_query.load(conn))?;
+            self.raw_query(|conn| count_query.load(conn))?;
 
         Ok(raw_counts
             .into_iter()
@@ -1137,9 +1202,10 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .collect())
     }
 
-    fn get_latest_message_times_by_sender<GroupId: AsRef<[u8]>>(
+    #[xmtp_common::db_span]
+    fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         allowed_content_types: &[ContentType],
     ) -> Result<LatestMessageTimeBySender, crate::ConnectionError> {
         let query = dsl::group_messages
@@ -1149,8 +1215,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
             .into_boxed();
 
-        let raw_results: Vec<(String, Option<i64>)> =
-            self.raw_query_read(|conn| query.load(conn))?;
+        let raw_results: Vec<(String, Option<i64>)> = self.raw_query(|conn| query.load(conn))?;
 
         Ok(raw_results
             .into_iter()
@@ -1165,7 +1230,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first::<StoredGroupMessage>(conn)
@@ -1178,7 +1243,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first::<StoredGroupMessage>(conn)
@@ -1186,12 +1251,12 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_timestamp<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(&timestamp))
@@ -1200,12 +1265,12 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
+    fn get_group_message_by_cursor<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
@@ -1227,7 +1292,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             hex::encode(msg_id),
             cursor
         );
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -1245,7 +1310,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
@@ -1253,8 +1318,9 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
+    #[xmtp_common::db_span]
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             use diesel::prelude::*;
             let now = now_ns();
 
@@ -1270,21 +1336,36 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
+    #[xmtp_common::db_span]
+    fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            use diesel::dsl::min;
+            use diesel::prelude::*;
+            dsl::group_messages
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::kind.eq(GroupMessageKind::Application))
+                .filter(dsl::expire_at_ns.is_not_null())
+                .select(min(dsl::expire_at_ns))
+                .first::<Option<i64>>(conn)
+        })
+    }
+
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             use diesel::prelude::*;
             diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id.as_ref())))
                 .execute(conn)
         })
     }
 
+    #[xmtp_common::db_span]
     fn messages_newer_than(
         &self,
         cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
-    ) -> Result<Vec<Cursor>, crate::ConnectionError> {
+    ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         use diesel::BoolExpressionMethods;
         use diesel::ExpressionMethods;
         use diesel::prelude::*;
@@ -1310,7 +1391,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             for (group_id, global_cursor) in batch {
                 if global_cursor.is_empty() {
                     // No cursor for this group - include all messages
-                    batch_filter = Box::new(batch_filter.or(dsl::group_id.eq(group_id.as_slice())));
+                    batch_filter = Box::new(batch_filter.or(dsl::group_id.eq(group_id)));
                 } else {
                     // Build condition for this group: group_id matches AND (originator conditions)
                     let known_originators: Vec<i64> =
@@ -1342,31 +1423,34 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
                     // Combine: this group AND (originator conditions)
                     batch_filter = Box::new(
-                        batch_filter
-                            .or(dsl::group_id.eq(group_id.as_slice()).and(originator_filter)),
+                        batch_filter.or(dsl::group_id.eq(group_id).and(originator_filter)),
                     );
                 }
             }
 
             // Execute the query
-            let messages: Vec<(i64, i64)> = self.raw_query_read(|conn| {
+            let messages: Vec<(GroupId, i64, i64)> = self.raw_query(|conn| {
                 dsl::group_messages
-                    .select((dsl::originator_id, dsl::sequence_id))
+                    .select((dsl::group_id, dsl::originator_id, dsl::sequence_id))
                     .filter(batch_filter)
                     .load(conn)
             })?;
 
-            for (originator_id, sequence_id) in messages {
-                all_cursors.push(Cursor::new(sequence_id as u64, originator_id as u32));
+            for (group_id, originator_id, sequence_id) in messages {
+                all_cursors.push((
+                    group_id,
+                    Cursor::new(sequence_id as u64, originator_id as u32),
+                ));
             }
         }
 
         Ok(all_cursors)
     }
 
+    #[xmtp_common::db_span]
     fn clear_messages(
         &self,
-        group_ids: Option<&[Vec<u8>]>,
+        group_ids: Option<&[GroupId]>,
         retention_days: Option<u32>,
     ) -> Result<usize, crate::ConnectionError> {
         let mut query = diesel::delete(dsl::group_messages).into_boxed();
@@ -1380,7 +1464,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.filter(dsl::sent_at_ns.lt(limit));
         }
 
-        self.raw_query_write(|conn| query.execute(conn))
+        self.raw_query(|conn| query.execute(conn))
     }
 }
 

@@ -4,9 +4,10 @@ use crate::client::DeviceSync;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
+use crate::worker::disappearing_messages::DisappearingChannels;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::tasks::TaskWorkerChannels;
-use crate::worker::{DynMetrics, MetricsCasting, WorkerKind};
+use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
@@ -14,7 +15,9 @@ use crate::{
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -36,7 +39,6 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) identity: Identity,
     /// The XMTP Api Client
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
-    pub(crate) sync_api_client: ApiClientWrapper<ApiClient>, // sync-only channel
     /// XMTP Local Storage
     pub(crate) store: Db,
     pub(crate) mls_storage: S,
@@ -48,9 +50,18 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
+    pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub(crate) disappearing_channels: DisappearingChannels,
+    pub(crate) cancellation_token: CancellationToken,
+    // Set only after a successful `Client::close` (workers stopped + DB
+    // disconnected). The cancellation token tracks "shutdown initiated";
+    // this tracks "shutdown completed cleanly" — distinct semantics so
+    // a `disconnect()` failure mid-`close` doesn't silently short-circuit
+    // future retries.
+    pub(crate) shutdown_complete: Arc<AtomicBool>,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -104,7 +115,6 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
         XmtpMlsLocalContext::<ApiClient, Db, S2> {
             identity: self.identity,
             api_client: self.api_client,
-            sync_api_client: self.sync_api_client,
             store: self.store,
             mls_storage: mls_store,
             mutexes: self.mutexes,
@@ -115,8 +125,12 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
+            worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            disappearing_channels: self.disappearing_channels,
+            cancellation_token: self.cancellation_token,
+            shutdown_complete: self.shutdown_complete,
         }
     }
 }
@@ -160,6 +174,18 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             .get(&WorkerKind::DeviceSync)?
             .as_sync_metrics()
     }
+
+    pub fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    pub fn shutdown_complete(&self) -> bool {
+        self.shutdown_complete.load(Ordering::Acquire)
+    }
+
+    pub fn mark_shutdown_complete(&self) {
+        self.shutdown_complete.store(true, Ordering::Release);
+    }
 }
 
 pub trait XmtpSharedContext
@@ -174,7 +200,6 @@ where
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
     fn device_sync(&self) -> &DeviceSync;
@@ -184,6 +209,18 @@ where
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
+
+    fn worker_config(&self) -> &WorkerConfig;
+
+    /// Resolve `(base, jitter)` for a worker from the configured
+    /// [`WorkerConfig`], falling back to the worker's compiled-in const.
+    fn worker_interval(
+        &self,
+        kind: WorkerKind,
+        const_default: std::time::Duration,
+    ) -> (std::time::Duration, std::time::Duration) {
+        self.worker_config().interval(kind, const_default)
+    }
 
     /// Creates a new MLS Provider
     fn mls_provider(&'_ self) -> XmtpOpenMlsProviderRef<'_, Self::MlsStorage> {
@@ -209,9 +246,24 @@ where
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
     fn task_channels(&self) -> &TaskWorkerChannels;
+    fn disappearing_channels(&self) -> &DisappearingChannels;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
+    fn cancellation_token(&self) -> &CancellationToken;
+
+    /// Returns `true` once `Client::close` has been called on this context.
+    fn is_closed(&self) -> bool {
+        self.cancellation_token().is_cancelled()
+    }
+
+    /// Returns `true` only after `Client::close` has fully torn the client
+    /// down (workers drained + DB disconnected). Distinct from [`is_closed`]
+    /// which fires the moment shutdown begins — this guards `close`'s
+    /// idempotency check so a mid-shutdown failure stays retryable.
+    fn shutdown_complete(&self) -> bool;
+
+    fn mark_shutdown_complete(&self);
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -237,10 +289,6 @@ where
         &self.api_client
     }
 
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        &self.sync_api_client
-    }
-
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         self.scw_verifier.clone()
     }
@@ -251,6 +299,10 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         &self.fork_recovery_opts
+    }
+
+    fn worker_config(&self) -> &WorkerConfig {
+        &self.worker_config
     }
 
     /// a reference to the MLS Storage Type
@@ -283,6 +335,10 @@ where
         &self.task_channels
     }
 
+    fn disappearing_channels(&self) -> &DisappearingChannels {
+        &self.disappearing_channels
+    }
+
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.worker_metrics
             .lock()
@@ -292,6 +348,18 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
+    }
+
+    fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        self.shutdown_complete.load(Ordering::Acquire)
+    }
+
+    fn mark_shutdown_complete(&self) {
+        self.shutdown_complete.store(true, Ordering::Release);
     }
 }
 
@@ -316,10 +384,6 @@ where
         <T as XmtpSharedContext>::api(self)
     }
 
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        <T as XmtpSharedContext>::sync_api(self)
-    }
-
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         <T as XmtpSharedContext>::scw_verifier(self)
     }
@@ -334,6 +398,10 @@ where
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
         <T as XmtpSharedContext>::fork_recovery_opts(self)
+    }
+
+    fn worker_config(&self) -> &WorkerConfig {
+        <T as XmtpSharedContext>::worker_config(self)
     }
 
     fn mls_storage(&self) -> &Self::MlsStorage {
@@ -364,11 +432,27 @@ where
         <T as XmtpSharedContext>::task_channels(self)
     }
 
+    fn disappearing_channels(&self) -> &DisappearingChannels {
+        <T as XmtpSharedContext>::disappearing_channels(self)
+    }
+
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         <T as XmtpSharedContext>::sync_metrics(self)
     }
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn cancellation_token(&self) -> &CancellationToken {
+        <T as XmtpSharedContext>::cancellation_token(self)
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        <T as XmtpSharedContext>::shutdown_complete(self)
+    }
+
+    fn mark_shutdown_complete(&self) {
+        <T as XmtpSharedContext>::mark_shutdown_complete(self)
     }
 }

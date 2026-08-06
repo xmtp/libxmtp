@@ -14,12 +14,12 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
-use xmtp_proto::types::{Cursor, GlobalCursor};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId};
 
 #[cfg_attr(test, mockall::automock)]
 pub trait GroupDatabase {
     /// Get the last cursor for a message
-    fn last_cursor(&self, group_id: &[u8]) -> Result<GlobalCursor, StorageError>;
+    fn last_cursor(&self, group_id: &GroupId) -> Result<GlobalCursor, StorageError>;
     /// get a message from the database
     // not needless, required by mockall
     #[allow(clippy::needless_lifetimes)]
@@ -47,12 +47,12 @@ impl<Context> GroupDatabase for GroupDb<Context>
 where
     Context: XmtpSharedContext,
 {
-    fn last_cursor(&self, group_id: &[u8]) -> Result<GlobalCursor, StorageError> {
+    fn last_cursor(&self, group_id: &GroupId) -> Result<GlobalCursor, StorageError> {
         let mut maps = self
             .0
             .db()
-            .get_last_cursor_for_ids(&[group_id], &MESSAGE_ENTITIES)?;
-        Ok(maps.remove(group_id).unwrap_or_default())
+            .get_last_cursor_for_ids(&[group_id.as_slice()], &MESSAGE_ENTITIES)?;
+        Ok(maps.remove(group_id.as_slice()).unwrap_or_default())
     }
 
     fn msg(
@@ -68,7 +68,7 @@ where
             m.internal_id.clone()
         })
         .map(|id| conn.get_group_message(id))
-        .unwrap_or_else(|| conn.get_group_message_by_timestamp(&msg.group_id, msg.timestamp()))
+        .unwrap_or_else(|| conn.get_group_message_by_timestamp(msg.group_id, msg.timestamp()))
         .map_err(StorageError::from)
     }
 }
@@ -115,13 +115,18 @@ where
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))
             .await
+            // Streaming path (trust_message_order = false): any captured
+            // intent_error is intentionally discarded — intent-resolution
+            // reporting belongs to the query/sync path, not the stream. Surface
+            // only the identifier, matching prior behavior.
+            .map(|outcome| outcome.identifier)
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
     }
 
     async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {
         let group = MlsGroup::new(
             self.0.clone(),
-            msg.group_id.to_vec(),
+            msg.group_id,
             None,
             ConversationType::Group,
             msg.timestamp(),
@@ -132,7 +137,7 @@ where
                 tracing::debug!(
                     "recovery sync processed=[{}] messages, group@[{}] now in epoch=[{}] with the first decryptable message @cursor=[{:?}]",
                     summary.process.total(),
-                    xmtp_common::fmt::truncate_hex(hex::encode(&msg.group_id)),
+                    xmtp_common::fmt::truncate_hex(hex::encode(msg.group_id)),
                     epoch,
                     summary.process.first_new()
                 );
@@ -142,7 +147,7 @@ where
             Err(summary) => {
                 tracing::warn!(
                     inbox_id = self.0.inbox_id(),
-                    group_id = hex::encode(&msg.group_id),
+                    group_id = %msg.group_id,
                     cursor_id = %msg.cursor,
                     "recovery sync triggered by streamed message failed",
                 );
@@ -253,7 +258,9 @@ where
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: delivered_cursor,
-                group_id: new_msg.group_id.clone(),
+                // `lookup_stored_from_sync` only returns same-group rows, so
+                // the wire message's typed id is the stored message's group.
+                group_id: msg.group_id,
                 tried_to_process: msg.cursor,
             })
         } else {
@@ -261,7 +268,7 @@ where
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,
-                group_id: msg.group_id.to_vec(),
+                group_id: msg.group_id,
                 tried_to_process: msg.cursor,
             })
         }
@@ -289,7 +296,7 @@ where
                 // This should never occur because we map the error to `ReceiveGroup`
                 // But still exists defensively
                 tracing::error!(
-                    group_id = hex::encode(&msg.group_id),
+                    group_id = %msg.group_id,
                     cursor_id = %msg.cursor,
                     err = e.to_string(),
                     "process stream entry {:?}",
@@ -300,10 +307,10 @@ where
             Ok(processed_msg) => {
                 tracing::trace!(
                     cursor_id = %msg.cursor,
-                    group_id = hex::encode(&msg.group_id),
+                    group_id = %msg.group_id,
                     "message process in stream success, synced single msg @cursor={},group_id={}",
                     processed_msg.cursor,
-                    xmtp_common::fmt::truncate_hex(hex::encode(&processed_msg.group_id))
+                    xmtp_common::fmt::truncate_hex(hex::encode(processed_msg.group_id))
                 );
                 SyncSummary::single(processed_msg)
             }

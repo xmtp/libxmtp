@@ -1,3 +1,4 @@
+pub mod app_data;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
@@ -53,7 +54,7 @@ use openmls::{
     },
     group::{GroupContext, MlsGroupCreateConfig},
     messages::proposals::ProposalType,
-    prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy},
+    prelude::{Capabilities, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
 use prost::Message;
 use std::collections::HashMap;
@@ -61,9 +62,9 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
-    BROADCAST_PROPOSAL_SUPPORT, CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID,
-    GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
-    Originators, PROPOSAL_SUPPORT_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
+    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
@@ -99,6 +100,12 @@ use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalC
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
+    app_data::components::{
+        inbox_id_set::{AdminListComponent, SuperAdminListComponent},
+        metadata_attributes::{
+            AppDataComponent, GroupDescriptionComponent, GroupImageUrlComponent, GroupNameComponent,
+        },
+    },
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError, extract_group_metadata},
     group_mutable_metadata::{
@@ -107,7 +114,7 @@ use xmtp_mls_common::{
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::{
-    types::Cursor,
+    types::{Cursor, GroupId},
     xmtp::mls::message_contents::{
         EncodedContent, OneshotMessage, PlaintextEnvelope,
         content_types::ReactionV2,
@@ -125,7 +132,7 @@ const MAX_APP_DATA_LENGTH: usize = 8192;
 /// different.
 /// the Hash implementation hashes the [`GroupId`]
 pub struct MlsGroup<Context> {
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub dm_id: Option<String>,
     pub conversation_type: ConversationType,
     pub created_at_ns: i64,
@@ -153,7 +160,7 @@ where
     Context: XmtpSharedContext,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let id = xmtp_common::fmt::truncate_hex(hex::encode(&self.group_id));
+        let id = xmtp_common::fmt::truncate_hex(hex::encode(self.group_id));
         let inbox_id = self.context.inbox_id();
         let installation = self.context.installation_id().to_string();
         let time = chrono::DateTime::from_timestamp_nanos(self.created_at_ns);
@@ -177,7 +184,7 @@ pub struct ConversationListItem<Context> {
 impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
     fn clone(&self) -> Self {
         Self {
-            group_id: self.group_id.clone(),
+            group_id: self.group_id,
             dm_id: self.dm_id.clone(),
             conversation_type: self.conversation_type,
             created_at_ns: self.created_at_ns,
@@ -205,6 +212,71 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
+}
+
+/// Options for [`MlsGroup::enable_proposals`].
+///
+/// Default (`EnableProposalsOptions::default()` or
+/// `EnableProposalsOptions { force: false, min_version: None }`) is
+/// the safe production setting: enforce the pre-flight capability
+/// check and write the standard
+/// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] floor.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnableProposalsOptions {
+    /// Skip the pre-flight `all_members_support_proposals` check. The
+    /// key-package capability advertisement is the pre-d14n
+    /// negotiation mechanism; post-d14n every client is guaranteed to
+    /// support proposals by version floor alone, so the per-member
+    /// scan stops adding signal. Setting `force = true` bypasses it on
+    /// both the pre-flight pass and the bootstrap-time re-check.
+    ///
+    /// Callers using this MUST be confident every member is at >=
+    /// `min_version` — there is no second gate.
+    pub force: bool,
+
+    /// Override the floor written into
+    /// `MIN_SUPPORTED_PROTOCOL_VERSION`. When `None`, defaults to
+    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
+    /// release where proposals support first ships.
+    ///
+    /// Non-test builds clamp the override to
+    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] `<=
+    /// min_version <=` own `pkg_version`: the bootstrap encoder is
+    /// byte-frozen against receivers at or above that constant, so a
+    /// seeded floor below it would reopen the byte-compare fork the
+    /// pause path closes.
+    ///
+    /// Use cases:
+    /// - Tests that want a synthetic floor (e.g. `"99.0.0"` to force
+    ///   the pause path) or no floor (e.g. `"0.0.0"`) — below-floor
+    ///   values are accepted only in `test` / `test-utils` builds.
+    /// - Staged production rollouts that need a floor above the
+    ///   default.
+    pub min_version: Option<String>,
+}
+
+impl EnableProposalsOptions {
+    /// Test/dev-only constructor that sets the floor to `"0.0.0"` so
+    /// the migration never pauses any peer. Use in tests that aren't
+    /// specifically exercising the pause path — passing
+    /// [`EnableProposalsOptions::default()`] in a test environment
+    /// would write the production
+    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] floor,
+    /// which a test client running at the workspace `CARGO_PKG_VERSION`
+    /// (below that floor) would self-pause against.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn test_default() -> Self {
+        Self {
+            force: false,
+            min_version: Some("0.0.0".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AdminListKind {
+    Admin,
+    SuperAdmin,
 }
 
 /// Fields extracted from content of a message that should be stored in the DB
@@ -279,6 +351,89 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
     }
 }
 
+/// An MLS extension type advertised by an installation's key package or
+/// present in a group's context.
+///
+/// Mirrors openmls [`ExtensionType`]; unknown/forward-compatibility variants
+/// are preserved verbatim so callers can match on what they understand and
+/// ignore the rest. This is a generic capability primitive — callers filter
+/// it to answer specific questions (e.g. "is this group migrated to the
+/// proposal flow?" = a list contains [`MlsExtensionType::AppDataDictionary`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlsExtensionType {
+    ApplicationId,
+    RatchetTree,
+    RequiredCapabilities,
+    ExternalPub,
+    ExternalSenders,
+    LastResort,
+    ImmutableMetadata,
+    AppDataDictionary,
+    /// An extension type this build does not have a named variant for.
+    Unknown(u16),
+    /// A GREASE value used to exercise extensibility.
+    Grease(u16),
+}
+
+impl From<ExtensionType> for MlsExtensionType {
+    fn from(value: ExtensionType) -> Self {
+        match value {
+            ExtensionType::ApplicationId => MlsExtensionType::ApplicationId,
+            ExtensionType::RatchetTree => MlsExtensionType::RatchetTree,
+            ExtensionType::RequiredCapabilities => MlsExtensionType::RequiredCapabilities,
+            ExtensionType::ExternalPub => MlsExtensionType::ExternalPub,
+            ExtensionType::ExternalSenders => MlsExtensionType::ExternalSenders,
+            ExtensionType::LastResort => MlsExtensionType::LastResort,
+            ExtensionType::ImmutableMetadata => MlsExtensionType::ImmutableMetadata,
+            ExtensionType::AppDataDictionary => MlsExtensionType::AppDataDictionary,
+            ExtensionType::Unknown(id) => MlsExtensionType::Unknown(id),
+            ExtensionType::Grease(id) => MlsExtensionType::Grease(id),
+        }
+    }
+}
+
+/// Capability snapshot for a single installation (device) of a member.
+#[derive(Debug, Clone)]
+pub struct InstallationCapabilities {
+    pub installation_id: Vec<u8>,
+    /// True for the local (this device's) installation.
+    pub is_own: bool,
+    /// The MLS extension types this installation advertises, taken from its
+    /// *latest published* key package. Empty when `capabilities_known` is
+    /// false.
+    pub supported_extensions: Vec<MlsExtensionType>,
+    /// Whether capabilities were determined. `false` means the key package
+    /// could not be fetched or failed verification — distinct from an
+    /// installation that advertises no extensions.
+    pub capabilities_known: bool,
+}
+
+/// Per-inbox grouping of installation capabilities. Callers map `inbox_id`
+/// back to a profile to attribute capabilities to a person.
+#[derive(Debug, Clone)]
+pub struct InboxCapabilities {
+    pub inbox_id: InboxId,
+    pub installations: Vec<InstallationCapabilities>,
+}
+
+/// A generic membership/capability snapshot for a group.
+///
+/// This intentionally reports raw facts rather than answers, so callers can
+/// filter it to whatever question they care about. For the proposal
+/// (app-data-dictionary) migration specifically: the group is already
+/// migrated when `context_extensions` contains
+/// [`MlsExtensionType::AppDataDictionary`], it is eligible to migrate when
+/// every installation's `supported_extensions` contains it, and the inboxes
+/// blocking migration are those with an installation that does not.
+#[derive(Debug, Clone)]
+pub struct GroupMembershipCapabilities {
+    /// Extension types present in the group's context.
+    pub context_extensions: Vec<MlsExtensionType>,
+    /// Per-inbox, per-installation capability breakdown — one entry per member
+    /// inbox, in no particular order.
+    pub members: Vec<InboxCapabilities>,
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
@@ -290,7 +445,7 @@ where
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         dm_id: Option<String>,
         conversation_type: ConversationType,
         created_at_ns: i64,
@@ -312,14 +467,14 @@ where
     /// Returns the Group and the stored group information as a tuple.
     pub fn new_cached(
         context: Context,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
         if let Some(group) = conn.find_group(group_id)? {
             Ok((
                 Self::new_from_arc(
                     context,
-                    group_id.to_vec(),
+                    *group_id,
                     group.dm_id.clone(),
                     group.conversation_type,
                     group.created_at_ns,
@@ -328,20 +483,20 @@ where
             ))
         } else {
             tracing::error!("group {} does not exist", hex::encode(group_id));
-            Err(NotFound::GroupById(group_id.to_vec()).into())
+            Err(NotFound::GroupById(*group_id).into())
         }
     }
 
     pub(crate) fn new_from_arc(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         dm_id: Option<String>,
         conversation_type: ConversationType,
         created_at_ns: i64,
     ) -> Self {
         let mut mutexes = context.mutexes().clone();
         Self {
-            group_id: group_id.clone(),
+            group_id,
             dm_id,
             conversation_type,
             created_at_ns,
@@ -362,14 +517,15 @@ where
         F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
     {
         // Get the group ID for locking
-        let group_id = self.group_id.clone();
+        let group_id = self.group_id;
 
         // Acquire the lock synchronously using blocking_lock
-        let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
+        let _lock = self.mls_commit_lock.get_lock_sync(group_id);
         // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
-            .map_err(|_| NotFound::MlsGroup)?
-            .ok_or(NotFound::MlsGroup)?;
+        let mls_group = OpenMlsGroup::load(storage, &self.group_id.to_openmls())
+            .inspect_err(|e| tracing::error!("openmls error while loading group {e}"))
+            .map_err(|_| NotFound::MlsGroup(self.group_id))?
+            .ok_or(NotFound::MlsGroup(self.group_id))?;
 
         // Perform the operation with the MLS group
         operation(mls_group)
@@ -386,16 +542,14 @@ where
     {
         let mls_storage = self.context.mls_storage();
         // Get the group ID for locking
-        let group_id = self.group_id.clone();
+        let group_id = self.group_id;
 
         // Acquire the lock asynchronously
-        let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
+        let _lock = self.mls_commit_lock.get_lock_async(group_id).await;
 
         // Load the MLS group
-        let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
-            .ok_or(StorageError::from(NotFound::GroupById(
-                self.group_id.to_vec(),
-            )))?;
+        let mls_group = OpenMlsGroup::load(mls_storage, &self.group_id.to_openmls())?
+            .ok_or(StorageError::from(NotFound::GroupById(self.group_id)))?;
 
         // Perform the operation with the MLS group
         operation(mls_group).await
@@ -414,7 +568,12 @@ where
         &self,
         mls_group: &OpenMlsGroup,
     ) -> Result<bool, GroupError> {
-        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+        // The standard MLS Capabilities extension advertises support
+        // for the `AppDataDictionary` extension type. A leaf that lists
+        // it can participate in a migrated group; a leaf that doesn't
+        // can't. This replaces the XMTP-specific PROPOSAL_SUPPORT
+        // extension we used to advertise in parallel.
+        let extension_type = ExtensionType::AppDataDictionary;
 
         // Check leaf nodes in the group first (fast path).
         // If all leaf nodes advertise support, we're done — no network call needed.
@@ -456,88 +615,589 @@ where
         Ok(true)
     }
 
+    /// Snapshot this group's membership capabilities: the extension types in
+    /// the group context, plus the extension types each member installation
+    /// advertises.
+    ///
+    /// This reports raw capability facts rather than answers — callers filter
+    /// it to whatever question they care about. For the proposal
+    /// (app-data-dictionary) migration specifically, a caller checks for
+    /// [`MlsExtensionType::AppDataDictionary`] in `context_extensions` (already
+    /// migrated?) and in each installation's `supported_extensions` (eligible /
+    /// who is blocking?).
+    ///
+    /// Every installation's capabilities — the local one included — come from
+    /// its *latest published* key package, not its in-group leaf node: a leaf
+    /// is frozen when the installation joins and is never updated, so it would
+    /// understate a client that upgraded afterward (the same reason
+    /// [`Self::all_members_support_proposals`] falls back to key packages). An
+    /// installation whose key package has not been published or fails
+    /// verification is reported with `capabilities_known == false` and an empty
+    /// extension list, so callers can distinguish "unknown" from "advertises
+    /// nothing". Transient failures (network, auth, db) surface as an `Err`
+    /// rather than masquerading as unknown capabilities.
+    pub async fn membership_capabilities(&self) -> Result<GroupMembershipCapabilities, GroupError> {
+        // Read the group context's extension types under lock. The member list
+        // (below) is read in a separate lock acquisition, so this is a
+        // best-effort snapshot rather than a single atomic view — fine for a
+        // debug surface.
+        let context_extensions = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                Ok::<_, GroupError>(
+                    mls_group
+                        .extensions()
+                        .iter()
+                        .map(|ext| MlsExtensionType::from(ext.extension_type()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .await?;
+
+        let members = self.members().await?;
+        let own_installation_id = self.context.installation_id();
+
+        // Capabilities for every installation come from its latest published
+        // key package. We intentionally include our own installation rather
+        // than reading its in-group leaf, which is frozen at join and would
+        // understate an upgraded local client.
+        let query_ids: Vec<Vec<u8>> = members
+            .iter()
+            .flat_map(|member| member.installation_ids.iter().cloned())
+            .collect();
+
+        let extensions_by_installation = self.installation_extensions(query_ids).await?;
+
+        let installation_capabilities = |installation_id: Vec<u8>| -> InstallationCapabilities {
+            let is_own = installation_id.as_slice() == own_installation_id.as_slice();
+            match extensions_by_installation.get(installation_id.as_slice()) {
+                Some(extensions) => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: extensions.clone(),
+                    capabilities_known: true,
+                },
+                None => InstallationCapabilities {
+                    installation_id,
+                    is_own,
+                    supported_extensions: Vec::new(),
+                    capabilities_known: false,
+                },
+            }
+        };
+
+        let member_caps: Vec<InboxCapabilities> = members
+            .into_iter()
+            .map(|member| InboxCapabilities {
+                inbox_id: member.inbox_id,
+                installations: member
+                    .installation_ids
+                    .into_iter()
+                    .map(installation_capabilities)
+                    .collect(),
+            })
+            .collect();
+
+        Ok(GroupMembershipCapabilities {
+            context_extensions,
+            members: member_caps,
+        })
+    }
+
+    /// Fetch the latest published key package for each given installation and
+    /// return the MLS extension types it advertises, keyed by installation id.
+    ///
+    /// An installation with no published key package (e.g. an old client — what
+    /// this surface exists to flag) or whose key package fails verification is
+    /// simply absent from the returned map; callers treat absence as
+    /// "capabilities unknown". Transient/infrastructure failures (network,
+    /// auth, db) are NOT swallowed — they propagate as `Err`, so a snapshot can
+    /// tell "this installation has nothing published" apart from "we couldn't
+    /// reach the server".
+    ///
+    /// A single batch round-trip is attempted first; the batch fetch fails
+    /// wholesale when *any* requested installation has no published key package,
+    /// so on that specific error we fall back to bounded per-installation
+    /// fetches that tolerate the gaps.
+    async fn installation_extensions(
+        &self,
+        query_ids: Vec<Vec<u8>>,
+    ) -> Result<HashMap<Vec<u8>, Vec<MlsExtensionType>>, GroupError> {
+        if query_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let store = crate::mls_store::MlsStore::new(self.context.clone());
+
+        // Cap the fallback fan-out: this path fires when the group holds
+        // installations without published key packages, and large groups can
+        // hold hundreds of installations.
+        const MAX_CONCURRENT_KEY_PACKAGE_FETCHES: usize = 16;
+
+        let verified = match store
+            .get_key_packages_for_installation_ids(query_ids.clone())
+            .await
+        {
+            Ok(key_packages) => key_packages,
+            Err(e) if Self::is_missing_key_package(&e) => {
+                use futures::stream::{StreamExt, TryStreamExt};
+                futures::stream::iter(query_ids.into_iter().map(|id| {
+                    let store = &store;
+                    async move {
+                        match store
+                            .get_key_packages_for_installation_ids(vec![id.clone()])
+                            .await
+                        {
+                            Ok(mut found) => Ok(found.remove(id.as_slice()).map(|kp| (id, kp))),
+                            Err(e) if Self::is_missing_key_package(&e) => Ok(None),
+                            Err(e) => Err(GroupError::from(e)),
+                        }
+                    }
+                }))
+                .buffer_unordered(MAX_CONCURRENT_KEY_PACKAGE_FETCHES)
+                .try_filter_map(|entry| async move { Ok(entry) })
+                .try_collect()
+                .await?
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(verified
+            .into_iter()
+            .filter_map(|(id, result)| {
+                let extensions = result
+                    .ok()?
+                    .inner
+                    .leaf_node()
+                    .capabilities()
+                    .extensions()
+                    .iter()
+                    .copied()
+                    .map(MlsExtensionType::from)
+                    .collect();
+                Some((id, extensions))
+            })
+            .collect())
+    }
+
+    /// True when a key-package fetch failed specifically because an installation
+    /// has no published key package — the batch API reports this as a count
+    /// mismatch. Distinct from transient/infrastructure failures, which callers
+    /// want surfaced rather than silently reported as "unknown capabilities".
+    fn is_missing_key_package(err: &crate::mls_store::MlsStoreError) -> bool {
+        matches!(
+            err,
+            crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::MismatchedKeyPackages { .. })
+        )
+    }
+
     /// Check if the group has proposals enabled (proposal-by-reference flow).
     ///
-    /// This checks if the group context contains the `PROPOSAL_SUPPORT_EXTENSION_ID`
-    /// extension with a `ProposalSupport` proto.
+    /// Delegates to `check_proposals_enabled` which detects the
+    /// standard MLS `ExtensionType::AppDataDictionary` group-context
+    /// extension. A migrated group carries the dict via that extension
+    /// type, making it both the wire-format carrier AND the signal
+    /// that the proposal flow is in effect.
     ///
     /// When proposals are enabled on a group:
     /// - Add/remove member operations MUST use proposals
-    /// - All members being added MUST support the proposal extension
+    /// - All members being added MUST advertise `AppDataDictionary`
+    ///   support in their key-package capabilities
     /// - Direct commits for membership changes are not allowed
     pub fn proposals_enabled(&self, mls_group: &OpenMlsGroup) -> bool {
         check_proposals_enabled(mls_group.extensions())
     }
 
+    /// Like [`Self::proposals_enabled`], but loads the group from storage
+    /// instead of taking a caller-held `OpenMlsGroup`. The convenience
+    /// shape bindings need for a plain "is this group migrated?" read.
+    pub fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+            Ok(self.proposals_enabled(&mls_group))
+        })
+    }
+
     /// Enable proposals on this group (proposal-by-reference flow).
     ///
-    /// This sets the `PROPOSAL_SUPPORT_EXTENSION_ID` extension on the group context.
+    /// Runs the bootstrap commit that migrates the group's state out
+    /// of legacy GMM-style extensions and into the standard MLS
+    /// `AppDataDictionary` extension. After bootstrap completes the
+    /// dictionary is the sole source of truth for the metadata
+    /// attributes that previously lived in the legacy extensions.
     /// Once enabled:
     /// - All add/remove member operations will use proposals
-    /// - All members being added must support proposals
+    /// - All members being added must advertise `AppDataDictionary`
+    ///   support in their key-package capabilities
     /// - This cannot be disabled once set
+    ///
+    /// # Options
+    ///
+    /// See [`EnableProposalsOptions`] for the two knobs:
+    /// - `force`: skip the pre-flight key-package capability check. Use
+    ///   after d14n cuts over, when capability advertisement is
+    ///   redundant with the version floor.
+    /// - `min_version`: override the `MIN_SUPPORTED_PROTOCOL_VERSION`
+    ///   floor written into the migrated group. Defaults to
+    ///   [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
+    ///   release where proposals support first ships.
     ///
     /// # Prerequisites
     ///
-    /// Before calling this method, ensure all existing members support proposals
-    /// by calling `all_members_support_proposals()`.
+    /// Before calling this method with `force = false`, ensure all
+    /// existing members support proposals by calling
+    /// `all_members_support_proposals()`.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Not all existing members support proposals
+    /// - `force = false` and not all existing members support proposals
+    /// - `min_version` is set to an invalid semver string
+    /// - `min_version` is outside the allowed bounds: above the
+    ///   caller's own `pkg_version`, or — in non-test builds — below
+    ///   [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`]
     /// - The group context extension update fails
-    pub async fn enable_proposals(&self) -> Result<(), GroupError> {
-        // Check support AND build extensions in a single lock acquisition to avoid
-        // a race where membership changes between the check and the build.
-        let new_extensions = self
+    pub async fn enable_proposals(
+        &self,
+        options: EnableProposalsOptions,
+    ) -> Result<(), GroupError> {
+        // Race-loss recovery: a concurrent migrator may win the
+        // race, advancing the group's epoch and causing our own
+        // intent's commit to fail when it tries to apply locally.
+        // The user-facing semantic of `enable_proposals` is "after
+        // this returns Ok, the group is migrated" — so if we error
+        // out but the group ended up migrated anyway, that's a
+        // benign race loss, not a failure.
+        //
+        // Implementation: delegate to an inner function and, on
+        // error, check `proposals_enabled` one final time. Only
+        // genuine failures (where the group is NOT migrated) are
+        // surfaced to the caller.
+        let result = self.enable_proposals_inner(options).await;
+        if let Err(ref err) = result {
+            let migrated_anyway = self
+                .load_mls_group_with_lock_async(async |mls_group| {
+                    Ok::<bool, GroupError>(self.proposals_enabled(&mls_group))
+                })
+                .await
+                .unwrap_or_else(|check_err| {
+                    tracing::warn!(
+                        inbox_id = self.context.inbox_id(),
+                        group_id = hex::encode(self.group_id.as_ref()),
+                        error = %check_err,
+                        "enable_proposals: recovery-path migration check failed; \
+                         falling back to surfacing original error"
+                    );
+                    false
+                });
+            if migrated_anyway {
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    group_id = hex::encode(self.group_id.as_ref()),
+                    error = %err,
+                    "enable_proposals: error surfaced but group is migrated — \
+                     treating as success (concurrent migrator won the race)"
+                );
+                return Ok(());
+            }
+        }
+        result
+    }
+
+    async fn enable_proposals_inner(
+        &self,
+        options: EnableProposalsOptions,
+    ) -> Result<(), GroupError> {
+        // Two-step migration so old clients (any peer running a
+        // libxmtp release predating this code's `pkg_version`) get a
+        // pause hint they can read BEFORE the legacy
+        // GroupMutableMetadata extension that carries it is stripped
+        // by the bootstrap commit. XIP §3.2.
+        //
+        // Step A: bump MIN_SUPPORTED_PROTOCOL_VERSION in legacy GMM to
+        // `pkg_version()`. Pre-bootstrap groups have no AppData
+        // dictionary registry, so the `MetadataUpdate` handler's
+        // migrated branch is false and the write goes through the
+        // legacy GCE path — exactly the extension old clients know how
+        // to read for `paused_for_version`. Any peer below the version
+        // floor processes this commit, sees the version mismatch in
+        // `validate_one_commit`, and lands in `paused_for_version`. It
+        // never observes step B.
+        //
+        // Step B: bootstrap commit. Strips legacy extensions, seeds
+        // the dict, adds `AppDataDictionary` to RequiredCapabilities.
+        // Fires only for the still-active (above-floor) members.
+        //
+        // The safety primitive here is **server-side commit ordering**:
+        // peers see step A's commit before step B's because the server
+        // linearizes them. `sync_until_intent_resolved` confirms only
+        // the migrator's local Processed state — it does NOT wait for
+        // peer pickup. Server linearization is what guarantees
+        // below-floor peers pause before they could ever see the
+        // bootstrap commit.
+        //
+        // Pre-flight: read all three gating signals under one lock so
+        // a concurrent migrator's bootstrap commit can't land between
+        // our reads. Without the single-lock pass:
+        //   * member-support check passes, then a concurrent migrator's
+        //     bootstrap commit lands locally, then the legacy-GMM read
+        //     returns `None` (extension stripped), then `needs_bump`
+        //     becomes `true`, then step A publishes a legacy GCE bump
+        //     against a group whose legacy extensions are gone — fails
+        //     mid-flight with a confusing error.
+        // Reading all three together collapses that race window: if
+        // `proposals_enabled` flipped to true under us, we early-return
+        // and never publish step A.
+        //
+        // (1) `all_members_support_proposals` ensures every peer can
+        // process the bootstrap commit so we don't ship step A — the
+        // legacy GMM bump — for a migration that's about to fail at
+        // step B and leave below-floor peers permanently paused. Gated
+        // by `options.force`: post-d14n the capability advertisement
+        // becomes redundant with the version floor and callers can
+        // explicitly opt out of the per-member scan.
+        // (2) `proposals_enabled` early-exits if the group is already
+        // migrated; calling `enable_proposals()` twice is a user error
+        // and we don't want to publish a redundant legacy GMM bump on
+        // a group that no longer has a legacy GMM.
+        // (3) `needs_min_version_bump` decides whether step A is
+        // necessary. Semver comparison, NOT string equality. A
+        // concurrent migrator at a higher version (or this very
+        // migrator on retry) may have already set a floor >= ours; in
+        // that case re-bumping with a lower string value would
+        // downgrade the floor and silently unpause peers between the
+        // lower and the higher version. Skip step A when the current
+        // floor already covers the target.
+        let min_version = options
+            .min_version
+            .unwrap_or_else(|| xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string());
+        // Validate the floor string up-front so we fail with a clear
+        // error before publishing the legacy GMM bump rather than
+        // discovering it mid-flight when the validator parses it.
+        let target_v =
+            LibXMTPVersion::parse(&min_version).map_err(|e| GroupError::InvalidMinVersion {
+                value: min_version.clone(),
+                reason: e.to_string(),
+            })?;
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v =
+            LibXMTPVersion::parse(&own_version_str).map_err(|e| GroupError::InvalidMinVersion {
+                value: own_version_str.clone(),
+                reason: format!("own pkg_version: {e}"),
+            })?;
+        let force = options.force;
+
+        log_event!(
+            Event::EnableProposalsStart,
+            self.context.installation_id(),
+            group_id = self.group_id,
+            min_version = min_version.as_str(),
+            force
+        );
+        let (already_migrated, needs_min_version_bump) = self
             .load_mls_group_with_lock_async(async |mls_group| {
-                if !self.all_members_support_proposals(&mls_group).await? {
+                if !force && !self.all_members_support_proposals(&mls_group).await? {
                     return Err(GroupError::ProposalsNotSupported(
                         "Cannot enable proposals: not all members support the proposal extension"
                             .to_string(),
                     ));
                 }
-                let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
-                extensions.add_or_replace(build_proposals_enabled_extension())?;
-                update_required_capabilities_for_proposals(&mut extensions, true)?;
-                Ok(extensions)
+                // Idempotency: re-calling enable_proposals on an
+                // already-migrated group is a no-op success.
+                // The footgun clamp below MUST run after this
+                // early-return — otherwise a caller pinning a
+                // forward-looking constant in idempotent retry code
+                // would error post-migration even when the floor was
+                // already set by the original call.
+                if self.proposals_enabled(&mls_group) {
+                    return Ok::<(bool, bool), GroupError>((true, false));
+                }
+                // Footgun guard: a caller setting min_version above
+                // their own pkg_version would pause themselves (and
+                // every peer at or below their version) the moment the
+                // bump landed — bricking the group from the inside.
+                // Refuse. Honest mistakes only; a malicious client can
+                // patch this out, but honest mistakes are what we're
+                // protecting against.
+                if target_v > own_v {
+                    return Err(GroupError::MinVersionExceedsOwnVersion {
+                        requested: min_version.clone(),
+                        own: own_version_str.clone(),
+                    });
+                }
+                // Encoder-freeze clamp (lower bound): the bootstrap
+                // encoder is byte-frozen, and receive-side validators
+                // accept its output via strict byte-compare only down
+                // to `PROPOSALS_MIN_PROTOCOL_VERSION`. Seeding a floor
+                // below that constant would drop below-floor receivers
+                // — whose frozen decoder may disagree on the bytes —
+                // back into the byte-compare instead of the pause
+                // path, reopening the fork the floor exists to close.
+                // Refuse, so the effective invariant is
+                // `PROPOSALS_MIN_PROTOCOL_VERSION <= min_version <=
+                // own pkg_version`. Test builds are exempt so
+                // `EnableProposalsOptions::test_default()` can seed a
+                // synthetic below-floor value (`"0.0.0"`) that never
+                // pauses workspace-version peers.
+                #[cfg(not(any(test, feature = "test-utils")))]
+                {
+                    let floor_str = xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION;
+                    let floor_v = LibXMTPVersion::parse(floor_str).map_err(|e| {
+                        GroupError::InvalidMinVersion {
+                            value: floor_str.to_string(),
+                            reason: format!("PROPOSALS_MIN_PROTOCOL_VERSION: {e}"),
+                        }
+                    })?;
+                    if target_v < floor_v {
+                        return Err(GroupError::MinVersionDowngrade {
+                            requested: min_version.clone(),
+                            current: floor_str.to_string(),
+                        });
+                    }
+                }
+                let metadata =
+                    xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
+                        &mls_group,
+                    )
+                    .ok();
+                let current = metadata.and_then(|m| Self::min_protocol_version_from_extensions(&m));
+                let needs_bump = match current.as_deref() {
+                    None => true,
+                    Some(current_str) => match LibXMTPVersion::parse(current_str) {
+                        Ok(current_v) => current_v < target_v,
+                        Err(e) => {
+                            // Lenient on a malformed legacy GMM floor (mirrors the
+                            // receive-side leniency in
+                            // [`enforce_min_version_monotonicity`]). Step A
+                            // overwrites the value entirely with a known-good
+                            // semver string, so a malformed prior can't poison the
+                            // bump. Log a warning so operators can detect
+                            // corrupted state.
+                            tracing::warn!(
+                                current = %current_str,
+                                error = %e,
+                                "enable_proposals: legacy GMM MinimumSupportedProtocolVersion is unparseable; \
+                                 proceeding with step-A bump to overwrite"
+                            );
+                            true
+                        }
+                    },
+                };
+                Ok::<(bool, bool), GroupError>((false, needs_bump))
             })
             .await?;
 
-        // Queue and publish the GCE proposal
+        if already_migrated {
+            log_event!(
+                Event::EnableProposalsCompleted,
+                self.context.installation_id(),
+                group_id = self.group_id,
+                already_migrated = true,
+                min_version = min_version.as_str()
+            );
+            return Ok(());
+        }
+
+        if needs_min_version_bump {
+            let min_version_intent_data: Vec<u8> =
+                intents::UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
+                    min_version.clone(),
+                )
+                .into();
+            let min_version_intent = intents::QueueIntent::metadata_update()
+                .data(min_version_intent_data)
+                .queue(self)?;
+            self.sync_until_intent_resolved(min_version_intent.id)
+                .await?;
+        }
+
+        // Build the bootstrap-target extensions in a single lock
+        // acquisition to avoid races. The bootstrap commit produced by
+        // `IntentKind::BootstrapMigration` will:
+        // - REMOVE the four legacy XMTP extensions (mutable metadata,
+        //   group permissions, group membership, ImmutableMetadata)
+        // - update RequiredCapabilities to add `AppDataDictionary` and
+        //   drop the four legacy extension types
+        // - emit one `AppDataUpdate(component_id, Update(bytes))`
+        //   proposal per well-known component, seeding the dict — the
+        //   AppDataDictionary GCE itself is populated by openmls when
+        //   the bundled AppDataUpdate proposals apply during commit
+        //   processing
+        // All in a single commit, so the migration is atomic on-the-
+        // wire: receivers either see the migrated state (bootstrap
+        // commit accepted) or the legacy state (commit rejected).
+        //
+        // The `all_members_support_proposals` re-check on this read
+        // pass is a defense-in-depth: pre-flight ran above before step
+        // A, but a peer could join between then and now. The intent
+        // dispatch reads live group state at publish time, so step B
+        // must observe the same predicate it gated step A with. Same
+        // `force` gate as the pre-flight — if the caller explicitly
+        // disabled the capability check there, honor that here too so
+        // a freshly-joined member can't re-block the migration mid-
+        // flight.
+        let new_extensions = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                if !force && !self.all_members_support_proposals(&mls_group).await? {
+                    return Err(GroupError::ProposalsNotSupported(
+                        "Cannot enable proposals: not all members support the proposal extension"
+                            .to_string(),
+                    ));
+                }
+                // Re-check `proposals_enabled` inside the lock: a
+                // concurrent migrator may have completed the migration
+                // between the first idempotency check and this second
+                // lock acquisition. Returning `None` here lets the
+                // outer code skip queuing a redundant bootstrap intent
+                // — preserves the idempotency contract documented at
+                // the top of `enable_proposals_inner`.
+                if self.proposals_enabled(&mls_group) {
+                    return Ok::<Option<Extensions<GroupContext>>, GroupError>(None);
+                }
+                let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
+
+                // 1. Remove the four legacy XMTP extensions. The
+                //    bootstrap commit's job is to eliminate them so
+                //    the dict becomes the sole source of truth.
+                //    The bundled `AppDataUpdate(COMPONENT_REGISTRY)`
+                //    proposal triggers openmls to add the standard
+                //    `AppDataDictionary` group-context extension when
+                //    the commit applies — that extension's presence
+                //    (plus the registry entry) IS the migrated marker.
+                //    No separate XMTP-flavored marker is needed.
+                extensions.remove(ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID));
+                extensions.remove(ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID));
+                extensions.remove(ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID));
+                extensions.remove(ExtensionType::ImmutableMetadata);
+
+                // 2. Update RequiredCapabilities: require
+                //    `AppDataDictionary` (the standard extension that
+                //    carries the dict) and drop the four legacy
+                //    extension types so receivers don't reject the
+                //    commit for missing required extensions.
+                update_required_capabilities_for_bootstrap(&mut extensions)?;
+
+                Ok(Some(extensions))
+            })
+            .await?;
+
+        // Concurrent migrator won the race between the two lock
+        // acquisitions — group is already migrated, no bootstrap
+        // intent to queue.
+        let Some(new_extensions) = new_extensions else {
+            return Ok(());
+        };
+
         use openmls::prelude::tls_codec::Serialize;
         let extensions_bytes = new_extensions.tls_serialize_detached()?;
 
+        // Queue the bootstrap intent. The handler synthesizes
+        // per-component dict seeds and bundles the GCE proposal +
+        // every AppDataUpdate proposal into one self-contained
+        // commit. No follow-up CommitPendingProposals needed.
         let intent_data = intents::ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-        let proposal_intent = intents::QueueIntent::propose_group_context_extensions()
+        let bootstrap_intent = intents::QueueIntent::bootstrap_migration()
             .data(intent_data)
             .queue(self)?;
 
-        self.sync_until_intent_resolved(proposal_intent.id).await?;
-
-        // Re-verify after sync: incoming messages processed during sync may have
-        // changed group membership (e.g. a member was added who doesn't support
-        // proposals). Abort before committing if support no longer holds.
-        let still_supported = self
-            .load_mls_group_with_lock_async(async |mls_group| {
-                self.all_members_support_proposals(&mls_group).await
-            })
-            .await?;
-
-        if !still_supported {
-            return Err(GroupError::ProposalsNotSupported(
-                "Cannot enable proposals: group membership changed and not all members support the proposal extension"
-                    .to_string(),
-            ));
-        }
-
-        // Commit the pending proposals to apply the extension
-        let commit_intent = intents::QueueIntent::commit_pending_proposals()
-            .data(intents::CommitPendingProposalsIntentData::new())
-            .queue(self)?;
-
-        self.sync_until_intent_resolved(commit_intent.id).await?;
+        self.sync_until_intent_resolved(bootstrap_intent.id).await?;
 
         let enabled = self
             .load_mls_group_with_lock_async(async |mls_group| {
@@ -551,18 +1211,26 @@ where
             ));
         }
 
+        log_event!(
+            Event::EnableProposalsCompleted,
+            self.context.installation_id(),
+            group_id = self.group_id,
+            already_migrated = false,
+            min_version = min_version.as_str()
+        );
         Ok(())
     }
 
-    /// Validate that key packages support the proposal extension.
-    ///
-    /// This checks if all provided key packages have the `PROPOSAL_SUPPORT_EXTENSION_ID`
-    /// in their capabilities, meaning the installations can receive standalone proposals.
+    /// Validate that key packages support the AppData dictionary
+    /// group-context extension. A leaf that advertises
+    /// `ExtensionType::AppDataDictionary` in its standard MLS
+    /// `Capabilities` can join a migrated group and receive standalone
+    /// `AppDataUpdate` proposals.
     pub fn validate_key_packages_support_proposals(
         &self,
         key_packages: &[openmls::key_packages::KeyPackage],
     ) -> Result<(), GroupError> {
-        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+        let extension_type = ExtensionType::AppDataDictionary;
 
         for kp in key_packages {
             let leaf_node = kp.leaf_node();
@@ -570,7 +1238,7 @@ where
 
             if !capabilities.extensions().contains(&extension_type) {
                 return Err(GroupError::ProposalsNotSupported(
-                    "Member does not support proposals: installation cannot receive standalone proposal messages".to_string(),
+                    "Member does not support AppData dictionary: installation cannot receive standalone proposal messages".to_string(),
                 ));
             }
         }
@@ -649,19 +1317,19 @@ where
                 &provider,
                 context.identity(),
                 &group_config,
-                GroupId::from_slice(existing_group_id),
+                GroupId::try_from(existing_group_id)?,
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
         };
 
-        let group_id = mls_group.group_id().to_vec();
+        let group_id: GroupId = mls_group.group_id().try_into()?;
         // If not an existing group, the creator is a super admin and should publish the commit log
         // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
         let should_publish_commit_log = existing_group_id.is_none();
 
         let stored_group = StoredGroup::builder()
-            .id(group_id.clone())
+            .id(group_id)
             .created_at_ns(now_ns())
             .membership_state(membership_state)
             .conversation_type(conversation_type)
@@ -712,15 +1380,15 @@ where
                 &provider,
                 context.identity(),
                 &group_config,
-                GroupId::from_slice(group_id),
+                GroupId::try_from(group_id)?,
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
         };
 
-        let group_id = mls_group.group_id().to_vec();
+        let group_id: GroupId = mls_group.group_id().try_into()?;
         let stored_group = StoredGroup::builder()
-            .id(group_id.clone())
+            .id(group_id)
             .created_at_ns(now_ns())
             .membership_state(membership_state)
             .added_by_inbox_id(context.inbox_id().to_string())
@@ -742,7 +1410,7 @@ where
         stored_group.store(&context.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            group_id.clone(),
+            group_id,
             stored_group.dm_id,
             ConversationType::Dm,
             stored_group.created_at_ns,
@@ -764,11 +1432,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(&message[..message.len().min(100)]))))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
-    )]
+    #[xmtp_common::mls_span]
     pub async fn send_message(
         &self,
         message: &[u8],
@@ -788,7 +1452,7 @@ where
         self.commit_pending_proposals_if_any().await?;
 
         let message_id =
-            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
 
         self.sync_until_last_intent_resolved().await?;
 
@@ -811,7 +1475,7 @@ where
         if has_pending {
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 "Found pending proposals, committing before sending message"
             );
 
@@ -826,10 +1490,7 @@ where
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = self.context.inbox_id()), skip(self)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -859,7 +1520,7 @@ where
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
         let message_id =
-            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
         Ok(message_id)
     }
 
@@ -871,20 +1532,34 @@ where
     /// # Arguments
     /// * `message` - The message content bytes
     /// * `should_push` - Whether to send a push notification when publishing
+    /// * `idempotency_key` - Optional caller-supplied key the message id is
+    ///   derived from. Defaults to the send timestamp when `None`.
     ///
     /// Returns the message ID.
     pub fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
         should_push: bool,
+        idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, GroupError> {
         let now = now_ns();
+        // Resolve the key once: a caller-supplied key makes the resulting id
+        // deterministic; otherwise we fall back to the timestamp (always unique).
+        let idempotency_key = idempotency_key.unwrap_or_else(|| now.to_string());
         let queryable_content_fields = Self::extract_queryable_content_fields(message);
 
-        let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
+        let message_id = calculate_message_id(self.group_id, message, &idempotency_key);
+
+        // Idempotent: a retry with the same key + content resolves to the same id.
+        // Return the existing message rather than failing on the PK conflict, so
+        // crash-recovery retries are at-least-once-with-dedup instead of an error.
+        if let Some(existing) = self.context.db().get_group_message(&message_id)? {
+            return Ok(existing.id);
+        }
+
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
-            group_id: self.group_id.clone(),
+            group_id: self.group_id,
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
@@ -901,6 +1576,7 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,
+            idempotency_key,
         };
         group_message.store(&self.context.db())?;
 
@@ -914,10 +1590,7 @@ where
     /// This is a no-op if the message is already published.
     ///
     /// Returns an error if the message is not found.
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
-    )]
+    #[xmtp_common::mls_span]
     pub async fn publish_stored_message(&self, message_id: &[u8]) -> Result<(), GroupError> {
         if !self.is_active()? {
             return Err(GroupError::GroupInactive);
@@ -936,9 +1609,10 @@ where
             return Ok(());
         }
 
-        // Create envelope from stored message
+        // Create envelope from stored message, reusing the idempotency key the
+        // message id was derived from so receivers recompute the same id.
         let plain_envelope =
-            Self::into_envelope(&message.decrypted_message_bytes, message.sent_at_ns);
+            Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
@@ -987,7 +1661,7 @@ where
             .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
 
         // Validate message belongs to this group (prevent cross-group deletion)
-        if original_msg.group_id != self.group_id {
+        if original_msg.group_id.as_slice() != self.group_id.as_slice() {
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
@@ -1022,7 +1696,7 @@ where
 
         let deletion = StoredMessageDeletion {
             id: deletion_message_id.clone(),
-            group_id: self.group_id.clone(),
+            group_id: self.group_id,
             deleted_message_id: message_id,
             deleted_by_inbox_id: sender_inbox_id.to_string(),
             is_super_admin_deletion,
@@ -1067,20 +1741,24 @@ where
         envelope: F,
     ) -> Result<Vec<u8>, GroupError>
     where
-        F: FnOnce(i64) -> PlaintextEnvelope,
+        F: FnOnce(&str) -> PlaintextEnvelope,
     {
         // Store the message locally first (with should_push preference)
-        let message_id = self.prepare_message_for_later_publish(message, opts.should_push)?;
+        let message_id = self.prepare_message_for_later_publish(
+            message,
+            opts.should_push,
+            opts.idempotency_key,
+        )?;
 
-        // Fetch the stored message to get the sent_at_ns timestamp
+        // Fetch the stored message to get the resolved idempotency key
         let stored_message = self
             .context
             .db()
             .get_group_message(&message_id)?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
 
-        // Create envelope using the stored timestamp for consistency
-        let plain_envelope = envelope(stored_message.sent_at_ns);
+        // Create envelope using the stored idempotency key so the id stays consistent
+        let plain_envelope = envelope(&stored_message.idempotency_key);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
@@ -1094,7 +1772,7 @@ where
         Ok(message_id)
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
         PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),
@@ -1133,6 +1811,7 @@ where
     }
 
     /// Query for enriched messages (with reactions, replies, and deletion status)
+    #[xmtp_common::mls_span]
     pub fn find_enriched_messages(
         &self,
         args: &MsgQueryArgs,
@@ -1147,7 +1826,7 @@ where
     pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
         let conn = self.context.db();
         let latest_read_receipt =
-            conn.get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])?;
+            conn.get_latest_message_times_by_sender(self.group_id, &[ContentType::ReadReceipt])?;
         Ok(latest_read_receipt)
     }
 
@@ -1157,8 +1836,8 @@ where
         if let Some(group) = conn.find_group(&self.group_id)? {
             Ok(group)
         } else {
-            tracing::error!("group {} does not exist", hex::encode(&self.group_id));
-            Err(NotFound::GroupById(self.group_id.to_vec()).into())
+            tracing::error!("group {} does not exist", hex::encode(self.group_id));
+            Err(NotFound::GroupById(self.group_id).into())
         }
     }
 
@@ -1354,6 +2033,21 @@ where
         Ok(())
     }
 
+    /// Process this group's pending self-remove requests end-to-end: remove the
+    /// members still in the group that requested removal, then clean up stale
+    /// pending-remove rows. Idempotent and a no-op when this client is not a
+    /// super-admin, so it is safe to call from both the inline message-processing
+    /// fast-path and the durable `TaskRunner` retry path.
+    pub(crate) async fn process_pending_self_removals(&self) -> Result<(), GroupError> {
+        // Both helpers early-return on an empty pending list; cleanup owns the
+        // flag-clear. Keeping the empty-check inside cleanup (rather than a
+        // separate clear here) avoids racing a concurrent LeaveRequest insert and
+        // wrongly clearing the flag.
+        self.remove_members_pending_removal().await?;
+        self.cleanup_pending_removal_list().await?;
+        Ok(())
+    }
+
     /// Removes all members from the group who are currently in the pending removal list.
     ///
     /// Only admins and super admins can call this function. Validates permissions, filters
@@ -1367,7 +2061,7 @@ where
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 inbox_id = %self.context.inbox_id(),
                 "Group has no pending removal members"
             );
@@ -1377,7 +2071,7 @@ where
         let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
         if !is_super_admin {
             tracing::debug!(
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 inbox_id = %self.context.inbox_id(),
                 "Current inbox ID is not in admin or super admin list, skipping pending removal processing"
             );
@@ -1398,7 +2092,7 @@ where
 
         if valid_removals.is_empty() {
             tracing::warn!(
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 pending_count = pending_removal_list.len(),
                 "No valid members found in pending removal list"
             );
@@ -1412,7 +2106,7 @@ where
 
         if !invalid_removals.is_empty() {
             tracing::warn!(
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 invalid_members = ?invalid_removals,
                 "Some members in pending removal list are not in the group"
             );
@@ -1420,7 +2114,7 @@ where
 
         // Remove all valid members at once
         tracing::info!(
-            group_id = hex::encode(&self.group_id),
+            group_id = %self.group_id,
             removing_count = valid_removals.len(),
             members_to_remove = ?valid_removals,
             "Removing pending members from group"
@@ -1429,7 +2123,7 @@ where
         match self.remove_members(&valid_removals).await {
             Ok(_) => {
                 tracing::info!(
-                    group_id = hex::encode(&self.group_id),
+                    group_id = %self.group_id,
                     removed_count = valid_removals.len(),
                     removed_members = ?valid_removals,
                     "Successfully removed all pending members from group"
@@ -1437,7 +2131,7 @@ where
             }
             Err(e) => {
                 tracing::error!(
-                    group_id = hex::encode(&self.group_id),
+                    group_id = %self.group_id,
                     members = ?valid_removals,
                     error = %e,
                     "Failed to remove pending members from group"
@@ -1461,7 +2155,7 @@ where
     /// * `Err(GroupError)` - Failed to retrieve data or update the pending list
     pub async fn cleanup_pending_removal_list(&self) -> Result<(), GroupError> {
         tracing::debug!(
-            group_id = hex::encode(&self.group_id),
+            group_id = %self.group_id,
             "Starting pending removal list cleanup"
         );
 
@@ -1470,7 +2164,7 @@ where
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 "No pending removals to clean up"
             );
             // Clear the pending leave request status
@@ -1496,7 +2190,7 @@ where
 
         if !removed_members.is_empty() {
             tracing::info!(
-                group_id = hex::encode(&self.group_id),
+                group_id = %self.group_id,
                 removed_count = removed_members.len(),
                 removed_members = ?removed_members,
                 "Removing members from pending removal list - they are no longer in the group"
@@ -1518,7 +2212,7 @@ where
         }
 
         tracing::info!(
-            group_id = hex::encode(&self.group_id),
+            group_id = %self.group_id,
             remaining_pending = remaining_pending_list.len(),
             "Finished cleaning up pending removal list"
         );
@@ -1654,16 +2348,81 @@ where
     /// * `version` - The libxmtp version to update the group min version to.
     ///   This is a semver-formatted string matching the Cargo.toml in the
     ///   libxmtp dependency, and does not match mobile or web release versions.
-    ///   Do NOT include pre-release metadata like "1.0.0-alpha",
-    ///   "1.0.0-beta", etc, as the version comparison may not match what
-    ///   is expected. For historical reasons, "1.0.0-alpha" is considered to be
-    ///   > "1.0.0", so it is better to just specify "1.0.0".
+    ///   Comparison is done via the [`semver`] crate's `Ord` impl, so
+    ///   pre-release identifiers (e.g. `"1.0.0-rc.1"`) sort BEFORE the
+    ///   corresponding release (`"1.0.0"`) per semver 2.0 §11. Build
+    ///   metadata (`+...`) parses but is included in ordering by the
+    ///   semver crate — avoid passing it unless you understand the
+    ///   total-ordering implication.
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
     pub async fn update_group_min_version(&self, version: &str) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        tracing::info!("updating group min version to match self: {}", version);
+
+        // Footgun guards (apply on send side; receive side enforces
+        // the same monotonicity invariant as the source of truth):
+        //
+        // 1. `version > own pkg_version` would pause this client (and
+        //    every peer at or below this version) the moment the bump
+        //    lands. Refuse.
+        // 2. `version < current floor` would silently unpause peers
+        //    between the new and old floors, defeating the gate. Refuse.
+        //    Lenient on an unparseable current floor — mirror the
+        //    receive-side behavior in `enforce_min_version_monotonicity`
+        //    rather than have the send-side refuse where the receive-
+        //    side accepts. (Brick recovery: a group with malformed
+        //    legacy GMM bytes shouldn't be permanently un-bumpable.)
+        let target_v =
+            LibXMTPVersion::parse(version).map_err(|e| GroupError::InvalidMinVersion {
+                value: version.to_string(),
+                reason: e.to_string(),
+            })?;
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v =
+            LibXMTPVersion::parse(&own_version_str).map_err(|e| GroupError::InvalidMinVersion {
+                value: own_version_str.clone(),
+                reason: format!("own pkg_version: {e}"),
+            })?;
+        if target_v > own_v {
+            return Err(GroupError::MinVersionExceedsOwnVersion {
+                requested: version.to_string(),
+                own: own_version_str,
+            });
+        }
+        let current_str = self
+            .mutable_metadata()?
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
+            .cloned();
+        if let Some(current_str) = current_str.as_deref()
+            && !current_str.is_empty()
+        {
+            match LibXMTPVersion::parse(current_str) {
+                Ok(current_v) => {
+                    if target_v < current_v {
+                        return Err(GroupError::MinVersionDowngrade {
+                            requested: version.to_string(),
+                            current: current_str.to_string(),
+                        });
+                    }
+                }
+                Err(e) => {
+                    // Observability: malformed prior floor is an operator-
+                    // visible signal that the legacy GMM bytes are corrupt.
+                    // Leniency below preserves brick-recovery; the warning
+                    // surfaces the corruption.
+                    tracing::warn!(
+                        current = %current_str,
+                        error = %e,
+                        "update_group_min_version: existing min_version is unparseable; \
+                         proceeding without downgrade check"
+                    );
+                }
+            }
+        }
+
+        tracing::info!("update_group_min_version: queuing bump to {}", version);
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1747,32 +2506,18 @@ where
 
     /// Retrieves the group name from the group's mutable metadata extension.
     pub fn group_name(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        match mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-        {
-            Some(group_name) => Ok(group_name.clone()),
-            None => Err(MetadataPermissionsError::from(
-                GroupMutableMetadataError::MissingExtension,
-            )
-            .into()),
-        }
+        self.read_single_component::<GroupNameComponent>()?
+            .ok_or_else(|| {
+                MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
+            })
     }
 
     /// Retrieves the app_data field from the group's mutable metadata extension
     pub fn app_data(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        match mutable_metadata
-            .attributes
-            .get(&MetadataField::AppData.to_string())
-        {
-            Some(app_data) => Ok(app_data.clone()),
-            None => Err(MetadataPermissionsError::from(
-                GroupMutableMetadataError::MissingExtension,
-            )
-            .into()),
-        }
+        self.read_single_component::<AppDataComponent>()?
+            .ok_or_else(|| {
+                MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
+            })
     }
 
     /// Updates the description of the group.
@@ -1807,16 +2552,12 @@ where
     }
 
     pub fn group_description(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        match mutable_metadata
-            .attributes
-            .get(&MetadataField::Description.to_string())
-        {
-            Some(group_description) => Ok(group_description.clone()),
-            None => Err(GroupError::MetadataPermissionsError(
-                GroupMutableMetadataError::MissingExtension.into(),
-            )),
-        }
+        self.read_single_component::<GroupDescriptionComponent>()?
+            .ok_or_else(|| {
+                GroupError::MetadataPermissionsError(
+                    GroupMutableMetadataError::MissingExtension.into(),
+                )
+            })
     }
 
     /// Updates the image URL (square) of the group.
@@ -1853,17 +2594,11 @@ where
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
     pub fn group_image_url_square(&self) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        match mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupImageUrlSquare.to_string())
-        {
-            Some(group_image_url_square) => Ok(group_image_url_square.clone()),
-            None => Err(MetadataPermissionsError::Mutable(
-                GroupMutableMetadataError::MissingExtension,
-            )
-            .into()),
-        }
+        self.read_single_component::<GroupImageUrlComponent>()?
+            .ok_or_else(|| {
+                MetadataPermissionsError::Mutable(GroupMutableMetadataError::MissingExtension)
+                    .into()
+            })
     }
 
     pub async fn update_conversation_message_disappearing_settings(
@@ -1996,15 +2731,91 @@ where
     }
 
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
+    ///
+    /// Element order: on migrated groups the dict-backed `TlsSet<InboxId>`
+    /// is iterated in sorted-by-raw-bytes order. On unmigrated groups
+    /// the legacy `GroupMutableMetadata.admin_list` is returned in its
+    /// stored (insertion) order. Both contracts pre-date this refactor;
+    /// preserving each side avoids surprising binding consumers that
+    /// rely on the pre-migration order.
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        Ok(mutable_metadata.admin_list)
+        self.read_admin_set_preserving_legacy_order(AdminListKind::Admin)
     }
 
     /// Retrieves the super admin list of the group from the group's mutable metadata extension.
+    ///
+    /// Same ordering contract as [`Self::admin_list`].
     pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
-        Ok(mutable_metadata.super_admin_list)
+        self.read_admin_set_preserving_legacy_order(AdminListKind::SuperAdmin)
+    }
+
+    fn read_admin_set_preserving_legacy_order(
+        &self,
+        kind: AdminListKind,
+    ) -> Result<Vec<String>, GroupError> {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+            if self::app_data::is_migrated_group(&mls_group) {
+                let facade = self::app_data::typed_facade::MlsGroupAppData::new(&mls_group);
+                let set = match kind {
+                    AdminListKind::Admin => facade.get::<AdminListComponent>(),
+                    AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
+                }
+                .map_err(|e| {
+                    GroupError::MetadataPermissionsError(
+                        MetadataPermissionsError::ComponentSource(e),
+                    )
+                })?;
+                Ok(set
+                    .map(|s| s.iter().map(|id| id.to_hex()).collect())
+                    .unwrap_or_default())
+            } else {
+                // Unmigrated: return the Vec<String> straight from the
+                // legacy GMM extension so callers keep their pre-
+                // migration insertion order. Propagate decode errors
+                // (e.g. a corrupted legacy GMM extension) via the same
+                // `MetadataPermissionsError::Mutable(...)` shape that
+                // pre-refactor `mutable_metadata()?.admin_list`
+                // produced — a soft `.ok()` here would convert a loud
+                // failure into silent "no admins" data corruption.
+                // `MissingExtension` is the legacy "no extension on
+                // the group" case and remains the soft-skip → empty
+                // Vec contract.
+                let metadata =
+                    match xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
+                        &mls_group,
+                    ) {
+                        Ok(m) => Some(m),
+                        Err(
+                            xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension,
+                        ) => {
+                            // Expected on very old groups created before
+                            // the legacy GMM extension existed; logged at
+                            // debug to give operators visibility without
+                            // spamming warn on a legitimate state. An
+                            // empty list is the contract callers expect
+                            // (admin_list / super_admin_list return
+                            // `Ok(vec![])` here, not `Err`).
+                            tracing::debug!(
+                                group_id = %self.group_id,
+                                kind = ?kind,
+                                "unmigrated group has no legacy GroupMutableMetadata extension; returning empty admin set"
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            return Err(GroupError::MetadataPermissionsError(
+                                MetadataPermissionsError::Mutable(e),
+                            ));
+                        }
+                    };
+                Ok(metadata
+                    .map(|m| match kind {
+                        AdminListKind::Admin => m.admin_list,
+                        AdminListKind::SuperAdmin => m.super_admin_list,
+                    })
+                    .unwrap_or_default())
+            }
+        })
     }
 
     /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
@@ -2025,6 +2836,25 @@ where
         mls_group: &OpenMlsGroup,
         inbox_id: String,
     ) -> Result<bool, GroupMutableMetadataError> {
+        // On migrated groups, the legacy GMM extension is gone — read
+        // SUPER_ADMIN_LIST from the AppData dict. A missing dict
+        // entry on a migrated group is treated as "no super-admins":
+        // falling through to `GroupMutableMetadata::try_from(mls_group)`
+        // would hit `MissingExtension` because bootstrap has already
+        // stripped the legacy GMM. Today bootstrap always seeds an
+        // (empty or populated) `SUPER_ADMIN_LIST` entry so the `None`
+        // branch is defensive, but the explicit handling keeps the
+        // read-side safe against any future weakening of that
+        // invariant.
+        //
+        // On unmigrated groups we fall back to the legacy GMM
+        // extension — that path is unchanged.
+        if self::app_data::is_migrated_group(mls_group) {
+            let list = self::app_data::component_source::read_super_admin_list_from_dict(mls_group)
+                .map_err(GroupMutableMetadataError::from)?
+                .unwrap_or_default();
+            return Ok(list.contains(&inbox_id));
+        }
         let mutable_metadata = GroupMutableMetadata::try_from(mls_group)?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
@@ -2070,17 +2900,15 @@ where
         let conn = self.context.db();
         let group = conn
             .find_group(&self.group_id)?
-            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
+            .ok_or(NotFound::GroupById(self.group_id))?;
         Ok(group.added_by_inbox_id)
     }
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.db();
-        let record = conn.get_consent_record(
-            hex::encode(self.group_id.clone()),
-            ConsentType::ConversationId,
-        )?;
+        let record =
+            conn.get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -2097,7 +2925,7 @@ where
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
-            hex::encode(self.group_id.clone()),
+            hex::encode(self.group_id),
         );
 
         Ok(db.insert_or_replace_consent_records(std::slice::from_ref(&consent_record))?)
@@ -2146,12 +2974,12 @@ where
     pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
         let msgs = db.get_last_cursor_for_originator(
-            &self.group_id,
+            self.group_id,
             EntityKind::ApplicationMessage,
             Originators::APPLICATION_MESSAGES,
         )?;
         let commits = db.get_last_cursor_for_originator(
-            &self.group_id,
+            self.group_id,
             EntityKind::CommitMessage,
             Originators::MLS_COMMITS,
         )?;
@@ -2180,9 +3008,7 @@ where
         let stored_group = match db.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
-                return Err(GroupError::NotFound(NotFound::GroupById(
-                    self.group_id.clone(),
-                )));
+                return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
             }
         };
 
@@ -2216,9 +3042,7 @@ where
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
         let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
-            return Err(GroupError::NotFound(NotFound::GroupById(
-                self.group_id.clone(),
-            )));
+            return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
         };
         if matches!(
             stored_group.membership_state,
@@ -2239,13 +3063,51 @@ where
             .context
             .db()
             .find_group(&self.group_id)?
-            .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id.clone())))?;
+            .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id)))?;
         Ok(stored_group.membership_state)
     }
 
     /// Get the `GroupMetadata` of the group.
+    ///
+    /// On migrated groups the legacy immutable-metadata extension has
+    /// been removed; synthesize from dict (CONVERSATION_TYPE,
+    /// CREATOR_INBOX_ID, DM_MEMBERS, ONESHOT_MESSAGE). On unmigrated
+    /// groups, the legacy extension is authoritative.
+    ///
+    /// Migrated-but-no-seeds is treated as a hard error rather than
+    /// falling through to the legacy extension — the bootstrap commit
+    /// strips the legacy `GroupContextExtension`, so falling through
+    /// would surface an unrelated `MissingExtension` from the legacy
+    /// path. Returning `MissingExtension` directly here keeps the
+    /// failure shape callers already handle while making the
+    /// "incomplete migration" condition explicit at the originating
+    /// site.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock_async(async |mls_group| {
+            if self::app_data::is_migrated_group(&mls_group) {
+                let seed =
+                    self::app_data::component_source::read_group_metadata_from_dict(&mls_group)
+                        .map_err(MetadataPermissionsError::from)?
+                        .ok_or_else(|| {
+                            MetadataPermissionsError::from(GroupMetadataError::MissingExtension)
+                        })?;
+                use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
+                // `creator_account_address` has been `""` on the
+                // legacy write path since long before this migration
+                // (see the `TODO: remove from proto` note in
+                // `xmtp_mls_common::group_metadata`). The field is
+                // effectively dead — no consumer reads it — so the
+                // migrated synthesis keeps it empty to match legacy
+                // bytes exactly.
+                let proto = GroupMetadataProto {
+                    conversation_type: seed.conversation_type,
+                    creator_inbox_id: seed.creator_inbox_id,
+                    creator_account_address: String::new(),
+                    dm_members: seed.dm_members,
+                    oneshot_message: seed.oneshot,
+                };
+                return Ok(GroupMetadata::try_from(proto).map_err(MetadataPermissionsError::from)?);
+            }
             extract_group_metadata(mls_group.extensions())
                 .map_err(MetadataPermissionsError::from)
                 .map_err(Into::into)
@@ -2254,17 +3116,85 @@ where
     }
 
     /// Get the `GroupMutableMetadata` of the group.
+    ///
+    /// Post-migration (dict contains `COMPONENT_REGISTRY` — see
+    /// [`self::app_data::is_migrated_group`]) the legacy GMM extension
+    /// is gone; we start with an empty base and
+    /// `merge_app_data_into_mutable_metadata` populates every field
+    /// from the AppData dict. Pre-migration we read the legacy GMM
+    /// extension authoritatively. The overlay helper itself also
+    /// checks the migration marker (defense in depth), so a stray
+    /// dict entry on a pre-bootstrap group can't silently shadow
+    /// legacy values.
+    ///
+    /// Intentionally distinct from `proposals_enabled`: a group can
+    /// have `proposals_enabled == true` but not yet have completed
+    /// its bootstrap commit, during which window the legacy GMM is
+    /// still authoritative.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
+        use self::app_data::component_source::ComponentSourceError;
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)
-                .map_err(GroupError::from)
+            self::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+                &mls_group,
+            )
+            .map_err(|e| match e {
+                // Inner `GroupMutableMetadataError` originates from the
+                // legacy `TryFrom<&OpenMlsGroup>` path on unmigrated
+                // groups; the `From<ComponentSourceError>` impl
+                // preserves it verbatim so binding consumers that
+                // pattern-match on `MetadataPermissionsError::Mutable`
+                // keep lighting up on `MissingExtension`.
+                ComponentSourceError::GroupMutableMetadata(inner) => {
+                    GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
+                }
+                other => GroupError::MetadataPermissionsError(
+                    MetadataPermissionsError::ComponentSource(other),
+                ),
+            })
         })
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
+        })
+    }
+
+    /// Capability-aware single-component read.
+    ///
+    /// Acquires the group lock, then uses the
+    /// [`self::app_data::typed_facade::MlsGroupAppData`] facade to read
+    /// exactly one [`Component`](xmtp_mls_common::app_data::typed::Component)
+    /// — avoiding the full `GroupMutableMetadata` composite parse that
+    /// [`Self::mutable_metadata`] runs on every call.
+    ///
+    /// Returns `Ok(None)` when the component has no stored value
+    /// (legacy GMM attribute missing on unmigrated groups, or dict slot
+    /// absent on migrated groups).
+    ///
+    /// Preserves the pre-refactor `GroupError::MetadataPermissionsError(...)`
+    /// shape that `self.mutable_metadata()` produced. For the corrupted-
+    /// legacy-GMM case the inner `GroupMutableMetadataError` is peeled
+    /// out of `ComponentSourceError::GroupMutableMetadata(...)` and
+    /// surfaced as `MetadataPermissionsError::Mutable(inner)`, matching
+    /// what binding consumers used to see. Other `ComponentSourceError`
+    /// variants (TLS codec, set/map apply failures) surface as
+    /// `MetadataPermissionsError::ComponentSource(other)`.
+    fn read_single_component<C>(&self) -> Result<Option<C::Value>, GroupError>
+    where
+        C: xmtp_mls_common::app_data::typed::Component,
+    {
+        use self::app_data::component_source::ComponentSourceError;
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+            let facade = self::app_data::typed_facade::MlsGroupAppData::new(&mls_group);
+            facade.get::<C>().map_err(|e| match e {
+                ComponentSourceError::GroupMutableMetadata(inner) => {
+                    GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
+                }
+                other => GroupError::MetadataPermissionsError(
+                    MetadataPermissionsError::ComponentSource(other),
+                ),
+            })
         })
     }
 
@@ -2305,7 +3235,6 @@ where
 
         Ok(mls_groups)
     }
-
     /// Used for testing that dm group validation works as expected.
     ///
     /// See the `test_validate_dm_group` test function for more details.
@@ -2348,9 +3277,9 @@ where
 
         let mls_group =
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
-        let group_id = mls_group.group_id().to_vec();
+        let group_id: GroupId = mls_group.group_id().try_into()?;
         let stored_group = StoredGroup::builder()
-            .id(group_id.clone())
+            .id(group_id)
             .created_at_ns(now_ns())
             .membership_state(GroupMembershipState::Allowed)
             .added_by_inbox_id(context.inbox_id().to_string())
@@ -2606,55 +3535,39 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
 }
 
-/// Check if the given extensions contain a valid proposal support extension.
+/// Check if the given extensions belong to a migrated group.
 ///
-/// Returns `true` if the extensions contain a `PROPOSAL_SUPPORT_EXTENSION_ID` extension
-/// with a `ProposalSupport` proto where `version > 0`.
+/// "Migrated" means the bootstrap commit completed: the
+/// [`ExtensionType::AppDataDictionary`] group-context extension is
+/// present and its dict contains a `COMPONENT_REGISTRY` entry. This is
+/// also the canonical predicate used by
+/// [`crate::groups::app_data::is_migrated_extensions`]; the two
+/// converge so the rest of the codebase can use one name where the
+/// proposal-by-reference flow is the question and another where the
+/// dict-source-of-truth migration is the question.
 pub fn check_proposals_enabled(extensions: &Extensions<GroupContext>) -> bool {
-    use prost::Message;
-    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
-    for extension in extensions.iter() {
-        if let Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(data)) = extension
-        {
-            if let Ok(ps) = ProposalSupport::decode(data.as_slice()) {
-                return ps.version > 0;
-            } else {
-                return false;
-            }
-        }
-    }
-    false
+    crate::groups::app_data::is_migrated_extensions(extensions)
 }
 
-/// Build an extension that enables proposals on the group context.
-///
-/// This extension uses `PROPOSAL_SUPPORT_EXTENSION_ID` with a `ProposalSupport` proto
-/// to indicate that the group uses proposal-by-reference flow exclusively.
-pub fn build_proposals_enabled_extension() -> Extension {
-    use prost::Message;
-    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
-    let data = ProposalSupport { version: 1 }.encode_to_vec();
-    Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(data))
-}
-
-/// Update the `RequiredCapabilities` extension to add or remove the `PROPOSAL_SUPPORT_EXTENSION_ID`.
-/// Per MLS RFC 9420 Section 7.2, unknown extensions in the group context MUST be listed
-/// in the required capabilities, so this must be called whenever the proposal support
-/// extension is added to or removed from the group context.
+/// Update the `RequiredCapabilities` extension to add or remove
+/// `ExtensionType::AppDataDictionary`. Per MLS RFC 9420 §7.2, unknown
+/// extensions in the group context MUST be listed in the required
+/// capabilities, so this must be called whenever the AppData
+/// dictionary extension is added to or removed from the group context.
 pub fn update_required_capabilities_for_proposals(
     extensions: &mut Extensions<GroupContext>,
     add: bool,
 ) -> Result<(), GroupError> {
-    let proposal_ext_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+    let app_data_ext_type = ExtensionType::AppDataDictionary;
 
     if let Some(required_caps) = extensions.required_capabilities() {
         let mut ext_types: Vec<ExtensionType> = required_caps.extension_types().to_vec();
-        let has_it = ext_types.contains(&proposal_ext_type);
+        let has_it = ext_types.contains(&app_data_ext_type);
 
         if add && !has_it {
-            ext_types.push(proposal_ext_type);
+            ext_types.push(app_data_ext_type);
         } else if !add && has_it {
-            ext_types.retain(|t| *t != proposal_ext_type);
+            ext_types.retain(|t| *t != app_data_ext_type);
         } else {
             return Ok(()); // already in desired state
         }
@@ -2667,6 +3580,49 @@ pub fn update_required_capabilities_for_proposals(
         extensions.add_or_replace(new_required)?;
     }
 
+    Ok(())
+}
+
+/// Update RequiredCapabilities for the bootstrap commit:
+///   - Add `ExtensionType::AppDataDictionary` to the required
+///     extension types so receivers MUST advertise support for the
+///     standard AppData dictionary group-context extension.
+///   - Remove the four legacy XMTP extension types
+///     (`MUTABLE_METADATA`, `GROUP_PERMISSIONS`, `GROUP_MEMBERSHIP`,
+///     `ImmutableMetadata`) since the bootstrap commit also removes
+///     those extensions from the group context.
+///
+/// Per MLS RFC 9420 §7.2, every extension present in the group
+/// context must also be in `required_capabilities.extension_types`,
+/// so the two changes have to land together.
+pub fn update_required_capabilities_for_bootstrap(
+    extensions: &mut Extensions<GroupContext>,
+) -> Result<(), GroupError> {
+    let app_data_ext_type = ExtensionType::AppDataDictionary;
+    let to_remove: &[ExtensionType] = &[
+        ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+        ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+        ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+        ExtensionType::ImmutableMetadata,
+    ];
+
+    if let Some(required_caps) = extensions.required_capabilities() {
+        let mut ext_types: Vec<ExtensionType> = required_caps
+            .extension_types()
+            .iter()
+            .copied()
+            .filter(|t| !to_remove.contains(t))
+            .collect();
+        if !ext_types.contains(&app_data_ext_type) {
+            ext_types.push(app_data_ext_type);
+        }
+        let new_required = Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            &ext_types,
+            required_caps.proposal_types(),
+            required_caps.credential_types(),
+        ));
+        extensions.add_or_replace(new_required)?;
+    }
     Ok(())
 }
 
@@ -2700,8 +3656,9 @@ pub(crate) fn build_group_config(
     ];
 
     // Extensions the creator's leaf node advertises support for (superset of required).
-    // Optional extensions like PROPOSAL_SUPPORT are listed here so the group can use
-    // them, but are NOT in required_extension_types so members without support can join.
+    // `AppDataDictionary` is listed here so the group can be migrated
+    // later, but is NOT in required_extension_types so members without
+    // support can join the pre-migration legacy group.
     let mut creator_capability_extensions = required_extension_types.to_vec();
     creator_capability_extensions.push(ExtensionType::Unknown(
         WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
@@ -2709,17 +3666,34 @@ pub(crate) fn build_group_config(
     creator_capability_extensions.push(ExtensionType::Unknown(
         WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     ));
-    if BROADCAST_PROPOSAL_SUPPORT {
-        creator_capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
-    }
+    // AppDataDictionary capability — needed for the bootstrap commit
+    // and steady-state AppDataUpdate proposals. Required-vs-supported
+    // is enforced by RequiredCapabilities (which adds it only after
+    // bootstrap), so advertising here unconditionally is safe and lets
+    // a fresh group's creator be the migration trigger.
+    creator_capability_extensions.push(ExtensionType::AppDataDictionary);
 
     let required_proposal_types = &[ProposalType::GroupContextExtensions];
+
+    // Leaf-node-advertised proposal types: a superset of `required_proposal_types`.
+    // We advertise `AppDataUpdate` here so that the new path (commit-with-inline-
+    // AppDataUpdate-proposal) is supported, but we DO NOT add it to
+    // `required_proposal_types` because that would break backwards compatibility
+    // with members whose leaf nodes don't yet advertise it. The capability check
+    // OpenMLS performs at commit-build time inspects every member leaf node's
+    // proposal capabilities — adding it here ensures the creator advertises
+    // support; joining clients pick it up via their own key package (see
+    // `identity.rs`).
+    let creator_capability_proposals = &[
+        ProposalType::GroupContextExtensions,
+        ProposalType::AppDataUpdate,
+    ];
 
     let capabilities = Capabilities::new(
         None,
         None,
         Some(&creator_capability_extensions),
-        Some(required_proposal_types),
+        Some(creator_capability_proposals),
         None,
     );
     let credentials = &[CredentialType::Basic];

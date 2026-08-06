@@ -40,8 +40,9 @@ test: install (_prepare-dist "--features test-utils")
 # tests using built with nix. closer to ci but no local incremental compilation.
 test-ci:
     rm -rf dist
-    nix run github:Mic92/nix-fast-build -- --no-nom --flake .#packages.{{ nix_system }}.node-bindings-test
-    cp -r result-/dist dist
+    nix build .#packages.{{ nix_system }}.node-bindings-test
+    ../../dev/ci/warm-deps .#packages.{{ nix_system }}.node-bindings-test
+    cp -r result/dist dist
     yarn vitest run
 
 # Build Node.js NAPI bindings (alias)

@@ -1,7 +1,5 @@
 use crate::context::XmtpSharedContext;
-use crate::groups::mls_ext::{
-    WelcomePointersExtension, unwrap_welcome_symmetric, wrap_welcome, wrap_welcome_symmetric,
-};
+use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::ENABLE_WELCOME_POINTERS;
 use crate::tester;
@@ -9,11 +7,17 @@ use crate::utils::test::TestMlsGroup;
 use futures::StreamExt;
 use prost::Message;
 use std::time::Duration;
+use xmtp_configuration::WELCOME_HPKE_LABEL;
 use xmtp_db::group::QueryGroup;
 use xmtp_db::tasks::QueryTasks;
 use xmtp_id::key_package::WrapperAlgorithm;
+use xmtp_mls_common::mls_ext::payload_encryption::{
+    unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
+};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
+use xmtp_proto::xmtp::mls::database::Task as DbTask;
+use xmtp_proto::xmtp::mls::database::task::Task as DbTaskKind;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointer as WelcomePointerProto,
@@ -138,7 +142,7 @@ async fn test_welcome_pointer_round_trip(
 
     // Create a group with alix as the creator
     let alix_group = alix.create_group(None, None).unwrap();
-    tracing::info!("Alix group id: {}", hex::encode(&alix_group.group_id));
+    tracing::info!("Alix group id: {}", hex::encode(alix_group.group_id));
     alix_group.sync().await.unwrap();
 
     // Add bola to the group - this should trigger welcome message creation
@@ -229,27 +233,24 @@ async fn test_welcome_pointer_round_trip(
     .unwrap();
 
     // Verify testers can see the group
-    let welcomes = futures::future::join_all(
-        testers
-            .into_iter()
-            .chain(extra_installations.into_iter())
-            .map(|tester| async {
-                tester.sync_welcomes().await.unwrap();
-                let tester_groups = tester
-                    .find_groups(xmtp_db::group::GroupQueryArgs::default())
-                    .unwrap();
-                assert_eq!(tester_groups.len(), 1);
-                let installation_id = tester.identity().installation_id();
-                drop(tester);
-                // use alix's context here to avoid caching issues for welcome topics
-                alix_group
-                    .context
-                    .api()
-                    .query_welcome_messages(&installation_id)
-                    .await
-                    .unwrap()
-            }),
-    )
+    let welcomes = futures::future::join_all(testers.into_iter().chain(extra_installations).map(
+        |tester| async {
+            tester.sync_welcomes().await.unwrap();
+            let tester_groups = tester
+                .find_groups(xmtp_db::group::GroupQueryArgs::default())
+                .unwrap();
+            assert_eq!(tester_groups.len(), 1);
+            let installation_id = tester.identity().installation_id();
+            drop(tester);
+            // use alix's context here to avoid caching issues for welcome topics
+            alix_group
+                .context
+                .api()
+                .query_welcome_messages(&installation_id)
+                .await
+                .unwrap()
+        },
+    ))
     .await;
 
     for welcome in welcomes {
@@ -279,8 +280,8 @@ fn test_welcome_pointer_encryption_round_trip() {
 
     // Test encryption
     let encrypted_welcome_data =
-        wrap_welcome_symmetric(&welcome_data, *aead_type, &symmetric_key, &data_nonce).unwrap();
-    let encrypted_welcome_metadata = wrap_welcome_symmetric(
+        wrap_payload_symmetric(&welcome_data, *aead_type, &symmetric_key, &data_nonce).unwrap();
+    let encrypted_welcome_metadata = wrap_payload_symmetric(
         &welcome_metadata_bytes,
         *aead_type,
         &symmetric_key,
@@ -292,14 +293,14 @@ fn test_welcome_pointer_encryption_round_trip() {
     assert_ne!(encrypted_welcome_metadata, welcome_metadata_bytes);
 
     // Test decryption
-    let decrypted_welcome_data = unwrap_welcome_symmetric(
+    let decrypted_welcome_data = unwrap_payload_symmetric(
         &encrypted_welcome_data,
         *aead_type,
         &symmetric_key,
         &data_nonce,
     )
     .unwrap();
-    let decrypted_welcome_metadata = unwrap_welcome_symmetric(
+    let decrypted_welcome_metadata = unwrap_payload_symmetric(
         &encrypted_welcome_metadata,
         *aead_type,
         &symmetric_key,
@@ -467,11 +468,12 @@ async fn test_welcome_pointer_task_retry_resolution() {
         ),
     };
 
-    let welcome_pointer_encrypted_bytes = wrap_welcome(
+    let welcome_pointer_encrypted_bytes = wrap_payload_hpke(
         &welcome_pointer.encode_to_vec(),
         &[],
         bo_hpke_public_key,
         WrapperAlgorithm::XWingMLKEM768Draft6,
+        WELCOME_HPKE_LABEL,
     )
     .unwrap()
     .0;
@@ -530,21 +532,27 @@ async fn test_welcome_pointer_task_retry_resolution() {
     xmtp_common::time::sleep(std::time::Duration::from_secs(1)).await;
 
     tracing::info!("Getting tasks for bo");
-    let tasks = bo.context.db().get_tasks().unwrap();
+    // Filter to ProcessWelcomePointer only: KP seed tasks (KpRotation, KpDeletion)
+    // are also present when TaskRunner is enabled.
+    let all_tasks = bo.context.db().get_tasks().unwrap();
+    let tasks: Vec<_> = all_tasks
+        .into_iter()
+        .filter(|t| {
+            matches!(
+                DbTask::decode(t.data.as_slice()).ok().and_then(|p| p.task),
+                Some(DbTaskKind::ProcessWelcomePointer(_))
+            )
+        })
+        .collect();
     assert_eq!(tasks.len(), 1, "{tasks:#?}");
     let task = tasks.into_iter().next().unwrap();
     assert_eq!(
         task.data,
-        xmtp_proto::xmtp::mls::database::Task {
-            task: Some(
-                xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
-                    welcome_pointer.clone()
-                )
-            )
+        DbTask {
+            task: Some(DbTaskKind::ProcessWelcomePointer(welcome_pointer.clone()))
         }
         .encode_to_vec()
     );
-    assert_eq!(task.id, 1);
     assert_eq!(
         task.originating_message_sequence_id,
         welcome_from_api.sequence_id() as i64
@@ -595,14 +603,14 @@ async fn test_welcome_pointer_task_retry_resolution() {
             Ok::<_, crate::groups::GroupError>(action)
         })
         .await?;
-    let data = wrap_welcome_symmetric(
+    let data = wrap_payload_symmetric(
         &send_welcome_action.welcome_message,
         WelcomePointersExtension::preferred_type(),
         &welcome_pointer_v1.encryption_key,
         &welcome_pointer_v1.data_nonce,
     )
     .unwrap();
-    let welcome_metadata = wrap_welcome_symmetric(
+    let welcome_metadata = wrap_payload_symmetric(
         WelcomeMetadata { message_cursor: 0 }
             .encode_to_vec()
             .as_slice(),
@@ -650,9 +658,9 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .unwrap();
     match event {
         crate::subscriptions::LocalEvents::NewGroup(id) => {
-            assert_eq!(id, group.group_id.clone());
+            assert_eq!(id, group.group_id);
         }
-        _ => panic!("Expected NewGroup event"),
+        e => panic!("Expected NewGroup event, got {:?}", e),
     }
 
     tracing::info!("Finding group for bo");
@@ -670,7 +678,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .find_group_by_sequence_id(welcome_from_api.cursor)
         .unwrap()
         .unwrap();
-    assert_eq!(stored_group.id, bo_group.group_id);
+    assert_eq!(stored_group.id.as_slice(), bo_group.group_id.as_slice());
 
     tracing::info!("Verifying message is received in conversation stream");
     let conversation_group =

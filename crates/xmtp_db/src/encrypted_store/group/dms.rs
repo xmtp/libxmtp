@@ -3,23 +3,24 @@ use crate::ConnectionExt;
 use super::*;
 use crate::ConnectionError;
 
+use xmtp_proto::types::GroupId;
 pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
-    fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError>;
+    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError>;
 
     fn find_active_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display;
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
+    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError>;
 }
 
 impl<T> QueryDms for &T
 where
     T: QueryDms,
 {
-    fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
+    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
         (**self).fetch_stitched(key)
     }
 
@@ -30,15 +31,15 @@ where
         (**self).find_active_dm_group(members)
     }
 
-    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
         (**self).other_dms(group_id)
     }
 }
 
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
-    fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
-        let group = self.raw_query_read(|conn| {
+    fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
+        let group = self.raw_query(|conn| {
             groups::table
                 .filter(groups::id.eq(key))
                 .first::<StoredGroup>(conn)
@@ -55,7 +56,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
         };
 
         // Otherwise, return the stitched DM
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             groups::table
                 .filter(groups::dm_id.eq(dm_id))
                 .order_by(groups::last_message_ns.desc())
@@ -73,14 +74,14 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .order_by(dsl::last_message_ns.desc());
 
-        self.raw_query_read(|conn| query.first(conn).optional())
+        self.raw_query(|conn| query.first(conn).optional())
     }
 
     /// Load the other DMs that are stitched into this group
-    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+    fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
 
-        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
 
         // Grab the dm_id of the group
         let Some(StoredGroup {
@@ -96,7 +97,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             .filter(dsl::dm_id.eq(dm_id))
             .filter(dsl::id.ne(id));
 
-        let other_dms: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+        let other_dms: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         Ok(other_dms)
     }
 }
@@ -106,7 +107,7 @@ pub(super) mod tests {
     use super::*;
     use crate::{Store, test_utils::with_connection};
     use std::sync::atomic::{AtomicU16, Ordering};
-    use xmtp_common::{rand_vec, time::now_ns};
+    use xmtp_common::{Generate, time::now_ns};
 
     static TARGET_INBOX_ID: AtomicU16 = AtomicU16::new(2);
 
@@ -114,7 +115,7 @@ pub(super) mod tests {
     pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
         let target = TARGET_INBOX_ID.fetch_add(1, Ordering::SeqCst).to_string();
         StoredGroup::builder()
-            .id(rand_vec::<24>())
+            .id(GroupId::generate())
             .created_at_ns(now_ns())
             .membership_state(state.unwrap_or(GroupMembershipState::Allowed))
             .added_by_inbox_id("placeholder_address")
@@ -129,7 +130,7 @@ pub(super) mod tests {
     fn test_dm_stitching() {
         with_connection(|conn| {
             StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(now_ns())
                 .membership_state(GroupMembershipState::Allowed)
                 .added_by_inbox_id("placeholder_address")
@@ -140,7 +141,7 @@ pub(super) mod tests {
                 .unwrap();
 
             StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(now_ns())
                 .membership_state(GroupMembershipState::Allowed)
                 .added_by_inbox_id("placeholder_address")
@@ -166,7 +167,7 @@ pub(super) mod tests {
 
             // Oldest DM (should be filtered out)
             let oldest_dm = StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(base_time)
                 .last_message_ns(base_time)
                 .membership_state(GroupMembershipState::Allowed)
@@ -178,7 +179,7 @@ pub(super) mod tests {
 
             // Middle DM (should be filtered out)
             let middle_dm = StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(base_time + 1_000_000)
                 .last_message_ns(base_time + 1_000_000)
                 .membership_state(GroupMembershipState::Allowed)
@@ -190,7 +191,7 @@ pub(super) mod tests {
 
             // Latest DM (should be kept)
             let latest_dm = StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(base_time + 2_000_000)
                 .last_message_ns(base_time + 2_000_000)
                 .membership_state(GroupMembershipState::Allowed)
@@ -202,7 +203,7 @@ pub(super) mod tests {
 
             // Create another DM with different dm_id (should always be kept)
             let different_dm = StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(base_time + 500_000)
                 .last_message_ns(base_time + 500_000)
                 .membership_state(GroupMembershipState::Allowed)
@@ -214,7 +215,7 @@ pub(super) mod tests {
 
             // Create a regular group (non-DM, should always be kept)
             let regular_group = StoredGroup::builder()
-                .id(rand_vec::<24>())
+                .id(GroupId::generate())
                 .created_at_ns(base_time + 1_500_000)
                 .last_message_ns(base_time + 1_500_000)
                 .membership_state(GroupMembershipState::Allowed)

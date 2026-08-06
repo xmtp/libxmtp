@@ -1,5 +1,4 @@
-use once_cell::sync::OnceCell;
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 use tracing::{Metadata, Subscriber};
 use tracing_flame::{FlameLayer, FlushGuard};
 use tracing_subscriber::{
@@ -10,7 +9,7 @@ use tracing_subscriber::{
 };
 static INIT: Once = Once::new();
 
-static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
+static LOGGER: OnceLock<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceLock::new();
 
 pub const BENCH_ROOT_SPAN: &str = "xmtp-trace-bench";
 

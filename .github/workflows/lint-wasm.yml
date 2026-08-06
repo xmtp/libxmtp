@@ -6,12 +6,13 @@ env:
 jobs:
   lint:
     name: Lint (WASM)
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
+          disk-key: web
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just

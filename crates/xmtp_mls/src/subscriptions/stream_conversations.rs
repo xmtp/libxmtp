@@ -21,7 +21,7 @@ use xmtp_common::{BoxDynFuture, Event, MaybeSend};
 use xmtp_db::prelude::*;
 use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
+use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -44,14 +44,14 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 }
 
 pub enum WelcomeOrGroup {
-    Group(Vec<u8>),
+    Group(xmtp_proto::types::GroupId),
     Welcome(xmtp_proto::types::WelcomeMessage),
 }
 
 impl std::fmt::Debug for WelcomeOrGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(arg0)).finish(),
+            Self::Group(arg0) => f.debug_tuple("Group").field(arg0).finish(),
             Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
         }
     }
@@ -284,7 +284,7 @@ where
             .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?);
 
         let stream = multiplexed(subscription, events);
 
@@ -331,7 +331,7 @@ where
 {
     type Item = Result<MlsGroup<C>>;
 
-    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "trace")]
+    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "debug")]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -385,49 +385,28 @@ where
         welcome: Result<ProcessWelcomeResult<C>>,
     ) -> Option<<Self as Stream>::Item> {
         let this = self.as_mut().project();
-        match welcome {
-            Ok(ProcessWelcomeResult::New {
-                group,
-                id: welcome_id,
-            }) => {
-                tracing::debug!(
-                    group_id = hex::encode(&group.group_id),
-                    "finished processing with group {}",
-                    hex::encode(&group.group_id)
-                );
-                this.known_welcome_ids.insert(welcome_id);
-                Some(Ok(group))
-            }
-            // we are ignoring this payload with id
-            Ok(ProcessWelcomeResult::IgnoreId { id }) => {
-                tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
-                this.known_welcome_ids.insert(id);
-                None
-            }
-            Ok(ProcessWelcomeResult::Ignore) => {
-                tracing::debug!("ignoring streamed conversation payload");
-                None
-            }
-            Ok(ProcessWelcomeResult::NewStored {
-                group,
-                maybe_sequence_id,
-                maybe_originator,
-            }) => {
-                tracing::debug!(
-                    group_id = hex::encode(&group.group_id),
-                    "finished processing with group {}",
-                    hex::encode(&group.group_id)
-                );
-                if let Some(id) = maybe_sequence_id
-                    && let Some(originator) = maybe_originator
-                {
-                    this.known_welcome_ids
-                        .insert(Cursor::new(id as SequenceId, originator as OriginatorId));
-                }
-                Some(Ok(group))
-            }
-            Err(e) => Some(Err(e)),
+        let result = match welcome {
+            Ok(result) => result,
+            Err(e) => return Some(Err(e)),
+        };
+        // Interpretation (which group to surface, which cursor to record as seen) is
+        // shared with the bidi manager via `ProcessWelcomeResult::into_outcome`.
+        let outcome = result.into_outcome();
+        if let Some(seen) = outcome.seen {
+            this.known_welcome_ids.insert(seen);
         }
+        match (&outcome.group, outcome.seen) {
+            (Some(group), _) => tracing::debug!(
+                group_id = %group.group_id,
+                "finished processing with group {}",
+                hex::encode(group.group_id)
+            ),
+            (None, Some(id)) => {
+                tracing::debug!("ignoring streamed conversation payload with welcome id {id}")
+            }
+            (None, None) => tracing::debug!("ignoring streamed conversation payload"),
+        }
+        outcome.group.map(Ok)
     }
 }
 
@@ -463,7 +442,7 @@ mod test {
             .unwrap();
         for _ in 0..group_size {
             let alix_bo_group = alix.create_group(None, None).unwrap();
-            groups.push(alix_bo_group.group_id.clone());
+            groups.push(alix_bo_group.group_id);
             alix_bo_group.add_members(&[bo.inbox_id()]).await.unwrap();
         }
         while !groups.is_empty() {
@@ -670,7 +649,9 @@ mod test {
     #[case::onehundred_dms(100)]
     #[xmtp_common::test]
     #[awt]
-    #[cfg_attr(all(feature = "d14n"), ignore)]
+    // Runs on native d14n (verified); still skipped on d14n+wasm, where 100
+    // concurrent streaming clients are impractical (matches the heavy group tests).
+    #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
     async fn test_many_concurrent_dm_invites(#[future] alix: ClientTester, #[case] dms: usize) {
         let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
         let mut clients = vec![];

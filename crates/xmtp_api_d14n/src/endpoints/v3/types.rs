@@ -20,6 +20,15 @@ pub struct V3ProtoGroupMessage {
     inner: ProtoGroupMessage,
 }
 
+impl From<ProtoGroupMessage> for V3ProtoGroupMessage {
+    /// Tag a raw v3 wire message for conversion. Only meaningful for messages
+    /// that actually came from a v3 node — the conversion assumes v3 cursor
+    /// semantics (see the type docs).
+    fn from(inner: ProtoGroupMessage) -> Self {
+        Self { inner }
+    }
+}
+
 impl TryFrom<V3ProtoGroupMessage> for xmtp_proto::types::GroupMessage {
     type Error = crate::protocol::traits::EnvelopeError;
 
@@ -66,6 +75,13 @@ impl Message for V3ProtoGroupMessage {
 #[derive(Default)]
 pub struct V3ProtoWelcomeMessage {
     inner: ProtoWelcomeMessage,
+}
+
+impl From<ProtoWelcomeMessage> for V3ProtoWelcomeMessage {
+    /// Tag a raw v3 wire welcome for conversion (see [`V3ProtoGroupMessage`]).
+    fn from(inner: ProtoWelcomeMessage) -> Self {
+        Self { inner }
+    }
 }
 
 impl TryFrom<V3ProtoWelcomeMessage> for xmtp_proto::types::WelcomeMessage {

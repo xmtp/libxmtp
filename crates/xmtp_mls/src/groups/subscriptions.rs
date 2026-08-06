@@ -7,11 +7,11 @@ use crate::{
         d14n_compat::{V3OrD14n, decode_group_message},
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::StreamGroupMessages,
+        watchdog::spawn_watchdog_stream,
     },
 };
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
 use itertools::Itertools;
-use tokio::sync::oneshot;
 use xmtp_api_d14n::{
     protocol::{
         CursorStore, EnvelopeCollection, EnvelopeError, GroupMessageExtractor,
@@ -85,7 +85,7 @@ where
             }
         }?;
 
-        future_stream::iter(messages.into_iter())
+        future_stream::iter(messages)
             .then(|msg| async move {
                 ProcessMessageFuture::new(self.context.clone())
                     .create(msg)
@@ -97,16 +97,22 @@ where
             .await
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "stream.stream_group_messages"))]
     pub async fn stream<'a>(
         &'a self,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
     where
         Context::ApiClient: XmtpMlsStreams + 'a,
     {
-        StreamGroupMessages::new(&self.context, vec![self.group_id.clone().into()]).await
+        StreamGroupMessages::new(&self.context, vec![self.group_id]).await
     }
 
     /// create a stream that is not attached to any lifetime
+    #[tracing::instrument(
+        err,
+        skip_all,
+        fields(operation = "stream.stream_group_messages_owned")
+    )]
     pub async fn stream_owned(
         &self,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>
@@ -115,13 +121,12 @@ where
         Context::ApiClient: XmtpMlsStreams + 'static,
         Context::Db: 'static,
     {
-        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])
-            .await
+        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id]).await
     }
 
     pub fn stream_with_callback(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
@@ -131,7 +136,7 @@ where
     {
         stream_messages_with_callback(
             context.clone(),
-            vec![group_id.into()].into_iter(),
+            vec![group_id].into_iter(),
             callback,
             on_close,
         )
@@ -144,34 +149,29 @@ where
 pub(crate) fn stream_messages_with_callback<Context>(
     context: Context,
     active_conversations: impl Iterator<Item = GroupId> + MaybeSend + 'static,
-    mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+    callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
     on_close: impl FnOnce() + MaybeSend + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     Context: XmtpSharedContext + 'static,
     Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::Db: 'static,
 {
-    let (tx, rx) = oneshot::channel();
-
-    xmtp_common::spawn(Some(rx), async move {
-        let stream = match StreamGroupMessages::new(&context, active_conversations.collect()).await
-        {
-            Ok(stream) => stream,
-            Err(e) => {
-                tracing::warn!("Failed to create group message stream, closing: {}", e);
-                on_close();
-                return Ok::<_, SubscribeError>(());
-            }
-        };
-        futures::pin_mut!(stream);
-        let _ = tx.send(());
-        while let Some(message) = stream.next().await {
-            callback(message)
-        }
-        tracing::debug!("`stream_messages` stream ended, dropping stream");
-        on_close();
-        Ok::<_, SubscribeError>(())
-    })
+    let cancel = context.cancellation_token().clone();
+    let groups: Vec<GroupId> = active_conversations.collect();
+    // Each `new_owned` reads the last cursor per group, so a re-subscribe resumes where the
+    // dropped stream left off.
+    spawn_watchdog_stream(
+        cancel,
+        "stream_messages",
+        move || {
+            let context = context.clone();
+            let groups = groups.clone();
+            async move { StreamGroupMessages::new_owned(context, groups).await }
+        },
+        callback,
+        on_close,
+    )
 }
 
 #[cfg(test)]
@@ -313,9 +313,11 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::try_from(group_id.as_ref())
+                            .expect("group_id must be 16 bytes"),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -332,6 +334,7 @@ pub(crate) mod tests {
                         expire_at_ns: None,
                         inserted_at_ns: 0,
                         should_push: true,
+                        idempotency_key: timestamp.to_string(),
                     }))
                 });
             mock_db
@@ -345,6 +348,8 @@ pub(crate) mod tests {
             installation_id,
             local_events,
             workers,
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: Default::default(),
         };
 
         let group = client.create_group(None, None).unwrap();
@@ -357,7 +362,7 @@ pub(crate) mod tests {
             version: Some(group_message::Version::V1(group_message::V1 {
                 id: 1,
                 created_ns: 1000000,
-                group_id: group.group_id.clone(),
+                group_id: group.group_id.to_vec(),
                 data: message_data,
                 sender_hmac: vec![],
                 should_push: false,
@@ -399,9 +404,11 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::try_from(group_id.as_ref())
+                            .expect("group_id must be 16 bytes"),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -418,6 +425,7 @@ pub(crate) mod tests {
                         expire_at_ns: None,
                         inserted_at_ns: 0,
                         should_push: true,
+                        idempotency_key: timestamp.to_string(),
                     }))
                 });
             mock_db.expect_future_dependents().returning(|_| Ok(vec![]));
@@ -433,6 +441,8 @@ pub(crate) mod tests {
             installation_id,
             local_events,
             workers,
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: Default::default(),
         };
 
         let group = client.create_group(None, None).unwrap();
@@ -451,7 +461,7 @@ pub(crate) mod tests {
 
         let client_envelope = ClientEnvelope {
             aad: Some(AuthenticatedData {
-                target_topic: group.group_id.clone(),
+                target_topic: group.group_id.to_vec(),
                 depends_on: None,
             }),
             payload: Some(client_envelope::Payload::GroupMessage(group_message_input)),
