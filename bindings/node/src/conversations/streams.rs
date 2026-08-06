@@ -85,49 +85,30 @@ impl Conversations {
         .collect()
     });
 
-    let on_message =
-      move |message: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
-        tracing::trace!(
-            inbox_id,
-            conversation_type = ?conversation_type,
-            "[received] message result"
+    let on_message = move |message| {
+      tracing::trace!(
+          inbox_id,
+          conversation_type = ?conversation_type,
+          "[received] message result"
+      );
+
+      if let Err(error) = &message {
+        tracing::warn!(
+          inbox_id,
+          error = ?error,
+          "[received] forwarding message error to callback"
         );
+      }
 
-        // Skip any messages that are errors
-        if let Err(err) = &message {
-          tracing::warn!(
-            inbox_id,
-            error = ?err,
-            "[received] message error, swallowing to continue stream"
-          );
-          return; // Skip this message entirely
-        }
-
-        // For successful messages, try to transform and pass to JS
-        // otherwise log error and continue stream
-        match message
+      let status = callback.call(
+        message
           .map(Into::into)
           .map_err(ErrorWrapper::from)
-          .map_err(Error::from)
-        {
-          Ok(transformed_msg) => {
-            tracing::trace!(
-              inbox_id,
-              "[received] calling tsfn callback with successful message"
-            );
-            let status = callback.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
-            tracing::info!("Stream status: {:?}", status);
-          }
-          Err(err) => {
-            // Just in case the transformation itself fails
-            tracing::error!(
-              inbox_id,
-              error = ?err,
-              "[received] error during message transformation, swallowing to continue stream"
-            );
-          }
-        }
-      };
+          .map_err(Error::from),
+        ThreadsafeFunctionCallMode::Blocking,
+      );
+      tracing::info!("Stream status: {:?}", status);
+    };
     let on_close = move || {
       on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
     };
