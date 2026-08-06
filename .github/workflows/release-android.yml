@@ -28,7 +28,7 @@ on:
 
 jobs:
   publish:
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -38,6 +38,8 @@ jobs:
       - uses: ./.github/actions/setup-release-tools
       - uses: ./.github/actions/setup-nix
         with:
+          nix-disk: "false"
+          gradle-disk: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 

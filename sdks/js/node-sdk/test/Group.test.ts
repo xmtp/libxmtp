@@ -15,7 +15,7 @@ import {
   type GroupUpdated,
   type MessageDisappearingSettings,
 } from "@xmtp/node-bindings";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DecodedMessage } from "@/DecodedMessage";
 import {
   createRegisteredClient,
@@ -23,6 +23,11 @@ import {
   sleep,
   TestCodec,
 } from "@test/helpers";
+
+// Background workers (self-remove, disappearing messages) complete
+// asynchronously; poll until the expected state appears instead of pacing
+// with fixed sleeps — a fixed sleep loses the race on loaded CI runners.
+const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("Group", () => {
   it("should have a topic", async () => {
@@ -397,11 +402,14 @@ describe("Group", () => {
     await group.sync();
 
     // With event-driven self-remove, client1 (super-admin) processes the
-    // request via the worker, adding a removal GroupUpdated commit. Wait for it
-    // up front so message ordering and counts below are deterministic.
+    // request via the worker, adding a removal GroupUpdated commit. Wait for
+    // it up front (poll until the member is gone) so message ordering and
+    // counts below are deterministic.
     await client1.conversations.syncAll();
-    await sleep(4000);
-    await group.sync();
+    await vi.waitFor(async () => {
+      await group.sync();
+      expect((await group.members()).length).toBe(1);
+    }, WAIT);
 
     const textMessageId = await group.sendText("gm");
     await group.sendMarkdown("# gm");
@@ -791,11 +799,11 @@ describe("Group", () => {
     });
     expect(group2.isMessageDisappearingEnabled()).toBe(true);
 
-    // wait for the messages to be deleted
-    await sleep(2000);
-
-    // verify that the messages are deleted
-    expect((await group.messages()).length).toBe(1);
+    // poll until the disappearing-messages worker deletes the expired
+    // messages
+    await vi.waitFor(async () => {
+      expect((await group.messages()).length).toBe(1);
+    }, WAIT);
 
     // verify that the messages are deleted on the other client
     expect((await group2.messages()).length).toBe(1);
@@ -1011,14 +1019,14 @@ describe("Group", () => {
 
     // messages and welcomes must be synced
     await client2.conversations.syncAll();
-    await client1.conversations.syncAll();
 
-    // wait for worker to process the removal request
-    await sleep(4000);
-
-    await group2.sync();
-
-    expect(group2.isActive).toBe(false);
+    // client1's worker processes the removal request; poll until the removal
+    // commit reaches client2
+    await vi.waitFor(async () => {
+      await client1.conversations.syncAll();
+      await group2.sync();
+      expect(group2.isActive).toBe(false);
+    }, WAIT);
     expect(group2.isPendingRemoval()).toBe(true);
 
     expect(await group.members()).toHaveLength(1);

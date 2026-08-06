@@ -96,5 +96,38 @@
       });
     }
   )
+  # nixpkgs' cc-wrapper bakes -mtls-dialect=gnu2 into the wrapper as a
+  # machine flag for every x86 Linux target when it believes the compiler
+  # is clang >= 19.1 (pkgs/build-support/cc-wrapper/default.nix,
+  # `tlsDialect`). Both halves of that check misfire for the Android NDK
+  # toolchain:
+  #   * androidndk-pkgs' wrapped cc inherits the *NDK* version (27.x) as
+  #     its compiler version, so the ">= 19.1" gate passes even though
+  #     NDK r27 ships clang 18;
+  #   * clang rejects the flag for *-linux-android triples at any version
+  #     ("unsupported argument 'gnu2' to option '-mtls-dialect='") —
+  #     TLSDESC-via-gnu2 is a glibc/musl mechanism, not bionic.
+  # Every C compile for the x86 Android targets then fails; first casualty
+  # is ring's build script inside cargo-package-deps-x86_64-unknown-linux-android.
+  # Strip the flag from the wrapper's substituted flag script. Gated on
+  # x86 Android host platforms so every other pkgset keeps its cache.
+  # Drop when nixpkgs excludes Android from `tlsDialect` (or androidndk
+  # reports the real clang version).
+  (
+    final: prev:
+    prev.lib.optionalAttrs (prev.stdenv.hostPlatform.isAndroid && prev.stdenv.hostPlatform.isx86) {
+      stdenv = prev.overrideCC prev.stdenv (
+        prev.stdenv.cc.overrideAttrs (old: {
+          postFixup = (old.postFixup or "") + ''
+            for f in $out/nix-support/add-local-cc-cflags-before.sh $out/nix-support/cc-cflags-before; do
+              if [ -f "$f" ]; then
+                sed -i "s| *'-mtls-dialect=gnu2'||g; s| *-mtls-dialect=gnu2||g" "$f"
+              fi
+            done
+          '';
+        })
+      );
+    }
+  )
 
 ]

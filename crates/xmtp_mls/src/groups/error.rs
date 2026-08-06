@@ -90,7 +90,8 @@ pub enum GroupError {
     UserLimitExceeded,
     /// Sequence ID not found.
     ///
-    /// Missing sequence ID in local database. Not retryable.
+    /// No sequence ID for an inbox after an identity-update refresh —
+    /// its registration hasn't propagated yet. Retryable.
     #[error("SequenceId not found in local db")]
     MissingSequenceId,
     /// Addresses not found.
@@ -612,13 +613,19 @@ impl RetryableError for GroupError {
             Self::DeleteMessage(e) => e.is_retryable(),
             Self::DeviceSync(e) => e.is_retryable(),
             Self::MergePendingCommit(e) => e.is_retryable(),
+            // Only emitted when a fresh `load_identity_updates` network
+            // refresh still has no sequence id for an inbox — i.e. its
+            // registration hasn't propagated to reads yet. Retrying re-runs
+            // the fetch, so the miss is transient; classifying it
+            // non-retryable permanently failed sync-group membership adds
+            // that raced a new installation's identity propagation.
+            Self::MissingSequenceId => true,
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)
             | Self::CreateMessage(_)
             | Self::TlsError(_)
-            | Self::MissingSequenceId
             | Self::AddressNotFound(_)
             | Self::InvalidExtension(_)
             | Self::Signature(_)
@@ -655,5 +662,19 @@ impl crate::worker::NeedsDbReconnect for GroupError {
             Self::DeviceSync(d) => d.needs_db_reconnect(),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn missing_sequence_id_is_retryable() {
+        // Regression lock: while non-retryable, a membership add racing a
+        // new installation's identity propagation burned all publish
+        // attempts instantly and permanently failed the sync-group add
+        // (surfaced as the DeviceSync sendSyncRequest CI failures).
+        assert!(GroupError::MissingSequenceId.is_retryable());
     }
 }

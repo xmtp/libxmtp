@@ -65,7 +65,6 @@ use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use rstest::*;
-use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
 use xmtp_common::time::now_ns;
 use xmtp_common::{assert_err, assert_ok};
@@ -4893,7 +4892,7 @@ async fn can_stream_out_of_order_without_forking() {
 }
 
 #[xmtp_common::test(flavor = "multi_thread")]
-async fn non_retryable_error_increments_cursor() {
+async fn own_message_without_intent_skips_and_increments_cursor() {
     let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
     // Create a group
@@ -4902,9 +4901,14 @@ async fn non_retryable_error_increments_cursor() {
 
     let storage = alice.context.mls_storage();
 
-    // create a fake message with an invalid body
-    // an envelope with an empty content is a non-retryable error.
-    // since we are also trying to decrypt our own message, this is also non-retryable.
+    // Create a message authored by this client, then feed it back through
+    // processing as if the delivery service fanned it out and the matching
+    // published intent were already gone. The own sender ratchet is
+    // encryption-only, so the content is undecryptable — openmls surfaces
+    // this as `ProcessedMessageContent::OwnPrivateMessage` (older versions
+    // produced an opaque decryption error) and processing must skip the
+    // message while still advancing the cursor past it. The payload
+    // contents never matter here; decryption is skipped before parsing.
     let invalid_payload_message = PlaintextEnvelope { content: None };
     let invalid_message_bytes = invalid_payload_message.encode_to_vec();
     let message = group
@@ -4943,8 +4947,7 @@ async fn non_retryable_error_increments_cursor() {
     };
 
     let res = group.process_message(&message, true).await;
-    assert!(res.is_err());
-    assert!(!res.unwrap_err().is_retryable());
+    assert!(res.is_ok());
     let last_cursor = alice
         .context
         .db()

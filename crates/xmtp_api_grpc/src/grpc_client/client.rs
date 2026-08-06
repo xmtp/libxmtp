@@ -13,6 +13,7 @@ use pin_project::pin_project;
 use prost::bytes::Bytes;
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll, ready},
 };
 use tonic::{
@@ -63,23 +64,14 @@ impl<T> ToHttp for tonic::Response<T> {
 #[derive(Clone, Debug)]
 pub struct GrpcClient {
     inner: tonic::client::Grpc<crate::GrpcService>,
+    /// The URL this client dials ([`Client::host`]), as `Url` serializes it —
+    /// one normalization for every spelling of the same destination.
+    host: Arc<str>,
     app_version: MetadataValue<metadata::Ascii>,
     libxmtp_version: MetadataValue<metadata::Ascii>,
 }
 
 impl GrpcClient {
-    pub fn new(
-        service: crate::GrpcService,
-        app_version: MetadataValue<metadata::Ascii>,
-        libxmtp_version: MetadataValue<metadata::Ascii>,
-    ) -> Self {
-        Self {
-            inner: tonic::client::Grpc::new(service),
-            app_version,
-            libxmtp_version,
-        }
-    }
-
     /// Builds a tonic request from a body and a generic HTTP Request.
     ///
     /// Generic over the body type `B` so the same path serves both the
@@ -146,6 +138,13 @@ impl Stream for GrpcStream {
 
 #[xmtp_common::async_trait]
 impl Client for GrpcClient {
+    fn host(&self) -> &str {
+        &self.host
+    }
+
+    // Manual form: #[rpc_span] can't produce the rpc.grpc.* sub-namespace nor
+    // carry the bounded `path` field (it hard-codes skip_all + rpc.<fn_name>).
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.request", path = %path))]
     async fn request(
         &self,
         request: http::request::Builder,
@@ -166,6 +165,9 @@ impl Client for GrpcClient {
         Ok(response.to_http())
     }
 
+    // The span covers stream establishment only — the returned stream
+    // outlives it.
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.stream", path = %path))]
     async fn stream(
         &self,
         request: request::Builder,
@@ -196,6 +198,7 @@ impl Client for GrpcClient {
     // Full-duplex needs a real HTTP/2 transport; the gRPC-Web service used on
     // wasm cannot carry it, so the browser keeps the trait's default error.
     #[cfg(not(target_arch = "wasm32"))]
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.bidi_stream", path = %path))]
     async fn bidi_stream(
         &self,
         request: request::Builder,
@@ -292,11 +295,13 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
+        let host_str: Arc<str> = host.as_str().into();
         let channel = crate::GrpcService::new(host, self.limit)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
                 .max_encoding_message_size(GRPC_PAYLOAD_LIMIT),
+            host: host_str,
             app_version: self
                 .app_version
                 .unwrap_or(MetadataValue::try_from("0.0.0")?),

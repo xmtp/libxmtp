@@ -4,16 +4,18 @@ on:
 jobs:
   check:
     name: Check (keepalive-probe)
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
+          disk-key: rust
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          with-warpbuild-cache: "false"
       - name: Check keepalive-probe compiles
-        run: nix-fast-build --no-nom --flake .#cargo-clippy.x86_64-linux.keepalive-probe
+        run: nix build --no-link .#cargo-clippy.x86_64-linux.keepalive-probe
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#cargo-clippy.x86_64-linux.keepalive-probe

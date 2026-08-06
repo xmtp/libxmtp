@@ -226,6 +226,12 @@ async fn create_client_inner(
   app_version: Option<String>,
   nonce: u64,
 ) -> Result<Client> {
+  // Install the rustls crypto provider explicitly rather than relying solely on the
+  // `#[ctor::ctor(unsafe)]` in `xmtp_cryptography`, whose constructor link section does not run on
+  // some platforms (notably Apple). Without it, the device-sync worker's history-server HTTP
+  // client panics with "No provider set". Idempotent. See issue #3846.
+  xmtp_cryptography::install_crypto_provider();
+
   let root_identifier = account_identifier.clone();
   let internal_account_identifier = account_identifier.try_into()?;
   let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);

@@ -56,6 +56,21 @@ use crate::groups::validated_commit::{
 /// via the `#[from]` on `CommitValidationError::Bootstrap`.
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapValidationError {
+    /// The `MIN_SUPPORTED_PROTOCOL_VERSION` floor seeded by this
+    /// bootstrap exceeds the receiver's version — the bootstrap was
+    /// produced by a newer release whose synthesis encoding this
+    /// version may not reproduce. The caller converts this to
+    /// `CommitValidationError::ProtocolVersionTooLow` so the group
+    /// pauses (defer-and-reprocess after upgrade) instead of failing
+    /// the byte-compare with `Mismatch` — a rejection that above-floor
+    /// members don't share, i.e. a fork. Normally unreachable (the
+    /// step-A legacy floor bump pauses below-floor members before the
+    /// bootstrap arrives); this covers downgrade-between-steps races
+    /// and is the receiver-side half of the rule that any bootstrap
+    /// encoder change must ship with a `PROPOSALS_MIN_PROTOCOL_VERSION`
+    /// bump.
+    #[error("bootstrap seeds minimum supported protocol version {0} above this client's version")]
+    ProtocolVersionTooLow(String),
     /// The canonical subset says this `ComponentId` should be present
     /// among the bootstrap commit's `AppDataUpdate` proposals, but the
     /// commit didn't include one for it.
@@ -296,6 +311,7 @@ pub(crate) fn validate_bootstrap_commit(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
     proposer: &CommitParticipant,
+    own_version: &str,
 ) -> Result<(), BootstrapValidationError> {
     if !proposer.is_super_admin {
         return Err(BootstrapValidationError::ProposerNotSuperAdmin);
@@ -309,6 +325,29 @@ pub(crate) fn validate_bootstrap_commit(
     // `is_bootstrap_commit` (which only checks the GCE shape + a
     // COMPONENT_REGISTRY write) cannot reach OpenMLS' merge step.
     validate_only_allowed_proposal_types(staged_commit)?;
+
+    // PAUSE BEFORE BYTE-COMPARE: if the bootstrap seeds a floor above
+    // this client's version, it came from a newer release whose
+    // synthesis encoding this version may not reproduce — surfacing
+    // `Mismatch` would be a fork, pausing is recoverable. This check
+    // sits deliberately AFTER the proposer-is-super-admin gate.
+    //
+    // Non-admin injection is not possible here even though the floor is
+    // read before the canonical-subset compare: a bootstrap runs on a
+    // *pre-migration* group, where `proposals_enabled` is false, so the
+    // receive path rejects and never stores any standalone `AppDataUpdate`
+    // proposal (`ProposalsNotEnabled`, mls_sync.rs — the `!proposals_enabled
+    // && type != GroupContextExtensions` gate). A non-admin therefore cannot
+    // pre-stage an `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)` for this
+    // commit to reference; every `AppDataUpdate` in a bootstrap commit is an
+    // inline proposal authored by the super-admin committer validated above.
+    // And a super admin who reaches this line could equally pause members
+    // via a legitimate floor bump, so no new trust is extended. Malformed
+    // floor bytes are ignored (fall through to the byte-compare, which judges
+    // them against the synthesized expectation).
+    if let Some(min_version) = bootstrap_floor_exceeding(staged_commit, own_version) {
+        return Err(BootstrapValidationError::ProtocolVersionTooLow(min_version));
+    }
 
     // Expected bytes: sync synthesis over the pre-flip extensions.
     // No identity-update API lookups; the receiver does NOT call the
@@ -353,7 +392,6 @@ fn proposal_type_name(proposal: &Proposal) -> &'static str {
         Proposal::AppDataUpdate(_) => "AppDataUpdate",
         Proposal::SelfRemove => "SelfRemove",
         Proposal::AppEphemeral(_) => "AppEphemeral",
-        Proposal::_AppAck => "_AppAck",
         Proposal::Custom(_) => "Custom",
     }
 }
@@ -373,6 +411,33 @@ fn validate_only_allowed_proposal_types(
         }
     }
     Ok(())
+}
+
+/// Returns the `MIN_SUPPORTED_PROTOCOL_VERSION` floor seeded by this
+/// bootstrap commit's `AppDataUpdate` proposals when it parses as
+/// semver and exceeds `own_version`. Lenient everywhere else (absent
+/// seed, non-UTF-8 bytes, unparseable versions ⇒ `None`) — the
+/// canonical byte-compare downstream is the authority on whether the
+/// seed's bytes are what the pre-flip state demands; this helper only
+/// decides pause-vs-compare.
+fn bootstrap_floor_exceeding(staged_commit: &StagedCommit, own_version: &str) -> Option<String> {
+    use crate::groups::validated_commit::LibXMTPVersion;
+    use openmls::messages::proposals::AppDataUpdateOperation;
+
+    let floor_bytes = staged_commit.queued_proposals().find_map(|queued| {
+        if let Proposal::AppDataUpdate(p) = queued.proposal()
+            && ComponentId::from(p.component_id()) == ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION
+            && let AppDataUpdateOperation::Update(bytes) = p.operation()
+        {
+            Some(bytes.as_slice().to_vec())
+        } else {
+            None
+        }
+    })?;
+    let floor = String::from_utf8(floor_bytes).ok()?;
+    let own = LibXMTPVersion::parse(own_version).ok()?;
+    let floor_version = LibXMTPVersion::parse(&floor).ok()?;
+    (floor_version > own).then_some(floor)
 }
 
 /// Collect every `AppDataUpdate` proposal in a staged commit into a

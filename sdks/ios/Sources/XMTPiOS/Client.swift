@@ -199,6 +199,16 @@ public final class Client {
 	/// ``createInMemory(account:options:)``. No file exists at this path.
 	public static let inMemoryDbPath = ":memory:"
 
+	/// Process-wide control for automatic stream-lifecycle management. When
+	/// `true` (the default), the first ``Client`` created registers app-lifecycle
+	/// observers that park the shared streaming wire while the app is
+	/// backgrounded and revive it on foreground. The streaming wire is shared
+	/// across every client in the process, so this is a **process-global**
+	/// setting, not per-client: set it to `false` **before creating your first
+	/// client** to opt out (e.g. in an app extension, or to manage the lifecycle
+	/// yourself). Has no effect on platforms without UIKit.
+	public static var manageStreamLifecycle = true
+
 	public let inboxID: InboxId
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
@@ -304,6 +314,13 @@ public final class Client {
 			register(codec: codec)
 		}
 
+		// Keep the shared streaming wire in step with app foreground/background.
+		// Process-global and idempotent — the first managed client registers it
+		// for every client in the process.
+		if Client.manageStreamLifecycle {
+			StreamLifecycleManager.shared.enableIfNeeded()
+		}
+
 		return client
 	}
 
@@ -404,7 +421,7 @@ public final class Client {
 			inboxId: recoveredInboxId
 		)
 
-		return try Client(
+		let client = try Client(
 			ffiClient: ffiClient,
 			dbPath: dbPath,
 			installationID: ffiClient.installationId().toHex,
@@ -412,6 +429,10 @@ public final class Client {
 			environment: clientOptions.api.env,
 			publicIdentity: identity
 		)
+		if Client.manageStreamLifecycle {
+			StreamLifecycleManager.shared.enableIfNeeded()
+		}
+		return client
 	}
 
 	private static func initFFiClient(
@@ -928,6 +949,27 @@ public final class Client {
 	public func reconnectLocalDatabase() async throws {
 		guard !isInMemory else { return }
 		try await ffiClient.dbReconnect()
+	}
+
+	/// Bring the local store current with the network, then stop — for
+	/// background fetch and cold start, where holding a live stream is wasted
+	/// because the wire is about to go away.
+	///
+	/// Pass `timeoutMs` to bound the run against an OS background budget (a
+	/// `BGAppRefreshTask` window, an NSE budget); `nil` runs to the live edge.
+	/// Cutting it short is safe: everything processed is persisted and a later
+	/// call resumes from durable state.
+	///
+	/// Check ``CatchUpSummary/completed`` before treating the counts as the
+	/// whole story: on the deadline path it is `false`, whatever was processed
+	/// before the cut is already stored (the counts may undercount it), and a
+	/// later call resumes from there.
+	public func catchUpToLive(timeoutMs: UInt64? = nil) async throws
+		-> CatchUpSummary
+	{
+		try await CatchUpSummary(
+			ffiClient.catchUpToLive(opts: FfiCatchUpOptions(timeoutMs: timeoutMs))
+		)
 	}
 
 	public func inboxIdFromIdentity(identity: PublicIdentity) async throws

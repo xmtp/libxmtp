@@ -11,6 +11,31 @@ let
   craneConfig = final: prev: {
     napiBuild = final.callPackage ./napiBuild.nix { };
     uniffiGenerate = final.callPackage ./uniffiGenerate.nix { };
+    # askama_derive 0.16 canonicalizes the askama.toml path through crane's
+    # symlinked vendor dir, then emits include_bytes! with a lexical relative
+    # path that resolves through the symlink target's real parents and lands
+    # on a nonexistent path — breaking every #[derive(Template)] in
+    # uniffi_bindgen. Dropping the canonicalize keeps the path lexical so the
+    # relative include_bytes! stays inside the crate. Remove once askama
+    # resolves symlinked-vendor-dir handling upstream.
+    vendorCargoDeps =
+      args:
+      prev.vendorCargoDeps (
+        args
+        // {
+          overrideVendorCargoPackage =
+            p: drv:
+            if p.name == "askama_derive" && lib.hasPrefix "0.16." p.version then
+              drv.overrideAttrs (old: {
+                postInstall = (old.postInstall or "") + ''
+                  substituteInPlace $out/src/config.rs \
+                    --replace-fail "filename.canonicalize().ok()" "Some(filename)"
+                '';
+              })
+            else
+              drv;
+        }
+      );
   };
 
   # `host` is the HOST pkgset (kept stable across cross pkgsets so build
@@ -21,6 +46,9 @@ let
     wasm-bindgen-cli = host.callPackage ./packages/wasm-bindgen-cli.nix { };
     napi-rs-cli = host.callPackage ./packages/napi-rs-cli { };
     swiftlint = host.callPackage ./packages/swiftlint.nix { };
+    # Prebuilt binary — nixpkgs' swiftformat needs the Swift toolchain, which
+    # is broken/uncached on Linux in current nixpkgs.
+    swiftformat = host.callPackage ./packages/swiftformat.nix { };
     xmtp = {
       inherit ffi-uniffi-bindgen;
       filesets = host.callPackage ./filesets.nix { };

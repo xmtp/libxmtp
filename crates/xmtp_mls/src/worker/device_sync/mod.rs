@@ -2,20 +2,16 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::{
-        GroupError, MlsGroup, PreconfiguredPolicies, intents::QueueIntent, send_message_opts,
-        summary::SyncSummary, welcome_sync::WelcomeService,
+        GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
+        welcome_sync::WelcomeService,
     },
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
-use futures::{StreamExt, TryStreamExt, stream};
 use owo_colors::OwoColorize;
 use prost::Message;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
@@ -24,6 +20,7 @@ use xmtp_archive::{ArchiveError, BackupMetadata};
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
+use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
     group_message::StoredGroupMessage,
@@ -31,14 +28,20 @@ use xmtp_db::{
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
     device_sync::content::{
         DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
     },
-    mls::message_contents::{
-        ContentTypeId, EncodedContent, PlaintextEnvelope,
-        plaintext_envelope::{Content, V1},
+    mls::{
+        database::{
+            AddMissingInstallations as AddMissingInstallationsProto, Task as TaskProto,
+            task::Task as TaskKindProto,
+        },
+        message_contents::{
+            ContentTypeId, EncodedContent, PlaintextEnvelope,
+            plaintext_envelope::{Content, V1},
+        },
     },
 };
 
@@ -364,7 +367,17 @@ where
                     hex::encode(self.context.installation_id()),
                     hex::encode(sync_group.group_id)
                 );
-                sync_group.add_missing_installations().await?;
+                if let Err(inline_err) = sync_group.add_missing_installations().await {
+                    // The group row is already persisted, so this add is never
+                    // re-attempted (later calls take the `Some` branch) — arm
+                    // the durable reconcile task so the TaskRunner heals it,
+                    // then surface the original error. Armed only on failure:
+                    // enqueue-first duplicated the reconcile (and its identity
+                    // fetch) on every sync-group creation.
+                    self.schedule_add_missing_installations_task(sync_group.group_id)
+                        .map_err(Box::new)?;
+                    return Err(inline_err);
+                }
                 sync_group.sync_with_conn().await?;
 
                 self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
@@ -378,36 +391,47 @@ where
 
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
+    ///
+    /// Schedules one durable AddMissingInstallations task per eligible group
+    /// on the TaskRunner (deduped by payload hash) so the membership add is
+    /// retried with backoff instead of being lost if a single inline attempt
+    /// fails (e.g. identity propagation lag → MissingSequenceId).
     #[cfg_attr(
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all)
     )]
-    pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
+    pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
             consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
             ..Default::default()
         })?;
 
-        let groups = HashSet::from_iter(groups);
-        let intents = QueueIntent::update_group_membership()
-            .queue_for_each(groups, move |group| async move {
-                let intent = group.get_membership_update_intent(&[], &[]).await?;
-                let intent: Vec<u8> = intent.into();
-                Ok::<_, GroupError>(intent)
-            })
-            .await?;
+        for group in &groups {
+            self.schedule_add_missing_installations_task(group.group_id)?;
+        }
+        Ok(groups.len())
+    }
 
-        let context = &self.context;
-        stream::iter(intents)
-            .map(Ok::<_, GroupError>)
-            .try_for_each_concurrent(10, |intent| async move {
-                let (group, _) = MlsGroup::new_cached(context, &intent.group_id)?;
-                group.sync_until_intent_resolved(intent.id).await?;
-                Ok(())
-            })
-            .await?;
-
+    /// Durably enqueue one AddMissingInstallations task for `group_id`
+    /// (deduped by payload hash against any pending row for the same group)
+    /// and wake the TaskRunner.
+    pub(crate) fn schedule_add_missing_installations_task(
+        &self,
+        group_id: GroupId,
+    ) -> Result<(), DeviceSyncError> {
+        let task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .build(TaskProto {
+                task: Some(TaskKindProto::AddMissingInstallations(
+                    AddMissingInstallationsProto {
+                        group_id: group_id.to_vec(),
+                    },
+                )),
+            })?;
+        self.context.db().create_or_ignore_task(task)?;
+        self.context.task_channels().wake();
         Ok(())
     }
 }

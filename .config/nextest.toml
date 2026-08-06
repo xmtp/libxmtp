@@ -29,7 +29,10 @@ filter = 'test(/\btest_can_stream_group_messages_for_updates/)'
 retries = 3
 [profile.ci-d14n]
 slow-timeout = "90sec"
-default-filter = "not (test(/\\w*commit_log*/))"
+# Commit-log tests are excluded on d14n because the pure d14n test client no-ops
+# commit-log — except the migration round-trip, which routes commit-log to the
+# live v3 node and so is meaningful (and only compiles) on this lane.
+default-filter = "not (test(/\\w*commit_log*/)) | test(migration_client_commit_log_round_trips_through_v3)"
 # inherits = "ci" not supported until latest nextest release
 failure-output = "never"
 fail-fast = false
@@ -42,3 +45,13 @@ path = "junit.xml"
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
 default-filter = "not (test(/\\w*commit_log*/))"
 threads-required = 2
+
+# Fuzz tests print their seed and must fail loudly — a retry would re-roll
+# the seed and mask the finding.
+[[profile.default.overrides]]
+filter = 'test(/bidi_fuzz/)'
+retries = 0
+
+[[profile.ci.overrides]]
+filter = 'test(/bidi_fuzz/)'
+retries = 0

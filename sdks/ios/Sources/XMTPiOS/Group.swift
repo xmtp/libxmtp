@@ -235,34 +235,27 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func updateAppData(appData: String) async throws {
-		try await ffiGroup.updateAppData(appData: appData)
+		try await ffiGroup.updateAppData(
+			options: FfiUpdateAppDataOptions(value: appData)
+		)
 	}
 
-	/// Migrate this group's metadata from the legacy GroupContextExtensions
-	/// shape onto OpenMLS `AppDataUpdate` proposals. After this returns
-	/// successfully, subsequent metadata writes (group name, description,
-	/// image URL, admin list, permissions) flow through the proposal-based
-	/// path instead of GCE commits.
-	///
-	/// - Parameters:
-	///   - force: Skip the pre-flight key-package capability check.
-	///     Post-d14n every client supports proposals by version floor
-	///     alone, so the per-member scan stops adding signal. Set
-	///     `true` to bypass it. Callers using this MUST be confident
-	///     every member is at `>= minVersion`. Defaults to `false`.
-	///   - minVersion: Override the `MIN_SUPPORTED_PROTOCOL_VERSION`
-	///     floor. `nil` defaults to libxmtp's
-	///     `PROPOSALS_MIN_PROTOCOL_VERSION` — the release where
-	///     proposals support first ships.
-	///
-	/// Hard-fails with `ProposalsNotSupported` if `force == false` and
-	/// any member's latest key package doesn't advertise
-	/// `ProposalType::AppDataUpdate`. The migration is one-way — a
-	/// migrated group cannot return to the legacy path.
-	public func enableProposals(force: Bool = false, minVersion: String? = nil) async throws {
-		try await ffiGroup.enableProposals(
-			options: FfiEnableProposalsOptions(force: force, minVersion: minVersion)
-		)
+	/// Pre-release APIs, grouped under ``UnstableGroup`` and gated behind
+	/// `@_spi(Unstable)` — they are not part of the stable API surface for
+	/// the v1.11 cut. Reach them via `@_spi(Unstable) import XMTPiOS`.
+	/// Opting in once here covers every function on ``UnstableGroup``; when
+	/// one graduates it moves onto `Group` and the `.unstable` access
+	/// breaks at compile time, forcing a migration.
+	@_spi(Unstable) public var unstable: UnstableGroup {
+		UnstableGroup(ffiGroup: ffiGroup)
+	}
+
+	/// Whether this group has migrated to AppData-proposal-based metadata
+	/// updates. `false` means the group is still on the legacy
+	/// GroupContextExtensions path. Prefer this semantic bool over scanning
+	/// ``membershipCapabilities()`` for the marker extension.
+	public func proposalsEnabled() throws -> Bool {
+		try ffiGroup.proposalsEnabled()
 	}
 
 	/// Snapshot this group's membership capabilities: the group context's
@@ -270,11 +263,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 	/// types each advertises.
 	///
 	/// These are generic facts you filter to a specific question. For the
-	/// proposal (app-data-dictionary) migration: the group is migrated when
-	/// ``GroupMembershipCapabilities/contextExtensions`` contains
-	/// ``MlsExtensionType/appDataDictionary``, and an inbox blocks migration
-	/// when one of its installations' ``InstallationCapabilities/supportedExtensions``
-	/// does not. Pair with ``enableProposals(force:minVersion:)``.
+	/// proposal (app-data-dictionary) migration: use ``proposalsEnabled()``
+	/// to ask "is this group migrated" — this snapshot answers the other
+	/// question: an inbox blocks migration when one of its installations'
+	/// ``InstallationCapabilities/supportedExtensions`` does not contain
+	/// ``MlsExtensionType/appDataDictionary``. Pair with
+	/// ``UnstableGroup/enableProposals(force:minVersion:)``.
 	public func membershipCapabilities() async throws -> GroupMembershipCapabilities {
 		try await GroupMembershipCapabilities(ffi: ffiGroup.membershipCapabilities())
 	}

@@ -248,6 +248,17 @@ pub struct Client<Context> {
     pub installation_id: InstallationId,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
+    /// This client's router over the process-shared bidi wire (XIP-83
+    /// streaming path), created on first use. Shared across clones so one
+    /// client never runs two routers.
+    ///
+    /// Lifecycle rides the client's: `close()` ends the streams (their pumps
+    /// watch the cancellation token), after which the router task parks —
+    /// pending on an idle channel, holding no wire state — and exits when
+    /// the last client clone drops this cell.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) stream_router:
+        Arc<tokio::sync::OnceCell<crate::subscriptions::stream_router::StreamRouter<Context>>>,
 }
 
 impl<Context> Drop for Client<Context> {
@@ -269,6 +280,8 @@ impl<Context: Clone> Clone for Client<Context> {
             installation_id: self.installation_id,
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: self.stream_router.clone(),
         }
     }
 }
@@ -877,6 +890,7 @@ where
 
     /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
     /// Returns an error if the message is not found or if it cannot be decoded/enriched
+    #[xmtp_common::mls_span]
     pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
         let conn = self.context.db();
         let message = conn
@@ -996,6 +1010,7 @@ where
 
     /// Upload a Key Package to the network and publish the signed identity update
     /// from the provided SignatureRequest
+    #[xmtp_common::mls_span]
     pub async fn register_identity(
         &self,
         signature_request: SignatureRequest,
@@ -1137,7 +1152,7 @@ where
 
     /// Sync all unread welcome messages and then sync all groups.
     /// Returns the total number of active groups synced.
-    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_welcomes_and_groups"))]
+    #[xmtp_common::mls_span]
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
@@ -2055,12 +2070,21 @@ pub(crate) mod tests {
         assert_eq!(item[0].state, ConsentState::Allowed);
     }
 
-    #[xmtp_common::timeout(Duration::from_secs(50))]
+    #[xmtp_common::timeout(Duration::from_secs(100))]
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
-    // Set to 50 seconds to safely account for the 16 second keepalive interval and 10 second timeout
+    // Detection of the black-holed connection comes from the h2 transport keepalive.
+    // Pin it fast (5s ping / 5s ack) so the failure lands in seconds under nextest,
+    // whose process-per-test isolation guarantees the pin is read before the
+    // process-wide config latches. Under a plain `cargo test`, a sibling test may
+    // latch the library defaults (45s/20s) first and the pin becomes a no-op, so
+    // the timeout budget also covers their ~65s worst-case detection.
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
+        unsafe {
+            std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");
+            std::env::set_var("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "5");
+        }
         toxiproxy_test(async || {
             let alix = Tester::builder().proxy().build().await;
             let bo = Tester::builder().build().await;

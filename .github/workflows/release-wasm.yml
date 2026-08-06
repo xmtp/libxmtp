@@ -72,7 +72,7 @@ jobs:
 
   build:
     needs: setup
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -81,17 +81,21 @@ jobs:
 
       - uses: ./.github/actions/setup-nix
         with:
+          nix-disk: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build wasm-bindings
-        run: nix-fast-build --flake .#packages.x86_64-linux.wasm-bindings
+        run: nix build .#packages.x86_64-linux.wasm-bindings
+
+      - name: Warm sticky disk with build deps
+        run: dev/ci/warm-deps .#packages.x86_64-linux.wasm-bindings
 
       - name: Upload build output
         uses: actions/upload-artifact@v7
         with:
           name: wasm_build
-          path: result-/dist
+          path: result/dist
           retention-days: 1
 
   publish:

@@ -258,6 +258,11 @@ describe("Conversations", () => {
     await client1.conversations.createGroup([client2.inboxId]);
     await client1.conversations.createDm(client3.inboxId);
 
+    // Settle before subscribing: the fixed sleep lets the server index the
+    // creation-time fanout so the subscription cursor starts after it. This
+    // is a server-side race with no client-observable condition — do NOT
+    // replace with client syncs, which trigger worker activity that injects
+    // extra messages into the stream.
     await sleep(2000);
 
     const stream = await client1.conversations.streamAllMessages();
@@ -302,6 +307,11 @@ describe("Conversations", () => {
     await client1.conversations.createGroup([client3.inboxId]);
     await client1.conversations.createDm(client4.inboxId);
 
+    // Settle before subscribing: the fixed sleep lets the server index the
+    // creation-time fanout so the subscription cursor starts after it. This
+    // is a server-side race with no client-observable condition — do NOT
+    // replace with client syncs, which trigger worker activity that injects
+    // extra messages into the stream.
     await sleep(2000);
 
     const stream = await client1.conversations.streamAllGroupMessages();
@@ -353,6 +363,11 @@ describe("Conversations", () => {
     await client1.conversations.createGroup([client3.inboxId]);
     await client1.conversations.createDm(client4.inboxId);
 
+    // Settle before subscribing: the fixed sleep lets the server index the
+    // creation-time fanout so the subscription cursor starts after it. This
+    // is a server-side race with no client-observable condition — do NOT
+    // replace with client syncs, which trigger worker activity that injects
+    // extra messages into the stream.
     await sleep(2000);
 
     const stream = await client1.conversations.streamAllDmMessages();

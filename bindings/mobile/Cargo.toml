@@ -24,7 +24,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-uniffi = { version = "0.31.0", default-features = false, features = ["tokio"] }
+uniffi = { version = "0.32.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
@@ -46,7 +46,7 @@ xmtp-workspace-hack.workspace = true
 
 
 [build-dependencies]
-uniffi = { version = "0.31.0", features = ["build"] }
+uniffi = { version = "0.32.0", features = ["build"] }
 vergen-gix = { workspace = true, features = ["build"] }
 
 [[bin]]
@@ -67,7 +67,7 @@ ctor.workspace = true
 fdlimit.workspace = true
 rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-uniffi = { version = "0.31.0", features = ["bindgen-tests"] }
+uniffi = { version = "0.32.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_archive = { workspace = true, features = ["test-utils"] }

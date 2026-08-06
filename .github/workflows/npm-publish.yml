@@ -107,8 +107,10 @@ jobs:
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update npm to latest
-        run: npm install -g npm@latest
+      # OIDC trusted publishing needs npm >= 11.5.1. Pinned to major 11 because
+      # npm 12 requires node >= 24.15, newer than the .node-version pin.
+      - name: Update npm
+        run: npm install -g npm@11
 
       - name: Publish to NPM
         if: ${{ inputs.dry-run != true }}

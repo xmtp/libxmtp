@@ -181,6 +181,13 @@ pub enum GroupMessageProcessingError {
     TlsError(#[from] TlsCodecError),
     #[error("unsupported message type: {0:?}")]
     UnsupportedMessageType(Discriminant<ProtocolMessage>),
+    /// Processed-message content that cannot legitimately reach the apply
+    /// phase: `UnresolvedAppDataCommit` is always resolved inside
+    /// `process_message_with_app_data`, and `OwnPendingCommit` is only
+    /// produced for public-framed commits, which libxmtp's
+    /// pure-ciphertext wire format policy never emits.
+    #[error("unexpected processed message content: {0}")]
+    UnexpectedProcessedContent(&'static str),
     #[error("commit validation")]
     CommitValidation(#[from] CommitValidationError),
     #[error("epoch increment not allowed")]
@@ -255,6 +262,18 @@ impl RetryableError for GroupMessageProcessingError {
                 // Decode failures are wire-format violations from the
                 // peer — retrying won't help.
                 super::app_data::ProcessMessageWithAppDataError::AppDataDecode(_) => false,
+                // Resolved by upgrading, not by retrying. In practice
+                // this variant never reaches here: the call sites remap
+                // it to `CommitValidation(ProtocolVersionTooLow)` so
+                // the pause machinery in `post_process_message` fires.
+                super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
+                    ..
+                } => false,
+                // Staging failures are validation-shaped — the same
+                // `StageCommitError` on a commit without app-data
+                // proposals surfaces through the `OpenMls` arm as a
+                // non-retryable `InvalidCommit`.
+                super::app_data::ProcessMessageWithAppDataError::ResolveAppDataCommit(_) => false,
             },
             Self::MergeStagedCommit(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
@@ -273,6 +292,7 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::DecodeProto(_)
             | Self::InvalidPayload
             | Self::Intent(_)
+            | Self::UnexpectedProcessedContent(_)
             | Self::EpochIncrementNotAllowed
             | Self::EncodeProto(_)
             | Self::IntentMissingStagedCommit
@@ -295,6 +315,29 @@ impl RetryableError for GroupMessageProcessingError {
 }
 
 impl GroupMessageProcessingError {
+    /// Route an app-data processing failure into this error type.
+    ///
+    /// The pre-dispatch floor guard in `process_message_with_app_data`
+    /// surfaces as the same `ProtocolVersionTooLow` commit-validation
+    /// error the validator's post-policy floor check emits, so
+    /// `post_process_message` pauses the group (held cursor,
+    /// `set_group_paused`) instead of treating it like a wire-format
+    /// rejection that advances past the commit. Every other variant
+    /// wraps as `OpenMlsProcessMessageWithAppData`, same as `From`.
+    /// Use this instead of `?`'s implicit conversion at call sites
+    /// that can see commits from newer protocol versions.
+    fn from_app_data_processing(
+        err: super::app_data::ProcessMessageWithAppDataError<sql_key_store::SqlKeyStoreError>,
+    ) -> Self {
+        match err {
+            super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
+                min_version,
+                ..
+            } => Self::CommitValidation(CommitValidationError::ProtocolVersionTooLow(min_version)),
+            other => other.into(),
+        }
+    }
+
     pub(crate) fn commit_result(&self) -> CommitResult {
         use super::app_data::ProcessMessageWithAppDataError;
         match self {
@@ -407,7 +450,7 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    #[tracing::instrument(err, skip_all, fields(operation = "sync"))]
+    #[xmtp_common::mls_span]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
         let conn = self.context.db();
 
@@ -452,10 +495,10 @@ where
                 required_min_version_str
             );
             let current_version_str = self.context.version_info().pkg_version();
-            let current_version = LibXMTPVersion::parse(current_version_str)?;
+            let current_version = self.context.version_info().pkg_semver();
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
-            if required_min_version <= current_version {
+            if required_min_version <= *current_version {
                 tracing::info!(
                     "Unpausing group since version requirements are met. \
                      Group ID: {}",
@@ -483,10 +526,7 @@ where
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, fields(who = %self.context.inbox_id(), operation = "sync_with_conn")))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(err, skip_all, fields(operation = "sync_with_conn"))
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -543,15 +583,15 @@ where
     }
 
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
+        // Filter to kinds this build understands: after a downgrade,
+        // rows written by a newer build would otherwise fail `FromSql`
+        // and poison the whole query (see `IntentKind::all`).
         let intents = self.context.db().find_group_intents(
             self.group_id,
             Some(vec![IntentState::ToPublish, IntentState::Published]),
-            None,
+            Some(IntentKind::all().collect()),
         )?;
 
         let Some(intent) = intents.last() else {
@@ -569,10 +609,7 @@ where
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(who = %self.context.inbox_id(), operation = "intent"), skip(self)))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(err, level = "trace", skip(self), fields(operation = "intent"))
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
@@ -684,7 +721,12 @@ where
                     );
                 }
                 Err(err) => {
-                    tracing::error!("database error fetching intent {err:?}");
+                    tracing::error!(
+                        group_id = %self.group_id,
+                        intent_id,
+                        attempt,
+                        "database error fetching intent {err:?}"
+                    );
                     summary.add_other(GroupError::Storage(err));
                 }
             };
@@ -931,6 +973,11 @@ where
             || intent.state == IntentState::Error
         {
             tracing::warn!(
+                group_id = %self.group_id,
+                intent_id = intent.id,
+                intent_kind = %intent.kind,
+                intent_state = ?intent.state,
+                cursor = envelope.cursor.sequence_id,
                 "Skipping already processed intent {} of kind {} because it is in state {:?}",
                 intent.id,
                 intent.kind,
@@ -1134,6 +1181,7 @@ where
                 mls_group,
                 &provider,
                 message.clone(),
+                self.context.version_info().pkg_semver(),
             ));
             // Roll back: sync with the server before committing.
             Ok::<TransactionOutcome<()>, StorageError>(Rollback)
@@ -1143,7 +1191,9 @@ where
                 .map(TransactionOutcome::into_continued)
                 .inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
-        let processed_message = processed_message.expect("Was just set to Some")?;
+        let processed_message = processed_message
+            .expect("Was just set to Some")
+            .map_err(GroupMessageProcessingError::from_app_data_processing)?;
 
         // Reload the mlsgroup to clear the it's internal cache
         mls_group.reload(provider.storage())?;
@@ -1205,6 +1255,27 @@ where
                 Some(validated_commit)
             }
             ProcessedMessageContent::ProposalMessage(queued_proposal) => {
+                // Floor-first: if this migrated group's committed protocol floor
+                // exceeds our version, pause BEFORE validating or storing the
+                // proposal — exactly as the commit branch does above, and without
+                // advancing the cursor. Post-migration metadata updates are
+                // published propose-then-commit, so a below-floor client that
+                // instead rejected-and-skipped a new-format standalone proposal
+                // here would later be unable to stage the commit that references
+                // it (the proposal would be missing from the store) and fork.
+                // Holding the cursor before the proposal lets it replay after the
+                // client upgrades and the group un-pauses.
+                //
+                // This reads only committed group-context state (the pre-commit
+                // dictionary), never the arriving proposal, so it cannot be used
+                // by a member to freeze a group.
+                if let Some(min_version) = super::app_data::committed_floor_exceeding(
+                    mls_group,
+                    self.context.version_info().pkg_semver(),
+                ) {
+                    return Err(CommitValidationError::ProtocolVersionTooLow(min_version).into());
+                }
+
                 // Reject Add/Remove proposals if proposals are not enabled on this group.
                 // GCE proposals are exempt because enable_proposals() uses them to bootstrap
                 // proposal support — they must be allowed through to flip the flag on.
@@ -1379,7 +1450,9 @@ where
                 mls_group,
                 &provider,
                 message.clone(),
-            )?;
+                self.context.version_info().pkg_semver(),
+            )
+            .map_err(GroupMessageProcessingError::from_app_data_processing)?;
             let identifier = self.process_external_message(
                 mls_group,
                 processed_message,
@@ -1538,6 +1611,38 @@ where
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
                 Ok(())
                 // intentionally left blank.
+            }
+            ProcessedMessageContent::OwnPrivateMessage => {
+                // Our own fanned-back private message with no matching
+                // published intent (the intent path handles the normal case —
+                // this arm is reached only once the intent record is gone).
+                // The own sender ratchet is encryption-only, so the content
+                // is undecryptable by design; upstream surfaces it as a typed
+                // skip hint where older openmls produced an opaque
+                // decryption error.
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = %self.group_id,
+                    cursor = %cursor,
+                    "skipping own fanned-back private message without a matching intent"
+                );
+                Ok(())
+            }
+            ProcessedMessageContent::OwnPendingCommit => {
+                // Only produced for public-framed commits; unreachable under
+                // libxmtp's pure-ciphertext wire format policy.
+                Err(GroupMessageProcessingError::UnexpectedProcessedContent(
+                    "OwnPendingCommit under a ciphertext-only wire format policy",
+                ))
+            }
+            ProcessedMessageContent::UnresolvedAppDataCommit(_) => {
+                // `process_message_with_app_data` resolves app-data commits
+                // into `StagedCommitMessage` before returning; this cannot
+                // reach the apply phase.
+                Err(GroupMessageProcessingError::UnexpectedProcessedContent(
+                    "UnresolvedAppDataCommit escaped process_message_with_app_data",
+                ))
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
                 let staged_commit = *staged_commit;
@@ -2041,13 +2146,27 @@ where
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
+        // A parse failure here must not look identical to "disappearing
+        // messages disabled" — warn before treating it as None.
         let mutable_metadata =
             super::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 mls_group,
             )
+            .inspect_err(|err| {
+                tracing::warn!(
+                    group_id = hex::encode(mls_group.group_id().as_slice()),
+                    "failed to extract mutable metadata for message expiry: {err:?}"
+                )
+            })
             .ok()?;
         let group_disappearing_settings =
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
+                .inspect_err(|err| {
+                    tracing::warn!(
+                        group_id = hex::encode(mls_group.group_id().as_slice()),
+                        "failed to parse disappearing-message settings: {err:?}"
+                    )
+                })
                 .ok()?;
 
         if group_disappearing_settings.is_enabled() {
@@ -2068,10 +2187,7 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip(self), fields(envelope = %envelope))
     )]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
-    )]
+    #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn process_message(
         &self,
         envelope: &GroupMessage,
@@ -2258,12 +2374,30 @@ where
                     let mut error_cause = None;
                     let (next_intent_state, internal_message_id) = match result {
                         Err(err) => {
+                            // Floor-first (own-intent path): a below-floor client
+                            // processing its OWN commit on a migrated group must
+                            // PAUSE, not fold the failure into a terminal `Error`.
+                            // Folding would commit the cursor advance above (past
+                            // its own commit) and leave the intent `Error` — forking
+                            // from peers who merged the commit, with no upgrade-based
+                            // recovery. Roll the transaction back (undoing the cursor
+                            // advance) so the error reaches `post_process_message`'s
+                            // pause arm, exactly like the external-commit path, and
+                            // the intent stays for revalidation after upgrade.
+                            if matches!(
+                                err.processing_error,
+                                GroupMessageProcessingError::CommitValidation(
+                                    CommitValidationError::ProtocolVersionTooLow(_)
+                                )
+                            ) {
+                                return Err(err.processing_error);
+                            }
                             if err.processing_error.is_retryable() {
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
                             if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
-                                tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
+                                tracing::error!(group_id = %self.group_id, cursor = cursor.sequence_id, "Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             if err.next_intent_state == IntentState::Error {
                                 error_cause = Some(err.processing_error);
@@ -2277,7 +2411,14 @@ where
                     if next_intent_state == intent.state {
                         // No state transition (e.g. a re-delivered message for an
                         // intent already in this state) — nothing new to report.
-                        tracing::warn!("Intent [{}] is already in state [{:?}]", intent_id, next_intent_state);
+                        tracing::warn!(
+                            group_id = %self.group_id,
+                            intent_id,
+                            intent_state = ?next_intent_state,
+                            "Intent [{}] is already in state [{:?}]",
+                            intent_id,
+                            next_intent_state
+                        );
                         return Ok(Continue(None));
                     }
                     let mut intent_error = None;
@@ -2448,7 +2589,7 @@ where
                     {
                         // We don't need to propagate the error if the cursor fails to update - the worst case is
                         // that the non-retriable error is processed again
-                        tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
+                        tracing::error!(group_id = %self.group_id, cursor = envelope.sequence_id(), "Error updating cursor for non-retriable error: {update_cursor_error:?}");
                     } else if envelope.is_commit()
                         && let Err(accounting_error) = mls_group.mark_failed_commit_logged(
                         &provider,
@@ -2457,6 +2598,8 @@ where
                         &e,
                     ) {
                         tracing::error!(
+                                group_id = %self.group_id,
+                                cursor = envelope.sequence_id(),
                                 "Error inserting commit entry for failed commit: {}",
                                 accounting_error
                         );
@@ -2465,7 +2608,7 @@ where
                 })
                 .map(TransactionOutcome::into_continued)
                 {
-                    tracing::error!("Error post-processing non-retryable error: {transaction_error:?}");
+                    tracing::error!(group_id = %self.group_id, cursor = envelope.sequence_id(), "Error post-processing non-retryable error: {transaction_error:?}");
                 };
 
                 if let Err(accounting_error) = self
@@ -2478,6 +2621,8 @@ where
                     .await
                 {
                     tracing::error!(
+                        group_id = %self.group_id,
+                        cursor = envelope.sequence_id(),
                         "Error trying to log fork detection errors: {}",
                         accounting_error
                     );
@@ -2492,9 +2637,11 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id()))
     )]
+    // Returns a bare ProcessSummary, so the canonical `#[mls_span]` (which
+    // records `err`) cannot apply; keep the same span shape by hand.
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
+        tracing::instrument(skip_all, fields(operation = "mls.process_messages"))
     )]
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
@@ -2735,24 +2882,33 @@ where
                 original_error = error.to_string(),
                 fork_details
             );
-            let _ = self
+            if let Err(storage_error) = self
                 .context
                 .db()
-                .mark_group_as_maybe_forked(&self.group_id, fork_details);
+                .mark_group_as_maybe_forked(&self.group_id, fork_details)
+            {
+                // Losing this write silently loses the durable fork signal.
+                tracing::error!(
+                    group_id = %self.group_id,
+                    cursor = %message_cursor,
+                    "failed to persist maybe-forked flag: {storage_error:?}"
+                );
+            }
             return epoch_validation_result;
         }
 
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[xmtp_common::mls_span]
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         self.load_mls_group_with_lock_async(async |mut mls_group| {
+            // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
             let intents = db.find_group_intents(
                 self.group_id,
                 Some(vec![IntentState::ToPublish]),
-                None,
+                Some(IntentKind::all().collect()),
             )?;
 
             for intent in intents {
@@ -2856,7 +3012,7 @@ where
                                 );
 
                                 handle_published_intent_send_failure(&db, &intent)?;
-                                return Err(err)?;
+                                Err(err)?;
                             }
                             (kind, Ok(_)) => {
                                 log_event!(
@@ -2955,29 +3111,26 @@ where
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                // Gate the AppDataUpdate path on the capability flag
-                // AND a non-empty component registry. The registry
-                // check keeps unmigrated groups on the legacy path so
-                // a sender doesn't publish commits the receiver would
-                // deny against an empty registry. `load_component_registry`
-                // also consults `TEST_REGISTRY_OVERRIDE`, so tests that
-                // install a fake registry exercise this branch even
-                // before a real bootstrap commit lands.
-                let proposals_on = self.proposals_enabled(openmls_group);
-                let registry_populated =
-                    !super::app_data::load_component_registry(openmls_group)?.is_empty();
+                // Route through AppDataUpdate only on migrated groups,
+                // via the same `is_migrated_group` predicate the
+                // UpdateAdminList / UpdatePermission gates use.
+                // `is_migrated_group` (not `registry.is_empty()`) is the
+                // correct migration signal: `ComponentRegistry::is_empty()`
+                // ignores preserved-but-unrecognized entries, so a migrated
+                // group whose entries were all tolerated as unrecognized
+                // would misreport as empty and mis-route to legacy.
+                let is_migrated = super::app_data::is_migrated_group(openmls_group);
                 tracing::debug!(
                     group_id = %self.group_id,
-                    proposals_enabled = proposals_on,
-                    registry_populated,
-                    path = if proposals_on && registry_populated {
+                    is_migrated,
+                    path = if is_migrated {
                         "app_data_update"
                     } else {
                         "legacy_gce"
                     },
                     "MetadataUpdate intent routing"
                 );
-                if proposals_on && registry_populated {
+                if is_migrated {
                     // Publish a STANDALONE AppDataUpdate proposal followed
                     // by a commit that references it (XIP §1.5.2 / §3.4).
                     // Both wire messages go in one publish batch — the
@@ -3461,11 +3614,10 @@ where
                 // similar extension shape can't accidentally trigger
                 // the bootstrap path.
                 //
-                // NOTE: honest receivers reject the bootstrap commit
-                // until the receiver-side validator that understands
-                // `COMPONENT_REGISTRY` / `GROUP_MEMBERSHIP` writes is
-                // wired. Emitting this intent is only useful when the
-                // validator lands in the same release.
+                // Receive-side validation lives in
+                // `validated_commit.rs` (`is_bootstrap_commit` routes
+                // into `validate_bootstrap_and_build`, which drives
+                // `bootstrap_validator::validate_bootstrap_commit`).
                 let intent_data =
                     ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
 
@@ -3876,7 +4028,12 @@ where
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
         let db = self.context.db();
         let intents =
-            db.find_group_intents(self.group_id, Some(vec![IntentState::Committed]), None)?;
+            // Kind-filtered for downgrade tolerance — see `IntentKind::all`.
+            db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Committed]),
+                Some(IntentKind::all().collect()),
+            )?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {

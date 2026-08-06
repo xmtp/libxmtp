@@ -57,6 +57,14 @@ impl<T: Client> MultiNodeClient<T> {
 /// This allows the MultiNodeClient to be used as a Client for any endpoint.
 #[xmtp_common::async_trait]
 impl<T: Client> Client for MultiNodeClient<T> {
+    // The gateway, always: `host()` is a connection identity and must not
+    // change over the client's lifetime, while the resolved node is a
+    // transient the gateway can re-issue. The gateway URL is the stable
+    // name for "this multi-node backend".
+    fn host(&self) -> &str {
+        self.gateway_client.host()
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,

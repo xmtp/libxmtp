@@ -215,20 +215,26 @@ pub mod subscribe_request {
             /// begin delivering these topics
             #[prost(message, repeated, tag = "1")]
             pub adds: ::prost::alloc::vec::Vec<mutate::Subscription>,
-            /// topics to stop delivering
+            /// stop delivering; clears the topic's cursor floor so a re-add replays
             #[prost(bytes = "vec", repeated, tag = "2")]
             pub removes: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-            /// Catch this Mutate's adds up to the live edge — history, TopicsLive
-            /// markers, and the wave's CatchupComplete — but do NOT register them for
-            /// live delivery. The markers then mean "you have everything as of now".
-            /// Combined with half-closing the request stream, this is the bounded
-            /// catch-up ("sync") mode: the node finishes the wave then closes the
-            /// stream itself. Removals in the Mutate are unaffected.
+            /// Catch this Mutate's adds up — history, TopicsLive markers, and the
+            /// wave's CatchupComplete — but do NOT register them for live delivery.
+            /// The markers then mean "you have everything as of the wave's start";
+            /// later envelopes arrive on no lane of this stream. Combined with
+            /// half-closing the request stream, this is the bounded catch-up ("sync")
+            /// mode: the node finishes the wave then closes the stream itself.
+            /// Removals in the Mutate are unaffected.
             #[prost(bool, tag = "3")]
             pub history_only: bool,
-            /// Client-chosen correlation id, echoed on this wave's CatchupComplete so
-            /// completions are attributable when waves overlap. SHOULD be unique per
-            /// stream; 0 = no correlation requested (still echoed as 0).
+            /// Client-chosen correlation id: echoed on this wave's CatchupComplete,
+            /// and stamped on every delivery frame of the wave's catch-up replay
+            /// (Envelopes.mutate_id). MUST be nonzero when adds are present (0 is the
+            /// live tag), and MUST NOT match the mutate_id of a wave still in flight
+            /// on the stream (an in-flight collision would make two waves' frames and
+            /// completions indistinguishable) — either violation fails the stream
+            /// with INVALID_ARGUMENT. SHOULD be unique per stream so completed waves
+            /// stay attributable too.
             #[prost(uint64, tag = "4")]
             pub mutate_id: u64,
         }
@@ -326,13 +332,21 @@ pub mod subscribe_response {
     /// Nested message and enum types in `V1`.
     pub mod v1 {
         /// A batch of envelopes across the active subscriptions; the client demuxes
-        /// by each envelope's target topic.
+        /// by each envelope's target topic. A frame belongs to exactly one catch-up
+        /// wave or to live — the node never mixes lanes, or two waves, in one frame
+        /// — and each lane delivers every originator's envelopes in ascending
+        /// originator_sequence_id (live: across all live topics on the stream; a
+        /// wave: across the wave's topics).
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Envelopes {
             #[prost(message, repeated, tag = "1")]
             pub envelopes: ::prost::alloc::vec::Vec<
                 super::super::super::envelopes::OriginatorEnvelope,
             >,
+            /// The catch-up wave that produced this frame: the Mutate's mutate_id
+            /// for wave replay, 0 for live tail.
+            #[prost(uint64, tag = "2")]
+            pub mutate_id: u64,
         }
         impl ::prost::Name for Envelopes {
             const NAME: &'static str = "Envelopes";
@@ -368,11 +382,15 @@ pub mod subscribe_response {
                 "/xmtp.xmtpv4.message_api.SubscribeResponse.V1.Started".into()
             }
         }
-        /// Sent once per Mutate that adds subscriptions (a catch-up "wave"), after
-        /// the wave's last TopicsLive: everything the Mutate asked for is delivered.
+        /// Sent once per Mutate: at wave completion (after the wave's last
+        /// TopicsLive) for a Mutate that started a catch-up "wave", immediately for
+        /// one that did not (nothing added — removes-only or empty — or every add
+        /// a no-op). Also the catch-up
+        /// seam: live frames (mutate_id 0) for the wave's topics begin only after
+        /// this frame.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct CatchupComplete {
-            /// echoes the Mutate that started this wave (0 if none given)
+            /// echoes the Mutate; 0 only if a waveless Mutate carried 0
             #[prost(uint64, tag = "1")]
             pub mutate_id: u64,
         }
@@ -387,14 +405,15 @@ pub mod subscribe_response {
             }
         }
         /// Emitted when topics finish catch-up, AFTER the last history frame for
-        /// them — including any live envelopes that queued behind the catch-up,
-        /// which were equally historical from the client's perspective — so every
-        /// later frame for a listed topic is live tail. Informational only: delivery
+        /// them — including envelopes that arrived mid-wave and were folded into it,
+        /// which were equally historical from the client's perspective — so no
+        /// further replay for a listed topic follows; its live (mutate_id 0) frames
+        /// begin after the wave's CatchupComplete. Informational only: delivery
         /// correctness (no duplicates, no gaps) never depends on it. Re-adding a
         /// topic re-runs catch-up and re-emits it; receivers treat it idempotently.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct TopicsLive {
-            /// kind-prefixed topics now tailing live
+            /// kind-prefixed topics done replaying
             #[prost(bytes = "vec", repeated, tag = "1")]
             pub topics: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
         }
@@ -457,10 +476,10 @@ pub mod subscribe_response {
             /// answer to a client Ping
             #[prost(message, tag = "4")]
             Pong(super::super::Pong),
-            /// these topics just crossed from catch-up to live
+            /// no more replay for these topics; live begins after CatchupComplete
             #[prost(message, tag = "5")]
             TopicsLive(TopicsLive),
-            /// a Mutate's adds are fully delivered
+            /// acks a Mutate; wave completion if it started one
             #[prost(message, tag = "6")]
             CatchupComplete(CatchupComplete),
         }
@@ -1364,390 +1383,6 @@ pub mod replication_api_server {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
-/// Generated server implementations.
-#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]
-pub mod notification_api_server {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
-    use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with NotificationApiServer.
-    #[async_trait]
-    pub trait NotificationApi: std::marker::Send + std::marker::Sync + 'static {
-        /// Server streaming response type for the SubscribeAllEnvelopes method.
-        type SubscribeAllEnvelopesStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<
-                    super::SubscribeEnvelopesResponse,
-                    tonic::Status,
-                >,
-            >
-            + std::marker::Send
-            + 'static;
-        async fn subscribe_all_envelopes(
-            &self,
-            request: tonic::Request<super::SubscribeAllEnvelopesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<Self::SubscribeAllEnvelopesStream>,
-            tonic::Status,
-        >;
-    }
-    /// Full envelope stream for notification services.
-    #[derive(Debug)]
-    pub struct NotificationApiServer<T> {
-        inner: Arc<T>,
-        accept_compression_encodings: EnabledCompressionEncodings,
-        send_compression_encodings: EnabledCompressionEncodings,
-        max_decoding_message_size: Option<usize>,
-        max_encoding_message_size: Option<usize>,
-    }
-    impl<T> NotificationApiServer<T> {
-        pub fn new(inner: T) -> Self {
-            Self::from_arc(Arc::new(inner))
-        }
-        pub fn from_arc(inner: Arc<T>) -> Self {
-            Self {
-                inner,
-                accept_compression_encodings: Default::default(),
-                send_compression_encodings: Default::default(),
-                max_decoding_message_size: None,
-                max_encoding_message_size: None,
-            }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
-        {
-            InterceptedService::new(Self::new(inner), interceptor)
-        }
-        /// Enable decompressing requests with the given encoding.
-        #[must_use]
-        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.accept_compression_encodings.enable(encoding);
-            self
-        }
-        /// Compress responses with the given encoding, if the client supports it.
-        #[must_use]
-        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.send_compression_encodings.enable(encoding);
-            self
-        }
-        /// Limits the maximum size of a decoded message.
-        ///
-        /// Default: `4MB`
-        #[must_use]
-        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
-            self.max_decoding_message_size = Some(limit);
-            self
-        }
-        /// Limits the maximum size of an encoded message.
-        ///
-        /// Default: `usize::MAX`
-        #[must_use]
-        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
-            self.max_encoding_message_size = Some(limit);
-            self
-        }
-    }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for NotificationApiServer<T>
-    where
-        T: NotificationApi,
-        B: Body + std::marker::Send + 'static,
-        B::Error: Into<StdError> + std::marker::Send + 'static,
-    {
-        type Response = http::Response<tonic::body::Body>;
-        type Error = std::convert::Infallible;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(
-            &mut self,
-            _cx: &mut Context<'_>,
-        ) -> Poll<std::result::Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            match req.uri().path() {
-                "/xmtp.xmtpv4.message_api.NotificationApi/SubscribeAllEnvelopes" => {
-                    #[allow(non_camel_case_types)]
-                    struct SubscribeAllEnvelopesSvc<T: NotificationApi>(pub Arc<T>);
-                    impl<
-                        T: NotificationApi,
-                    > tonic::server::ServerStreamingService<
-                        super::SubscribeAllEnvelopesRequest,
-                    > for SubscribeAllEnvelopesSvc<T> {
-                        type Response = super::SubscribeEnvelopesResponse;
-                        type ResponseStream = T::SubscribeAllEnvelopesStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::SubscribeAllEnvelopesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as NotificationApi>::subscribe_all_envelopes(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = SubscribeAllEnvelopesSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => {
-                    Box::pin(async move {
-                        let mut response = http::Response::new(
-                            tonic::body::Body::default(),
-                        );
-                        let headers = response.headers_mut();
-                        headers
-                            .insert(
-                                tonic::Status::GRPC_STATUS,
-                                (tonic::Code::Unimplemented as i32).into(),
-                            );
-                        headers
-                            .insert(
-                                http::header::CONTENT_TYPE,
-                                tonic::metadata::GRPC_CONTENT_TYPE,
-                            );
-                        Ok(response)
-                    })
-                }
-            }
-        }
-    }
-    impl<T> Clone for NotificationApiServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self {
-                inner,
-                accept_compression_encodings: self.accept_compression_encodings,
-                send_compression_encodings: self.send_compression_encodings,
-                max_decoding_message_size: self.max_decoding_message_size,
-                max_encoding_message_size: self.max_encoding_message_size,
-            }
-        }
-    }
-    /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "xmtp.xmtpv4.message_api.NotificationApi";
-    impl<T> tonic::server::NamedService for NotificationApiServer<T> {
-        const NAME: &'static str = SERVICE_NAME;
-    }
-}
-/// Generated server implementations.
-#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]
-pub mod publish_api_server {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
-    use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with PublishApiServer.
-    #[async_trait]
-    pub trait PublishApi: std::marker::Send + std::marker::Sync + 'static {
-        async fn publish_payer_envelopes(
-            &self,
-            request: tonic::Request<super::PublishPayerEnvelopesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::PublishPayerEnvelopesResponse>,
-            tonic::Status,
-        >;
-    }
-    /// Gateway -> Node.
-    #[derive(Debug)]
-    pub struct PublishApiServer<T> {
-        inner: Arc<T>,
-        accept_compression_encodings: EnabledCompressionEncodings,
-        send_compression_encodings: EnabledCompressionEncodings,
-        max_decoding_message_size: Option<usize>,
-        max_encoding_message_size: Option<usize>,
-    }
-    impl<T> PublishApiServer<T> {
-        pub fn new(inner: T) -> Self {
-            Self::from_arc(Arc::new(inner))
-        }
-        pub fn from_arc(inner: Arc<T>) -> Self {
-            Self {
-                inner,
-                accept_compression_encodings: Default::default(),
-                send_compression_encodings: Default::default(),
-                max_decoding_message_size: None,
-                max_encoding_message_size: None,
-            }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
-        {
-            InterceptedService::new(Self::new(inner), interceptor)
-        }
-        /// Enable decompressing requests with the given encoding.
-        #[must_use]
-        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.accept_compression_encodings.enable(encoding);
-            self
-        }
-        /// Compress responses with the given encoding, if the client supports it.
-        #[must_use]
-        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.send_compression_encodings.enable(encoding);
-            self
-        }
-        /// Limits the maximum size of a decoded message.
-        ///
-        /// Default: `4MB`
-        #[must_use]
-        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
-            self.max_decoding_message_size = Some(limit);
-            self
-        }
-        /// Limits the maximum size of an encoded message.
-        ///
-        /// Default: `usize::MAX`
-        #[must_use]
-        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
-            self.max_encoding_message_size = Some(limit);
-            self
-        }
-    }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for PublishApiServer<T>
-    where
-        T: PublishApi,
-        B: Body + std::marker::Send + 'static,
-        B::Error: Into<StdError> + std::marker::Send + 'static,
-    {
-        type Response = http::Response<tonic::body::Body>;
-        type Error = std::convert::Infallible;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(
-            &mut self,
-            _cx: &mut Context<'_>,
-        ) -> Poll<std::result::Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            match req.uri().path() {
-                "/xmtp.xmtpv4.message_api.PublishApi/PublishPayerEnvelopes" => {
-                    #[allow(non_camel_case_types)]
-                    struct PublishPayerEnvelopesSvc<T: PublishApi>(pub Arc<T>);
-                    impl<
-                        T: PublishApi,
-                    > tonic::server::UnaryService<super::PublishPayerEnvelopesRequest>
-                    for PublishPayerEnvelopesSvc<T> {
-                        type Response = super::PublishPayerEnvelopesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::PublishPayerEnvelopesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as PublishApi>::publish_payer_envelopes(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = PublishPayerEnvelopesSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => {
-                    Box::pin(async move {
-                        let mut response = http::Response::new(
-                            tonic::body::Body::default(),
-                        );
-                        let headers = response.headers_mut();
-                        headers
-                            .insert(
-                                tonic::Status::GRPC_STATUS,
-                                (tonic::Code::Unimplemented as i32).into(),
-                            );
-                        headers
-                            .insert(
-                                http::header::CONTENT_TYPE,
-                                tonic::metadata::GRPC_CONTENT_TYPE,
-                            );
-                        Ok(response)
-                    })
-                }
-            }
-        }
-    }
-    impl<T> Clone for PublishApiServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self {
-                inner,
-                accept_compression_encodings: self.accept_compression_encodings,
-                send_compression_encodings: self.send_compression_encodings,
-                max_decoding_message_size: self.max_decoding_message_size,
-                max_encoding_message_size: self.max_encoding_message_size,
-            }
-        }
-    }
-    /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "xmtp.xmtpv4.message_api.PublishApi";
-    impl<T> tonic::server::NamedService for PublishApiServer<T> {
-        const NAME: &'static str = SERVICE_NAME;
-    }
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LivenessFailure {
     #[prost(uint32, tag = "1")]
@@ -2198,6 +1833,390 @@ pub mod misbehavior_api_server {
     /// Generated gRPC service name
     pub const SERVICE_NAME: &str = "xmtp.xmtpv4.message_api.MisbehaviorApi";
     impl<T> tonic::server::NamedService for MisbehaviorApiServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+/// Generated server implementations.
+#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]
+pub mod notification_api_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with NotificationApiServer.
+    #[async_trait]
+    pub trait NotificationApi: std::marker::Send + std::marker::Sync + 'static {
+        /// Server streaming response type for the SubscribeAllEnvelopes method.
+        type SubscribeAllEnvelopesStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<
+                    super::SubscribeEnvelopesResponse,
+                    tonic::Status,
+                >,
+            >
+            + std::marker::Send
+            + 'static;
+        async fn subscribe_all_envelopes(
+            &self,
+            request: tonic::Request<super::SubscribeAllEnvelopesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<Self::SubscribeAllEnvelopesStream>,
+            tonic::Status,
+        >;
+    }
+    /// Full envelope stream for notification services.
+    #[derive(Debug)]
+    pub struct NotificationApiServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> NotificationApiServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for NotificationApiServer<T>
+    where
+        T: NotificationApi,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::Body>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/xmtp.xmtpv4.message_api.NotificationApi/SubscribeAllEnvelopes" => {
+                    #[allow(non_camel_case_types)]
+                    struct SubscribeAllEnvelopesSvc<T: NotificationApi>(pub Arc<T>);
+                    impl<
+                        T: NotificationApi,
+                    > tonic::server::ServerStreamingService<
+                        super::SubscribeAllEnvelopesRequest,
+                    > for SubscribeAllEnvelopesSvc<T> {
+                        type Response = super::SubscribeEnvelopesResponse;
+                        type ResponseStream = T::SubscribeAllEnvelopesStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SubscribeAllEnvelopesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as NotificationApi>::subscribe_all_envelopes(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SubscribeAllEnvelopesSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for NotificationApiServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "xmtp.xmtpv4.message_api.NotificationApi";
+    impl<T> tonic::server::NamedService for NotificationApiServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+/// Generated server implementations.
+#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]
+pub mod publish_api_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with PublishApiServer.
+    #[async_trait]
+    pub trait PublishApi: std::marker::Send + std::marker::Sync + 'static {
+        async fn publish_payer_envelopes(
+            &self,
+            request: tonic::Request<super::PublishPayerEnvelopesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PublishPayerEnvelopesResponse>,
+            tonic::Status,
+        >;
+    }
+    /// Gateway -> Node.
+    #[derive(Debug)]
+    pub struct PublishApiServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> PublishApiServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for PublishApiServer<T>
+    where
+        T: PublishApi,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::Body>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/xmtp.xmtpv4.message_api.PublishApi/PublishPayerEnvelopes" => {
+                    #[allow(non_camel_case_types)]
+                    struct PublishPayerEnvelopesSvc<T: PublishApi>(pub Arc<T>);
+                    impl<
+                        T: PublishApi,
+                    > tonic::server::UnaryService<super::PublishPayerEnvelopesRequest>
+                    for PublishPayerEnvelopesSvc<T> {
+                        type Response = super::PublishPayerEnvelopesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PublishPayerEnvelopesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PublishApi>::publish_payer_envelopes(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PublishPayerEnvelopesSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for PublishApiServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "xmtp.xmtpv4.message_api.PublishApi";
+    impl<T> tonic::server::NamedService for PublishApiServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }

@@ -81,7 +81,11 @@ impl ArchiveExporter {
         };
 
         tracing::info!("Uploading sync payload to history server...");
-        let response = reqwest::Client::new().post(url).body(body).send().await?;
+        let response = xmtp_common::http::client()?
+            .post(url)
+            .body(body)
+            .send()
+            .await?;
         tracing::info!("Done uploading sync payload to history server.");
 
         if let Err(err) = response.error_for_status_ref() {

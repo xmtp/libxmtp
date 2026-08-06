@@ -311,6 +311,12 @@ impl LibXMTPVersion {
     }
 }
 
+impl std::fmt::Display for LibXMTPVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 /**
  * A [`ValidatedCommit`] is a summary of changes coming from a MLS commit, after all of our validation rules have been applied
  *
@@ -371,6 +377,27 @@ impl ValidatedCommit {
         // and route into `validate_bootstrap_and_build`, which uses
         // these pre-flip values as the canonical source.
         let is_migrated = super::app_data::is_migrated_extensions(extensions);
+        // PAUSE BEFORE PARSE: when the group's committed floor already
+        // exceeds this client's version, every migrated-state read
+        // below (dict-seeded metadata, registry loads, per-proposal
+        // dispatch) may encounter wire formats introduced after this
+        // version — and any error they raise is a non-retryable
+        // rejection, i.e. a fork against above-floor peers. Surface
+        // the version gap first so the group pauses and the commit is
+        // reprocessed after upgrade. Deliberately reads only the
+        // pre-commit dict (committed, already-validated state) — the
+        // commit that *raises* the floor is instead paused by the
+        // post-policy check at the end of this function, after its
+        // super-admin permission has been verified. See
+        // `committed_floor_exceeding` for the full rationale.
+        if is_migrated
+            && let Some(min_version) = super::app_data::committed_floor_exceeding(
+                openmls_group,
+                context.version_info().pkg_semver(),
+            )
+        {
+            return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
+        }
         let immutable_metadata: GroupMetadata = if is_migrated {
             // ComponentSourceError → GroupMutableMetadataError →
             // CommitValidationError::GroupMutableMetadata is the
@@ -427,6 +454,7 @@ impl ValidatedCommit {
                 openmls_group,
                 immutable_metadata,
                 mutable_metadata,
+                context.version_info().pkg_version(),
             );
         }
 
@@ -720,7 +748,7 @@ impl ValidatedCommit {
             .metadata_validation_info
             .minimum_supported_protocol_version
         {
-            let current_version = LibXMTPVersion::parse(context.version_info().pkg_version())?;
+            let current_version = context.version_info().pkg_semver();
             let min_supported_version = LibXMTPVersion::parse(min_version)?;
             tracing::info!(
                 "Validating commit with min_supported_version: {:?}, current_version: {:?}",
@@ -728,7 +756,7 @@ impl ValidatedCommit {
                 current_version
             );
 
-            if min_supported_version > current_version {
+            if min_supported_version > *current_version {
                 return Err(CommitValidationError::ProtocolVersionTooLow(
                     min_version.clone(),
                 ));
@@ -792,6 +820,7 @@ impl ValidatedCommit {
         openmls_group: &OpenMlsGroup,
         immutable_metadata: GroupMetadata,
         mutable_metadata: GroupMutableMetadata,
+        own_version: &str,
     ) -> Result<Self, CommitValidationError> {
         reject_psk_proposals(staged_commit)?;
 
@@ -811,11 +840,25 @@ impl ValidatedCommit {
         )?
         .ok_or(CommitValidationError::ProposerNotFound)?;
 
+        // A bootstrap seeding a floor above this client pauses the
+        // group (same variant the steady-state floor checks emit, so
+        // the pause machinery in `mls_sync` applies) rather than
+        // surfacing as an opaque byte-compare `Mismatch` — which
+        // above-floor members wouldn't share, i.e. a fork.
         super::app_data::bootstrap_validator::validate_bootstrap_commit(
             staged_commit,
             openmls_group,
             &gce_proposer,
-        )?;
+            own_version,
+        )
+        .map_err(|e| {
+            match e {
+            super::app_data::bootstrap_validator::BootstrapValidationError::ProtocolVersionTooLow(
+                min_version,
+            ) => CommitValidationError::ProtocolVersionTooLow(min_version),
+            other => other.into(),
+        }
+        })?;
 
         Ok(Self {
             actor,
@@ -2184,9 +2227,6 @@ pub fn validate_proposal(
             )?;
         }
         Proposal::AppEphemeral(_) => {
-            return Err(unsupported_error());
-        }
-        Proposal::_AppAck => {
             return Err(unsupported_error());
         }
         Proposal::SelfRemove => {

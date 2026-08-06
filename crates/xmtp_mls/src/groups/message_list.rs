@@ -10,6 +10,7 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
+    #[xmtp_common::mls_span]
     pub fn find_messages_v2(
         &self,
         query: &MsgQueryArgs,
@@ -18,6 +19,7 @@ where
         self.find_messages_v2_with_conn(query, conn)
     }
 
+    #[xmtp_common::mls_span]
     pub fn find_messages_v2_with_conn<C>(
         &self,
         query: &MsgQueryArgs,

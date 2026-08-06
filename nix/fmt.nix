@@ -75,7 +75,8 @@
           ];
           # nicklockwood/swiftformat — not bundled in treefmt-nix's program
           # list (only apple/swift-format is, and that one is broken).
-          # Settings live in .swiftformat at repo root.
+          # Settings live in .swiftformat at repo root. pkgs.swiftformat is
+          # the xmtp overlay's prebuilt binary (nix/lib/packages/swiftformat.nix).
           swiftformat = {
             command = "${pkgs.swiftformat}/bin/swiftformat";
             includes = [ "*.swift" ];

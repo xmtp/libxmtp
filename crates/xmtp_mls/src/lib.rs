@@ -19,6 +19,8 @@ pub mod utils;
 pub mod worker;
 pub use definitions::*;
 
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "d14n"))]
+mod migration_tests;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 #[cfg(test)]
@@ -100,7 +102,7 @@ pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn test_setup() {
     xmtp_common::logger();

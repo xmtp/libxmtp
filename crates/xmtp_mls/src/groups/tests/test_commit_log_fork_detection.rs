@@ -921,6 +921,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
             &mut group_copy,
             &provider,
             commit_envelope.message.clone(),
+            bo.context.version_info().pkg_semver(),
         ));
         Ok::<TransactionOutcome<()>, StorageError>(Rollback)
     });

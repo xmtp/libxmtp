@@ -1356,6 +1356,21 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     func processStreamedConversationMessage(envelopeBytes: Data) async throws  -> [FfiMessage]
     
     /**
+     * Whether this group has migrated to AppData-proposal-based
+     * metadata updates (the `AppDataDictionary` group-context
+     * extension is present). `false` means the group is still on
+     * the legacy GroupContextExtensions path.
+     *
+     * Prefer this semantic bool over scanning
+     * [`FfiGroupMembershipCapabilities::context_extensions`] for
+     * `AppDataDictionary` — the capabilities snapshot answers
+     * "which members block migration", not "is this group migrated",
+     * and the marker extension is an internal protocol detail.
+     * Mirrors `proposalsEnabled` on the wasm and node bindings.
+     */
+    func proposalsEnabled() throws  -> Bool
+    
+    /**
      * Publish all unpublished messages
      */
     func publishMessages() async throws 
@@ -1390,7 +1405,7 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func sync() async throws 
     
-    func updateAppData(appData: String) async throws 
+    func updateAppData(options: FfiUpdateAppDataOptions) async throws 
     
     func updateConsentState(state: FfiConsentState) throws 
     
@@ -1933,6 +1948,27 @@ open func processStreamedConversationMessage(envelopeBytes: Data)async throws  -
 }
     
     /**
+     * Whether this group has migrated to AppData-proposal-based
+     * metadata updates (the `AppDataDictionary` group-context
+     * extension is present). `false` means the group is still on
+     * the legacy GroupContextExtensions path.
+     *
+     * Prefer this semantic bool over scanning
+     * [`FfiGroupMembershipCapabilities::context_extensions`] for
+     * `AppDataDictionary` — the capabilities snapshot answers
+     * "which members block migration", not "is this group migrated",
+     * and the marker extension is an internal protocol detail.
+     * Mirrors `proposalsEnabled` on the wasm and node bindings.
+     */
+open func proposalsEnabled()throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_method_fficonversation_proposals_enabled(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Publish all unpublished messages
      */
 open func publishMessages()async throws   {
@@ -2147,13 +2183,13 @@ open func sync()async throws   {
         )
 }
     
-open func updateAppData(appData: String)async throws   {
+open func updateAppData(options: FfiUpdateAppDataOptions)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_app_data(
                     self.uniffiCloneHandle(),
-                    FfiConverterString.lower(appData)
+                    FfiConverterTypeFfiUpdateAppDataOptions_lower(options)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_void,
@@ -5229,6 +5265,21 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     func canMessage(accountIdentifiers: [FfiIdentifier]) async throws  -> [FfiIdentifier: Bool]
     
     /**
+     * Bring the local store current with the server, then stop — for background
+     * fetch and cold start, where a live stream would be wasted because the
+     * process is about to be suspended. Pending welcomes are joined and every
+     * conversation's missed messages are replayed from durable cursors and
+     * persisted, then the wire closes.
+     *
+     * `opts.timeout_ms` bounds the whole call (`None` = unbounded). On the
+     * deadline the returned summary has `completed = false` and its counts are
+     * the partial total already persisted before the cut (the bidi path; the
+     * legacy fallback reports zero). A later call resumes from durable state, so
+     * cutting it short is always safe.
+     */
+    func catchUpToLive(opts: FfiCatchUpOptions?) async throws  -> FfiCatchUpSummary
+    
+    /**
      * * Change the recovery identifier for your inboxId
      */
     func changeRecoveryIdentifier(newRecoveryIdentifier: FfiIdentifier) async throws  -> FfiSignatureRequest
@@ -5535,6 +5586,36 @@ open func canMessage(accountIdentifiers: [FfiIdentifier])async throws  -> [FfiId
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterDictionaryTypeFfiIdentifierBool.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Bring the local store current with the server, then stop — for background
+     * fetch and cold start, where a live stream would be wasted because the
+     * process is about to be suspended. Pending welcomes are joined and every
+     * conversation's missed messages are replayed from durable cursors and
+     * persisted, then the wire closes.
+     *
+     * `opts.timeout_ms` bounds the whole call (`None` = unbounded). On the
+     * deadline the returned summary has `completed = false` and its counts are
+     * the partial total already persisted before the cut (the bidi path; the
+     * legacy fallback reports zero). A later call resumes from durable state, so
+     * cutting it short is always safe.
+     */
+open func catchUpToLive(opts: FfiCatchUpOptions?)async throws  -> FfiCatchUpSummary  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_catch_up_to_live(
+                    self.uniffiCloneHandle(),
+                    FfiConverterOptionTypeFfiCatchUpOptions.lower(opts)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiCatchUpSummary_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
@@ -6839,6 +6920,168 @@ public func FfiConverterTypeFfiBackupMetadata_lower(_ value: FfiBackupMetadata) 
 }
 
 
+/**
+ * Options for [`FfiXmtpClient::catch_up_to_live`]. Taken as a struct (rather
+ * than a bare argument) so future knobs can be added as defaulted fields
+ * without breaking the exported signature — same pattern as
+ * [`FfiUpdateAppDataOptions`].
+ *
+ * WARNING: uniffi Records get NO default field values unless the field
+ * carries `#[uniffi(default = ...)]`. Any field added later MUST carry a
+ * uniffi default, or the generated Swift/Kotlin constructors change and the
+ * addition breaks compiled apps.
+ */
+public struct FfiCatchUpOptions: Equatable, Hashable {
+    /**
+     * Wall-clock bound on the whole catch-up. `None` runs to completion
+     * (unbounded); on the deadline the returned summary is the partial persisted
+     * so far with `completed == false`, and a later call resumes from durable
+     * state.
+     */
+    public var timeoutMs: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Wall-clock bound on the whole catch-up. `None` runs to completion
+         * (unbounded); on the deadline the returned summary is the partial persisted
+         * so far with `completed == false`, and a later call resumes from durable
+         * state.
+         */timeoutMs: UInt64? = nil) {
+        self.timeoutMs = timeoutMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCatchUpOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCatchUpOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCatchUpOptions {
+        return
+            try FfiCatchUpOptions(
+                timeoutMs: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCatchUpOptions, into buf: inout [UInt8]) {
+        FfiConverterOptionUInt64.write(value.timeoutMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCatchUpOptions_lift(_ buf: RustBuffer) throws -> FfiCatchUpOptions {
+    return try FfiConverterTypeFfiCatchUpOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCatchUpOptions_lower(_ value: FfiCatchUpOptions) -> RustBuffer {
+    return FfiConverterTypeFfiCatchUpOptions.lower(value)
+}
+
+
+/**
+ * Outcome of [`FfiXmtpClient::catch_up_to_live`].
+ */
+public struct FfiCatchUpSummary: Equatable, Hashable {
+    /**
+     * Application messages newly persisted by this call. On a deadline
+     * (`completed == false`) this is the partial total persisted before the cut
+     * on the bidi path, or `0` on the legacy fallback — the messages themselves
+     * are stored either way.
+     */
+    public var messages: UInt64
+    /**
+     * Conversations newly joined by this call. Same caveat as `messages`.
+     */
+    public var conversations: UInt64
+    /**
+     * Whether catch-up finished before the deadline. `false` means `timeout_ms`
+     * elapsed first; messages processed before then are persisted, and a later
+     * call resumes from durable state.
+     */
+    public var completed: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Application messages newly persisted by this call. On a deadline
+         * (`completed == false`) this is the partial total persisted before the cut
+         * on the bidi path, or `0` on the legacy fallback — the messages themselves
+         * are stored either way.
+         */messages: UInt64, 
+        /**
+         * Conversations newly joined by this call. Same caveat as `messages`.
+         */conversations: UInt64, 
+        /**
+         * Whether catch-up finished before the deadline. `false` means `timeout_ms`
+         * elapsed first; messages processed before then are persisted, and a later
+         * call resumes from durable state.
+         */completed: Bool) {
+        self.messages = messages
+        self.conversations = conversations
+        self.completed = completed
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCatchUpSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCatchUpSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCatchUpSummary {
+        return
+            try FfiCatchUpSummary(
+                messages: FfiConverterUInt64.read(from: &buf), 
+                conversations: FfiConverterUInt64.read(from: &buf), 
+                completed: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCatchUpSummary, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.messages, into: &buf)
+        FfiConverterUInt64.write(value.conversations, into: &buf)
+        FfiConverterBool.write(value.completed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCatchUpSummary_lift(_ buf: RustBuffer) throws -> FfiCatchUpSummary {
+    return try FfiConverterTypeFfiCatchUpSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCatchUpSummary_lower(_ value: FfiCatchUpSummary) -> RustBuffer {
+    return FfiConverterTypeFfiCatchUpSummary.lower(value)
+}
+
+
 public struct FfiConsent: Equatable, Hashable {
     public var entityType: FfiConsentEntityType
     public var state: FfiConsentState
@@ -7791,9 +8034,13 @@ public func FfiConverterTypeFfiForkRecoveryOpts_lower(_ value: FfiForkRecoveryOp
 /**
  * A generic membership/capability snapshot for a group. Mirrors
  * [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
- * the proposal migration is complete when `context_extensions` contains
- * `AppDataDictionary`, and an inbox blocks migration when one of its
- * installations' `supported_extensions` does not.
+ * an inbox blocks the proposal migration when one of its
+ * installations' `supported_extensions` lacks `AppDataDictionary`.
+ *
+ * To ask "is this group migrated?", use
+ * [`FfiConversation::proposals_enabled`] instead of scanning
+ * `context_extensions` — the marker extension is an internal
+ * protocol detail and the semantic bool is the stable contract.
  */
 public struct FfiGroupMembershipCapabilities: Equatable, Hashable {
     public var contextExtensions: [FfiMlsExtensionType]
@@ -9896,6 +10143,74 @@ public func FfiConverterTypeFfiTransactionReference_lift(_ buf: RustBuffer) thro
 #endif
 public func FfiConverterTypeFfiTransactionReference_lower(_ value: FfiTransactionReference) -> RustBuffer {
     return FfiConverterTypeFfiTransactionReference.lower(value)
+}
+
+
+/**
+ * Options for [`FfiConversation::update_app_data`]. A record (rather
+ * than a bare `String` parameter) so future knobs can be added
+ * without breaking compiled apps — same pattern as
+ * [`FfiEnableProposalsOptions`].
+ *
+ * WARNING: uniffi Records get NO default field values unless the field
+ * carries `#[uniffi(default = ...)]`. Any field added later MUST carry
+ * a uniffi default (and a serde/napi default on the wasm/node
+ * `UpdateAppDataOptions`), or the generated Swift/Kotlin constructors
+ * change and the addition breaks compiled apps.
+ */
+public struct FfiUpdateAppDataOptions: Equatable, Hashable {
+    /**
+     * The new value for the group's opaque `APP_DATA` string slot.
+     */
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The new value for the group's opaque `APP_DATA` string slot.
+         */value: String) {
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiUpdateAppDataOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiUpdateAppDataOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiUpdateAppDataOptions {
+        return
+            try FfiUpdateAppDataOptions(
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiUpdateAppDataOptions, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiUpdateAppDataOptions_lift(_ buf: RustBuffer) throws -> FfiUpdateAppDataOptions {
+    return try FfiConverterTypeFfiUpdateAppDataOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiUpdateAppDataOptions_lower(_ value: FfiUpdateAppDataOptions) -> RustBuffer {
+    return FfiConverterTypeFfiUpdateAppDataOptions.lower(value)
 }
 
 
@@ -12605,6 +12920,8 @@ public enum FfiMetadataField: Equatable, Hashable {
     case description
     case imageUrlSquare
     case appData
+    case messageExpirationFromNs
+    case messageExpirationInNs
 
 
 
@@ -12634,6 +12951,10 @@ public struct FfiConverterTypeFfiMetadataField: FfiConverterRustBuffer {
         
         case 4: return .appData
         
+        case 5: return .messageExpirationFromNs
+        
+        case 6: return .messageExpirationInNs
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -12656,6 +12977,14 @@ public struct FfiConverterTypeFfiMetadataField: FfiConverterRustBuffer {
         
         case .appData:
             writeInt(&buf, Int32(4))
+        
+        
+        case .messageExpirationFromNs:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .messageExpirationInNs:
+            writeInt(&buf, Int32(6))
         
         }
     }
@@ -14197,6 +14526,30 @@ fileprivate struct FfiConverterOptionTypeFfiActions: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFfiActions.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiCatchUpOptions: FfiConverterRustBuffer {
+    typealias SwiftType = FfiCatchUpOptions?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiCatchUpOptions.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiCatchUpOptions.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -16398,6 +16751,33 @@ public func isConnected(api: XmtpApiClient)async  -> Bool  {
         )
 }
 /**
+ * Bring the streaming wire back after [`suspend_streams`] — the "app entered
+ * foreground" half. **Fire-and-forget**: it enqueues the resume and returns
+ * immediately; the reconnect (and its catch-up wave) proceeds in the
+ * background, unbounded while the network is down. Do **not** treat its return
+ * as "synced" — replayed messages are still arriving via the stream callbacks
+ * behind it. Let those callbacks update the UI as messages land, and use
+ * [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable "I am
+ * current now". A no-op when nothing is streaming.
+ *
+ * Process-scoped: one streaming wire is shared across every client in the
+ * process, so this is a free function, not a client method.
+ */
+public func resumeStreams()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_func_resume_streams(
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+/**
  * * Static revoke a list of installations
  */
 public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data])throws  -> FfiSignatureRequest  {
@@ -16409,6 +16789,30 @@ public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdent
         FfiConverterSequenceData.lower(installationIds),$0
     )
 })
+}
+/**
+ * Take the streaming wire off the network — the "app entered background" half
+ * of the lifecycle pair. Kept subscriptions and their wire positions survive;
+ * nothing reconnects until [`resume_streams`]. A no-op when nothing is
+ * streaming (the bidi path is off, or no stream was ever opened), so it is
+ * always safe to call.
+ *
+ * Process-scoped: one streaming wire is shared across every client in the
+ * process, so this is a free function, not a client method.
+ */
+public func suspendStreams()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_func_suspend_streams(
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
 }
 
 private enum InitializationResult {
@@ -16564,7 +16968,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_is_connected() != 54619) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_resume_streams() != 4172) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_revoke_installations() != 46055) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_suspend_streams() != 58173) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffiinboxowner_get_identifier() != 59650) {
@@ -16747,6 +17157,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 45021) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_proposals_enabled() != 59452) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 1758) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16786,7 +17199,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_sync() != 52433) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 2749) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 309) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 39794) {
@@ -16973,6 +17386,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 35116) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_catch_up_to_live() != 58086) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 49256) {

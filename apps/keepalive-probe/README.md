@@ -20,8 +20,8 @@ The defaults mirror libxmtp's real channel config in
 
 | flag | default | libxmtp source |
 |------|---------|----------------|
-| `--ka-interval` | `16s` | `http2_keep_alive_interval` |
-| `--ka-timeout` | `10s` | `keep_alive_timeout` ← the #70 knob |
+| `--ka-interval` | `45s` | `http2_keep_alive_interval` |
+| `--ka-timeout` | `20s` | `keep_alive_timeout` ← the #70 knob |
 | `--ka-while-idle` | `true` | `keep_alive_while_idle` |
 | `--connect-timeout` | `10s` | `connect_timeout` |
 | `--endpoint` | `https://grpc.dev.xmtp.network:443` | node-sdk `ApiUrls.dev` |

@@ -48,6 +48,8 @@ Final releases go through three phases: **create branch → publish RC → publi
    | `version` | Release version number, e.g. `1.8.0` |
    | `ios-bump` | Version bump for iOS SDK: `none`, `patch`, `minor`, or `major` |
    | `android-bump` | Version bump for Android SDK: `none`, `patch`, `minor`, or `major` |
+   | `node-sdk-bump` | Version bump for Node SDK: `none`, `patch`, `minor`, or `major` |
+   | `browser-sdk-bump` | Version bump for Browser SDK: `none`, `patch`, `minor`, or `major` |
    | `node` | Include Node bindings in release |
    | `wasm` | Include WASM bindings in release |
 

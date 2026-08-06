@@ -138,6 +138,50 @@ impl From<EnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
   }
 }
 
+/// The pre-release surface of a [`Conversation`], reached through
+/// `conversation.unstable`.
+///
+/// Everything here is unstable: the API shape may still change and, in
+/// some cases (see [`UnstableConversation::enable_proposals`]), the
+/// effect is one-way and irreversible. Reaching into `.unstable` is the
+/// deliberate opt-in. When an API graduates it moves onto
+/// [`Conversation`] directly and is removed here, so callers of the
+/// `unstable` form get a compile-time break to migrate against.
+#[wasm_bindgen]
+pub struct UnstableConversation {
+  inner: Conversation,
+}
+
+#[wasm_bindgen]
+impl UnstableConversation {
+  /// Enable AppData-proposal-based metadata updates on this group.
+  ///
+  /// Stages the bootstrap commit that migrates the group's metadata
+  /// from the legacy GroupContextExtensions shape into the OpenMLS
+  /// AppData dictionary. Hard-fails if any member's latest key package
+  /// doesn't advertise `ProposalType::AppDataUpdate`. One-way:
+  /// migrated groups cannot return to the legacy path.
+  #[wasm_bindgen(js_name = enableProposals)]
+  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<(), JsError> {
+    let group = self.inner.to_mls_group();
+    group
+      .enable_proposals(options.into())
+      .await
+      .map_err(ErrorWrapper::js)
+  }
+}
+
+/// Options for [`Conversation::updateAppData`]. An object (rather than
+/// a bare string parameter) so future knobs can be added without
+/// breaking callers — same pattern as [`EnableProposalsOptions`].
+/// New fields must be `Option` + `#[serde(default)]` to stay non-breaking.
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppDataOptions {
+  /// The new value for the group's opaque `APP_DATA` string slot.
+  pub value: String,
+}
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -675,20 +719,13 @@ impl Conversation {
     Ok(())
   }
 
-  /// Enable AppData-proposal-based metadata updates on this group.
-  ///
-  /// Stages the bootstrap commit that migrates the group's metadata
-  /// from the legacy GroupContextExtensions shape into the OpenMLS
-  /// AppData dictionary. Hard-fails if any member's latest key
-  /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
-  /// way: migrated groups cannot return to the legacy path.
-  #[wasm_bindgen(js_name = enableProposals)]
-  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<(), JsError> {
-    let group = self.to_mls_group();
-    group
-      .enable_proposals(options.into())
-      .await
-      .map_err(ErrorWrapper::js)
+  /// Pre-release APIs, gated behind an explicit `.unstable` opt-in.
+  /// See [`UnstableConversation`].
+  #[wasm_bindgen(getter)]
+  pub fn unstable(&self) -> UnstableConversation {
+    UnstableConversation {
+      inner: self.clone(),
+    }
   }
 
   /// Whether this group has migrated to AppData-proposal-based
@@ -711,14 +748,11 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateAppData)]
-  pub async fn update_app_data(
-    &self,
-    #[wasm_bindgen(js_name = appData)] app_data: String,
-  ) -> Result<(), JsError> {
+  pub async fn update_app_data(&self, options: UpdateAppDataOptions) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .update_app_data(app_data)
+      .update_app_data(options.value)
       .await
       .map_err(ErrorWrapper::js)?;
 

@@ -51,6 +51,8 @@ hex.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 tokio.workspace = true
+# Span-close capture for the bidi.wire_session lifetime test.
+tracing-subscriber = { workspace = true, features = ["registry", "std"] }
 # add self to auto enable test utils
 xmtp_api_d14n = { path = ".", features = ["test-utils"] }
 

@@ -137,7 +137,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_grpc_endpoint_delegates_to_wrapped_endpoint() {
         let retry_endpoint = retry(TestEndpoint);
-        assert_eq!(retry_endpoint.grpc_endpoint(), "");
+        assert_eq!(retry_endpoint.grpc_endpoint(), "/test.mock/TestEndpoint");
     }
 
     #[xmtp_common::test]

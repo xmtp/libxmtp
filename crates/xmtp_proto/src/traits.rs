@@ -129,6 +129,13 @@ impl Stream for BytesStream {
 /// an http response is easily derived from a grpc, jsonrpc or rest api.
 #[xmtp_common::async_trait]
 pub trait Client: MaybeSend + MaybeSync {
+    /// The URL this transport dials — its connection identity. Two clients
+    /// share process-level connection state (the XIP-83 shared bidi wire)
+    /// exactly when their hosts match, so this must name where the bytes
+    /// actually go: a client behind a proxy reports the proxy's URL, keeping
+    /// it a separate failure domain from a direct client to the same backend.
+    fn host(&self) -> &str;
+
     async fn request(
         &self,
         request: request::Builder,
@@ -178,6 +185,10 @@ impl<T: MaybeSend + MaybeSync + ?Sized> Client for &T
 where
     T: Client,
 {
+    fn host(&self) -> &str {
+        (**self).host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -211,6 +222,10 @@ impl<T: MaybeSend + MaybeSync + ?Sized> Client for Box<T>
 where
     T: Client,
 {
+    fn host(&self) -> &str {
+        (**self).host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -244,6 +259,10 @@ impl<T: MaybeSend + MaybeSync + ?Sized> Client for Arc<T>
 where
     T: Client,
 {
+    fn host(&self) -> &str {
+        (**self).host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,

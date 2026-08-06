@@ -783,7 +783,7 @@ impl PermissionPolicyOption {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Task {
-    #[prost(oneof = "task::Task", tags = "1, 2, 3, 4, 5, 6")]
+    #[prost(oneof = "task::Task", tags = "1, 2, 3, 4, 5, 6, 7")]
     pub task: ::core::option::Option<task::Task>,
 }
 /// Nested message and enum types in `Task`.
@@ -802,6 +802,8 @@ pub mod task {
         KpRotation(super::KpRotation),
         #[prost(message, tag = "6")]
         KpDeletion(super::KpDeletion),
+        #[prost(message, tag = "7")]
+        AddMissingInstallations(super::AddMissingInstallations),
     }
 }
 impl ::prost::Name for Task {
@@ -902,5 +904,26 @@ impl ::prost::Name for ProcessPendingSelfRemove {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.database.ProcessPendingSelfRemove".into()
+    }
+}
+/// Durable TaskRunner intent: reconcile a group's membership with the inbox's
+/// latest identity state (add installations registered after the group was
+/// last updated). Enqueued by the device-sync worker when a sync-group welcome
+/// signals a new installation; runs on the TaskRunner with retry/backoff so a
+/// transient failure (e.g. identity propagation lag) cannot permanently skip
+/// the add. group_id is the target conversation.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddMissingInstallations {
+    #[prost(bytes = "vec", tag = "1")]
+    pub group_id: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for AddMissingInstallations {
+    const NAME: &'static str = "AddMissingInstallations";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.AddMissingInstallations".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.AddMissingInstallations".into()
     }
 }

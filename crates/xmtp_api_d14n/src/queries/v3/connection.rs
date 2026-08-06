@@ -77,9 +77,19 @@ impl BidiBinding for V3Binding {
             Some(Response::Messages(messages)) => Inbound::Messages {
                 group: messages.group_messages,
                 welcome: messages.welcome_messages,
+                mutate_id: messages.mutate_id,
             },
-            // A future-revision arm: informational frames are safe to skip.
-            None => Inbound::Skip,
+            // An unset response case: a frame kind a newer server added
+            // (prost decodes an unknown oneof tag as `None`), or an empty
+            // frame. Skipping keeps the wire alive, but warn so a mandatory
+            // frame a future server sends WITHOUT gating it behind a
+            // `Started.capabilities` bit surfaces in metrics instead of being
+            // dropped invisibly — the XIP-83 forward-compat contract is that
+            // any new response frame a client must act on is capability-gated.
+            None => {
+                tracing::warn!("bidi subscription dropping an unknown or unset response frame");
+                Inbound::Skip
+            }
         }
     }
 }
@@ -204,6 +214,10 @@ mod tests {
         type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
         type Error = ApiClientError;
 
+        fn host(&self) -> &str {
+            "mock://bidi"
+        }
+
         async fn subscribe_bidi(
             &self,
             requests: BoxStream<'static, SubscribeRequest>,
@@ -321,6 +335,8 @@ mod tests {
                     id_cursor: 0,
                 },
             ],
+            // Adds must carry a nonzero wave id (0 is the live delivery tag).
+            mutate_id: 11,
             ..Default::default()
         }
     }
@@ -434,6 +450,9 @@ mod tests {
         );
     }
 
+    /// Wire order is preserved across the catch-up seam, and each delivery
+    /// batch surfaces with its frame's wave tag intact: the wave's replay
+    /// carries the initial Mutate's id, the post-seam live frame carries 0.
     #[xmtp_common::test(unwrap_try = true)]
     async fn preserves_wire_order_of_history_markers_and_live() {
         let (api, mut server) = mock_pair();
@@ -449,6 +468,7 @@ mod tests {
             subscribe_response::v1::Messages {
                 group_messages: vec![group_msg(6, b"hist")],
                 welcome_messages: vec![welcome_msg(1, b"installation")],
+                mutate_id: 11,
             },
         ));
         server.send(subscribe_response::v1::Response::TopicsLive(
@@ -461,19 +481,23 @@ mod tests {
             subscribe_response::v1::Messages {
                 group_messages: vec![group_msg(7, b"live")],
                 welcome_messages: vec![],
+                mutate_id: 0,
             },
         ));
 
         assert_eq!(
             conn.next().await,
-            Some(BidiEvent::GroupMessages(vec![group_msg(6, b"hist")]))
+            Some(BidiEvent::GroupMessages {
+                messages: vec![group_msg(6, b"hist")],
+                mutate_id: 11,
+            })
         );
         assert_eq!(
             conn.next().await,
-            Some(BidiEvent::WelcomeMessages(vec![welcome_msg(
-                1,
-                b"installation"
-            )]))
+            Some(BidiEvent::WelcomeMessages {
+                messages: vec![welcome_msg(1, b"installation")],
+                mutate_id: 11,
+            })
         );
         assert_eq!(
             conn.next().await,
@@ -490,7 +514,10 @@ mod tests {
         );
         assert_eq!(
             conn.next().await,
-            Some(BidiEvent::GroupMessages(vec![group_msg(7, b"live")]))
+            Some(BidiEvent::GroupMessages {
+                messages: vec![group_msg(7, b"live")],
+                mutate_id: 0,
+            })
         );
     }
 
@@ -627,6 +654,10 @@ mod tests {
     impl XmtpMlsBidiStreams for WedgedWireApi {
         type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
         type Error = ApiClientError;
+
+        fn host(&self) -> &str {
+            "mock://bidi"
+        }
 
         async fn subscribe_bidi(
             &self,

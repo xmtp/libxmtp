@@ -97,7 +97,10 @@ where
     C: XmtpSharedContext,
     V: ValidateGroupMembership,
 {
-    #[tracing::instrument(skip_all, level = "trace")]
+    // Named explicitly (derived `mls.process` is too generic) and without `err`:
+    // duplicate welcomes exit as Err(WelcomeAlreadyProcessed), an expected
+    // outcome; unexpected failures set status on mls.process_new_welcome above.
+    #[tracing::instrument(skip_all, fields(operation = "mls.process_welcome"))]
     pub async fn process(self) -> Result<Option<MlsGroup<C>>, GroupError> {
         let mut this = self.build()?;
         let db = this.context.db();
@@ -428,10 +431,9 @@ where
             let min_version = MlsGroup::<C>::min_protocol_version_from_extensions(metadata);
             if let Some(min_version) = min_version {
                 let current_version_str = context.version_info().pkg_version();
-                let current_version =
-                    LibXMTPVersion::parse(current_version_str).ok()?;
+                let current_version = context.version_info().pkg_semver();
                 let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
-                if required_min_version > current_version {
+                if required_min_version > *current_version {
                     tracing::warn!(
                         "Saving group from welcome as paused since version requirements are not met. \
                         Group ID: {}, \

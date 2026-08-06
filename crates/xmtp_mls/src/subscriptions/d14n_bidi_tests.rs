@@ -51,11 +51,13 @@ fn summarize(ev: &D14nBidiEvent) -> String {
             format!("CatchUpComplete(mutate_id={mutate_id})")
         }
         D14nBidiEvent::TopicsLive { topics } => format!("TopicsLive(n={})", topics.len()),
-        D14nBidiEvent::GroupMessages(m) => format!(
+        D14nBidiEvent::GroupMessages { messages: m, .. } => format!(
             "GroupMessages(cursors={:?})",
             m.iter().map(cursor_key).collect::<Vec<_>>()
         ),
-        D14nBidiEvent::WelcomeMessages(w) => format!("WelcomeMessages(n={})", w.len()),
+        D14nBidiEvent::WelcomeMessages { messages: w, .. } => {
+            format!("WelcomeMessages(n={})", w.len())
+        }
     }
 }
 
@@ -168,7 +170,7 @@ async fn d14n_bidi_delivers_live_welcome_over_the_wire() {
     // WelcomeMessages frame arrived.
     loop {
         match conn.next().await {
-            Some(D14nBidiEvent::WelcomeMessages(w)) if !w.is_empty() => break,
+            Some(D14nBidiEvent::WelcomeMessages { messages: w, .. }) if !w.is_empty() => break,
             Some(other) => tracing::info!("pre-welcome d14n event: {}", summarize(&other)),
             None => panic!("connection closed before the welcome arrived"),
         }
@@ -212,7 +214,7 @@ async fn d14n_bidi_catch_up_precedes_live_marker_then_streams_live() {
     // Phase 1: drain catch-up until the topic crosses to live.
     loop {
         match next_within(&mut conn, 10).await {
-            D14nBidiEvent::GroupMessages(m) => {
+            D14nBidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
                     assert!(seen.insert(cursor_key(g)), "duplicate cursor in catch-up");
                     if is_app(g) {
@@ -245,7 +247,7 @@ async fn d14n_bidi_catch_up_precedes_live_marker_then_streams_live() {
     // exactly once.
     while app_count < TOTAL_APP {
         match next_within(&mut conn, 10).await {
-            D14nBidiEvent::GroupMessages(m) => {
+            D14nBidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
                     assert!(seen.insert(cursor_key(g)), "cursor delivered twice");
                     if is_app(g) {
@@ -287,7 +289,7 @@ async fn d14n_bidi_history_only_catches_up_then_delivers_nothing_live() {
     let mut catchup_complete: Option<u64> = None;
     while !(live_marker && catchup_complete.is_some()) {
         match next_within(&mut conn, 10).await {
-            D14nBidiEvent::GroupMessages(m) => {
+            D14nBidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
                     if is_app(g) {
                         catchup_app += 1;
@@ -327,7 +329,7 @@ async fn d14n_bidi_history_only_catches_up_then_delivers_nothing_live() {
         // is a teardown bug — and tolerating it would let a dead connection pass
         // this negative check vacuously.
         Ok(None) => panic!("stream ended without a half-close: history_only must stay open"),
-        Ok(Some(D14nBidiEvent::GroupMessages(m))) => panic!(
+        Ok(Some(D14nBidiEvent::GroupMessages { messages: m, .. })) => panic!(
             "history_only must not deliver live messages, got {:?}",
             m.iter().map(cursor_key).collect::<Vec<_>>()
         ),
@@ -366,7 +368,7 @@ async fn d14n_bidi_history_only_half_close_drains_then_server_closes() {
                 panic!("bounded sync never closed: xmtpd kept the stream open after finish()")
             }
             Ok(None) => break, // server closed the bounded stream — the point of the test
-            Ok(Some(D14nBidiEvent::GroupMessages(m))) => {
+            Ok(Some(D14nBidiEvent::GroupMessages { messages: m, .. })) => {
                 for g in &m {
                     if is_app(g) {
                         catchup_app += 1;

@@ -24,6 +24,12 @@ build_and_stage() {
 build_and_stage node-bindings-test node
 build_and_stage wasm-bindings-test wasm
 
+# Keep the CI sticky disk hot even when the builds above were cache hits
+# (no-op locally and on PRs).
+"${ROOT}/dev/ci/warm-deps" \
+  "${ROOT}#packages.${nix_system}.node-bindings-test" \
+  "${ROOT}#packages.${nix_system}.wasm-bindings-test"
+
 echo "JS bindings staged:"
 echo "  node: ${ROOT}/bindings/node/dist"
 echo "  wasm: ${ROOT}/bindings/wasm/dist"

@@ -494,8 +494,6 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        tracing::info!("Updating group membership...");
-
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()

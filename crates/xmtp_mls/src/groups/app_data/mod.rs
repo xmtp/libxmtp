@@ -26,13 +26,15 @@ use std::collections::BTreeMap;
 use openmls::{
     component::ComponentData,
     framing::{MlsMessageOut, ProcessedMessage, ProtocolMessage},
-    group::{AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError},
+    group::{
+        AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError,
+        ResolveAppDataCommitError,
+    },
     messages::proposals::{AppDataUpdateOperation, Proposal},
-    messages::proposals_in::{ProposalIn, ProposalOrRefIn},
     // `CommitMessageBundle` lives in `prelude` because the natural path
     // (`openmls::group::commit_builder`) is private to the openmls crate.
     // Re-importing through prelude is the only public path.
-    prelude::CommitMessageBundle,
+    prelude::{CommitMessageBundle, ProcessedMessageContent},
     storage::OpenMlsProvider,
 };
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
@@ -40,6 +42,7 @@ use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::C
 use self::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
+use crate::groups::validated_commit::LibXMTPVersion;
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
@@ -75,6 +78,33 @@ pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
     /// (mapped to `CommitResult::Invalid`).
     #[error("failed to decode incoming AppDataUpdate payload: {0}")]
     AppDataDecode(#[from] ComponentSourceError),
+    /// The group's committed `MIN_SUPPORTED_PROTOCOL_VERSION` floor
+    /// exceeds this client's version. Surfaced *before* any
+    /// `AppDataUpdate` payload is dispatched, so a client below the
+    /// floor (most commonly after an app downgrade — pausing normally
+    /// happens at the floor-bump commit itself, but a downgraded
+    /// client never processed one) pauses the group instead of
+    /// rejecting a commit it cannot interpret. Rejecting here is what
+    /// forks a group: peers above the floor accept the commit and
+    /// advance without us.
+    ///
+    /// Converted to `CommitValidationError::ProtocolVersionTooLow` at
+    /// the `mls_sync` boundary so the existing pause machinery
+    /// (`set_group_paused`, held cursor, reprocess-on-upgrade) applies
+    /// unchanged.
+    #[error(
+        "group's minimum supported protocol version {min_version} exceeds this client's version {own_version}"
+    )]
+    ProtocolVersionTooLow {
+        min_version: String,
+        own_version: String,
+    },
+    /// Staging an app-data commit failed after we interpreted its
+    /// proposals (`OpenMlsGroup::resolve_app_data_commit`). Carries the
+    /// same staging failure modes a commit without AppDataUpdate
+    /// proposals would surface from `process_message` directly.
+    #[error("failed to stage app-data commit: {0}")]
+    ResolveAppDataCommit(#[from] ResolveAppDataCommitError),
 }
 
 /// Walk a stream of `(ComponentId, &AppDataUpdateOperation)` tuples and
@@ -152,6 +182,15 @@ where
                 in_batch.insert(openmls_id, Some(new_value));
             }
             AppDataUpdateOperation::Remove => {
+                // Maps straight to `updater.remove(&id)` below — the
+                // component impl's `apply_update_payload` is never
+                // consulted for `Remove`, so component-level Remove
+                // rejections (e.g. the whole-registry Remove ban in
+                // `ComponentRegistryComponent::expand_to_changes`) are
+                // enforced during commit validation
+                // (`ValidatedCommit::from_staged_commit`), not
+                // re-checked here. That's sound because both current
+                // commit-processing paths validate before applying.
                 in_batch.insert(openmls_id, None);
             }
         }
@@ -173,74 +212,85 @@ where
 
 /// AppDataUpdate-aware wrapper around [`OpenMlsGroup::process_message`].
 ///
-/// `OpenMlsGroup::process_message` returns
-/// [`ProcessMessageError::FoundAppDataUpdateProposal`] when a commit
-/// contains an `AppDataUpdate` proposal — the application is required to
-/// pre-compute the resulting [`AppDataUpdates`] and call
-/// [`OpenMlsGroup::process_unverified_message_with_app_data_updates`]
-/// instead. This wrapper does the two-step dance:
+/// `OpenMlsGroup::process_message` returns a commit covering
+/// `AppDataUpdate` proposals as
+/// [`ProcessedMessageContent::UnresolvedAppDataCommit`] — the application
+/// is required to interpret the proposals, compute the resulting
+/// [`AppDataUpdates`], and resume staging. This wrapper does that dance:
 ///
-/// 1. `unprotect_message` to get an `UnverifiedMessage`.
-/// 2. Walk `committed_proposals()` for `AppDataUpdate`s and hand them to
+/// 1. `process_message` as usual.
+/// 2. On an unresolved app-data commit, hand its (already
+///    reference-resolved) `AppDataUpdate` proposals to
 ///    [`accumulate_app_data_updates`] to compute the resulting
 ///    [`AppDataUpdates`].
-/// 3. Call `process_unverified_message_with_app_data_updates` with the
-///    resulting `AppDataUpdates` (or `None`).
+/// 3. Call `resolve_app_data_commit` with those updates, staging the
+///    commit and yielding a regular `StagedCommitMessage`.
 ///
 /// Callers replace `mls_group.process_message(provider, message)` with
 /// `process_message_with_app_data(mls_group, provider, message)` and get
-/// back the same `ProcessedMessage` they used to.
+/// back the same `ProcessedMessage` they used to; the
+/// `UnresolvedAppDataCommit` variant never escapes this function.
+/// `own` is the client's parsed pkg_version (threaded from the caller's
+/// context rather than read from a constant so cross-version tests can
+/// override it).
 pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     message: impl Into<ProtocolMessage>,
+    own: &LibXMTPVersion,
 ) -> Result<ProcessedMessage, ProcessMessageWithAppDataError<Provider::StorageError>> {
-    let unverified = mls_group.unprotect_message(provider, message)?;
+    let processed = mls_group.process_message(provider, message)?;
 
-    let app_data_updates: Option<AppDataUpdates> = match unverified.committed_proposals() {
-        Some(proposals) => {
-            // Collect owned (id, operation) tuples so the iterator doesn't
-            // borrow `mls_group` — `accumulate_app_data_updates` needs `&mls_group`
-            // and we'd otherwise conflict with the pending-proposal lookup below.
-            //
-            // References resolve against the group's proposal store: the
-            // receiver already accepted the standalone AppDataUpdate proposal
-            // into `pending_proposals`, and OpenMLS's commit-side proposal
-            // queue merges inline + referenced proposals before calling
-            // `apply_app_data_update_proposals`. If we skipped references
-            // here, any commit carrying a by-reference AppDataUpdate would
-            // fail with `MissingAppDataUpdates`.
-            let mut collected: Vec<(openmls::component::ComponentId, AppDataUpdateOperation)> =
-                Vec::new();
-            for p in proposals {
-                match p {
-                    ProposalOrRefIn::Proposal(boxed) => {
-                        if let ProposalIn::AppDataUpdate(app_data) = boxed.as_ref() {
-                            collected.push((app_data.component_id(), app_data.operation().clone()));
-                        }
-                    }
-                    ProposalOrRefIn::Reference(proposal_ref) => {
-                        if let Some(queued) = mls_group
-                            .pending_proposals()
-                            .find(|q| q.proposal_reference_ref() == proposal_ref.as_ref())
-                            && let Proposal::AppDataUpdate(app_data) = queued.proposal()
-                        {
-                            collected.push((app_data.component_id(), app_data.operation().clone()));
-                        }
-                    }
-                }
-            }
-            let iter = collected.iter().map(|(id, op)| (*id, op));
-            accumulate_app_data_updates(mls_group, iter)?
-        }
-        None => None,
+    // PAUSE BEFORE PARSE: every commit on a below-floor group must pause
+    // (held cursor, `set_group_paused`), never process — above-floor
+    // peers accept it and advance, so rejecting instead of pausing forks
+    // the group. Checked here, *after* `process_message` authenticated
+    // the message, so the pause decision is never driven by
+    // unauthenticated framing bits a sender could spoof to freeze
+    // application-message processing on a below-floor group. For an
+    // `UnresolvedAppDataCommit` this runs before the proposals are
+    // interpreted below — the commit's app-data payloads may use wire
+    // formats introduced after this version. It reads ONLY the
+    // pre-commit dict — committed, already-validated state — and must
+    // never consider the commit's own proposals: a same-commit floor
+    // bump has not passed the super-admin policy check yet, and pausing
+    // on unvalidated input would let any member freeze the group for
+    // everyone. Application messages are unaffected; standalone
+    // proposals get the same floor-first hold in `mls_sync`'s
+    // `ProposalMessage` arm, which also keeps a below-floor client from
+    // ever advancing past a stored-by-peers proposal that a later commit
+    // references. (Staging a plain commit inside `process_message`
+    // interprets no app-data payloads; nothing is merged until
+    // `merge_staged_commit`.)
+    let is_commit = matches!(
+        processed.content(),
+        ProcessedMessageContent::StagedCommitMessage(_)
+            | ProcessedMessageContent::UnresolvedAppDataCommit(_)
+    );
+    if is_commit && let Some(min_version) = committed_floor_exceeding(mls_group, own) {
+        return Err(ProcessMessageWithAppDataError::ProtocolVersionTooLow {
+            min_version,
+            own_version: own.to_string(),
+        });
+    }
+
+    let unresolved = match processed.content() {
+        ProcessedMessageContent::UnresolvedAppDataCommit(unresolved) => unresolved,
+        _ => return Ok(processed),
     };
 
-    Ok(mls_group.process_unverified_message_with_app_data_updates(
-        provider,
-        unverified,
-        app_data_updates,
-    )?)
+    // Collect owned (id, operation) tuples so the iterator doesn't keep
+    // `processed` borrowed — `resolve_app_data_commit` consumes it below.
+    // Proposals committed by reference are already resolved from the
+    // proposal store by `process_message`.
+    let collected: Vec<(openmls::component::ComponentId, AppDataUpdateOperation)> = unresolved
+        .app_data_update_proposals()
+        .map(|p| (p.component_id(), p.operation().clone()))
+        .collect();
+    let iter = collected.iter().map(|(id, op)| (*id, op));
+    let app_data_updates = accumulate_app_data_updates(mls_group, iter)?;
+
+    Ok(mls_group.resolve_app_data_commit(provider, processed, app_data_updates)?)
 }
 
 /// Stage a standalone `AppDataUpdate(Update)` proposal AND a follow-up
@@ -457,10 +507,10 @@ pub(crate) fn is_migrated_group(mls_group: &OpenMlsGroup) -> bool {
 /// [`TEST_REGISTRY_OVERRIDE`] scope the group is treated as migrated
 /// regardless of what the dict contains. This bridges the gap for
 /// tests that exercise post-bootstrap reader semantics without
-/// actually running the bootstrap commit (which writes the real
-/// `COMPONENT_REGISTRY` entry — that work lives in a follow-up
-/// branch). Production paths never hit this branch because the
-/// task-local is only initialized inside test scopes.
+/// actually running the bootstrap commit (`enable_proposals()` end to
+/// end, which writes the real `COMPONENT_REGISTRY` entry). Production
+/// paths never hit this branch because the task-local is only
+/// initialized inside test scopes.
 pub(crate) fn is_migrated_extensions(
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
 ) -> bool {
@@ -513,12 +563,12 @@ pub(crate) fn is_migrated_extensions(
 /// Empty registry is the **strictest** validator state, not the most
 /// permissive. Two layers make this safe:
 ///
-/// 1. **Sender gate** (`mls_sync.rs`): the `AppDataUpdate` sender path
-///    is guarded by `proposals_enabled(group) && !registry.is_empty()`.
-///    In production the second clause is false on unmigrated groups,
-///    so the legacy GCE path runs and no `AppDataUpdate` proposals get
+/// 1. **Sender gate** (`mls_sync.rs`): the `AppDataUpdate` sender
+///    paths are guarded by [`is_migrated_group`] (`COMPONENT_REGISTRY`
+///    present in the dict). That's false on unmigrated groups, so the
+///    legacy GCE path runs and no `AppDataUpdate` proposals get
 ///    emitted.
-///    (`test_update_group_name_uses_legacy_path_when_registry_is_empty`
+///    (`test_update_group_name_uses_legacy_path_when_proposals_disabled`
 ///    pins this.)
 /// 2. **Receiver deny-by-default**
 ///    (`xmtp_mls_common::app_data::validation::validate_component_write`):
@@ -542,6 +592,51 @@ pub(crate) fn load_component_registry(
     load_component_registry_from_extensions(mls_group.extensions())
 }
 
+/// Returns the group's committed `MIN_SUPPORTED_PROTOCOL_VERSION` floor
+/// when it exceeds `own_version`, reading ONLY the pre-commit AppData
+/// dict — committed, already-validated state.
+///
+/// This is the shared trigger for the "pause, don't fork" guards on the
+/// receive paths ([`process_message_with_app_data`] before dispatch;
+/// `ValidatedCommit::from_staged_commit` before interpreting migrated
+/// group state). It is deliberately blind to any floor bump carried by
+/// the commit currently being processed: that proposal has not passed
+/// the super-admin policy check yet, and a pause triggered by
+/// unvalidated input would let any member freeze the group permanently.
+/// The commit that *raises* the floor pauses below-floor receivers
+/// through the post-policy check at the end of commit validation
+/// instead. Consequence for protocol evolution: a release introducing
+/// a new wire format must land the group-floor bump in a *strictly
+/// earlier* commit than the first commit using that format.
+///
+/// Lenient on malformed state (non-UTF-8 floor bytes, unparseable
+/// semver ⇒ `None`), mirroring `enforce_min_version_monotonicity`'s
+/// treatment of malformed priors: garbage must never brick the group.
+pub(crate) fn committed_floor_exceeding(
+    mls_group: &OpenMlsGroup,
+    own: &LibXMTPVersion,
+) -> Option<String> {
+    committed_floor_exceeding_in_extensions(mls_group.extensions(), own)
+}
+
+/// Extensions-only variant of [`committed_floor_exceeding`], split out
+/// (like [`load_component_registry_from_extensions`]) so unit tests can
+/// exercise the parse-and-compare logic without materializing an
+/// `OpenMlsGroup`.
+pub(crate) fn committed_floor_exceeding_in_extensions(
+    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
+    own: &LibXMTPVersion,
+) -> Option<String> {
+    let bytes = extensions
+        .app_data_dictionary()?
+        .dictionary()
+        .get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16())?
+        .to_vec();
+    let floor = String::from_utf8(bytes).ok()?;
+    let floor_version = LibXMTPVersion::parse(&floor).ok()?;
+    (floor_version > *own).then_some(floor)
+}
+
 /// Extensions-only variant of [`load_component_registry`]. Mirrors the
 /// [`is_migrated_group`] / [`is_migrated_extensions`] split so unit
 /// tests can exercise the registry-decode path without materializing
@@ -558,12 +653,27 @@ pub(crate) fn load_component_registry_from_extensions(
             .dictionary()
             .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
     {
-        return ComponentRegistry::from_bytes(bytes).map_err(|e| {
-            ComponentSourceError::MalformedComponentValue {
+        return ComponentRegistry::from_bytes(bytes)
+            .map_err(|e| ComponentSourceError::MalformedComponentValue {
                 component_id: ComponentId::COMPONENT_REGISTRY,
                 reason: format!("registry decode: {e}"),
-            }
-        });
+            })
+            .inspect(|reg| {
+                // Tolerated (preserved-but-invisible) entries mean the
+                // dict was written by a newer protocol version or
+                // carries a historical invalid entry. Writes to those
+                // components fall to deny-by-default; everything else
+                // validates normally. Loud so poisoned-registry
+                // incidents are diagnosable from logs.
+                let unrecognized: Vec<_> = reg.unrecognized_ids().collect();
+                if !unrecognized.is_empty() {
+                    tracing::warn!(
+                        ?unrecognized,
+                        "component registry contains unrecognized entries; \
+                         treating them as unregistered (deny-by-default)"
+                    );
+                }
+            });
     }
 
     // Pre-migration or test override.
@@ -609,6 +719,13 @@ mod tests {
 
     fn empty_extensions() -> Extensions<openmls::group::GroupContext> {
         Extensions::from_vec(vec![]).expect("empty extensions are always valid")
+    }
+
+    /// Parse a semver string the way the production caller does (once, from
+    /// the client's own `pkg_version`). Panics on invalid input — matching
+    /// `VersionInfo`, which asserts its own version is valid at construction.
+    fn ver(s: &str) -> LibXMTPVersion {
+        LibXMTPVersion::parse(s).unwrap()
     }
 
     #[test]
@@ -670,6 +787,103 @@ mod tests {
                 assert!(is_migrated_extensions(&exts));
             })
             .await;
+    }
+
+    // ========================================================================
+    // committed_floor_exceeding_in_extensions
+    // ========================================================================
+    //
+    // The shared trigger for the pause-before-parse guards. Two properties
+    // are load-bearing: (1) it fires strictly on floor > own — equal or
+    // lower floors must not pause; (2) it is lenient on garbage — malformed
+    // floor bytes must read as "no floor", never as an error that could
+    // wedge the group.
+
+    #[test]
+    fn floor_above_own_version_fires() {
+        let exts = extensions_with_dict(&[(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+            b"2.0.0".to_vec(),
+        )]);
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
+            Some("2.0.0".to_string())
+        );
+        // Prerelease floors order correctly under semver: 1.11.0-dev
+        // exceeds 1.10.0 but not 1.11.0.
+        let exts = extensions_with_dict(&[(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+            b"1.11.0-dev".to_vec(),
+        )]);
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.10.0")),
+            Some("1.11.0-dev".to_string())
+        );
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
+            None
+        );
+    }
+
+    #[test]
+    fn floor_at_or_below_own_version_does_not_fire() {
+        let exts = extensions_with_dict(&[(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+            b"1.11.0".to_vec(),
+        )]);
+        // Equal: not paused — the floor is inclusive.
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
+            None
+        );
+        // Above: not paused.
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.12.0")),
+            None
+        );
+    }
+
+    #[test]
+    fn missing_floor_or_dict_does_not_fire() {
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&empty_extensions(), &ver("1.11.0")),
+            None
+        );
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&extensions_with_dict(&[]), &ver("1.11.0")),
+            None
+        );
+        // Dict present with other components but no floor entry.
+        let exts = extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"name".to_vec())]);
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_floor_is_lenient() {
+        // Non-UTF-8 bytes → no floor, never an error.
+        let exts = extensions_with_dict(&[(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+            vec![0xFF, 0xFE],
+        )]);
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
+            None
+        );
+        // Unparseable floor semver → no floor.
+        let exts = extensions_with_dict(&[(
+            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
+            b"not-a-version".to_vec(),
+        )]);
+        assert_eq!(
+            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
+            None
+        );
+        // The client's own version can no longer be unparseable here: it is
+        // parsed once and asserted valid when `VersionInfo` is built, so this
+        // guard only ever compares against a valid `LibXMTPVersion`.
     }
 
     // ========================================================================

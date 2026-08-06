@@ -76,7 +76,7 @@ concurrency:
 jobs:
   compat:
     name: ${{ matrix.kind }} (${{ matrix.profile }})
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     strategy:
       # All four cells always run; each (kind, profile) is independently
       # meaningful — broken nightlies in cross-talk don't mask stable
@@ -109,11 +109,10 @@ jobs:
 
       - uses: ./.github/actions/setup-nix
         with:
+          disk-key: rust
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          with-warpbuild-cache: "true"
-          gc-max-store-size: "5G"
 
       - name: Resolve sample size
         id: sample
@@ -148,6 +147,15 @@ jobs:
           nix run ".#${KIND}-test" -- run \
             --profile "$PROFILE" \
             --sample-size "$SAMPLE_SIZE"
+
+      # Warms the current-tree driver's cargo deps only. The per-version
+      # xdbg binaries the driver builds are realized as goal outputs (so
+      # they land on the disk); their build closures are fixed-sha, stay
+      # substitutable from Cachix, and would only bloat the disk.
+      - name: Warm sticky disk with build deps
+        env:
+          KIND: ${{ matrix.kind }}
+        run: dev/ci/warm-deps ".#${KIND}-test"
 
       # xdbg's NDJSON log files are named "YYYY-MM-DD HH:MM:SS.json".
       # actions/upload-artifact rejects filenames with `:`, `<`, `>`, etc.

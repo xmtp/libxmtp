@@ -13,12 +13,12 @@
 { lib }:
 let
   # Cross-compilation targets for the iOS release:
-  #   x86_64-apple-darwin    — macOS Intel (for universal macOS binary)
-  #   aarch64-apple-darwin   — macOS Apple Silicon (for universal macOS binary)
+  #   aarch64-apple-darwin   — macOS Apple Silicon
   #   aarch64-apple-ios      — iOS device (arm64)
   #   aarch64-apple-ios-sim  — iOS simulator on Apple Silicon
+  # (x86_64-apple-darwin was dropped with nixpkgs' x86_64-darwin support;
+  # the macOS slice is arm64-only now.)
   iosTargets = [
-    "x86_64-apple-darwin"
     "aarch64-apple-darwin"
     "aarch64-apple-ios"
     "aarch64-apple-ios-sim"
@@ -44,7 +44,6 @@ let
     {
       "aarch64-apple-ios" = "Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk";
       "aarch64-apple-ios-sim" = "Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk";
-      "x86_64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
       "aarch64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
     }
     .${target};
@@ -112,7 +111,6 @@ let
       export CC="$_XCODE_CLANG"
       export CXX="$_XCODE_CLANGXX"
       export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
-      export CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
     ''
     + lib.optionalString (isIosTarget target) ''
       _IOS_SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"

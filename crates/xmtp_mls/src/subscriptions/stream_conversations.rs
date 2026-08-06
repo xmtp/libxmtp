@@ -649,7 +649,9 @@ mod test {
     #[case::onehundred_dms(100)]
     #[xmtp_common::test]
     #[awt]
-    #[cfg_attr(all(feature = "d14n"), ignore)]
+    // Runs on native d14n (verified); still skipped on d14n+wasm, where 100
+    // concurrent streaming clients are impractical (matches the heavy group tests).
+    #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
     async fn test_many_concurrent_dm_invites(#[future] alix: ClientTester, #[case] dms: usize) {
         let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
         let mut clients = vec![];

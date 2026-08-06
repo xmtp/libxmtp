@@ -44,6 +44,10 @@ impl BackendBuilder {
   #[napi]
   #[xmtp_common::err_span]
   pub async fn build(&self) -> Result<Backend> {
+    // Ensure the rustls crypto provider is installed before any TLS/HTTP client is built,
+    // independent of whether the `#[ctor::ctor(unsafe)]` in `xmtp_cryptography` fired. Idempotent.
+    // See issue #3846.
+    xmtp_cryptography::install_crypto_provider();
     {
       let mut consumed = self
         .consumed

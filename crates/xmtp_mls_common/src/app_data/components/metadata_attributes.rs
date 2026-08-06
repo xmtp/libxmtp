@@ -136,6 +136,17 @@ macro_rules! passthrough_string_component {
                 payload: &[u8],
                 _prior: Option<&[u8]>,
             ) -> Result<Vec<u8>, ComponentTypedError> {
+                // Validate UTF-8 before accepting the bytes into the
+                // dict. Without this, a peer could land a value every
+                // receiver ACCEPTS at commit time but none can READ
+                // back (`decode_value` requires UTF-8) — an
+                // accepted-but-unreadable component. Mirrors the
+                // `be_i64_component!` family's validate-then-passthrough
+                // shape, and matches the type-aware fallback for
+                // unknown String-typed ids, which already rejects
+                // non-UTF-8 — so known-impl and unknown-id receivers
+                // agree.
+                let _ = decode_utf8(Self::ID, payload)?;
                 apply_passthrough(payload)
             }
 
@@ -143,6 +154,10 @@ macro_rules! passthrough_string_component {
                 op: &AppDataUpdateOperation,
                 _prior: Option<&[u8]>,
             ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
+                // Keep the validator's verdict in lockstep with apply.
+                if let AppDataUpdateOperation::Update(payload) = op {
+                    let _ = decode_utf8(Self::ID, payload.as_slice())?;
+                }
                 expand_passthrough(op)
             }
         }
@@ -302,6 +317,44 @@ mod tests {
             }
             other => panic!("expected MalformedValue, got {other:?}"),
         }
+    }
+
+    /// Apply/read symmetry: bytes the read path can't decode must be
+    /// rejected at APPLY time too. Pre-fix, `apply_update_payload` was
+    /// a raw passthrough — a peer could land a value every receiver
+    /// accepted at commit time but none could read back.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_component_apply_rejects_non_utf8() {
+        let err = AppDataComponent::apply_update_payload(&[0xff, 0xfe, 0xfd], None).unwrap_err();
+        match err {
+            ComponentTypedError::MalformedValue { component_id, .. } => {
+                assert_eq!(component_id, ComponentId::APP_DATA);
+            }
+            other => panic!("expected MalformedValue, got {other:?}"),
+        }
+        // Valid UTF-8 still passes through byte-identical.
+        let ok = AppDataComponent::apply_update_payload("héllo".as_bytes(), None).unwrap();
+        assert_eq!(ok, "héllo".as_bytes());
+    }
+
+    /// Same symmetry on the validator's expansion path — apply and
+    /// expand must agree so every honest receiver returns the same
+    /// verdict regardless of which stage sees the payload first.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_component_expand_rejects_non_utf8() {
+        let op = AppDataUpdateOperation::Update(vec![0xff, 0xfe, 0xfd].into());
+        let err = GroupNameComponent::expand_to_changes(&op, None).unwrap_err();
+        match err {
+            ComponentTypedError::MalformedValue { component_id, .. } => {
+                assert_eq!(component_id, ComponentId::GROUP_NAME);
+            }
+            other => panic!("expected MalformedValue, got {other:?}"),
+        }
+        // Remove never carries bytes and stays valid.
+        let changes =
+            GroupNameComponent::expand_to_changes(&AppDataUpdateOperation::Remove, None).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].op, ComponentOp::Delete);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

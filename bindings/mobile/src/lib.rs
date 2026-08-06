@@ -98,6 +98,9 @@ pub enum GenericError {
     Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
     #[error(transparent)]
     #[error_code(inherit)]
+    CatchUp(#[from] xmtp_mls::subscriptions::catch_up::CatchUpError),
+    #[error(transparent)]
+    #[error_code(inherit)]
     ApiClientBuild(#[from] xmtp_api_grpc::error::GrpcBuilderError),
     #[error(transparent)]
     #[error_code(inherit)]
@@ -345,7 +348,7 @@ mod lib_tests {
     }
 
     // Execute once before any tests are run
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn _setup() {
         let _ = fdlimit::raise_fd_limit();
     }

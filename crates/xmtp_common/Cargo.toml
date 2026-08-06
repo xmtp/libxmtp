@@ -13,6 +13,7 @@ const_panic.workspace = true
 futures = { workspace = true, features = ["std"] }
 hex.workspace = true
 rand.workspace = true
+reqwest.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -52,6 +53,10 @@ tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
+# Used to keep reqwest off `rustls-platform-verifier` on Android (see `src/http.rs`), and
+# by that module's test on every other native target.
+rustls.workspace = true
+webpki-roots.workspace = true
 
 [dev-dependencies]
 parking_lot.workspace = true

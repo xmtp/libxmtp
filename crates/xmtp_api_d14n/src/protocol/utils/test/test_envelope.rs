@@ -74,11 +74,11 @@ impl std::fmt::Display for TestEnvelope {
             write!(
                 f,
                 "cursor {} depends on {}",
-                &self.cursor(),
-                &self.depends_on()
+                self.cursor(),
+                self.depends_on()
             )
         } else {
-            write!(f, "cursor {} has no dependencies", &self.cursor())
+            write!(f, "cursor {} has no dependencies", self.cursor())
         }
     }
 }
