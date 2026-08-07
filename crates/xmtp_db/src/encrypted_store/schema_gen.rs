@@ -120,6 +120,7 @@ diesel::table! {
         next_key_package_rotation_ns -> Nullable<BigInt>,
         registration_cursor_originator_id -> Nullable<BigInt>,
         registration_cursor_sequence_id -> Nullable<BigInt>,
+        key_package_liveness_checked_at_ns -> Nullable<BigInt>,
     }
 }
 

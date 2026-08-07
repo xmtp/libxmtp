@@ -1,7 +1,7 @@
 //! Common configuration values between dev & prod
 use openmls::versions::ProtocolVersion;
 
-use xmtp_common::{NS_IN_30_DAYS, NS_IN_SEC};
+use xmtp_common::{NS_IN_30_DAYS, NS_IN_DAY, NS_IN_HOUR, NS_IN_SEC};
 pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
 /// Duration to wait before restarting workers in case of an error.
@@ -23,6 +23,28 @@ pub const KEY_PACKAGE_QUEUE_INTERVAL_NS: i64 = 5 * NS_IN_SEC; // 5 secs
 /// This defines how often a new KeyPackage should be *rotated*,
 /// but does *not* determine the actual KeyPackage expiration.
 pub const KEY_PACKAGE_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS; // 30 days
+
+/// How much lifetime a published key package must keep to count as healthy.
+///
+/// A client that rotates every `KEY_PACKAGE_ROTATION_INTERVAL_NS` against an
+/// ~84-day lifetime keeps much more than this. Less means the client missed
+/// several rotations. Repair now: after expiry the installation is unreachable
+/// and nothing can tell it.
+pub const KEY_PACKAGE_LIVENESS_MIN_REMAINING_LIFETIME_NS: i64 = 7 * NS_IN_DAY; // 7 days
+
+/// Throttle for the key-package liveness check. However often the check is
+/// nudged, it probes the network at most once per interval.
+///
+/// Not shortened for tests. A short interval makes any client built after it
+/// elapses probe the network, which breaks tests that assert a client build
+/// does no network I/O. Tests that need the check to run write the throttle
+/// column with `set_key_package_liveness_checked_at_ns` instead.
+pub const KEY_PACKAGE_LIVENESS_INTERVAL_NS: i64 = NS_IN_DAY; // 1 day
+
+/// Retry delay after an inconclusive probe (offline, 5xx, timeout). Short
+/// enough that an offline client does not wait a full day, long enough that it
+/// does not probe in a tight loop.
+pub const KEY_PACKAGE_LIVENESS_RETRY_INTERVAL_NS: i64 = NS_IN_HOUR; // 1 hour
 
 pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 

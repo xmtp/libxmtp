@@ -23,6 +23,11 @@ pub struct StoredIdentity {
     pub registration_cursor_originator_id: Option<i64>,
     #[builder(default)]
     pub registration_cursor_sequence_id: Option<i64>,
+    /// When this installation last confirmed its key package on the network.
+    /// `None` means never, which counts as due. Written only after a conclusive
+    /// probe, so an offline client keeps its throttle window.
+    #[builder(default)]
+    pub key_package_liveness_checked_at_ns: Option<i64>,
 }
 
 impl_fetch!(StoredIdentity, identity);
@@ -42,6 +47,7 @@ impl StoredIdentity {
             next_key_package_rotation_ns: None,
             registration_cursor_originator_id: None,
             registration_cursor_sequence_id: None,
+            key_package_liveness_checked_at_ns: None,
         }
     }
 }
@@ -67,6 +73,17 @@ pub trait QueryIdentity {
     /// `None` if NULL or if no identity row exists yet (indistinguishable to callers;
     /// treat as "no scheduled deadline").
     fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
+    /// When the key-package liveness check last completed conclusively.
+    /// `None` = never (or no identity row yet); callers treat that as due.
+    fn key_package_liveness_checked_at_ns(&self) -> Result<Option<i64>, StorageError>;
+    /// Stamp the liveness throttle at `now_ns`. Call this only after a
+    /// conclusive probe, never after a transient failure.
+    fn record_key_package_liveness_check(&self) -> Result<(), StorageError> {
+        self.set_key_package_liveness_checked_at_ns(now_ns())
+    }
+    /// The primitive behind `record_key_package_liveness_check`. Separate, so
+    /// tests can plant a bad stamp and show the throttle rejects it.
+    fn set_key_package_liveness_checked_at_ns(&self, at_ns: i64) -> Result<(), StorageError>;
 }
 
 impl<T> QueryIdentity for &T
@@ -98,6 +115,14 @@ where
 
     fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError> {
         (**self).next_key_package_rotation_ns()
+    }
+
+    fn key_package_liveness_checked_at_ns(&self) -> Result<Option<i64>, StorageError> {
+        (**self).key_package_liveness_checked_at_ns()
+    }
+
+    fn set_key_package_liveness_checked_at_ns(&self, at_ns: i64) -> Result<(), StorageError> {
+        (**self).set_key_package_liveness_checked_at_ns(at_ns)
     }
 }
 
@@ -235,6 +260,31 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
                 .optional()
         })?;
         Ok(v.flatten())
+    }
+
+    fn key_package_liveness_checked_at_ns(&self) -> Result<Option<i64>, StorageError> {
+        use crate::schema::identity::dsl;
+        // optional() so an empty table (pre-registration) returns Ok(None).
+        let v: Option<Option<i64>> = self.raw_query(|conn| {
+            dsl::identity
+                .select(dsl::key_package_liveness_checked_at_ns)
+                .first::<Option<i64>>(conn)
+                .optional()
+        })?;
+        Ok(v.flatten())
+    }
+
+    fn set_key_package_liveness_checked_at_ns(&self, at_ns: i64) -> Result<(), StorageError> {
+        use crate::schema::identity::dsl;
+        self.raw_query(|conn| {
+            // No filter. Before registration this matches zero rows and does
+            // nothing, like the other identity-column writers.
+            diesel::update(dsl::identity)
+                .set(dsl::key_package_liveness_checked_at_ns.eq(Some(at_ns)))
+                .execute(conn)?;
+            Ok(())
+        })?;
+        Ok(())
     }
 }
 
