@@ -10,9 +10,8 @@ use napi_derive::napi;
 use std::collections::HashMap;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::groups::{
-  UpdateAdminListType,
+  UpdateAdminListType, UpdateGroupMembershipResult as XmtpUpdateGroupMembershipResult,
   members::PermissionLevel as XmtpPermissionLevel,
-  UpdateGroupMembershipResult as XmtpUpdateGroupMembershipResult,
 };
 
 #[napi]
@@ -184,11 +183,13 @@ impl Conversation {
   ) -> Result<UpdateGroupMembershipResult> {
     let group = self.create_mls_group();
 
-    Ok(group
-      .add_members_by_identity(&account_identities.to_internal()?)
-      .await
-      .map(UpdateGroupMembershipResult::from)
-      .map_err(ErrorWrapper::from)?)
+    Ok(
+      group
+        .add_members_by_identity(&account_identities.to_internal()?)
+        .await
+        .map(UpdateGroupMembershipResult::from)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
@@ -254,11 +255,13 @@ impl Conversation {
   pub async fn add_members(&self, inbox_ids: Vec<String>) -> Result<UpdateGroupMembershipResult> {
     let group = self.create_mls_group();
 
-    Ok(group
-      .add_members(&inbox_ids)
-      .await
-      .map(UpdateGroupMembershipResult::from)
-      .map_err(ErrorWrapper::from)?)
+    Ok(
+      group
+        .add_members(&inbox_ids)
+        .await
+        .map(UpdateGroupMembershipResult::from)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
