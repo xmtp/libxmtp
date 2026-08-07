@@ -1,5 +1,5 @@
 use super::{
-    GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
+    FailedInstallationIds, GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
     build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     build_group_membership_extension,
     group_permissions::extract_group_permissions,
@@ -3425,7 +3425,9 @@ where
                     if !changes_with_kps.failed_installations.is_empty()
                         && changes_with_kps.new_key_packages.is_empty()
                     {
-                        return Err(GroupError::FailedToVerifyInstallations);
+                        return Err(GroupError::FailedToVerifyInstallations(
+                            FailedInstallationIds(changes_with_kps.failed_installations.clone()),
+                        ));
                     }
 
                     // Compute the inbox_ids that actually got at least one
@@ -4191,7 +4193,9 @@ where
                 && !changes_with_kps.failed_installations.is_empty()
                 && changes_with_kps.new_installations.is_empty()
             {
-                return Err(GroupError::FailedToVerifyInstallations);
+                return Err(GroupError::FailedToVerifyInstallations(
+                    FailedInstallationIds(changes_with_kps.failed_installations.clone()),
+                ));
             }
 
             Ok(UpdateGroupMembershipIntentData::new(

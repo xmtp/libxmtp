@@ -45,7 +45,8 @@ use crate::{
     worker::device_sync::preference_sync::PreferenceUpdate,
 };
 pub use error::*;
-use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
+use intents::SendMessageIntentData;
+pub use intents::UpdateGroupMembershipResult;
 use openmls::{
     credentials::CredentialType,
     extensions::{

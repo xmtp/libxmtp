@@ -29,6 +29,17 @@ use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
 use xmtp_mls_common::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
 
+/// Installation IDs that failed key package verification during a membership update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedInstallationIds(pub Vec<Vec<u8>>);
+
+impl std::fmt::Display for FailedInstallationIds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let encoded: Vec<String> = self.0.iter().map(hex::encode).collect();
+        write!(f, "{}", encoded.join(","))
+    }
+}
+
 /// Wraps multiple message processing errors from a single receive operation.
 ///
 /// Contains a list of message IDs that failed and their corresponding errors. May be retryable.
@@ -392,8 +403,8 @@ pub enum GroupError {
     /// Failed to verify installations.
     ///
     /// Installation verification failed. Not retryable.
-    #[error("Failed to verify all installations")]
-    FailedToVerifyInstallations,
+    #[error("Failed to verify all installations: failedInstallations={0}")]
+    FailedToVerifyInstallations(FailedInstallationIds),
     /// No welcomes to send.
     ///
     /// No welcome messages to send to new members. Not retryable.
@@ -640,7 +651,7 @@ impl RetryableError for GroupError {
             | Self::TooManyCharacters { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
-            | Self::FailedToVerifyInstallations
+            | Self::FailedToVerifyInstallations(_)
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
@@ -676,5 +687,18 @@ mod tests {
         // attempts instantly and permanently failed the sync-group add
         // (surfaced as the DeviceSync sendSyncRequest CI failures).
         assert!(GroupError::MissingSequenceId.is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn failed_to_verify_installations_includes_hex_ids() {
+        let err = GroupError::FailedToVerifyInstallations(FailedInstallationIds(vec![
+            vec![0xAB; 32],
+            vec![0xCD; 32],
+        ]));
+        let message = err.to_string();
+        assert!(message.contains("failedInstallations="));
+        assert!(message.contains(&hex::encode([0xAB; 32])));
+        assert!(message.contains(&hex::encode([0xCD; 32])));
+        assert!(!err.is_retryable());
     }
 }
