@@ -35,8 +35,24 @@ pub(crate) fn inbox_ids_from_new_key_packages(
     new_key_packages
         .iter()
         .filter_map(|kp| {
-            let credential = BasicCredential::try_from(kp.leaf_node().credential().clone()).ok()?;
-            parse_credential(credential.identity()).ok()
+            let credential = match BasicCredential::try_from(kp.leaf_node().credential().clone()) {
+                Ok(credential) => credential,
+                Err(e) => {
+                    tracing::warn!(?e, "failed to decode key package leaf credential");
+                    return None;
+                }
+            };
+            match parse_credential(credential.identity()) {
+                Ok(inbox_id) => Some(inbox_id),
+                Err(e) => {
+                    tracing::warn!(
+                        ?e,
+                        "failed to parse inbox id from key package credential; \
+                         skipping inbox for phantom-member verification"
+                    );
+                    None
+                }
+            }
         })
         .collect()
 }
