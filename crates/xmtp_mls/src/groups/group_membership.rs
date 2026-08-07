@@ -119,6 +119,10 @@ pub struct MembershipDiffWithKeyPackages {
     pub new_key_packages: Vec<KeyPackage>,
     pub removed_installations: HashSet<Vec<u8>>,
     pub failed_installations: Vec<Vec<u8>>,
+    /// Maps `installation_id` to `inbox_id`. It comes from
+    /// [`crate::identity_updates::InstallationDiff`]. A caller uses it to
+    /// split `failed_installations` per inbox.
+    pub installation_owners: HashMap<Vec<u8>, String>,
 }
 
 impl MembershipDiffWithKeyPackages {
@@ -127,12 +131,14 @@ impl MembershipDiffWithKeyPackages {
         new_key_packages: Vec<KeyPackage>,
         removed_installations: HashSet<Vec<u8>>,
         failed_installations: Vec<Vec<u8>>,
+        installation_owners: HashMap<Vec<u8>, String>,
     ) -> MembershipDiffWithKeyPackages {
         MembershipDiffWithKeyPackages {
             new_installations,
             new_key_packages,
             removed_installations,
             failed_installations,
+            installation_owners,
         }
     }
 }
