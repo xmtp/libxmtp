@@ -63,21 +63,6 @@ pub(crate) fn strip_unverified_new_adds(
     }
 }
 
-/// Remove requested net-new adds from `membership_updates` when no installation
-/// for that inbox produced a verified key package.
-pub(crate) fn filter_unverified_adds_from_membership_updates(
-    membership_updates: &mut std::collections::HashMap<String, u64>,
-    inbox_ids_to_add: &[impl AsRef<str>],
-    new_key_packages: &[KeyPackage],
-) {
-    let verified_adds = inbox_ids_from_new_key_packages(new_key_packages);
-    for inbox_id in inbox_ids_to_add {
-        if !verified_adds.contains(inbox_id.as_ref()) {
-            membership_updates.remove(inbox_id.as_ref());
-        }
-    }
-}
-
 /// Build the wire-level `TlsMapDelta<InboxId, VLBytes>` payload for an
 /// `AppDataUpdate(GROUP_MEMBERSHIP)` proposal from the diff between
 /// the old and new `GroupMembership` view. Shared between the commit-
@@ -679,13 +664,5 @@ mod tests {
         strip_unverified_new_adds(&mut new, &old, &[]);
         assert_eq!(new.get("alice"), Some(&5));
         assert!(!new.members.contains_key("bob"));
-    }
-
-    #[xmtp_common::test]
-    fn filter_unverified_adds_from_membership_updates_drops_failed_adds() {
-        let mut updates = HashMap::from([("alice".to_string(), 5), ("bob".to_string(), 2)]);
-        filter_unverified_adds_from_membership_updates(&mut updates, &["bob"], &[]);
-        assert_eq!(updates.get("alice"), Some(&5));
-        assert!(!updates.contains_key("bob"));
     }
 }
