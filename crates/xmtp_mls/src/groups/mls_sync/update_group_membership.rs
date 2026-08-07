@@ -6,9 +6,12 @@ use crate::groups::{
     update_required_capabilities_for_proposals,
     validated_commit::extract_group_membership,
 };
+use crate::identity::parse_credential;
 use openmls::{
+    credentials::BasicCredential,
     extensions::Extensions,
     group::GroupContext,
+    key_packages::KeyPackage,
     messages::proposals::{AppDataUpdateOperation, Proposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
@@ -24,6 +27,57 @@ use xmtp_mls_common::{
     tls_map::TlsMapDelta,
 };
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
+
+/// Inbox ids that received at least one Add proposal in this commit.
+pub(crate) fn inbox_ids_from_new_key_packages(
+    new_key_packages: &[KeyPackage],
+) -> std::collections::HashSet<String> {
+    new_key_packages
+        .iter()
+        .filter_map(|kp| {
+            let credential = match BasicCredential::try_from(kp.leaf_node().credential().clone()) {
+                Ok(credential) => credential,
+                Err(e) => {
+                    tracing::warn!(?e, "failed to decode key package leaf credential");
+                    return None;
+                }
+            };
+            match parse_credential(credential.identity()) {
+                Ok(inbox_id) => Some(inbox_id),
+                Err(e) => {
+                    tracing::warn!(
+                        ?e,
+                        "failed to parse inbox id from key package credential; \
+                         skipping inbox for phantom-member verification"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// Drop net-new members whose installations all failed key-package fetch.
+/// An inbox without an MLS leaf must not appear in the membership dict/extension
+/// or dict and tree state diverge (see `ProposeMemberUpdate` path in `mls_sync.rs`).
+pub(crate) fn strip_unverified_new_adds(
+    new_membership: &mut GroupMembership,
+    old_membership: &GroupMembership,
+    new_key_packages: &[KeyPackage],
+) {
+    let verified_adds = inbox_ids_from_new_key_packages(new_key_packages);
+    let phantom_adds: Vec<String> = new_membership
+        .inbox_ids()
+        .into_iter()
+        .filter(|inbox_id| {
+            old_membership.get(inbox_id).is_none() && !verified_adds.contains(*inbox_id)
+        })
+        .map(str::to_string)
+        .collect();
+    for inbox_id in phantom_adds {
+        new_membership.remove(&inbox_id);
+    }
+}
 
 /// Build the wire-level `TlsMapDelta<InboxId, VLBytes>` payload for an
 /// `AppDataUpdate(GROUP_MEMBERSHIP)` proposal from the diff between
@@ -114,8 +168,7 @@ pub(crate) async fn apply_update_group_membership_intent(
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
-    let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
-    let membership_diff = old_group_membership.diff(&new_group_membership);
+    let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
 
     let group_id = GroupId::try_from(openmls_group.group_id())?;
     let changes_with_kps = calculate_membership_changes_with_keypackages(
@@ -125,6 +178,14 @@ pub(crate) async fn apply_update_group_membership_intent(
         &old_group_membership,
     )
     .await?;
+
+    strip_unverified_new_adds(
+        &mut new_group_membership,
+        &old_group_membership,
+        &changes_with_kps.new_key_packages,
+    );
+    let membership_diff = old_group_membership.diff(&new_group_membership);
+
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
         get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
 
@@ -136,6 +197,8 @@ pub(crate) async fn apply_update_group_membership_intent(
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
+        && membership_diff.added_inboxes.is_empty()
+        && membership_diff.removed_inboxes.is_empty()
     {
         return Ok(None);
     }
@@ -596,5 +659,26 @@ mod tests {
         .await
         .unwrap();
         assert!(intent.is_none());
+    }
+
+    #[xmtp_common::test]
+    fn strip_unverified_new_adds_removes_phantom_members() {
+        let mut old = GroupMembership::new();
+        old.add("alice".to_string(), 1);
+
+        let mut new = old.clone();
+        new.add("bob".to_string(), 2);
+        new.add("carol".to_string(), 3);
+
+        // No key packages => both net-new adds are phantom.
+        strip_unverified_new_adds(&mut new, &old, &[]);
+        assert_eq!(new.members, old.members);
+
+        // Identity updates on existing members are preserved even without KPs.
+        new.add("bob".to_string(), 2);
+        new.add("alice".to_string(), 5);
+        strip_unverified_new_adds(&mut new, &old, &[]);
+        assert_eq!(new.get("alice"), Some(&5));
+        assert!(!new.members.contains_key("bob"));
     }
 }
