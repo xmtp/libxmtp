@@ -698,12 +698,22 @@ impl ValidatedCommit {
         // 2. Anyone referenced in an update proposal
         // Satisfies Rule 4
         for participant in credentials_to_verify {
-            let to_sequence_id = new_group_membership
-                .get(&participant.inbox_id)
-                .ok_or(CommitValidationError::SubjectDoesNotExist)?;
+            // `0` is the placeholder `build_starting_group_membership_extension`
+            // writes at group creation, not a real sequence id. No identity
+            // update can have `sequence_id <= 0`, so resolving the association
+            // state *at* 0 fails with `MissingIdentityUpdate` — which is not
+            // retryable, permanently erroring any commit authored before the
+            // first `UpdateGroupMembership` replaces the placeholder. Treat it
+            // as "unset" and use the latest known state, matching how
+            // `get_installation_diff` already reads the old membership side.
+            let to_sequence_id = match new_group_membership.get(&participant.inbox_id) {
+                None => return Err(CommitValidationError::SubjectDoesNotExist),
+                Some(0) => None,
+                Some(sequence_id) => Some(*sequence_id as i64),
+            };
 
             let inbox_state = IdentityUpdates::new(&context)
-                .get_association_state(&conn, &participant.inbox_id, Some(*to_sequence_id as i64))
+                .get_association_state(&conn, &participant.inbox_id, to_sequence_id)
                 .await
                 .map_err(InstallationDiffError::from)?;
 

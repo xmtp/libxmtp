@@ -527,12 +527,18 @@ where
                     Some(i) => Some(*i as i64),
                     None => None,
                 };
+                // `Some(0)` is the group-creation placeholder rather than a real
+                // sequence id, same as `starting_sequence_id` above treats it.
+                let ending_sequence_id = match new_group_membership.get(inbox_id) {
+                    Some(0) | None => None,
+                    Some(sequence_id) => Some(*sequence_id as i64),
+                };
                 let state_diff = self
                     .get_association_state_diff(
                         conn,
                         inbox_id.as_str(),
                         starting_sequence_id,
-                        new_group_membership.get(inbox_id).map(|i| *i as i64),
+                        ending_sequence_id,
                     )
                     .await?;
 
