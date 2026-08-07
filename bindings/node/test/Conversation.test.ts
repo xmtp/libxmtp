@@ -120,12 +120,15 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembersByIdentity([
+    const addByIdentityResult = await conversation.addMembersByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
+    expect(addByIdentityResult.addedMembers[client3.inboxId()]).toBeDefined()
+    expect(addByIdentityResult.removedMembers).toEqual([])
+    expect(addByIdentityResult.failedInstallations).toEqual([])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
@@ -171,7 +174,10 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembers([client3.inboxId()])
+    const addMembersResult = await conversation.addMembers([client3.inboxId()])
+    expect(addMembersResult.addedMembers[client3.inboxId()]).toBeDefined()
+    expect(addMembersResult.removedMembers).toEqual([])
+    expect(addMembersResult.failedInstallations).toEqual([])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
