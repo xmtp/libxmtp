@@ -14,6 +14,7 @@ mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_send_message_opts;
+mod test_starting_membership_sequence_id;
 mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
@@ -2590,16 +2591,9 @@ async fn test_update_policies_empty_group() {
     let policy_set_2 = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group_2 = amal.create_group(policy_set_2, None).unwrap();
 
-    // Verify empty group fails to update metadata before syncing
-    amal_group_2
-        .update_group_name("New Group Name 2".to_string())
-        .await
-        .expect_err("Should fail to update group name before first sync");
-
-    // Sync the group
-    amal_group_2.sync().await.unwrap();
-
-    //Verify we can now update the group name
+    // A solo group still holds the `sequence_id: 0` placeholder. The
+    // placeholder must not block a metadata update. This assertion expected
+    // the failure before. See `test_starting_membership_sequence_id`.
     amal_group_2
         .update_group_name("New Group Name 2".to_string())
         .await
