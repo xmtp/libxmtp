@@ -1250,10 +1250,14 @@ fn expected_diff_matches_commit(
         ));
     }
 
+    // A commit can only remove a leaf that is in the tree. Drop the rest of the
+    // expectation. Without this, a member that still resolves a dictionary entry
+    // with no leaf rejects the commit that removes the entry. The group forks.
     let filtered_expected: HashSet<_> = expected_diff
         .removed_installations
         .iter()
         .filter(|id| !failed_installation_ids.contains(*id))
+        .filter(|id| existing_installation_ids.contains(*id))
         .cloned()
         .collect();
 
