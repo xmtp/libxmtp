@@ -3434,16 +3434,9 @@ where
                     // inbox_id whose installations all failed kp fetch has
                     // no MLS leaf in the commit, so claiming membership
                     // for it would diverge dict and tree state.
-                    let added_inbox_ids: HashSet<String> = changes_with_kps
-                        .new_key_packages
-                        .iter()
-                        .filter_map(|kp| {
-                            let credential =
-                                BasicCredential::try_from(kp.leaf_node().credential().clone())
-                                    .ok()?;
-                            parse_credential(credential.identity()).ok()
-                        })
-                        .collect();
+                    let added_inbox_ids = update_group_membership::inbox_ids_from_new_key_packages(
+                        &changes_with_kps.new_key_packages,
+                    );
                     for inbox_id in &intent_data.add_inbox_ids {
                         if !added_inbox_ids.contains(inbox_id) {
                             continue;
@@ -4201,8 +4194,15 @@ where
                 return Err(GroupError::FailedToVerifyInstallations);
             }
 
+            let mut membership_updates = changed_inbox_ids;
+            update_group_membership::filter_unverified_adds_from_membership_updates(
+                &mut membership_updates,
+                inbox_ids_to_add,
+                &changes_with_kps.new_key_packages,
+            );
+
             Ok(UpdateGroupMembershipIntentData::new(
-                changed_inbox_ids,
+                membership_updates,
                 inbox_ids_to_remove
                     .iter()
                     .map(|s| s.to_string())
