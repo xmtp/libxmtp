@@ -193,15 +193,11 @@ pub(crate) async fn apply_update_group_membership_intent(
         return Ok(None);
     }
 
-    let failed_installations_changed =
-        new_group_membership.failed_installations != old_group_membership.failed_installations;
-
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
         && membership_diff.added_inboxes.is_empty()
         && membership_diff.removed_inboxes.is_empty()
-        && !failed_installations_changed
     {
         return Ok(None);
     }

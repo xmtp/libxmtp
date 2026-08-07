@@ -4194,15 +4194,8 @@ where
                 return Err(GroupError::FailedToVerifyInstallations);
             }
 
-            let mut membership_updates = changed_inbox_ids;
-            update_group_membership::filter_unverified_adds_from_membership_updates(
-                &mut membership_updates,
-                inbox_ids_to_add,
-                &changes_with_kps.new_key_packages,
-            );
-
             Ok(UpdateGroupMembershipIntentData::new(
-                membership_updates,
+                changed_inbox_ids,
                 inbox_ids_to_remove
                     .iter()
                     .map(|s| s.to_string())
