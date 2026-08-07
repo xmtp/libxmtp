@@ -499,6 +499,8 @@ where
             .iter()
             .chain(membership_diff.updated_inboxes.iter());
 
+        // Inboxes that leave are part of this refresh. The skip below needs a
+        // current local log.
         let filters = added_and_updated_members
             .clone()
             .map(|i| {
@@ -507,6 +509,12 @@ where
                     new_group_membership.get(i).map(|i| *i as i64).unwrap_or(0),
                 )
             })
+            .chain(membership_diff.removed_inboxes.iter().map(|i| {
+                (
+                    i.as_str(),
+                    old_group_membership.get(i).map(|i| *i as i64).unwrap_or(0),
+                )
+            }))
             .collect::<Vec<(&str, i64)>>();
 
         load_identity_updates(
@@ -551,7 +559,27 @@ where
             removed_installations.extend(diff.removed_installations());
         }
 
+        let removed_inbox_ids = membership_diff
+            .removed_inboxes
+            .iter()
+            .map(|i| i.as_str())
+            .collect::<Vec<&str>>();
+        let removed_sequence_ids = conn.get_latest_sequence_id(&removed_inbox_ids)?;
+
         for inbox_id in membership_diff.removed_inboxes.iter() {
+            // An inbox with no identity updates has no leaf in the tree. It removes
+            // no installations. If we fail here, the entry stays in the dictionary
+            // forever. An empty log after the refresh above means the inbox has no
+            // identity here. A short log means stale local data, so it still fails:
+            // `get_association_state` needs the exact sequence id.
+            if !removed_sequence_ids.contains_key(inbox_id.as_str()) {
+                tracing::warn!(
+                    %inbox_id,
+                    "Removed inbox has no identity updates. It removes no installations."
+                );
+                continue;
+            }
+
             let state_diff = self
                 .get_association_state(
                     conn,
