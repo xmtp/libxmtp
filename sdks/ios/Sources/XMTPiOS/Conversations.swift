@@ -433,11 +433,6 @@ public class Conversations {
 					)
 				}
 				await ffiStreamActor.setFfiStream(stream)
-				continuation.onTermination = { @Sendable _ in
-					Task {
-						await ffiStreamActor.endStream()
-					}
-				}
 			}
 
 			continuation.onTermination = { @Sendable _ in
