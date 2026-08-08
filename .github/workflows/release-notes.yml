@@ -57,7 +57,7 @@ jobs:
       # claude-code-action exchanges an OIDC token for its GitHub token
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release-branch || github.ref_name }}
           fetch-depth: 0
