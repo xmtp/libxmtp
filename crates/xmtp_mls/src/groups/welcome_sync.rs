@@ -19,6 +19,7 @@ use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
+use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
@@ -510,11 +511,17 @@ fn filter_groups_with_new_messages(
     for (group_id, latest_message_metadata) in latest_messages {
         match last_synced_cursors.get(group_id.as_ref()) {
             Some(cursor) => {
-                // Get the database cursor for the originator ID
-                // or 0 if not found. Compare with the latest message.
-                if cursor.get(&latest_message_metadata.cursor.originator_id)
-                    < latest_message_metadata.cursor.sequence_id
-                {
+                // Check whether the latest message from the server has been seen.
+                let has_unseen_latest = cursor.get(&latest_message_metadata.cursor.originator_id)
+                    < latest_message_metadata.cursor.sequence_id;
+
+                // Every MLS group must have at least one commit (creation commit).
+                // An absent commit cursor while app-message processing is already
+                // underway signals missed commits — trigger a sync to recover them.
+                let has_unsynced_commits = cursor.get(&Originators::APPLICATION_MESSAGES) > 0
+                    && cursor.get(&Originators::MLS_COMMITS) == 0;
+
+                if has_unseen_latest || has_unsynced_commits {
                     groups_with_unread_messages.insert(group_id);
                 }
             }
