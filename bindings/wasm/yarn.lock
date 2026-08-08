@@ -888,8 +888,8 @@ __metadata:
     "@vitest/browser": "npm:^4.1.10"
     "@vitest/browser-playwright": "npm:^4.1.10"
     "@xmtp/content-type-remote-attachment": "npm:^2.0.3"
-    binaryen: "npm:^125.0.0"
-    playwright: "npm:=1.61.1"
+    binaryen: "npm:^131.0.0"
+    playwright: "npm:=1.62.1"
     prettier: "npm:^3.7.4"
     prettier-plugin-packagejson: "npm:^3.0.0"
     tsx: "npm:^4.20.6"
@@ -936,9 +936,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"binaryen@npm:^125.0.0":
-  version: 125.0.0
-  resolution: "binaryen@npm:125.0.0"
+"binaryen@npm:^131.0.0":
+  version: 131.0.0
+  resolution: "binaryen@npm:131.0.0"
   bin:
     wasm-as: bin/wasm-as
     wasm-ctor-eval: bin/wasm-ctor-eval
@@ -949,7 +949,7 @@ __metadata:
     wasm-reduce: bin/wasm-reduce
     wasm-shell: bin/wasm-shell
     wasm2js: bin/wasm2js
-  checksum: 10/9a9a5a019769748cb55882886f81095b1bae14a159266d3b831e42e842c10d9635974ed4b6d76b19c5fbc8069bea22eb58f9989325c3d9790cac10e700a34ab1
+  checksum: 10/0cce22500eca12b999340f6c7bea1e5d3534891fc1c7560cb50fe344844331e3cc39d96f51e65a533128683ca82abf29b6c3caeedd706fae2d170a3cb2aab6d6
   languageName: node
   linkType: hard
 
@@ -1498,27 +1498,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.61.1":
-  version: 1.61.1
-  resolution: "playwright-core@npm:1.61.1"
+"playwright-core@npm:1.62.1":
+  version: 1.62.1
+  resolution: "playwright-core@npm:1.62.1"
   bin:
     playwright-core: cli.js
-  checksum: 10/b0e7b1d4de7ca6c1a57eb88f1709609a8b7637092f149e703d84d6c8e01835992ec5ca26b86f1a32fb5f5bc1aad042c3ae27311e131b3dda8a27824a543eb3c7
+  checksum: 10/2dab88793a6a5cbfa27641664548ded72a4f869d7eab8d3541e070081b5e09595253aa3dbd42eb4e6eca1b03d96a727c60704359b5b309e71ca58b12549a4c06
   languageName: node
   linkType: hard
 
-"playwright@npm:=1.61.1":
-  version: 1.61.1
-  resolution: "playwright@npm:1.61.1"
+"playwright@npm:=1.62.1":
+  version: 1.62.1
+  resolution: "playwright@npm:1.62.1"
   dependencies:
     fsevents: "npm:2.3.2"
-    playwright-core: "npm:1.61.1"
+    playwright-core: "npm:1.62.1"
   dependenciesMeta:
     fsevents:
       optional: true
   bin:
     playwright: cli.js
-  checksum: 10/0cd1a8a7e106202e785450763973bf326d4aa112ed195bbd78b17af43dcfd12e29bc8204ae61c88f748dd0f2bdf69a7827bc3bbf8c1ec4c71b8e35586e05f13c
+  checksum: 10/f99546873ab2545160ad5a0145fef8e2c1d805efd1ba77356f5b0ee3d8688192b3a2af08cd948bece36ca386fdfad889ef7e53b7aaad309940744c0bbccc0a19
   languageName: node
   linkType: hard
 
