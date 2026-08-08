@@ -527,6 +527,12 @@ where
                     Some(i) => Some(*i as i64),
                     None => None,
                 };
+                // This loop reads added and updated inboxes only. They never
+                // hold the creation placeholder. An attacker chooses any `0`
+                // here. Do not copy the `Some(0) => None` line above. Pass the
+                // `0` through. Every receiver then rejects the commit.
+                // `get_installation_diff_rejects_added_inbox_at_sequence_zero`
+                // guards this.
                 let state_diff = self
                     .get_association_state_diff(
                         conn,
@@ -1107,6 +1113,85 @@ pub(crate) mod tests {
             installation_diff
                 .removed_installations
                 .contains(&client_2_installation_key.to_vec())
+        );
+    }
+
+    /// The diff must reject an inbox that a commit adds at `sequence_id: 0`.
+    /// It must not read the receiver's latest identity state. If it does,
+    /// receivers with different identity history fork the group.
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    async fn get_installation_diff_rejects_added_inbox_at_sequence_zero() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let mut signature_request: SignatureRequest = client
+            .identity_updates()
+            .create_inbox(wallet.identifier(), None)
+            .await
+            .unwrap();
+        let inbox_id = signature_request.inbox_id().to_string();
+        add_wallet_signature(&mut signature_request, &wallet).await;
+        client
+            .identity_updates()
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        // This client holds all the identity updates. A read of the latest
+        // state would succeed. So the `0` causes the rejection below.
+        let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let other_conn = other_client.context.db();
+        load_identity_updates(
+            other_client.context.api(),
+            &other_conn,
+            &[inbox_id.as_str()],
+        )
+        .await
+        .expect("load should succeed");
+        let latest_sequence_id = *other_conn
+            .get_latest_sequence_id(&[inbox_id.as_str()])
+            .unwrap()
+            .get(&inbox_id)
+            .unwrap();
+
+        let old_membership = GroupMembership::new();
+
+        // The same add at the real sequence id succeeds.
+        let mut honest_membership = GroupMembership::new();
+        honest_membership.add(inbox_id.clone(), latest_sequence_id as u64);
+        other_client
+            .identity_updates()
+            .get_installation_diff(
+                &other_conn,
+                &GroupId::default(),
+                &old_membership,
+                &honest_membership,
+                &old_membership.diff(&honest_membership),
+            )
+            .await
+            .expect("an add at a real sequence id is valid");
+
+        // Now the attack. Same inbox, same receiver, but sequence id 0.
+        let mut crafted_membership = GroupMembership::new();
+        crafted_membership.add(inbox_id.clone(), 0);
+        let crafted_diff = old_membership.diff(&crafted_membership);
+        assert_eq!(crafted_diff.added_inboxes, vec![&inbox_id]);
+
+        let result = other_client
+            .identity_updates()
+            .get_installation_diff(
+                &other_conn,
+                &GroupId::default(),
+                &old_membership,
+                &crafted_membership,
+                &crafted_diff,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "an inbox added at sequence_id 0 must be rejected, not resolved at latest"
         );
     }
 

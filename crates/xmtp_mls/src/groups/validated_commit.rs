@@ -661,6 +661,7 @@ impl ValidatedCommit {
         .await?;
 
         let ExpectedDiff {
+            old_group_membership,
             new_group_membership,
             expected_installation_diff,
             added_inboxes,
@@ -698,12 +699,19 @@ impl ValidatedCommit {
         // 2. Anyone referenced in an update proposal
         // Satisfies Rule 4
         for participant in credentials_to_verify {
-            let to_sequence_id = new_group_membership
-                .get(&participant.inbox_id)
-                .ok_or(CommitValidationError::SubjectDoesNotExist)?;
+            // `0` is the placeholder written at group creation, not a real
+            // sequence id. Keep the `old == 0` guard. Without it, a commit can
+            // choose the 0. Each receiver then resolves the credential at its
+            // own identity tip. Two receivers can disagree and fork the group.
+            let inbox_id = &participant.inbox_id;
+            let to_sequence_id = match new_group_membership.get(inbox_id) {
+                None => return Err(CommitValidationError::SubjectDoesNotExist),
+                Some(0) if old_group_membership.get(inbox_id) == Some(&0) => None,
+                Some(sequence_id) => Some(*sequence_id as i64),
+            };
 
             let inbox_state = IdentityUpdates::new(&context)
-                .get_association_state(&conn, &participant.inbox_id, Some(*to_sequence_id as i64))
+                .get_association_state(&conn, &participant.inbox_id, to_sequence_id)
                 .await
                 .map_err(InstallationDiffError::from)?;
 
@@ -1007,6 +1015,8 @@ fn get_latest_group_membership(
 }
 
 struct ExpectedDiff {
+    /// The membership before this commit. The commit cannot change it.
+    old_group_membership: GroupMembership,
     new_group_membership: GroupMembership,
     expected_installation_diff: InstallationDiff,
     added_inboxes: Vec<Inbox>,
@@ -1170,6 +1180,7 @@ impl ExpectedDiff {
             .await?;
 
         Ok(ExpectedDiff {
+            old_group_membership,
             new_group_membership,
             expected_installation_diff,
             added_inboxes,
