@@ -16,10 +16,10 @@ use std::sync::{
 };
 use xmtp_common::Event;
 use xmtp_common::{Retry, RetryableError, retry_async};
+use xmtp_configuration::Originators;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
-use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
