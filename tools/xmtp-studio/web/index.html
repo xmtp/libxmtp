@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LibXMTP Studio • MLS E2E Encrypted Messaging & XIP-46</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="logo-badge">
+        <span class="logo-glow"></span>
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">LIBXMTP <span class="badge-mls">MLS ENCRYPTION</span></h1>
+        <p class="brand-subtitle">Extensible Message Transport Protocol • IETF MLS (RFC 9420) & XIP-46</p>
+      </div>
+    </div>
+
+    <!-- Security Pill -->
+    <div class="security-pill">
+      <span class="pulse-dot"></span>
+      <span>HPKE Forward Secrecy</span>
+      <span class="mls-tag">Epoch Ratchet Active</span>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="nav-tabs">
+    <button class="nav-tab active" data-tab="messaging">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+      MLS Encrypted Messaging
+    </button>
+    <button class="nav-tab" data-tab="identity">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+      XIP-46 Identity Keys
+    </button>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Tab 1: Messaging -->
+    <section id="tab-messaging" class="tab-pane active">
+      <div class="hero-card">
+        <div class="hero-content">
+          <div class="pill-highlight">🔒 Web3 & AI Agent Encrypted Transport</div>
+          <h2>Messaging Layer Security (MLS) Protocol</h2>
+          <p>
+            LibXMTP provides forward-secure, end-to-end group message encryption using Messaging Layer Security (MLS) and epoch key ratcheting.
+          </p>
+        </div>
+      </div>
+
+      <div class="layout-grid mt-4">
+        <!-- Message Form -->
+        <div class="card">
+          <div class="card-header">
+            <h3>💬 Send Encrypted Message</h3>
+          </div>
+
+          <form id="msg-form" class="token-form">
+            <div class="form-group">
+              <label>Select Target MLS Group</label>
+              <select id="select-group" class="form-input"></select>
+            </div>
+
+            <div class="form-group">
+              <label>Message Content</label>
+              <input type="text" id="input-text" class="form-input" placeholder="Enter message text..." required />
+            </div>
+
+            <button type="submit" class="btn btn-gradient btn-lg mt-2" id="btn-send-msg">
+              🔒 Encrypt & Send via XMTP
+            </button>
+          </form>
+
+          <div id="msg-result-box" class="mt-3"></div>
+        </div>
+
+        <!-- Live Encrypted Stream Ledger -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📜 Real-Time Encrypted Stream & Ratchet</h3>
+          </div>
+          <div class="ledger-list" id="messages-container">
+            <div class="empty-state">Send a message to view the MLS cipher stream.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Identity -->
+    <section id="tab-identity" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <h3>🔐 XIP-46 Multi-Wallet Key Association</h3>
+        </div>
+
+        <form id="identity-form" class="token-form">
+          <div class="form-group">
+            <label>EVM Wallet Address</label>
+            <input type="text" id="identity-wallet" class="form-input mono" placeholder="0xWalletAddress..." required />
+          </div>
+
+          <button type="submit" class="btn btn-gradient btn-lg mt-3">
+            🔐 Generate MLS Installation Key Pair
+          </button>
+        </form>
+
+        <div class="json-inspector mt-3">
+          <div class="inspector-header"><span>XIP-46 Registered Identity Key Set</span></div>
+          <pre id="identity-json-box">Click "Generate MLS Installation Key Pair" to view output.</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>LibXMTP Studio • XMTP Ecosystem Open-Source Core • Rust & MLS Protocol</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
