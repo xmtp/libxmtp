@@ -839,6 +839,7 @@ impl XmtpKeyPackageBuilder {
             Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
         let leaf_node_extensions = Extensions::<LeafNode>::single(application_id)?;
 
+        #[allow(unused_mut)]
         let mut capability_extensions = vec![
             ExtensionType::LastResort,
             ExtensionType::ApplicationId,
