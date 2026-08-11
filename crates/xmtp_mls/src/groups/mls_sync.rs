@@ -4545,11 +4545,16 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         .removed_installations
         .retain(|item| !common.contains(item));
 
+    // This field is a set, but `GroupMembership`'s `PartialEq` compares it as
+    // an ordered `Vec`. Sort it. An unchanged set must always compare equal.
+    let mut failed_installations: Vec<Vec<u8>> = failed_installations.into_iter().collect();
+    failed_installations.sort_unstable();
+
     Ok(MembershipDiffWithKeyPackages::new(
         new_installations,
         new_key_packages,
         installation_diff.removed_installations,
-        failed_installations.into_iter().collect(),
+        failed_installations,
     ))
 }
 

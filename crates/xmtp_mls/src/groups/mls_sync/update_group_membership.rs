@@ -171,7 +171,7 @@ pub(crate) async fn apply_update_group_membership_intent(
     let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
 
     let group_id = GroupId::try_from(openmls_group.group_id())?;
-    let changes_with_kps = calculate_membership_changes_with_keypackages(
+    let mut changes_with_kps = calculate_membership_changes_with_keypackages(
         context,
         &group_id,
         &new_group_membership,
@@ -194,6 +194,8 @@ pub(crate) async fn apply_update_group_membership_intent(
         return Ok(None);
     }
 
+    // Run this guard before the writeback below. A change that only moves
+    // `failed_installations` must not make an empty commit.
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
@@ -202,6 +204,23 @@ pub(crate) async fn apply_update_group_membership_intent(
     {
         return Ok(None);
     }
+
+    // The publish-time fetch decides which Add proposals exist. The intent's
+    // list is older, so it can be wrong. Union the two lists; do not assign.
+    // The fetch drops ids that this commit also removes.
+    // `expected_diff_matches_commit` needs those ids. They explain a removal
+    // that the commit could not make. Assign breaks
+    // `test_remove_inbox_with_bad_installation_from_group`.
+    let mut failed_installations: HashSet<Vec<u8>> =
+        std::mem::take(&mut new_group_membership.failed_installations)
+            .into_iter()
+            .collect();
+    failed_installations.extend(std::mem::take(&mut changes_with_kps.failed_installations));
+    let mut failed_installations: Vec<Vec<u8>> = failed_installations.into_iter().collect();
+    // `PartialEq` compares this field as an ordered `Vec`.
+    // `extensions_changed` uses that result to decide if it needs a GCE.
+    failed_installations.sort_unstable();
+    new_group_membership.failed_installations = failed_installations;
 
     // Detect whether this is a migrated group. On migrated groups the
     // legacy `GROUP_MEMBERSHIP_EXTENSION_ID` is gone and the
