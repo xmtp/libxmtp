@@ -2771,3 +2771,43 @@ fn test_min_expire_at_ns() {
         assert_eq!(conn.min_expire_at_ns()?, Some(3_000));
     })
 }
+
+#[xmtp_common::test]
+fn test_messages_with_reactions_returns_all_non_reaction_content_types() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        // Store one message of every content type. Reactions are the only
+        // kind the caller expects to be folded into `reactions` instead of
+        // being returned as a top-level message.
+        let all_types = ContentType::all();
+        for (i, content_type) in all_types.iter().enumerate() {
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000 + i as i64),
+                Some(*content_type),
+                None,
+                None,
+            )
+            .store(conn)
+            .unwrap();
+        }
+
+        let returned = conn
+            .get_group_messages_with_reactions(&group.id, &MsgQueryArgs::default())
+            .unwrap();
+
+        let returned_types: Vec<ContentType> =
+            returned.iter().map(|m| m.message.content_type).collect();
+
+        for content_type in all_types.iter().filter(|t| **t != ContentType::Reaction) {
+            assert!(
+                returned_types.contains(content_type),
+                "{content_type:?} message was dropped from get_group_messages_with_reactions"
+            );
+        }
+        assert_eq!(returned.len(), all_types.len() - 1);
+    })
+}

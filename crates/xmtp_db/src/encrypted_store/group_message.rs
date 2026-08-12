@@ -1040,26 +1040,13 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         // First get all the main messages
         let mut modified_args = args.clone();
         // filter out reactions from the main query so we don't get them twice
-        let content_types = match modified_args.content_types.clone() {
-            Some(content_types) => {
-                let mut content_types = content_types.clone();
-                content_types.retain(|content_type| *content_type != ContentType::Reaction);
-                Some(content_types)
-            }
-            None => Some(vec![
-                ContentType::Text,
-                ContentType::GroupMembershipChange,
-                ContentType::GroupUpdated,
-                ContentType::ReadReceipt,
-                ContentType::Reply,
-                ContentType::Attachment,
-                ContentType::RemoteAttachment,
-                ContentType::TransactionReference,
-                ContentType::Unknown,
-            ]),
-        };
+        let mut content_types = modified_args
+            .content_types
+            .clone()
+            .unwrap_or_else(ContentType::all);
+        content_types.retain(|content_type| *content_type != ContentType::Reaction);
 
-        modified_args.content_types = content_types;
+        modified_args.content_types = Some(content_types);
         let messages = self.get_group_messages(group_id, &modified_args)?;
 
         // Then get all reactions for these messages in a single query
