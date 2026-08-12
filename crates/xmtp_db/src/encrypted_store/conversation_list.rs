@@ -188,7 +188,17 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
         };
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
-        let includes_all = effective_consent_states.len() == 3;
+        // "All states requested" means the request covers every distinct
+        // ConsentState, not merely that it has three elements — a caller passing
+        // duplicates (e.g. `[Allowed, Allowed, Allowed]`) must not be treated as
+        // an unfiltered query and leak Denied/Unknown conversations.
+        let includes_all = [
+            ConsentState::Allowed,
+            ConsentState::Denied,
+            ConsentState::Unknown,
+        ]
+        .iter()
+        .all(|state| effective_consent_states.contains(state));
 
         let filtered_states: Vec<_> = effective_consent_states
             .iter()
@@ -480,6 +490,61 @@ pub(crate) mod tests {
                 })
                 .unwrap();
             assert_eq!(empty_array_results.len(), 3);
+        })
+    }
+
+    // A consent_states list with duplicates that does not cover all three
+    // distinct states must still filter. Previously `includes_all` was
+    // `len() == 3`, so `[Allowed, Allowed, Allowed]` was mistaken for "all
+    // states" and returned Denied/Unknown conversations the caller did not ask
+    // for.
+    #[xmtp_common::test]
+    fn test_find_conversations_consent_duplicates_do_not_disable_filter() {
+        with_connection(|conn| {
+            let allowed = generate_group(Some(GroupMembershipState::Allowed));
+            allowed.store(conn).unwrap();
+            let denied = generate_group(Some(GroupMembershipState::Allowed));
+            denied.store(conn).unwrap();
+            let unknown = generate_group(Some(GroupMembershipState::Allowed));
+            unknown.store(conn).unwrap();
+
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(allowed.id),
+            )
+            .store(conn)
+            .unwrap();
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(denied.id),
+            )
+            .store(conn)
+            .unwrap();
+            // `unknown` intentionally has no consent record.
+
+            // Three elements, but only the Allowed state is covered.
+            let results = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![
+                        ConsentState::Allowed,
+                        ConsentState::Allowed,
+                        ConsentState::Allowed,
+                    ]),
+                    ..Default::default()
+                })
+                .unwrap();
+
+            let ids: Vec<_> = results.iter().map(|g| g.id.clone()).collect();
+            assert_eq!(
+                results.len(),
+                1,
+                "duplicate Allowed states must not disable consent filtering"
+            );
+            assert!(ids.contains(&allowed.id));
+            assert!(!ids.contains(&denied.id));
+            assert!(!ids.contains(&unknown.id));
         })
     }
 
