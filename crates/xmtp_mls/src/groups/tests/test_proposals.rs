@@ -3636,6 +3636,75 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
     }
 }
 
+/// A non-member inbox_id must not be promotable to admin/super-admin via
+/// `update_admin_list`. Before this fix, `validate_proposal`'s GCE branch
+/// only checked that the proposer had permission to grant admin rights —
+/// it never checked that the inbox_id being granted those rights was
+/// actually a group member. caro here is never added to the group at
+/// all, so the commit must be rejected the same way
+/// `test_inline_app_data_update_denied_by_registry_policy` pins a
+/// registry-policy denial: `Err(GroupError::Sync(summary))` carrying
+/// `CommitValidationError::InsufficientPermissions` in
+/// `summary.process.errored`, with the admin list left unchanged.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_admin_list_add_rejects_non_member_inbox_id() {
+    use crate::groups::{
+        GroupError, UpdateAdminListType, mls_sync::GroupMessageProcessingError,
+        validated_commit::CommitValidationError,
+    };
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    // caro is intentionally NOT a member of this group.
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups.first()?;
+    bo_group.sync().await?;
+
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    let original_admin_list = alix_group.mutable_metadata()?.admin_list;
+
+    let result = alix_group
+        .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
+        .await;
+    let Err(GroupError::Sync(summary)) = result else {
+        panic!("expected Err(GroupError::Sync(_)), got {result:?}");
+    };
+    assert!(
+        summary.process.errored.iter().any(|(_, e)| matches!(
+            e,
+            GroupMessageProcessingError::CommitValidation(
+                CommitValidationError::InsufficientPermissions
+            )
+        )),
+        "summary should carry the CommitValidation cause, got: {summary}"
+    );
+
+    bo_group.sync().await?;
+    for (label, meta) in [
+        ("alix", alix_group.mutable_metadata()?),
+        ("bo", bo_group.mutable_metadata()?),
+    ] {
+        assert_eq!(
+            meta.admin_list, original_admin_list,
+            "{label} admin_list should be unchanged after the rejected add",
+        );
+        assert!(
+            !meta.admin_list.contains(&caro.inbox_id().to_string()),
+            "{label} should not see non-member caro as admin, admin_list={:?}",
+            meta.admin_list,
+        );
+    }
+}
+
 /// Round-trip: add then remove. With the real bootstrap commit the
 /// immutable seeds are in the dict, so the second `update_admin_list`
 /// call's `metadata()` read works on the migrated group.
