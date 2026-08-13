@@ -3,6 +3,11 @@ name: NPM Publish
 on:
   workflow_call:
     inputs:
+      ref:
+        description: 'Git ref to check out, package, and tag. Defaults to the workflow run ref; callers building a different ref MUST pass it or the version stamp and tag land on the wrong commit.'
+        required: false
+        type: string
+        default: ''
       package-dir:
         description: 'Path to the npm package directory'
         required: true
@@ -69,6 +74,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}

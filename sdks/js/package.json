@@ -5,12 +5,13 @@
   "type": "module",
   "packageManager": "yarn@4.10.3",
   "workspaces": [
+    "agent-sdk",
     "browser-sdk",
     "node-sdk"
   ],
   "scripts": {
-    "typecheck": "yarn workspaces foreach -A run typecheck",
-    "build": "yarn workspaces foreach -A run build",
+    "typecheck": "yarn workspaces foreach -At run typecheck",
+    "build": "yarn workspaces foreach -At run build",
     "lint": "eslint .",
     "test": "yarn workspaces foreach -A run test"
   },
