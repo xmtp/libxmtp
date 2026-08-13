@@ -116,6 +116,12 @@ export const createStream = async <T = unknown, V = T>(
   let currentCloser: StreamCloser | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retryInFlight = false;
+  // set when a restart's native stream closes during its own creation, so the
+  // completed attempt reschedules instead of installing an already-dead closer
+  let closePendingDuringRestart = false;
+  // read through a call so no-unnecessary-condition cannot narrow the flag to
+  // a constant; handleNativeClose mutates it across an await
+  const isClosePending = () => closePendingDuringRestart;
   // the retry budget is monotonic: it is never reset for the lifetime of
   // this wrapper, so restarts are bounded even across successful restarts
   let remainingRetries = retryAttempts;
@@ -127,6 +133,7 @@ export const createStream = async <T = unknown, V = T>(
       return;
     }
     stopped = true;
+    closePendingDuringRestart = false;
     if (retryTimer !== undefined) {
       clearTimeout(retryTimer);
       retryTimer = undefined;
@@ -221,8 +228,17 @@ export const createStream = async <T = unknown, V = T>(
       retryInFlight = false;
       return;
     }
+    // scope the pending-close flag to this attempt: a close recorded while the
+    // retry timer was merely pending belongs to the stream that scheduled it
+    closePendingDuringRestart = false;
     remainingRetries -= 1;
     onRetry?.(retryAttempts - remainingRetries, retryAttempts);
+    if (isStopped()) {
+      // onRetry may have ended the stream; do not open a native stream after
+      // termination
+      retryInFlight = false;
+      return;
+    }
     try {
       // attempt to restart the stream
       const streamCloser = await streamFunction(
@@ -241,6 +257,15 @@ export const createStream = async <T = unknown, V = T>(
         retryInFlight = false;
         return;
       }
+      if (isClosePending()) {
+        // the replacement stream closed during its own creation; discard it
+        // and schedule a fresh attempt instead of installing a dead closer
+        closePendingDuringRestart = false;
+        streamCloser.end();
+        retryInFlight = false;
+        scheduleRetry();
+        return;
+      }
       currentCloser = streamCloser;
       retryInFlight = false;
       // stream restarted, call the onRestart callback
@@ -250,6 +275,7 @@ export const createStream = async <T = unknown, V = T>(
       if (isStopped()) {
         return;
       }
+      closePendingDuringRestart = false;
       onError?.(error as Error);
       scheduleRetry();
     }
@@ -264,6 +290,13 @@ export const createStream = async <T = unknown, V = T>(
     currentCloser = undefined;
     onFail?.();
     if (retryOnFail) {
+      // a native close during an in-flight restart is dropped by the
+      // single-flight guard; record it so the completed attempt reschedules
+      // instead of installing a stream that already died
+      if (retryInFlight) {
+        closePendingDuringRestart = true;
+        return;
+      }
       scheduleRetry();
     } else {
       fail(new StreamFailedError(0));
