@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   StreamFailedError,
   StreamInvalidRetryAttemptsError,
@@ -807,5 +807,326 @@ describe("createStream", () => {
       });
       await stream.end();
     });
+  });
+});
+
+type StreamInstance = {
+  callback: StreamCallback<number>;
+  onFail: () => void;
+  closer: ReturnType<typeof vi.fn>;
+};
+
+// Captures every native stream created by createStream so tests can drive
+// the value callback and the native close (onFail) callback directly.
+const makeHarness = () => {
+  const instances: StreamInstance[] = [];
+  const streamFunction = vi.fn(
+    async (callback: StreamCallback<number>, onFail: () => void) => {
+      const closer = vi.fn();
+      instances.push({ callback, onFail, closer });
+      return closer as () => void;
+    },
+  );
+  const last = () => instances[instances.length - 1];
+  return { instances, streamFunction, last };
+};
+
+describe("createStream lifecycle", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not restart after end() during a pending retry", async () => {
+    const { streamFunction, last } = makeHarness();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      retryDelay: 1000,
+    });
+
+    // native close schedules a retry
+    last().onFail();
+    // consumer ends the stream before the retry delay expires
+    await stream.end();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(streamFunction).toHaveBeenCalledTimes(1);
+    // the pending retry timer must be cancelled
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("immediately closes a native stream created after end()", async () => {
+    const instances: StreamInstance[] = [];
+    let resolveSecond!: (closer: () => void) => void;
+    const secondCloser = vi.fn();
+    const streamFunction = vi.fn(
+      (callback: StreamCallback<number>, onFail: () => void) => {
+        if (instances.length === 0) {
+          const closer = vi.fn();
+          instances.push({ callback, onFail, closer });
+          return Promise.resolve(closer as () => void);
+        }
+        // second call: retry creation stays in flight until the test resolves it
+        instances.push({ callback, onFail, closer: secondCloser });
+        return new Promise<() => void>((resolve) => {
+          resolveSecond = resolve;
+        });
+      },
+    );
+    const onRestart = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onRestart,
+      retryDelay: 1000,
+    });
+
+    // native close schedules a retry, then the retry enters streamFunction
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(streamFunction).toHaveBeenCalledTimes(2);
+
+    // consumer ends the stream while the retry creation is in flight
+    await stream.end();
+    resolveSecond(secondCloser as () => void);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(secondCloser).toHaveBeenCalled();
+    expect(onRestart).not.toHaveBeenCalled();
+  });
+
+  it("suppresses onValue and onError after end()", async () => {
+    const { instances, streamFunction } = makeHarness();
+    const onValue = vi.fn();
+    const onError = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onError,
+      onValue,
+    });
+
+    await stream.end();
+    instances[0].callback(null, 1);
+    instances[0].callback(new Error("boom"), undefined);
+
+    expect(onValue).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not emit a value whose async mutation resolves after end()", async () => {
+    const { instances, streamFunction } = makeHarness();
+    let resolveMutation!: (value: number) => void;
+    const mutator = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    const onValue = vi.fn();
+    const stream = await createStream<number, number>(streamFunction, mutator, {
+      onValue,
+    });
+
+    // a value arrives and its async mutation is in flight
+    instances[0].callback(null, 1);
+    await stream.end();
+    resolveMutation(2);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onValue).not.toHaveBeenCalled();
+  });
+
+  it("allows only one retry in flight per stream", async () => {
+    const { streamFunction, last } = makeHarness();
+    await createStream<number>(streamFunction, undefined, {
+      retryDelay: 1000,
+    });
+
+    // multiple native close callbacks before the retry timer expires
+    last().onFail();
+    last().onFail();
+    last().onFail();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // initial stream + exactly one replacement
+    expect(streamFunction).toHaveBeenCalledTimes(2);
+  });
+
+  it("stays silent when end() precedes the native close callback", async () => {
+    const { instances, streamFunction } = makeHarness();
+    const onError = vi.fn();
+    const onFail = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onError,
+      onFail,
+      retryDelay: 1000,
+    });
+
+    await stream.end();
+    // ending the native stream triggers its close callback
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(onFail).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(streamFunction).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays silent when end() precedes the native close callback with retryOnFail disabled", async () => {
+    const { instances, streamFunction } = makeHarness();
+    const onError = vi.fn();
+    const onFail = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onError,
+      onFail,
+      retryOnFail: false,
+    });
+
+    await stream.end();
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(onFail).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(streamFunction).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops retrying after the retry budget is exhausted", async () => {
+    const { streamFunction, last } = makeHarness();
+    const onError = vi.fn();
+    const onRestart = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onError,
+      onRestart,
+      retryAttempts: 3,
+      retryDelay: 1000,
+    });
+
+    // three failures, three successful restarts
+    for (let i = 0; i < 3; i++) {
+      last().onFail();
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(streamFunction).toHaveBeenCalledTimes(4);
+    expect(onRestart).toHaveBeenCalledTimes(3);
+
+    // the budget is monotonic: the next failure is terminal
+    last().onFail();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(streamFunction).toHaveBeenCalledTimes(4);
+    expect(onError).toHaveBeenCalledWith(expect.any(StreamFailedError));
+    expect(stream.isDone).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("counts failed restart attempts against the retry budget", async () => {
+    const instances: StreamInstance[] = [];
+    const streamFunction = vi.fn(
+      (callback: StreamCallback<number>, onFail: () => void) => {
+        if (instances.length === 0) {
+          const closer = vi.fn();
+          instances.push({ callback, onFail, closer });
+          return Promise.resolve(closer as () => void);
+        }
+        // every restart attempt fails to create a stream
+        return Promise.reject(new Error("creation failed"));
+      },
+    );
+    const onError = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onError,
+      retryAttempts: 2,
+      retryDelay: 1000,
+    });
+
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    // initial stream + two failed restart attempts
+    expect(streamFunction).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledWith(expect.any(StreamFailedError));
+    expect(stream.isDone).toBe(true);
+  });
+
+  it("restarts the stream after a failure and continues delivering values", async () => {
+    const { instances, streamFunction, last } = makeHarness();
+    const onValue = vi.fn();
+    const onRestart = vi.fn();
+    const onRetry = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onRestart,
+      onRetry,
+      onValue,
+      retryDelay: 1000,
+    });
+
+    last().onFail();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(streamFunction).toHaveBeenCalledTimes(2);
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledWith(1, 6);
+
+    // values flow through the replacement stream
+    last().callback(null, 42);
+    expect(onValue).toHaveBeenCalledWith(42);
+
+    // end() closes the replacement stream, not the original
+    await stream.end();
+    expect(instances[1].closer).toHaveBeenCalled();
+  });
+
+  it("invokes onEnd once when the stream ends twice", async () => {
+    const { streamFunction } = makeHarness();
+    const onEnd = vi.fn();
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onEnd,
+    });
+
+    await stream.end();
+    await stream.end();
+
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends the stream even when onError throws at terminal failure", async () => {
+    const { instances, streamFunction } = makeHarness();
+    const onError = vi.fn(() => {
+      throw new Error("consumer onError threw");
+    });
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onError,
+      retryAttempts: 0,
+      retryDelay: 1000,
+    });
+
+    // the exhausted-budget native close triggers a terminal failure; a
+    // throwing consumer onError must not prevent the stream from ending
+    expect(() => instances[0].onFail()).toThrow("consumer onError threw");
+
+    expect(onError).toHaveBeenCalledWith(expect.any(StreamFailedError));
+    expect(stream.isDone).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("suppresses onValue when a sync mutator ends the stream", async () => {
+    const { instances, streamFunction } = makeHarness();
+    const onValue = vi.fn();
+    const streamRef: { end?: () => Promise<unknown> } = {};
+    const mutator = vi.fn((value: number) => {
+      // a synchronous mutator that ends the stream, then returns a value
+      void streamRef.end?.();
+      return value * 2;
+    });
+    const stream = await createStream<number, number>(streamFunction, mutator, {
+      onValue,
+    });
+    streamRef.end = () => stream.end();
+
+    // drive a value after the proxy exists so the mutator can end the stream
+    instances[0].callback(null, 1);
+
+    expect(mutator).toHaveBeenCalled();
+    expect(onValue).not.toHaveBeenCalled();
   });
 });

@@ -10,8 +10,6 @@ const isPromise = <T = unknown>(value: unknown): value is Promise<T> => {
   );
 };
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export const DEFAULT_RETRY_DELAY = 10000; // milliseconds
 export const DEFAULT_RETRY_ATTEMPTS = 6;
 
@@ -81,6 +79,9 @@ export type StreamValueMutator<T = unknown, V = T> = (
  *
  * If the stream fails, an attempt will be made to restart it.
  *
+ * Ending the stream is terminal: no callbacks are invoked and no native
+ * stream is created after the stream ends.
+ *
  * This function is not intended to be used directly.
  *
  * @param streamFunction - The stream function to create a stream from
@@ -113,7 +114,56 @@ export const createStream = async <T = unknown, V = T>(
   }
 
   const asyncStream = new AsyncStream<V>();
+
+  // lifecycle state, owned by this wrapper
+  let stopped = false;
+  // reading the flag through a function call defeats TS control-flow
+  // narrowing, which cannot see the closure mutation across awaits
+  const isStopped = () => stopped;
+  let currentCloser: (() => void) | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryInFlight = false;
+  // the retry budget is monotonic: it is never reset for the lifetime of
+  // this wrapper, so restarts are bounded even across successful restarts
+  let remainingRetries = retryAttempts;
+
+  // terminal transition: cancel any pending retry, close the active native
+  // stream, and notify onEnd exactly once
+  const stop = () => {
+    if (isStopped()) {
+      return;
+    }
+    stopped = true;
+    if (retryTimer !== undefined) {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+    }
+    currentCloser?.();
+    currentCloser = undefined;
+    onEnd?.();
+  };
+  // registered before any async work so ending the stream is always terminal,
+  // even while a retry is pending or a native stream is being created
+  asyncStream.onDone = stop;
+
+  const fail = (error: Error) => {
+    if (isStopped()) {
+      return;
+    }
+    // the terminal transition must run even if onError throws, otherwise a
+    // throwing consumer callback leaves the stream open and hangs next()
+    try {
+      onError?.(error);
+    } finally {
+      void asyncStream.end();
+    }
+  };
+
   const streamCallback: StreamCallback<T> = (error, value) => {
+    // an ended stream must not invoke any callbacks
+    if (isStopped()) {
+      return;
+    }
     // if a stream error occurs, call the onError callback
     if (error) {
       onError?.(error);
@@ -128,16 +178,21 @@ export const createStream = async <T = unknown, V = T>(
           if (isPromise(mutatedValue)) {
             void mutatedValue
               .then((mutatedValue) => {
-                if (mutatedValue !== undefined) {
+                // the stream may have ended while the value was mutating
+                if (!isStopped() && mutatedValue !== undefined) {
                   asyncStream.push(mutatedValue);
                   onValue?.(mutatedValue);
                 }
               })
               .catch((error: unknown) => {
-                onError?.(error as Error);
+                if (!isStopped()) {
+                  onError?.(error as Error);
+                }
               });
           } else {
-            if (mutatedValue !== undefined) {
+            // a synchronous mutator may have ended the stream; gate delivery
+            // on the stopped flag to match the async branch above
+            if (!isStopped() && mutatedValue !== undefined) {
               asyncStream.push(mutatedValue);
               onValue?.(mutatedValue);
             }
@@ -151,45 +206,66 @@ export const createStream = async <T = unknown, V = T>(
       }
     }
   };
-  const retry = async (retries: number = retryAttempts) => {
+
+  const scheduleRetry = () => {
+    // at most one retry may be in flight per wrapper
+    if (isStopped() || retryInFlight) {
+      return;
+    }
+    if (remainingRetries <= 0) {
+      fail(new StreamFailedError(retryAttempts));
+      return;
+    }
+    retryInFlight = true;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      void attemptRestart();
+    }, retryDelay);
+  };
+
+  const attemptRestart = async () => {
+    if (isStopped()) {
+      retryInFlight = false;
+      return;
+    }
+    remainingRetries -= 1;
+    onRetry?.(retryAttempts - remainingRetries, retryAttempts);
     try {
-      // if the stream has been retried the maximum number of times without
-      // success, throw an error
-      if (retries === 0) {
-        void asyncStream.end();
-        throw new StreamFailedError(retryAttempts);
-      }
-
-      // wait for the retry delay before attempting to restart the stream
-      await wait(retryDelay);
-      // call the onRetry callback
-      onRetry?.(retryAttempts - retries + 1, retryAttempts);
-
       // attempt to restart the stream
-      const streamCloser = await streamFunction(streamCallback, () => {
-        // call the onFail callback
-        onFail?.();
-        void retry();
-      });
-
-      // when the async stream is done, end the stream
-      asyncStream.onDone = () => {
+      const streamCloser = await streamFunction(
+        streamCallback,
+        handleNativeClose,
+      );
+      if (isStopped()) {
+        // the stream ended while the native stream was being created
         streamCloser();
-        onEnd?.();
-      };
-
+        retryInFlight = false;
+        return;
+      }
+      currentCloser = streamCloser;
+      retryInFlight = false;
       // stream restarted, call the onRestart callback
       onRestart?.();
     } catch (error) {
+      retryInFlight = false;
+      if (isStopped()) {
+        return;
+      }
       onError?.(error as Error);
-      // retry
-      void retry(retries - 1);
+      scheduleRetry();
     }
   };
-  const startRetry = () => {
-    // if the stream should be retried, start the process
+
+  const handleNativeClose = () => {
+    // ending the stream closes the native stream, which still triggers this
+    // callback; only an unexpected close is a failure
+    if (isStopped()) {
+      return;
+    }
+    currentCloser = undefined;
+    onFail?.();
     if (retryOnFail) {
-      void retry();
+      scheduleRetry();
     } else {
       void asyncStream.end();
       // stream failed and should not be retried, throw an error
@@ -199,19 +275,24 @@ export const createStream = async <T = unknown, V = T>(
 
   try {
     // create the stream
-    const streamCloser = await streamFunction(streamCallback, () => {
-      // call the onFail callback
-      onFail?.();
-      startRetry();
-    });
-    // when the async stream is done, end the stream
-    asyncStream.onDone = () => {
+    const streamCloser = await streamFunction(
+      streamCallback,
+      handleNativeClose,
+    );
+    if (isStopped()) {
       streamCloser();
-      onEnd?.();
-    };
+    } else {
+      currentCloser = streamCloser;
+    }
   } catch (error) {
     onError?.(error as Error);
-    startRetry();
+    if (retryOnFail) {
+      scheduleRetry();
+    } else {
+      void asyncStream.end();
+      // stream failed and should not be retried, throw an error
+      throw new StreamFailedError(0);
+    }
   }
 
   // return a proxy for the async stream
