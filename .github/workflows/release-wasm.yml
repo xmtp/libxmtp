@@ -102,6 +102,7 @@ jobs:
     needs: [setup, build]
     uses: ./.github/workflows/npm-publish.yml
     with:
+      ref: ${{ inputs.ref }}
       package-dir: bindings/wasm
       sdk: wasm-bindings
       version: ${{ needs.setup.outputs.version }}

@@ -86,6 +86,23 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     releaseWorkflow: "release-node-sdk.yml",
     channels: ["nightly", "rc", "final"],
   },
+  [Sdk.AgentSdk]: {
+    name: "Agent SDK",
+    manifestPath: "sdks/js/agent-sdk/package.json",
+    tagPrefix: "agent-sdk-",
+    artifactTagSuffix: "",
+    manifest: createPackageJsonManifestProvider("sdks/js/agent-sdk/package.json"),
+    versionTrack: "independent",
+    notesIncludeGlobs: ["sdks/js/agent-sdk/**"],
+    notesExcludeGlobs: [
+      "crates/**",
+      "bindings/**",
+      "sdks/js/node-sdk/**",
+      "sdks/js/browser-sdk/**",
+    ],
+    releaseWorkflow: "release-agent-sdk.yml",
+    channels: ["nightly", "rc", "final"],
+  },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",
     manifestPath: "Cargo.toml",

@@ -5,6 +5,7 @@ export enum Sdk {
   WasmBindings = "wasm-bindings",
   BrowserSdk = "browser-sdk",
   NodeSdk = "node-sdk",
+  AgentSdk = "agent-sdk",
   Libxmtp = "libxmtp",
 }
 

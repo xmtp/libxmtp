@@ -1430,6 +1430,29 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@xmtp/agent-sdk@workspace:agent-sdk":
+  version: 0.0.0-use.local
+  resolution: "@xmtp/agent-sdk@workspace:agent-sdk"
+  dependencies:
+    "@rollup/plugin-json": "npm:^6.1.0"
+    "@rollup/plugin-typescript": "npm:^12.3.0"
+    "@types/node": "npm:^24.10.9"
+    "@vitest/coverage-v8": "npm:^4.0.18"
+    "@xmtp/content-type-primitives": "npm:3.0.1"
+    "@xmtp/node-sdk": "workspace:^"
+    rollup: "npm:^4.59.0"
+    rollup-plugin-dts: "npm:^6.3.0"
+    rollup-plugin-tsconfig-paths: "npm:^1.5.2"
+    ts-retry-promise: "npm:^0.8.1"
+    tsx: "npm:^4.21.0"
+    typescript: "npm:^5.9.3"
+    viem: "npm:^2.37.6"
+    vite: "npm:^7.3.1"
+    vite-tsconfig-paths: "npm:^6.0.4"
+    vitest: "npm:^4.0.18"
+  languageName: unknown
+  linkType: soft
+
 "@xmtp/browser-sdk@workspace:browser-sdk":
   version: 0.0.0-use.local
   resolution: "@xmtp/browser-sdk@workspace:browser-sdk"
@@ -1471,6 +1494,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@xmtp/content-type-primitives@npm:3.0.1":
+  version: 3.0.1
+  resolution: "@xmtp/content-type-primitives@npm:3.0.1"
+  dependencies:
+    "@xmtp/node-bindings": "npm:1.9.1"
+  checksum: 10c0/8a10ed42f07fa043ab9ab34c8878039433f99d8fc184ff3afdb1b70906e78c6a77885917de881fcd34fb9d8c8b2b69ff073732ac53447fcfb5bc9e3b43dc09f9
+  languageName: node
+  linkType: hard
+
 "@xmtp/js-sdks@workspace:.":
   version: 0.0.0-use.local
   resolution: "@xmtp/js-sdks@workspace:."
@@ -1491,13 +1523,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@xmtp/node-bindings@npm:1.9.1":
+  version: 1.9.1
+  resolution: "@xmtp/node-bindings@npm:1.9.1"
+  checksum: 10c0/b1a2b435c20c8e3a761446b472f80b5238fe8acb4f43d2ebf1a5d1824852eaa8cc4474e94ba030058390c69463557146c94d7f1936210911506af98489117468
+  languageName: node
+  linkType: hard
+
 "@xmtp/node-bindings@portal:../../../bindings/node::locator=%40xmtp%2Fnode-sdk%40workspace%3Anode-sdk":
   version: 0.0.0-use.local
   resolution: "@xmtp/node-bindings@portal:../../../bindings/node::locator=%40xmtp%2Fnode-sdk%40workspace%3Anode-sdk"
   languageName: node
   linkType: soft
 
-"@xmtp/node-sdk@workspace:node-sdk":
+"@xmtp/node-sdk@workspace:^, @xmtp/node-sdk@workspace:node-sdk":
   version: 0.0.0-use.local
   resolution: "@xmtp/node-sdk@workspace:node-sdk"
   dependencies:
@@ -3695,6 +3734,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"ts-retry-promise@npm:^0.8.1":
+  version: 0.8.1
+  resolution: "ts-retry-promise@npm:0.8.1"
+  checksum: 10c0/69758255f9b185c6bf24da848b5b5102fa7a233c1fb04747076132799116d13eb3ec30bd35eb18bfda1522232a77b97275ad99cee9597b2449f0474d6d9261dd
+  languageName: node
+  linkType: hard
+
 "tsconfck@npm:^3.0.3":
   version: 3.1.6
   resolution: "tsconfck@npm:3.1.6"
@@ -3811,6 +3857,27 @@ __metadata:
   dependencies:
     punycode: "npm:^2.1.0"
   checksum: 10c0/4ef57b45aa820d7ac6496e9208559986c665e49447cb072744c13b66925a362d96dd5a46c4530a6b8e203e5db5fe849369444440cb22ecfc26c679359e5dfa3c
+  languageName: node
+  linkType: hard
+
+"viem@npm:^2.37.6":
+  version: 2.55.15
+  resolution: "viem@npm:2.55.15"
+  dependencies:
+    "@noble/curves": "npm:1.9.1"
+    "@noble/hashes": "npm:1.8.0"
+    "@scure/bip32": "npm:1.7.0"
+    "@scure/bip39": "npm:1.6.0"
+    abitype: "npm:1.2.3"
+    isows: "npm:1.0.7"
+    ox: "npm:0.14.33"
+    ws: "npm:8.21.0"
+  peerDependencies:
+    typescript: ">=5.0.4"
+  peerDependenciesMeta:
+    typescript:
+      optional: true
+  checksum: 10c0/17a669a607cc394ec844fd22e8a8df2e428415a74828d7deb8a863f450a8e18775250fa6db87a22c5027094dbd2dfb04f59a7b6a5d92afbd2683bdda622ac52f
   languageName: node
   linkType: hard
 

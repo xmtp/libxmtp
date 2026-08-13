@@ -77,7 +77,9 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/test/**/*.ts"],
+    // agent-sdk co-locates tests in src/ as *.test.ts; give them the same
+    // relaxations as the test/ directories
+    files: ["**/test/**/*.ts", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-floating-promises": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
@@ -101,6 +103,19 @@ export default tseslint.config(
       "@typescript-eslint/ban-ts-comment": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
       "no-empty": "off",
+    },
+  },
+  {
+    // agent-sdk's event-driven API passes async handlers into void-returning
+    // callbacks throughout; tightening this is tracked as a migration follow-up
+    files: ["agent-sdk/src/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-misused-promises": [
+        "error",
+        {
+          checksVoidReturn: false,
+        },
+      ],
     },
   },
   {

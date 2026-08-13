@@ -31,6 +31,10 @@ describe("SDK configs", () => {
     expect(nodeSdk.name).toBe("Node SDK");
     expect(nodeSdk.tagPrefix).toBe("node-sdk-");
 
+    const agentSdk = getSdkConfig("agent-sdk");
+    expect(agentSdk.name).toBe("Agent SDK");
+    expect(agentSdk.tagPrefix).toBe("agent-sdk-");
+
     const libxmtp = getSdkConfig("libxmtp");
     expect(libxmtp.name).toBe("Libxmtp");
     expect(libxmtp.tagPrefix).toBe("v");
@@ -38,7 +42,7 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, node-bindings, wasm-bindings, browser-sdk, node-sdk, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, node-bindings, wasm-bindings, browser-sdk, node-sdk, agent-sdk, libxmtp",
     );
   });
 

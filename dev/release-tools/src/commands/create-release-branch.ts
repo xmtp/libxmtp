@@ -58,6 +58,12 @@ export function builder(yargs: Argv<GlobalArgs>) {
       choices: BUMP_OPTIONS,
       describe: "Browser SDK version bump type",
     })
+    .option("agent-sdk", {
+      type: "string",
+      default: "none",
+      choices: BUMP_OPTIONS,
+      describe: "Agent SDK version bump type",
+    })
     .option("node", {
       type: "boolean",
       default: false,
@@ -77,6 +83,7 @@ interface CreateReleaseBranchArgs extends GlobalArgs {
   android: string;
   nodeSdk?: string;
   browserSdk?: string;
+  agentSdk?: string;
   node: boolean;
   wasm: boolean;
 }
@@ -100,6 +107,9 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
   if (argv.browserSdk && argv.browserSdk !== "none") {
     sdkBumps.push({ sdk: Sdk.BrowserSdk, bump: argv.browserSdk as BumpType });
   }
+  if (argv.agentSdk && argv.agentSdk !== "none") {
+    sdkBumps.push({ sdk: Sdk.AgentSdk, bump: argv.agentSdk as BumpType });
+  }
 
   // Collect SDK includes (node/wasm just set the version directly)
   const sdkIncludes: Sdk[] = [];
@@ -113,7 +123,7 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
   // Validate at least one SDK is being released
   if (sdkBumps.length === 0 && sdkIncludes.length === 0) {
     throw new Error(
-      "At least one SDK must be bumped (use --ios/--android/--node-sdk/--browser-sdk with a bump type, or --node/--wasm)",
+      "At least one SDK must be bumped (use --ios/--android/--node-sdk/--browser-sdk/--agent-sdk with a bump type, or --node/--wasm)",
     );
   }
 

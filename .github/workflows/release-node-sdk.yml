@@ -120,6 +120,7 @@ jobs:
     needs: [setup, build, bindings]
     uses: ./.github/workflows/npm-publish.yml
     with:
+      ref: ${{ inputs.ref }}
       package-dir: sdks/js/node-sdk
       install-dir: sdks/js
       lockfile-path: sdks/js/yarn.lock

@@ -1,0 +1,177 @@
+name: Release Agent SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-type:
+        required: true
+        type: choice
+        description: "dev, rc, or final"
+        options:
+          - dev
+          - rc
+          - final
+      rc-number:
+        required: false
+        type: string
+        description: "RC number (required for rc releases)"
+      node-sdk-version:
+        required: false
+        type: string
+        description: "Published @xmtp/node-sdk version to pin (defaults to npm latest)"
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: string
+        description: "RC number (required for rc releases)"
+      ref:
+        required: false
+        type: string
+        description: "Git ref to build from"
+      node-sdk-version:
+        required: false
+        type: string
+        description: "Published @xmtp/node-sdk version to pin (defaults to npm latest)"
+      pending-version:
+        required: false
+        type: string
+      pending-kind:
+        required: false
+        type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.publish.outputs.version }}
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      node-sdk-version: ${{ steps.node-sdk-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: ./.github/actions/setup-release-tools
+
+      # Inputs are passed through env, never interpolated into shell source:
+      # this job holds contents/id-token write and dispatch inputs are free text.
+      - name: Compute version
+        id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release-type }}
+          RC_NUMBER: ${{ inputs.rc-number }}
+          PENDING_VERSION: ${{ inputs.pending-version }}
+          PENDING_KIND: ${{ inputs.pending-kind }}
+        run: |
+          if [ "$RELEASE_TYPE" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk agent-sdk --release-type rc --rc-number "$RC_NUMBER")
+          elif [ "$RELEASE_TYPE" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk agent-sdk --release-type dev)
+          elif [ "$RELEASE_TYPE" = "nightly" ]; then
+            if [ -z "$PENDING_VERSION" ] || [ -z "$PENDING_KIND" ]; then
+              echo "::error::nightly resolve called with empty pending version/kind"
+              exit 1
+            fi
+            VERSION=$(xmtp-release resolve-sdk-version \
+              --sdk agent-sdk --release-type nightly \
+              --pending-version "$PENDING_VERSION" \
+              --pending-kind "$PENDING_KIND")
+          else
+            VERSION=$(xmtp-release compute-version --sdk agent-sdk --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+
+      # The published package must depend on a published node-sdk, not the
+      # in-repo workspace copy it builds against.
+      - name: Resolve node-sdk version to pin
+        id: node-sdk-version
+        env:
+          NODE_SDK_VERSION: ${{ inputs.node-sdk-version }}
+        run: |
+          if [ -n "$NODE_SDK_VERSION" ]; then
+            VERSION="$NODE_SDK_VERSION"
+          else
+            VERSION=$(npm view @xmtp/node-sdk version)
+          fi
+          # The value flows into package.json via set-dependency-version;
+          # reject anything that is not a plain semver version.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::invalid @xmtp/node-sdk version: $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Pinning @xmtp/node-sdk to: $VERSION"
+
+  build:
+    needs: setup
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: js
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: ./.github/actions/setup-nix
+        with:
+          nix-disk: "false"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - uses: taiki-e/install-action@just
+
+      - name: Stage node bindings
+        run: just js bindings
+
+      - name: Install + build agent-sdk
+        run: |
+          nix develop .#js --command bash -euc '
+            cd sdks/js && yarn install --immutable
+            yarn workspace @xmtp/node-sdk run build
+            yarn workspace @xmtp/agent-sdk run build'
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent_sdk_build
+          path: sdks/js/agent-sdk/dist
+          retention-days: 1
+
+  publish:
+    needs: [setup, build]
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      package-dir: sdks/js/agent-sdk
+      install-dir: sdks/js
+      lockfile-path: sdks/js/yarn.lock
+      sdk: agent-sdk
+      version: ${{ needs.setup.outputs.version }}
+      artifact-pattern: agent_sdk_build
+      artifact-path: sdks/js/agent-sdk/dist
+      ignore-scripts: true
+      dep-name: "@xmtp/node-sdk"
+      dep-version: ${{ needs.setup.outputs.node-sdk-version }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit

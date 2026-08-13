@@ -1,0 +1,96 @@
+{
+  "name": "@xmtp/agent-sdk",
+  "version": "2.3.0",
+  "description": "XMTP Agent SDK for interacting with XMTP networks",
+  "keywords": [
+    "agents",
+    "javascript",
+    "js",
+    "messaging",
+    "node",
+    "nodejs",
+    "typescript",
+    "web3",
+    "xmtp"
+  ],
+  "homepage": "https://docs.xmtp.org/agents/get-started/build-an-agent",
+  "bugs": {
+    "url": "https://github.com/xmtp/libxmtp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "sdks/js/agent-sdk"
+  },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./debug": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./middleware": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./user": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./util": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "yarn clean:dist && rollup -c",
+    "clean": "rm -rf .turbo && rm -rf node_modules && yarn clean:dist",
+    "clean:dist": "rm -rf dist",
+    "demo:actions": "tsx watch src/demo/actions.ts",
+    "demo:main": "tsx watch src/demo/main.ts",
+    "demo:reconnect": "XMTP_FORCE_DEBUG_LEVEL=Error tsx src/demo/reconnect.ts",
+    "demo:transactions": "tsx watch src/demo/transactions.ts",
+    "gen:keys": "tsx src/bin/generateKeys.ts",
+    "start": "yarn dev",
+    "test": "yarn typecheck && vitest run --typecheck",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xmtp/content-type-primitives": "3.0.1",
+    "@xmtp/node-sdk": "workspace:^",
+    "ts-retry-promise": "^0.8.1",
+    "viem": "^2.37.6"
+  },
+  "devDependencies": {
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@types/node": "^24.10.9",
+    "@vitest/coverage-v8": "^4.0.18",
+    "rollup": "^4.59.0",
+    "rollup-plugin-dts": "^6.3.0",
+    "rollup-plugin-tsconfig-paths": "^1.5.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vite-tsconfig-paths": "^6.0.4",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
+}

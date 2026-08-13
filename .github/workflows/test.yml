@@ -21,6 +21,7 @@ jobs:
       wasm: ${{ steps.filter.outputs.wasm }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
+      agent_sdk: ${{ steps.filter.outputs.agent_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
@@ -95,6 +96,22 @@ jobs:
               - 'flake.lock'
               - 'dev/docker/**'
               - '.github/workflows/test-browser-sdk*'
+            agent_sdk:
+              - 'sdks/js/agent-sdk/**'
+              - 'sdks/js/node-sdk/**'
+              - 'sdks/js/package.json'
+              - 'sdks/js/yarn.lock'
+              - 'sdks/js/.yarnrc.yml'
+              - 'sdks/js/tsconfig.json'
+              - 'sdks/js/eslint.config.js'
+              - 'sdks/js/js.just'
+              - 'sdks/js/dev/**'
+              - 'bindings/node/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - '.github/workflows/test-agent-sdk*'
             ios:
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
@@ -200,6 +217,16 @@ jobs:
     uses: ./.github/workflows/test-browser-sdk.yml
     secrets: inherit
 
+  # Gated on test-node like node-sdk: agent-sdk runs against the local
+  # node-sdk (workspace dependency), whose bindings must be a nix cache hit.
+  test-agent-sdk:
+    needs: [detect-changes, test-node]
+    if: >-
+      !cancelled() && needs.test-node.result != 'failure'
+      && needs.detect-changes.outputs.agent_sdk == 'true'
+    uses: ./.github/workflows/test-agent-sdk.yml
+    secrets: inherit
+
   test-ios:
     needs: detect-changes
     if: |
@@ -250,6 +277,7 @@ jobs:
       - test-wasm
       - test-node-sdk
       - test-browser-sdk
+      - test-agent-sdk
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check

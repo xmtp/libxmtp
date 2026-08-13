@@ -246,6 +246,7 @@ jobs:
       ]
     uses: ./.github/workflows/npm-publish.yml
     with:
+      ref: ${{ inputs.ref }}
       package-dir: bindings/node
       sdk: node-bindings
       version: ${{ needs.setup.outputs.version }}
