@@ -1129,4 +1129,69 @@ describe("createStream lifecycle", () => {
     expect(mutator).toHaveBeenCalled();
     expect(onValue).not.toHaveBeenCalled();
   });
+
+  it("reschedules when the native stream closes during restart creation", async () => {
+    const instances: StreamInstance[] = [];
+    let resolveSecond!: () => void;
+    const secondCloser = vi.fn();
+    const streamFunction = vi.fn(
+      (callback: StreamCallback<number>, onFail: () => void) => {
+        if (instances.length === 1) {
+          // the restart stream's creation stays in flight so the test can
+          // close it while it is still being created
+          instances.push({ callback, onFail, closer: secondCloser });
+          return new Promise<() => void>((resolve) => {
+            resolveSecond = () => resolve(secondCloser as () => void);
+          });
+        }
+        const closer = vi.fn();
+        instances.push({ callback, onFail, closer });
+        return Promise.resolve(closer as () => void);
+      },
+    );
+    const onRestart = vi.fn();
+    await createStream<number>(streamFunction, undefined, {
+      onRestart,
+      retryDelay: 1000,
+    });
+
+    // the original stream closes and a retry is scheduled
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(streamFunction).toHaveBeenCalledTimes(2);
+
+    // the replacement stream closes while its creation is still in flight
+    instances[1].onFail();
+    resolveSecond();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // instead of installing the dead stream, the wrapper schedules a fresh
+    // attempt; advancing past it opens a third native stream
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(streamFunction).toHaveBeenCalledTimes(3);
+    // the dead replacement was discarded, and only the live stream is announced
+    expect(secondCloser).toHaveBeenCalled();
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not create a native stream when onRetry ends the stream", async () => {
+    const { instances, streamFunction } = makeHarness();
+    const streamRef: { end?: () => Promise<unknown> } = {};
+    const onRetry = vi.fn(() => {
+      void streamRef.end?.();
+    });
+    const stream = await createStream<number>(streamFunction, undefined, {
+      onRetry,
+      retryDelay: 1000,
+    });
+    streamRef.end = () => stream.end();
+
+    // the native close schedules a retry; onRetry ends the stream when it fires
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onRetry).toHaveBeenCalled();
+    expect(streamFunction).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
