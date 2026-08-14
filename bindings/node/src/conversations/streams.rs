@@ -8,8 +8,33 @@ use crate::{client::RustXmtpClient, streams::StreamCloser};
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use xmtp_db::consent_record::ConsentState as XmtpConsentState;
+use xmtp_db::{
+  consent_record::ConsentState as XmtpConsentState, group_message::StoredGroupMessage,
+};
 use xmtp_mls::worker::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
+
+fn forward_message<F>(
+  inbox_id: &str,
+  message: std::result::Result<StoredGroupMessage, xmtp_mls::subscriptions::SubscribeError>,
+  mut callback: F,
+) where
+  F: FnMut(Result<Message>),
+{
+  if let Err(error) = &message {
+    tracing::warn!(
+      inbox_id,
+      error = ?error,
+      "[received] forwarding message error to callback"
+    );
+  }
+
+  callback(
+    message
+      .map(Message::from)
+      .map_err(ErrorWrapper::from)
+      .map_err(Error::from),
+  );
+}
 
 #[napi(discriminant = "type")]
 pub enum UserPreferenceUpdate {
@@ -93,40 +118,10 @@ impl Conversations {
             "[received] message result"
         );
 
-        // Skip any messages that are errors
-        if let Err(err) = &message {
-          tracing::warn!(
-            inbox_id,
-            error = ?err,
-            "[received] message error, swallowing to continue stream"
-          );
-          return; // Skip this message entirely
-        }
-
-        // For successful messages, try to transform and pass to JS
-        // otherwise log error and continue stream
-        match message
-          .map(Into::into)
-          .map_err(ErrorWrapper::from)
-          .map_err(Error::from)
-        {
-          Ok(transformed_msg) => {
-            tracing::trace!(
-              inbox_id,
-              "[received] calling tsfn callback with successful message"
-            );
-            let status = callback.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
-            tracing::info!("Stream status: {:?}", status);
-          }
-          Err(err) => {
-            // Just in case the transformation itself fails
-            tracing::error!(
-              inbox_id,
-              error = ?err,
-              "[received] error during message transformation, swallowing to continue stream"
-            );
-          }
-        }
+        forward_message(inbox_id.as_str(), message, |result| {
+          let status = callback.call(result, ThreadsafeFunctionCallMode::Blocking);
+          tracing::info!("Stream status: {:?}", status);
+        });
       };
     let on_close = move || {
       on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
@@ -247,5 +242,24 @@ impl Conversations {
     );
 
     Ok(StreamCloser::new(stream_closer))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn forwards_item_errors_to_callback() {
+    let mut callbacks = Vec::new();
+
+    forward_message(
+      "test-inbox",
+      Err(xmtp_mls::subscriptions::SubscribeError::GroupMessageNotFound),
+      |result| callbacks.push(result),
+    );
+
+    assert_eq!(callbacks.len(), 1);
+    assert!(callbacks.pop().unwrap().is_err());
   }
 }
