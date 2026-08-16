@@ -107,6 +107,35 @@ describe("CommandRouter", () => {
         }),
       );
     });
+
+    it("should not mutate the original message content on the caller context", async () => {
+      const router = new CommandRouter();
+      let receivedContent = "";
+      router.command("/echo", (ctx) => {
+        receivedContent = ctx.message.content;
+      });
+
+      agent.use(router.middleware());
+      await agent.start();
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      const messageId = await dm.sendText("/echo hello world");
+      const message = otherClient.conversations.getMessageById(
+        messageId,
+      )! as DecodedMessageWithContent<string>;
+
+      const ctx = new MessageContext({
+        message,
+        conversation: dm,
+        client: otherClient,
+      });
+
+      const handled = await router.handle(ctx);
+      expect(handled).toBe(true);
+      expect(receivedContent).toBe("hello world");
+      expect(ctx.message.content).toBe("/echo hello world");
+    });
   });
 
   describe("commandList", () => {
