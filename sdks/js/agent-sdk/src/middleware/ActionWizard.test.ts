@@ -329,6 +329,38 @@ describe("ActionWizard", () => {
         expect(actionsMessage?.content?.actions[1]?.label).toBe("Abort");
       });
     });
+
+    it("cancels from a text step when the configured cancel command is received", async () => {
+      const cancelHandler = vi.fn();
+      const wizard = new ActionWizard("setup", {
+        cancel: { command: "/cancel" },
+      });
+      wizard
+        .text("name", { description: "Enter your name" })
+        .onCancel(cancelHandler);
+
+      agent.use(wizard.middleware());
+      await agent.start();
+
+      const otherClient = await createClient();
+      const dm = await otherClient.conversations.createDm(client.inboxId);
+      await dm.sendText("/setup");
+
+      await vi.waitFor(async () => {
+        await dm.sync();
+        const messages = await dm.messages();
+        expect(messages.filter((m) => isText(m))).toHaveLength(1);
+      });
+
+      // Send the cancel command from the text step
+      await dm.sendText("/cancel");
+
+      await vi.waitFor(() => {
+        expect(cancelHandler).toHaveBeenCalledOnce();
+      });
+
+      expect(wizard.isActive(dm.id, otherClient.inboxId)).toBe(false);
+    });
   });
 
   describe("restart", () => {
