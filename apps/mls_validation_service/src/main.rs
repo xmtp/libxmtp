@@ -8,7 +8,6 @@ mod version;
 
 use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
-use clap::Parser;
 use config::{Args, LogFormat};
 use handlers::ValidationService;
 use health_check::health_check_server;
@@ -25,7 +24,7 @@ extern crate tracing;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let args = Args::parse()?;
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
