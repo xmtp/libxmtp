@@ -3,7 +3,9 @@ import {
   type DecodedMessage,
   type EnrichedReply,
 } from "@xmtp/node-sdk";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import type { Client, Conversation } from "@xmtp/node-sdk";
+import type { DecodedMessageWithContent } from "@/core/filter";
 import { MessageContext } from "@/core/MessageContext";
 import { createClient } from "@/util/test";
 
@@ -33,5 +35,26 @@ describe("MessageContext", () => {
     >();
     const { content } = typedContext.message;
     expect(content.content).toBe(replyMessage.content?.content);
+  });
+
+  it("should send read receipt via sendReadReceipt and markAsRead", async () => {
+    const sendReadReceiptMock = vi.fn().mockResolvedValue("receipt-id-123");
+    const mockConversation = {
+      sendReadReceipt: sendReadReceiptMock,
+    } as unknown as Conversation;
+
+    const messageContext = new MessageContext({
+      message: {} as DecodedMessageWithContent<string>,
+      conversation: mockConversation,
+      client: {} as Client,
+    });
+
+    const result1 = await messageContext.sendReadReceipt();
+    expect(result1).toBe("receipt-id-123");
+    expect(sendReadReceiptMock).toHaveBeenCalledTimes(1);
+
+    const result2 = await messageContext.markAsRead();
+    expect(result2).toBe("receipt-id-123");
+    expect(sendReadReceiptMock).toHaveBeenCalledTimes(2);
   });
 });
