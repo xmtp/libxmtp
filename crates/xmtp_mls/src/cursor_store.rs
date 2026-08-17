@@ -24,6 +24,7 @@ impl<Db> SqliteCursorStore<Db> {
     }
 }
 
+#[xmtp_common::async_trait]
 impl<Db> CursorStore for SqliteCursorStore<Db>
 where
     Db: QueryRefreshState
@@ -34,7 +35,7 @@ where
         + MaybeSend
         + MaybeSync,
 {
-    fn latest(
+    async fn latest(
         &self,
         topic: &Topic,
         originators: Option<&[&OriginatorId]>,
@@ -69,16 +70,19 @@ where
         }
     }
 
-    fn latest_for_topics(
+    async fn latest_for_topics(
         &self,
-        topics: &mut dyn Iterator<Item = &Topic>,
+        topics: &mut (dyn Iterator<Item = &Topic> + Send),
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
         // Partition topics by kind
         let partitions = topics.into_group_map_by(|t| t.kind());
 
-        partitions
-            .into_iter()
-            .map(|(kind, topics_of_kind)| match kind {
+        // A `for` loop rather than `.map(..).collect::<Result<_, _>>()`: the
+        // per-kind work awaits now, and an async block inside `map` would only
+        // yield an iterator of futures with no way to `?` through it.
+        let mut out: HashMap<Topic, GlobalCursor> = HashMap::new();
+        for (kind, topics_of_kind) in partitions {
+            match kind {
                 TopicKind::WelcomeMessagesV1 => {
                     let identifiers: Vec<_> =
                         topics_of_kind.iter().map(|t| t.identifier()).collect();
@@ -88,13 +92,10 @@ where
                         .await
                         .map_err(CursorStoreError::other)?;
 
-                    Ok(topics_of_kind
-                        .into_iter()
-                        .map(|topic| {
-                            let cursor = cursors.remove(topic.identifier()).unwrap_or_default();
-                            (topic.clone(), cursor)
-                        })
-                        .collect())
+                    for topic in topics_of_kind {
+                        let cursor = cursors.remove(topic.identifier()).unwrap_or_default();
+                        out.insert(topic.clone(), cursor);
+                    }
                 }
                 TopicKind::GroupMessagesV1 => {
                     let identifiers: Vec<_> =
@@ -108,17 +109,13 @@ where
                         .await
                         .map_err(CursorStoreError::other)?;
 
-                    Ok(topics_of_kind
-                        .into_iter()
-                        .map(|topic| {
-                            let cursor = cursors.remove(topic.identifier()).unwrap_or_default();
-                            (topic.clone(), cursor)
-                        })
-                        .collect())
+                    for topic in topics_of_kind {
+                        let cursor = cursors.remove(topic.identifier()).unwrap_or_default();
+                        out.insert(topic.clone(), cursor);
+                    }
                 }
-                TopicKind::IdentityUpdatesV1 => topics_of_kind
-                    .into_iter()
-                    .map(|topic| {
+                TopicKind::IdentityUpdatesV1 => {
+                    for topic in topics_of_kind {
                         let sid = self
                             .db
                             .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
@@ -126,20 +123,21 @@ where
                             .map_err(CursorStoreError::other)?;
                         let mut map = GlobalCursor::default();
                         map.insert(Originators::INBOX_LOG, sid as u64);
-                        Ok((topic.clone(), map))
-                    })
-                    .collect(),
-                TopicKind::KeyPackagesV1 => Ok(topics_of_kind
-                    .into_iter()
-                    .map(|topic| (topic.clone(), GlobalCursor::default()))
-                    .collect()),
-                _ => Err(CursorStoreError::UnhandledTopicKind(kind)),
-            })
-            .collect::<Result<Vec<HashMap<Topic, GlobalCursor>>, _>>()
-            .map(|results| results.into_iter().flatten().collect())
+                        out.insert(topic.clone(), map);
+                    }
+                }
+                TopicKind::KeyPackagesV1 => {
+                    for topic in topics_of_kind {
+                        out.insert(topic.clone(), GlobalCursor::default());
+                    }
+                }
+                _ => return Err(CursorStoreError::UnhandledTopicKind(kind)),
+            }
+        }
+        Ok(out)
     }
 
-    fn find_message_dependencies(
+    async fn find_message_dependencies(
         &self,
         hashes: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
@@ -158,7 +156,7 @@ where
             .collect())
     }
 
-    fn ice(
+    async fn ice(
         &self,
         orphans: Vec<xmtp_proto::types::OrphanedEnvelope>,
     ) -> Result<(), CursorStoreError> {
@@ -169,7 +167,7 @@ where
         Ok(())
     }
 
-    fn resolve_children(
+    async fn resolve_children(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
@@ -179,14 +177,14 @@ where
             .map_err(CursorStoreError::other)
     }
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
         self.db
             .set_cutover_ns(cutover_ns)
             .await
             .map_err(CursorStoreError::other)
     }
 
-    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+    async fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
         let cutover = self
             .db
             .get_migration_cutover()
@@ -195,7 +193,7 @@ where
         Ok(cutover.cutover_ns)
     }
 
-    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+    async fn has_migrated(&self) -> Result<bool, CursorStoreError> {
         let cutover = self
             .db
             .get_migration_cutover()
@@ -204,21 +202,21 @@ where
         Ok(cutover.has_migrated)
     }
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
         self.db
             .set_has_migrated(has_migrated)
             .await
             .map_err(CursorStoreError::other)
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+    async fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
         self.db
             .get_last_checked_ns()
             .await
             .map_err(CursorStoreError::other)
     }
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
         self.db
             .set_last_checked_ns(last_checked_ns)
             .await

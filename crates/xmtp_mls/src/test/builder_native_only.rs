@@ -255,7 +255,7 @@ async fn test_two_smart_contract_wallets_group_messaging(
     client1.register_identity(signature_request1).await.unwrap();
 
     // Create a group with client1
-    let group1 = client1.create_group(None, None).unwrap();
+    let group1 = client1.create_group(None, None).await.unwrap();
     println!("Created group with ID: {:?}", hex::encode(group1.group_id));
 
     group1.sync().await.unwrap();
@@ -276,7 +276,10 @@ async fn test_two_smart_contract_wallets_group_messaging(
 
     // Sync and verify messages
     group1.sync().await.unwrap();
-    let messages = group1.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = group1
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert!(messages.len() >= 2, "Should have at least 2 messages");
     assert_eq!(
         messages.last().unwrap().decrypted_message_bytes,
@@ -508,7 +511,7 @@ async fn test_invalid_scw_then_valid_scw_recovery(
     // STEP 3: Verify client can perform operations
     let group_result = client2.create_group(None, None);
     assert!(
-        group_result.is_ok(),
+        group_result.await.is_ok(),
         "Client should be able to create groups after successful registration"
     );
 }
@@ -541,7 +544,7 @@ async fn test_operations_fail_when_not_ready() {
     );
 
     // Try to create a group - should fail with UninitializedIdentity
-    let create_group_result = client.create_group(None, None);
+    let create_group_result = client.create_group(None, None).await;
     assert!(
         create_group_result.is_err(),
         "create_group should fail when identity is not ready"

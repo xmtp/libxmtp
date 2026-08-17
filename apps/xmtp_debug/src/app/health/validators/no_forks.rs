@@ -62,16 +62,15 @@ impl Validator for NoForkedGroups {
                 // Skip clients that aren't active members. A removed
                 // client's frozen local commit-log diverges from the
                 // live one by design; that's not a fork worth flagging.
-                let is_active = client
-                    .group(gid)
-                    .ok()
-                    .and_then(|g| g.is_active().ok())
-                    .unwrap_or(false);
+                let is_active = match client.group(gid).ok() {
+                    Some(g) => g.is_active().await.unwrap_or(false),
+                    None => false,
+                };
                 if !is_active {
                     continue;
                 }
                 let start = Instant::now();
-                let (status, error) = match db.get_group_commit_log_forked_status(gid) {
+                let (status, error) = match db.get_group_commit_log_forked_status(gid).await {
                     Ok(Some(true)) => (Status::Fail, Some(eyre!("group forked"))),
                     Ok(_) => (Status::Pass, None),
                     Err(e) => (Status::Fail, Some(eyre!("{e}"))),

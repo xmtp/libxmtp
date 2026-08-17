@@ -141,7 +141,7 @@ async fn test_welcome_pointer_round_trip(
     tester!(bola);
 
     // Create a group with alix as the creator
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
     tracing::info!("Alix group id: {}", hex::encode(alix_group.group_id));
     alix_group.sync().await.unwrap();
 
@@ -156,7 +156,8 @@ async fn test_welcome_pointer_round_trip(
 
     // Verify bola can see the group
     let bola_groups = bola
-        .find_groups(&xmtp_db::group::GroupQueryArgs::default())
+        .find_groups(xmtp_db::group::GroupQueryArgs::default())
+        .await
         .unwrap();
     assert_eq!(bola_groups.len(), 1);
 
@@ -237,7 +238,8 @@ async fn test_welcome_pointer_round_trip(
         |tester| async {
             tester.sync_welcomes().await.unwrap();
             let tester_groups = tester
-                .find_groups(&xmtp_db::group::GroupQueryArgs::default())
+                .find_groups(xmtp_db::group::GroupQueryArgs::default())
+                .await
                 .unwrap();
             assert_eq!(tester_groups.len(), 1);
             let installation_id = tester.identity().installation_id();
@@ -534,7 +536,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
     tracing::info!("Getting tasks for bo");
     // Filter to ProcessWelcomePointer only: KP seed tasks (KpRotation, KpDeletion)
     // are also present when TaskRunner is enabled.
-    let all_tasks = bo.context.db().get_tasks().unwrap();
+    let all_tasks = bo.context.db().get_tasks().await.unwrap();
     let tasks: Vec<_> = all_tasks
         .into_iter()
         .filter(|t| {
@@ -571,6 +573,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         xmtp_mls_common::group::GroupMetadataOptions::default(),
         None,
     )
+    .await
     .unwrap();
 
     // Have to sync the group otherwise bo won't find it and it won't get created
@@ -591,10 +594,10 @@ async fn test_welcome_pointer_task_retry_resolution() {
                     .await?
                     .unwrap();
             let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
+                publish_intent_data.post_commit_data().await.unwrap().as_slice(),
             )?;
             let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
+            let staged_commit = publish_intent_data.staged_commit().await.unwrap();
             openmls_group.merge_staged_commit(
                 &xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage()),
                 crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
@@ -665,7 +668,8 @@ async fn test_welcome_pointer_task_retry_resolution() {
 
     tracing::info!("Finding group for bo");
     let bo_group = bo
-        .find_groups(&xmtp_db::group::GroupQueryArgs::default())
+        .find_groups(xmtp_db::group::GroupQueryArgs::default())
+        .await
         .unwrap()
         .into_iter()
         .next()
@@ -676,6 +680,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .context
         .db()
         .find_group_by_sequence_id(welcome_from_api.cursor)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(stored_group.id.as_slice(), bo_group.group_id.as_slice());

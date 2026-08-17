@@ -151,6 +151,7 @@ async fn bidi_catch_up_to_live_replays_and_is_idempotent() {
     let convos = alix
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(convos.len(), 1, "the group is now in alix's store");
 
@@ -232,6 +233,7 @@ async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
     let convos = alix
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(convos.len(), 1, "the group converges regardless of the cut");
 
@@ -286,6 +288,7 @@ async fn catch_up_to_live_falls_back_when_bidi_disabled() {
     let convos = alix
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(convos.len(), 1);
 

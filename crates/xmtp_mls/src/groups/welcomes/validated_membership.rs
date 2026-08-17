@@ -37,7 +37,7 @@ where
         let extensions = staged_welcome.public_group().group_context().extensions();
         let membership = extract_group_membership(extensions)?;
         let needs_update =
-            filter_inbox_ids_needing_updates(&db, membership.to_filters().as_slice())?;
+            filter_inbox_ids_needing_updates(&db, membership.to_filters().as_slice()).await?;
         if !needs_update.is_empty() {
             let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
             load_identity_updates(self.context.api(), &db, ids.as_slice()).await?;

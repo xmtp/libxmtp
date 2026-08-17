@@ -289,7 +289,7 @@ async fn applies_the_scalar_filters() {
     make_group(&db, gid(1), 10, None).await;
     make_group(&db, gid(2), 20, None).await;
     make_group(&db, gid(3), 30, None).await;
-    db.update_group_membership(gid(3), GroupMembershipState::Pending)
+    db.update_group_membership(&gid(3), GroupMembershipState::Pending)
         .await
         .unwrap();
 

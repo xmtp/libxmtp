@@ -183,7 +183,9 @@ async fn create_group_on_network(
 ) -> Result<(GroupId, f64)> {
     let t_create = Instant::now();
     let client_guard = client.lock().await;
-    let group = client_guard.create_group(Default::default(), Default::default())?;
+    let group = client_guard
+        .create_group(Default::default(), Default::default())
+        .await?;
     let create_secs = t_create.elapsed().as_secs_f64();
 
     let t_add = Instant::now();

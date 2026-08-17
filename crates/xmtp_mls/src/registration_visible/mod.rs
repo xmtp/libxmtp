@@ -251,6 +251,7 @@ where
             .context
             .api()
             .is_d14n()
+            .await
             .map_err(|e| ClientError::Api(xmtp_api::dyn_err(e)))?;
 
         if !is_d14n {

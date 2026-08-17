@@ -258,7 +258,7 @@ pub trait QueryGroup {
     /// Updates group membership state
     fn update_group_membership(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         state: GroupMembershipState,
     ) -> impl std::future::Future<Output = Result<(), crate::ConnectionError>> + xmtp_common::MaybeSend;
 
@@ -449,7 +449,7 @@ where
     /// Updates group membership state
     async fn update_group_membership(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
         (**self).update_group_membership(group_id, state).await
@@ -834,7 +834,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     #[xmtp_common::db_span]
     async fn update_group_membership(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
@@ -1557,7 +1557,7 @@ pub(crate) mod tests {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
             test_group.store(conn).unwrap();
-            conn.update_group_membership(test_group.id.as_slice(), GroupMembershipState::Rejected)
+            conn.update_group_membership(&test_group.id, GroupMembershipState::Rejected)
                 .await
                 .unwrap();
 
@@ -2543,7 +2543,7 @@ mod pg_impl {
 
         async fn update_group_membership(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             state: GroupMembershipState,
         ) -> Result<(), crate::ConnectionError> {
             let mut c = self.conn().await?;

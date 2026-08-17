@@ -57,6 +57,7 @@ impl Conversation {
     let message_id = match opts.optimistic {
       Some(true) => group
         .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .await
         .map_err(ErrorWrapper::from)?,
       _ => group
         .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
@@ -83,6 +84,7 @@ impl Conversation {
     let opts = MsgQueryArgs { ..opts.into() };
     let messages: Vec<Message> = group
       .find_messages(&opts)
+      .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|msg| msg.into())
@@ -99,6 +101,7 @@ impl Conversation {
     let msg_args: MsgQueryArgs = opts.into();
     let count = group
       .count_messages(&msg_args)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(count)
@@ -130,6 +133,7 @@ impl Conversation {
     let group = self.create_mls_group();
     let messages: Vec<DecodedMessage> = group
       .find_messages_v2(&opts.into())
+      .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|msg| msg.try_into())
@@ -142,7 +146,10 @@ impl Conversation {
   #[xmtp_common::err_span]
   pub async fn last_read_times(&self) -> Result<HashMap<String, i64>> {
     let group = self.create_mls_group();
-    let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
+    let times = group
+      .get_last_read_times()
+      .await
+      .map_err(ErrorWrapper::from)?;
     Ok(times)
   }
 
@@ -150,7 +157,7 @@ impl Conversation {
   /// Stores the message locally without publishing. Returns the message ID.
   #[napi]
   #[xmtp_common::err_span]
-  pub fn prepare_message(
+  pub async fn prepare_message(
     &self,
     encoded_content: EncodedContent,
     should_push: bool,
@@ -164,6 +171,7 @@ impl Conversation {
         should_push,
         idempotency_key,
       )
+      .await
       .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id))
   }

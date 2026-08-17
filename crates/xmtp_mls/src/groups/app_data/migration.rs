@@ -593,11 +593,13 @@ mod tests {
         let alix_seq = alix
             .context
             .db()
-            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())
+            .await? as u64;
         let bo_seq = alix
             .context
             .db()
-            .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
+            .get_latest_sequence_id_for_inbox(bo.inbox_id())
+            .await? as u64;
 
         let mut members = HashMap::new();
         members.insert(alix.inbox_id().to_string(), alix_seq);
@@ -637,11 +639,13 @@ mod tests {
         let alix_seq = alix
             .context
             .db()
-            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())
+            .await? as u64;
         let bo_seq = alix
             .context
             .db()
-            .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
+            .get_latest_sequence_id_for_inbox(bo.inbox_id())
+            .await? as u64;
 
         let mut members = HashMap::new();
         members.insert(alix.inbox_id().to_string(), alix_seq);
@@ -680,7 +684,8 @@ mod tests {
         let alix_seq = alix
             .context
             .db()
-            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())
+            .await? as u64;
         let orphan_install = vec![0xDE; 32]; // not owned by any inbox
 
         let mut members = HashMap::new();
@@ -767,14 +772,16 @@ mod tests {
         // pre-flip GMM below uses these as its sequence_ids, so the
         // synthesizer will pin its per-inbox lookups to this point in
         // each chain.
-        let alix_snapshot_seq =
-            alix.context
-                .db()
-                .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let alix_snapshot_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())
+            .await? as u64;
         let bo_snapshot_seq = alix
             .context
             .db()
-            .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
+            .get_latest_sequence_id_for_inbox(bo.inbox_id())
+            .await? as u64;
 
         let alix1_install = alix.installation_id.to_vec();
         let alix2_install = alix2.installation_id.to_vec();

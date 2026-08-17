@@ -84,7 +84,8 @@ impl HealthOp for AddPrimaryToExistingGroups {
                 let primary_inbox = primary_inbox.clone();
                 async move {
                     let group = ctx
-                        .pick_super_admin(&gid)?
+                        .pick_super_admin(&gid)
+                        .await?
                         .ok_or_else(|| eyre!("no active member found for group"))?;
                     group
                         .add_members(std::slice::from_ref(&primary_inbox))

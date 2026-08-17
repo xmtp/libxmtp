@@ -56,8 +56,9 @@ impl InMemoryCursorStore {
     }
 }
 
+#[xmtp_common::async_trait]
 impl CursorStore for InMemoryCursorStore {
-    fn latest(
+    async fn latest(
         &self,
         topic: &xmtp_proto::types::Topic,
         originators: Option<&[&OriginatorId]>,
@@ -74,16 +75,19 @@ impl CursorStore for InMemoryCursorStore {
         }
     }
 
-    fn latest_for_topics(
+    async fn latest_for_topics(
         &self,
-        topics: &mut dyn Iterator<Item = &Topic>,
+        topics: &mut (dyn Iterator<Item = &Topic> + Send),
     ) -> Result<HashMap<Topic, GlobalCursor>, super::CursorStoreError> {
-        Ok(topics
-            .map(|topic| (topic.clone(), self.latest(topic, None).unwrap_or_default()))
-            .collect())
+        let mut out = HashMap::new();
+        for topic in topics {
+            let cursor = self.latest(topic, None).await.unwrap_or_default();
+            out.insert(topic.clone(), cursor);
+        }
+        Ok(out)
     }
 
-    fn find_message_dependencies(
+    async fn find_message_dependencies(
         &self,
         hash: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, super::CursorStoreError> {
@@ -93,13 +97,13 @@ impl CursorStore for InMemoryCursorStore {
         ))
     }
 
-    fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<(), CursorStoreError> {
+    async fn ice(&self, orphans: Vec<OrphanedEnvelope>) -> Result<(), CursorStoreError> {
         let mut icebox = self.icebox.lock();
         (*icebox).extend(orphans);
         Ok(())
     }
 
-    fn resolve_children(
+    async fn resolve_children(
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
@@ -107,29 +111,29 @@ impl CursorStore for InMemoryCursorStore {
         Ok(Vec::from_iter(resolve_children_inner(cursors, &icebox)))
     }
 
-    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+    async fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
         *self.cutover_ns.lock() = cutover_ns;
         Ok(())
     }
 
-    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+    async fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
         Ok(*self.cutover_ns.lock())
     }
 
-    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+    async fn has_migrated(&self) -> Result<bool, CursorStoreError> {
         Ok(*self.migrated.lock())
     }
 
-    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+    async fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
         *self.migrated.lock() = has_migrated;
         Ok(())
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+    async fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
         Ok(*self.last_checked_ns.lock())
     }
 
-    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+    async fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
         *self.last_checked_ns.lock() = last_checked_ns;
         Ok(())
     }

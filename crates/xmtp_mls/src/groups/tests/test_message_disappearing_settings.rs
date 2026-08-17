@@ -16,7 +16,7 @@ async fn test_disappearing_message_update_message_in_group() {
 
     alix.sync_all_welcomes_and_groups(None).await?;
 
-    let msgs = alix_bo_dm.find_messages_v2(&Default::default())?;
+    let msgs = alix_bo_dm.find_messages_v2(&Default::default()).await?;
 
     // Two group updated messages:
     // 1. Added Bo
@@ -27,6 +27,8 @@ async fn test_disappearing_message_update_message_in_group() {
     assert_eq!(msgs.len(), 3);
 
     let alix_bo_alix_dm = alix.group(&_bo_alix_dm.group_id)?;
-    let msgs = alix_bo_alix_dm.find_messages_v2(&Default::default())?;
+    let msgs = alix_bo_alix_dm
+        .find_messages_v2(&Default::default())
+        .await?;
     assert_eq!(msgs.len(), 3);
 }

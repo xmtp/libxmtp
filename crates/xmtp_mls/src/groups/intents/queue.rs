@@ -29,10 +29,10 @@ impl QueueIntentBuilder {
         group
             .context
             .mls_storage()
-            .transaction(move |conn| {
+            .transaction(async move |conn| {
                 let storage = conn.key_store();
                 let db = storage.db();
-                intent.queue_with_conn(&db, group).map(Continue)
+                intent.queue_with_conn(&db, group).await.map(Continue)
             })
             .map(TransactionOutcome::into_continued)
     }
@@ -136,7 +136,7 @@ impl QueueIntent {
         QueueIntentBuilder::default()
     }
 
-    fn queue_with_conn<Ctx>(
+    async fn queue_with_conn<Ctx>(
         self,
         conn: &impl DbQuery,
         group: &MlsGroup<Ctx>,
@@ -145,7 +145,7 @@ impl QueueIntent {
         Ctx: XmtpSharedContext,
     {
         if self.kind == IntentKind::SendMessage {
-            self.maybe_insert_key_update_intent(conn, group)?;
+            self.maybe_insert_key_update_intent(conn, group).await?;
         }
 
         let Self {
@@ -154,15 +154,17 @@ impl QueueIntent {
             should_push,
         } = self;
 
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            intent_kind,
-            group.group_id,
-            intent_data,
-            should_push,
-        ))?;
+        let intent = conn
+            .insert_group_intent(NewGroupIntent::new(
+                intent_kind,
+                group.group_id,
+                intent_data,
+                should_push,
+            ))
+            .await?;
 
         if intent_kind != IntentKind::SendMessage {
-            conn.update_rotated_at_ns(&group.group_id)?;
+            conn.update_rotated_at_ns(&group.group_id).await?;
         }
         tracing::debug!(inbox_id = group.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
@@ -170,7 +172,7 @@ impl QueueIntent {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn maybe_insert_key_update_intent<Ctx>(
+    async fn maybe_insert_key_update_intent<Ctx>(
         &self,
         conn: &impl DbQuery,
         group: &MlsGroup<Ctx>,
@@ -178,13 +180,20 @@ impl QueueIntent {
     where
         Ctx: XmtpSharedContext,
     {
-        let last_rotated_at_ns = conn.get_rotated_at_ns(&group.group_id)?;
+        let last_rotated_at_ns = conn.get_rotated_at_ns(&group.group_id).await?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            QueueIntent::key_update()
-                .build()?
-                .queue_with_conn(conn, group)?;
+            // Boxed to break the `queue_with_conn` -> here -> `queue_with_conn`
+            // cycle; a recursive async fn has no finite size without indirection.
+            // The recursion is only ever one level deep: this queues a `key_update`,
+            // and only `SendMessage` re-enters this function.
+            Box::pin(
+                QueueIntent::key_update()
+                    .build()?
+                    .queue_with_conn(conn, group),
+            )
+            .await?;
         }
         Ok(())
     }

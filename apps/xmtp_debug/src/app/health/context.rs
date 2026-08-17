@@ -471,7 +471,7 @@ impl HealthContext {
     /// Pick an active adder for a membership change; prefer super-admin so
     /// `AddSuper` is also issuable, else any active member (under
     /// `--strict-versioning` the creator may live in another partition).
-    pub fn pick_super_admin(
+    pub async fn pick_super_admin(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<xmtp_mls::groups::MlsGroup<crate::MlsContext>>> {
@@ -482,7 +482,7 @@ impl HealthContext {
             let Ok(group) = client.group(group_id) else {
                 continue;
             };
-            if !group.is_active().unwrap_or(false) {
+            if !group.is_active().await.unwrap_or(false) {
                 continue;
             }
             candidates.push((client, group));

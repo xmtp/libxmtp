@@ -72,7 +72,8 @@ where
                     &Originators::APPLICATION_MESSAGES,
                     &Originators::MLS_COMMITS,
                 ]),
-            )?
+            )
+            .await?
             .max();
         let endpoint = QueryGroupMessages::builder()
             .group_id(group_id)
@@ -127,7 +128,8 @@ where
         let topic = &TopicKind::WelcomeMessagesV1.create(installation_key);
         let id_cursor = self
             .cursor_store
-            .latest_for_originator(topic, &Originators::WELCOME_MESSAGES)?
+            .latest_for_originator(topic, &Originators::WELCOME_MESSAGES)
+            .await?
             .sequence_id;
         let endpoint = QueryWelcomeMessages::builder()
             .installation_key(installation_key)

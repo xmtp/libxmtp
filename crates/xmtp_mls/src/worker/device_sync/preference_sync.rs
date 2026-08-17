@@ -52,7 +52,7 @@ where
     }
 }
 
-pub(super) fn store_preference_updates(
+pub(super) async fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
     conn: &impl DbQuery,
     handle: &WorkerMetrics<SyncMetric>,
@@ -67,7 +67,9 @@ pub(super) fn store_preference_updates(
                 );
 
                 let consent_record: StoredConsentRecord = consent_save.try_into()?;
-                let updated = conn.insert_newer_consent_record(consent_record.clone())?;
+                let updated = conn
+                    .insert_newer_consent_record(consent_record.clone())
+                    .await?;
 
                 if updated {
                     changed.push(PreferenceUpdate::Consent(consent_record));
@@ -77,7 +79,7 @@ pub(super) fn store_preference_updates(
             }
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
-                conn.store_hmac_key(&key, Some(cycled_at_ns))?;
+                conn.store_hmac_key(&key, Some(cycled_at_ns)).await?;
                 changed.push(PreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
@@ -162,8 +164,8 @@ mod tests {
             .wait()
             .await?;
 
-        let pref_a = amal_a.context.db().load_user_preferences()?;
-        let pref_b = amal_b.context.db().load_user_preferences()?;
+        let pref_a = amal_a.context.db().load_user_preferences().await?;
+        let pref_b = amal_b.context.db().load_user_preferences().await?;
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
@@ -178,7 +180,7 @@ mod tests {
             .register_interest(SyncMetric::HmacReceived, 2)
             .wait()
             .await?;
-        let new_pref_a = amal_a.context.db().load_user_preferences()?;
+        let new_pref_a = amal_a.context.db().load_user_preferences().await?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

@@ -143,7 +143,7 @@ mock! {
 
         async fn update_group_membership(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             state: crate::group::GroupMembershipState,
         ) -> Result<(), crate::ConnectionError>;
 
@@ -268,7 +268,7 @@ mock! {
 
         async fn find_group_intents(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             allowed_states: Option<Vec<crate::group_intent::IntentState>>,
             allowed_kinds: Option<Vec<crate::group_intent::IntentKind>>,
         ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;
@@ -434,13 +434,13 @@ mock! {
 
         async fn get_group_message_by_timestamp(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             timestamp: i64,
         ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
         async fn get_group_message_by_cursor(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             sequence_id: Cursor,
         ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
@@ -468,7 +468,7 @@ mock! {
 
         async fn get_latest_message_times_by_sender(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             allowed_content_types: &[crate::group_message::ContentType],
         ) -> Result<crate::group_message::LatestMessageTimeBySender, crate::ConnectionError>;
 
@@ -585,9 +585,12 @@ mock! {
             originator_id: &[u32]
         ) -> Result<Vec<Cursor>, StorageError>;
 
-        async fn get_last_cursor_for_ids<'a>(
+        // The one `Query*` method that is still generic (see `QueryRefreshState`),
+        // so it is also the one that still needs `concretize`.
+        #[mockall::concretize]
+        async fn get_last_cursor_for_ids<Id: crate::refresh_state::EntityIdBytes>(
             &self,
-            ids: &[&'a [u8]],
+            ids: &[Id],
             entities: &[crate::refresh_state::EntityKind],
         ) -> Result<std::collections::HashMap<Vec<u8>, GlobalCursor>, StorageError>;
 

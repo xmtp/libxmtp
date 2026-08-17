@@ -139,7 +139,7 @@ impl TaskWorkerChannels {
 /// Callers must commit the target row FIRST: a pull-in never waits for its target —
 /// a miss is dropped (debug-logged), since a missing target is normally a completed
 /// one-shot and retrying would spin forever on never-expiring nudges.
-pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
+pub(crate) async fn enqueue_pull_in<Context: XmtpSharedContext>(
     context: &Context,
     target_data_hash: TaskDataHash,
     not_later_than_ns: i64,
@@ -160,7 +160,7 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
                 },
             )),
         })?;
-    context.db().create_or_ignore_task(task)?;
+    context.db().create_or_ignore_task(task).await?;
     context.task_channels().wake();
     Ok(())
 }
@@ -420,7 +420,7 @@ where
                 kp::rotate_if_needed(context).await?;
                 // Unconditional (no-op when nothing is marked): a backoff retry
                 // after rotate-succeeded/nudge-failed must still re-nudge.
-                kp::nudge_deletion(context)?;
+                kp::nudge_deletion(context).await?;
                 // Advance to the LIVE rotation column (rotate reset it to +30d; a
                 // welcome nudge may have re-lowered it). Do NOT hardcode +30d.
                 let next = context
@@ -431,7 +431,7 @@ where
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
-                kp::sweep_expired(context)?;
+                kp::sweep_expired(context).await?;
                 let now = xmtp_common::time::now_ns();
                 // Nothing pending: park one rotation interval out (deletions only
                 // arise from rotations; same constant as the KpRotation arm — the
@@ -599,7 +599,7 @@ mod tests {
     }
 
     /// Insert a task row and return the stored row (found by its data_hash).
-    fn seed(
+    async fn seed(
         db: &impl QueryTasks,
         proto: TaskProto,
         next: i64,
@@ -617,8 +617,9 @@ mod tests {
             .max_attempts(max)
             .build(proto)
             .unwrap();
-        db.create_or_ignore_task(task).unwrap();
+        db.create_or_ignore_task(task).await.unwrap();
         db.get_tasks()
+            .await
             .unwrap()
             .into_iter()
             .find(|t| t.data_hash == hash.as_ref())
@@ -631,8 +632,11 @@ mod tests {
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
         let row = seed(&db, unique_proto(), now - 1, i64::MAX, 0, i32::MAX);
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
-        assert!(db.get_tasks()?.is_empty(), "Done task must be deleted");
+        TaskWorker::run_and_reschedule_task(row.await, &alix.context).await?;
+        assert!(
+            db.get_tasks().await?.is_empty(),
+            "Done task must be deleted"
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -648,9 +652,9 @@ mod tests {
             )),
         };
         let row = seed(&db, proto, now - 1, i64::MAX, 0, 3);
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::run_and_reschedule_task(row.await, &alix.context).await?;
         assert!(
-            db.get_tasks()?.is_empty(),
+            db.get_tasks().await?.is_empty(),
             "task for a nonexistent group must be deleted, not retried"
         );
     }
@@ -666,10 +670,14 @@ mod tests {
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
             Some((data_hash_for(&proto).to_vec(), target));
 
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::run_and_reschedule_task(row.await, &alix.context).await?;
 
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
-        let after = db.get_tasks()?.pop().expect("recurring row must survive");
+        let after = db
+            .get_tasks()
+            .await?
+            .pop()
+            .expect("recurring row must survive");
         assert_eq!(
             after.next_attempt_at_ns, target,
             "deadline must ADVANCE, not stay past-due"
@@ -689,10 +697,10 @@ mod tests {
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
             Some((data_hash_for(&proto).to_vec(), now + xmtp_common::NS_IN_DAY));
 
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::run_and_reschedule_task(row.await, &alix.context).await?;
 
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
-        let after = db.get_tasks()?;
+        let after = db.get_tasks().await?;
         assert_eq!(after.len(), 1, "never-expire seed must not be reaped");
         assert_eq!(
             after[0].next_attempt_at_ns,
@@ -713,10 +721,10 @@ mod tests {
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() =
             Some((data_hash_for(&proto).to_vec(), now));
 
-        TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
+        TaskWorker::run_and_reschedule_task(row.await, &alix.context).await?;
 
         *test_hooks::RESCHEDULE_OVERRIDE.lock().unwrap() = None;
-        let after = db.get_tasks()?.pop().unwrap();
+        let after = db.get_tasks().await?.pop().unwrap();
         assert_eq!(
             after.next_attempt_at_ns, far,
             "not-yet-due task must not run on a 1-day-cap wake"
@@ -736,18 +744,19 @@ mod tests {
         let target_proto = unique_proto();
         let target_hash = data_hash_for(&target_proto);
         let far = now + 30 * xmtp_common::NS_IN_DAY;
-        seed(&db, target_proto, far, i64::MAX, 0, i32::MAX);
+        seed(&db, target_proto, far, i64::MAX, 0, i32::MAX).await;
         // Due pull-in aimed at it.
-        enqueue_pull_in(&alix.context, target_hash, now + 1_000, i64::MAX)?;
+        enqueue_pull_in(&alix.context, target_hash, now + 1_000, i64::MAX).await?;
         let pull_in_row = db
-            .get_tasks()?
+            .get_tasks()
+            .await?
             .into_iter()
             .find(|t| t.data_hash != target_hash.as_ref())
             .expect("pull-in row exists");
 
         TaskWorker::run_and_reschedule_task(pull_in_row, &alix.context).await?;
 
-        let rows = db.get_tasks()?;
+        let rows = db.get_tasks().await?;
         let target = rows
             .iter()
             .find(|t| t.data_hash == target_hash.as_ref())
@@ -772,17 +781,17 @@ mod tests {
         // CI runner — only constraints are "> test wall time" and "!= far".
         let ceiling = now + xmtp_common::NS_IN_DAY;
         let far = now + 30 * xmtp_common::NS_IN_DAY;
-        seed(&db, proto.clone(), far, i64::MAX, 0, i32::MAX);
+        seed(&db, proto.clone(), far, i64::MAX, 0, i32::MAX).await;
         let hash = data_hash_for(&proto);
 
-        enqueue_pull_in(&alix.context, hash, ceiling, i64::MAX)?;
+        enqueue_pull_in(&alix.context, hash, ceiling, i64::MAX).await?;
 
         // Poll up to ~10s (wasm-safe): the worker dispatches the due pull-in,
         // which lowers the target and self-deletes.
         let mut pulled = false;
         for _ in 0..50u32 {
             xmtp_common::time::sleep(std::time::Duration::from_millis(200)).await;
-            let rows = db.get_tasks()?;
+            let rows = db.get_tasks().await?;
             let target_ok = rows
                 .iter()
                 .any(|t| t.data_hash == hash.as_ref() && t.next_attempt_at_ns == ceiling);

@@ -54,7 +54,7 @@ pub async fn insert_importer(
     while let Some(element) = importer.next().await {
         let element = element?;
         // Propagate insert failures to the supervisor rather than skipping the record.
-        insert(element, context, &mut import_ctx)?;
+        insert(element, context, &mut import_ctx).await?;
     }
 
     import_ctx.post_import(context)?;
@@ -62,7 +62,7 @@ pub async fn insert_importer(
     Ok(())
 }
 
-fn insert(
+async fn insert(
     element: BackupElement,
     context: &impl XmtpSharedContext,
     import_context: &mut ImportContext,
@@ -74,14 +74,15 @@ fn insert(
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            context.db().insert_newer_consent_record(consent)?;
+            context.db().insert_newer_consent_record(consent).await?;
         }
         Element::Group(save) => {
             // Propagate a lookup error (incl. a dropped pool); only a genuine
             // "not found" falls through to restore the group.
             if let Some(existing_group) = context
                 .db()
-                .find_group(&GroupId::try_from(save.id.as_slice())?)?
+                .find_group(&GroupId::try_from(save.id.as_slice())?)
+                .await?
             {
                 let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
                     (Some(e), Some(s)) => Some(e.max(s)),
@@ -136,7 +137,8 @@ fn insert(
                             message_disappearing_settings,
                         },
                         Some(&save.id),
-                    )?;
+                    )
+                    .await?;
                 }
                 _ => {
                     MlsGroup::insert(
@@ -246,15 +248,18 @@ mod tests {
 
         let alix_timestamp = alix
             .db()
-            .find_group(&alix_group.group_id)??
+            .find_group(&alix_group.group_id)
+            .await??
             .last_message_ns?;
         let alix2_timestamp = alix2
             .db()
-            .find_group(&alix_group.group_id)??
+            .find_group(&alix_group.group_id)
+            .await??
             .last_message_ns?;
         let alix3_timestamp = alix3
             .db()
-            .find_group(&alix_group.group_id)??
+            .find_group(&alix_group.group_id)
+            .await??
             .last_message_ns?;
 
         // Alix2's older timestamp on the existing group should be updated.
@@ -275,7 +280,8 @@ mod tests {
 
         let timestamp = alix
             .db()
-            .find_group(&alix_bo_dm.group_id)??
+            .find_group(&alix_bo_dm.group_id)
+            .await??
             .last_message_ns?;
 
         let key = vec![7; 32];
@@ -303,7 +309,7 @@ mod tests {
 
         let alix2_bo_dm = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
         assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
-        let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
+        let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default()).await?;
         assert_eq!(msgs.len(), 2);
         assert!(
             msgs.iter()
@@ -314,7 +320,8 @@ mod tests {
 
         let timestamp2 = alix2
             .db()
-            .find_group(&alix_bo_dm.group_id)??
+            .find_group(&alix_bo_dm.group_id)
+            .await??
             .last_message_ns?;
         assert_eq!(timestamp, timestamp2);
 
@@ -336,7 +343,7 @@ mod tests {
         tester!(alix);
         tester!(bo);
 
-        let alix_group = alix.create_group(None, None).unwrap();
+        let alix_group = alix.create_group(None, None).await.unwrap();
         alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
         alix_group
             .send_message(b"hello there", SendMessageOpts::default())
@@ -399,7 +406,7 @@ mod tests {
         tester!(alix, sync_worker, triggers);
         tester!(bo);
 
-        let alix_group = alix.create_group(None, None)?;
+        let alix_group = alix.create_group(None, None).await?;
 
         // wait for user preference update
         wait_for_min_intents(&alix.context.db(), 2).await?;
@@ -509,10 +516,10 @@ mod tests {
 
         let alix2_group = alix2.group(&old_group.id)?;
         // Loading all the groups works fine
-        let _groups = alix2.find_groups(&GroupQueryArgs::default())?;
+        let _groups = alix2.find_groups(GroupQueryArgs::default()).await?;
         // Can fetch the group name no problem
         alix2_group.group_name()?;
-        assert!(!alix2_group.is_active()?);
+        assert!(!alix2_group.is_active().await?);
 
         // Add the new inbox to the groups
         alix.group(&old_group.id)?
@@ -522,10 +529,10 @@ mod tests {
 
         // The group restores to being fully functional
         let alix2_group = alix2.group(&old_group.id)?;
-        assert!(alix2_group.is_active()?);
+        assert!(alix2_group.is_active().await?);
 
         // The old messages should be stitched in
-        let msgs = alix2_group.find_messages(&MsgQueryArgs::default())?;
+        let msgs = alix2_group.find_messages(&MsgQueryArgs::default()).await?;
         let old_msg_exists = msgs
             .iter()
             .any(|msg| msg.decrypted_message_bytes == b"hello there");
@@ -536,7 +543,7 @@ mod tests {
             .send_message(b"this should send", SendMessageOpts::default())
             .await?;
         bo_group.sync().await?;
-        let msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+        let msgs = bo_group.find_messages(&MsgQueryArgs::default()).await?;
         let new_msg_exists = msgs
             .iter()
             .any(|msg| msg.decrypted_message_bytes == b"this should send");
@@ -632,7 +639,7 @@ mod tests {
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &alix2.context).await?;
 
-        let restored = alix2.db().find_group(&alix_group.group_id)?;
+        let restored = alix2.db().find_group(&alix_group.group_id).await?;
         assert!(
             restored.is_some(),
             "migrated group missing from restored archive — the exporter \

@@ -593,7 +593,7 @@ async fn latest_message_times_by_sender() {
     insert(&db, &reaction).await;
 
     let latest = db
-        .get_latest_message_times_by_sender(gid(1), &[ContentType::Text])
+        .get_latest_message_times_by_sender(&gid(1), &[ContentType::Text])
         .await
         .unwrap();
     assert_eq!(latest["a"], 30, "the reaction is not an allowed type");
@@ -606,30 +606,30 @@ async fn latest_message_times_by_sender() {
 async fn single_message_lookups() {
     let db = three_messages("m_lookups").await;
 
-    assert!(db.get_group_message([1u8]).await.unwrap().is_some());
-    assert!(db.get_group_message([9u8]).await.unwrap().is_none());
+    assert!(db.get_group_message(&[1u8]).await.unwrap().is_some());
+    assert!(db.get_group_message(&[9u8]).await.unwrap().is_none());
     assert!(
-        db.write_conn_get_group_message([1u8])
+        db.write_conn_get_group_message(&[1u8])
             .await
             .unwrap()
             .is_some()
     );
 
     let by_timestamp = db
-        .get_group_message_by_timestamp(gid(1), 20)
+        .get_group_message_by_timestamp(&gid(1), 20)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(by_timestamp.id, vec![2]);
 
     let by_cursor = db
-        .get_group_message_by_cursor(gid(1), Cursor::new(3, 1u32))
+        .get_group_message_by_cursor(&gid(1), Cursor::new(3, 1u32))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(by_cursor.id, vec![3]);
     assert!(
-        db.get_group_message_by_cursor(gid(1), Cursor::new(3, 9u32))
+        db.get_group_message_by_cursor(&gid(1), Cursor::new(3, 9u32))
             .await
             .unwrap()
             .is_none(),
@@ -651,7 +651,7 @@ async fn delivery_status_transitions() {
         .unwrap();
     assert_eq!(updated, 1);
 
-    let stored = db.get_group_message([1u8]).await.unwrap().unwrap();
+    let stored = db.get_group_message(&[1u8]).await.unwrap().unwrap();
     assert_eq!(stored.delivery_status, DeliveryStatus::Published);
     assert_eq!(stored.sent_at_ns, 99);
     assert_eq!(stored.cursor(), Cursor::new(7, 2u32));
@@ -662,7 +662,7 @@ async fn delivery_status_transitions() {
         1,
         "rows affected"
     );
-    let stored = db.get_group_message([1u8]).await.unwrap().unwrap();
+    let stored = db.get_group_message(&[1u8]).await.unwrap().unwrap();
     assert_eq!(stored.delivery_status, DeliveryStatus::Failed);
 
     assert_eq!(
@@ -697,8 +697,8 @@ async fn expired_messages_are_deleted_and_returned() {
 
     let deleted = db.delete_expired_messages().await.unwrap();
     assert_eq!(ids(&deleted), vec![1]);
-    assert!(db.get_group_message([1u8]).await.unwrap().is_none());
-    assert!(db.get_group_message([3u8]).await.unwrap().is_some());
+    assert!(db.get_group_message(&[1u8]).await.unwrap().is_none());
+    assert!(db.get_group_message(&[3u8]).await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -724,8 +724,8 @@ async fn min_expire_at_ns_is_the_soonest_pending_expiry() {
 #[tokio::test]
 async fn delete_message_by_id_reports_rows_affected() {
     let db = three_messages("m_delete_one").await;
-    assert_eq!(db.delete_message_by_id([2u8]).await.unwrap(), 1);
-    assert_eq!(db.delete_message_by_id([2u8]).await.unwrap(), 0);
+    assert_eq!(db.delete_message_by_id(&[2u8]).await.unwrap(), 1);
+    assert_eq!(db.delete_message_by_id(&[2u8]).await.unwrap(), 0);
     assert_eq!(
         ids(&db
             .get_group_messages(&gid(1), &MsgQueryArgs::default())

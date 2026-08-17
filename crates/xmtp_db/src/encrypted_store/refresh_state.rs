@@ -116,6 +116,19 @@ fn rows_to_global_cursor_map(
     map
 }
 
+/// Anything that can be viewed as an entity id's bytes.
+///
+/// One trait rather than the `AsRef<[u8]> + MaybeSync` pair it stands for, so
+/// the bound stays a *single* non-auto trait: `#[mockall::concretize]` turns the
+/// generic into a `dyn`, and `dyn A + B` is illegal when both are non-auto.
+pub trait EntityIdBytes: AsRef<[u8]> + xmtp_common::MaybeSync {}
+impl<T: AsRef<[u8]> + xmtp_common::MaybeSync + ?Sized> EntityIdBytes for T {}
+
+/// `entity_id` is deliberately bytes rather than a typed id: the accompanying
+/// [`EntityKind`] is what decides which id it is. `Welcome` keys by installation
+/// id, `ApplicationMessage`/`CommitMessage` by group id, and the cursor store
+/// passes a raw topic identifier that can be either. This is the one place in
+/// the `Query*` traits where an untyped id is load-bearing rather than sloppy.
 pub trait QueryRefreshState {
     fn get_refresh_state(
         &self,
@@ -132,21 +145,33 @@ pub trait QueryRefreshState {
         originator_ids: &[u32],
     ) -> impl std::future::Future<Output = Result<Vec<Cursor>, StorageError>> + xmtp_common::MaybeSend;
 
-    async fn get_last_cursor_for_originator(
+    /// RPITIT with an explicit `MaybeSend` rather than `async fn`: a provided
+    /// `async fn` in a trait carries no `Send` bound on its future, so every
+    /// caller that spawns one would fail to prove the future `Send`.
+    fn get_last_cursor_for_originator(
         &self,
         id: &[u8],
         entity_kind: EntityKind,
         originator_id: u32,
-    ) -> Result<Cursor, StorageError> {
-        // get_last_cursor guaranteed to return entry for id
-        self.get_last_cursor_for_originators(id, entity_kind, &[originator_id])
-            .await
-            .map(|c| c[0])
+    ) -> impl std::future::Future<Output = Result<Cursor, StorageError>> + xmtp_common::MaybeSend
+    where
+        Self: xmtp_common::MaybeSync,
+    {
+        async move {
+            // get_last_cursor guaranteed to return entry for id
+            self.get_last_cursor_for_originators(id, entity_kind, &[originator_id])
+                .await
+                .map(|c| c[0])
+        }
     }
 
-    fn get_last_cursor_for_ids(
+    /// Generic over the element type on purpose, and the only `Query*` method
+    /// that still is. Callers hold `&[GroupId]`, `&[InstallationId]` or
+    /// `&[Vec<u8>]` depending on the `EntityKind`; a concrete `&[&[u8]]` would
+    /// force each of them to allocate a `Vec<&[u8]>` purely to make the call.
+    fn get_last_cursor_for_ids<Id: EntityIdBytes>(
         &self,
-        ids: &[&[u8]],
+        ids: &[Id],
         entities: &[EntityKind],
     ) -> impl std::future::Future<Output = Result<HashMap<Vec<u8>, GlobalCursor>, StorageError>>
     + xmtp_common::MaybeSend;
@@ -184,9 +209,9 @@ impl<T: QueryRefreshState + xmtp_common::MaybeSync> QueryRefreshState for &T {
             .await
     }
 
-    async fn get_last_cursor_for_ids(
+    async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
         &self,
-        ids: &[&[u8]],
+        ids: &[Id],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
         (**self).get_last_cursor_for_ids(ids, entities).await
@@ -305,9 +330,9 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn get_last_cursor_for_ids(
+    async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
         &self,
-        ids: &[&[u8]],
+        ids: &[Id],
         entities: &[EntityKind],
     ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
         use super::schema::refresh_state::dsl;
@@ -353,7 +378,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(map)
     }
 
-    #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(&entity_id)))]
+    #[tracing::instrument(level = "info", skip(self), fields(entity_id = %hex::encode(entity_id)))]
     async fn update_cursor(
         &self,
         entity_id: &[u8],
@@ -557,9 +582,9 @@ mod pg_impl {
         /// Unlike the sync track this issues a single query: SQLite's 999-bind
         /// ceiling forces that impl to chunk the id list, but Postgres takes the
         /// whole set as one array parameter.
-        async fn get_last_cursor_for_ids(
+        async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
             &self,
-            ids: &[&[u8]],
+            ids: &[Id],
             entities: &[EntityKind],
         ) -> Result<HashMap<Vec<u8>, GlobalCursor>, StorageError> {
             if ids.is_empty() {

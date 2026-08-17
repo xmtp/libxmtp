@@ -71,13 +71,13 @@ where
     S: CursorStore,
 {
     pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError> {
-        if self.store.has_migrated()? {
+        if self.store.has_migrated().await? {
             return Ok(&self.xmtpd_client);
         }
 
         let now = xmtp_common::time::now_ns();
-        let cutover_ns = self.store.get_cutover_ns()?;
-        let last_checked = self.store.get_last_checked_ns()?;
+        let cutover_ns = self.store.get_cutover_ns().await?;
+        let last_checked = self.store.get_last_checked_ns().await?;
         let time_since_refresh = now.saturating_sub(last_checked);
         let cutover_ns = if time_since_refresh >= CUTOVER_REFRESH_TIME
             || self.always_check_once.set(()).is_ok()
@@ -88,7 +88,7 @@ where
         };
 
         if now >= cutover_ns {
-            self.store.set_has_migrated(true)?;
+            self.store.set_has_migrated(true).await?;
             Ok(&self.xmtpd_client)
         } else {
             Ok(&self.v3_client)
@@ -97,9 +97,10 @@ where
 
     async fn refresh_cutover(&self) -> Result<i64, ApiClientError> {
         let cutover_ns = FetchD14nCutover.query(&self.v3_grpc).await?.timestamp_ns as i64;
-        self.store.set_cutover_ns(cutover_ns)?;
+        self.store.set_cutover_ns(cutover_ns).await?;
         self.store
-            .set_last_checked_ns(xmtp_common::time::now_ns())?;
+            .set_last_checked_ns(xmtp_common::time::now_ns())
+            .await?;
         Ok(cutover_ns)
     }
 
@@ -115,7 +116,7 @@ where
         {
             let s = network.to_string();
             if ERROR_REGEX.is_match(&s) {
-                self.store.set_has_migrated(true)?;
+                self.store.set_has_migrated(true).await?;
                 return f().await;
             }
         }

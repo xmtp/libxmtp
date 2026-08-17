@@ -9,14 +9,18 @@ use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_prepare_message_stores_unpublished() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
-    let message_id = group.prepare_message_for_later_publish(b"test message", true, None)?;
+    let message_id = group
+        .prepare_message_for_later_publish(b"test message", true, None)
+        .await?;
 
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
+    let messages = group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .await?;
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].id, message_id);
@@ -28,17 +32,21 @@ async fn test_prepare_message_stores_unpublished() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_messages_does_not_publish_prepared_messages() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
-    let message_id = group.prepare_message_for_later_publish(b"prepared message", true, None)?;
+    let message_id = group
+        .prepare_message_for_later_publish(b"prepared message", true, None)
+        .await?;
 
     // publish_messages should be a no-op for prepared messages (no intent was created)
     group.publish_messages().await?;
 
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
+    let messages = group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .await?;
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].id, message_id);
@@ -49,11 +57,13 @@ async fn test_publish_messages_does_not_publish_prepared_messages() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_stored_message_publishes_prepared_message() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
-    let message_id = group.prepare_message_for_later_publish(b"test message", true, None)?;
+    let message_id = group
+        .prepare_message_for_later_publish(b"test message", true, None)
+        .await?;
     assert_eq!(
-        group.find_messages(&MsgQueryArgs::default())?[0].delivery_status,
+        group.find_messages(&MsgQueryArgs::default()).await?[0].delivery_status,
         DeliveryStatus::Unpublished
     );
 
@@ -61,10 +71,12 @@ async fn test_publish_stored_message_publishes_prepared_message() {
 
     // After sync, the message should be published
     group.sync().await?;
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
+    let messages = group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .await?;
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].delivery_status, DeliveryStatus::Published);
@@ -75,9 +87,11 @@ async fn test_publish_stored_message_publishes_prepared_message() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_stored_message_is_idempotent() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
-    let message_id = group.prepare_message_for_later_publish(b"idempotent test", true, None)?;
+    let message_id = group
+        .prepare_message_for_later_publish(b"idempotent test", true, None)
+        .await?;
 
     // Publish three times - should not error or create duplicates
     group.publish_stored_message(&message_id).await?;
@@ -85,10 +99,12 @@ async fn test_publish_stored_message_is_idempotent() {
     group.publish_stored_message(&message_id).await?;
 
     group.sync().await?;
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
+    let messages = group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .await?;
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].delivery_status, DeliveryStatus::Published);
@@ -98,21 +114,29 @@ async fn test_publish_stored_message_is_idempotent() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_selective_publish_of_prepared_messages() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
-    let id_1 = group.prepare_message_for_later_publish(b"message one", true, None)?;
-    let id_2 = group.prepare_message_for_later_publish(b"message two", true, None)?;
-    let _id_3 = group.prepare_message_for_later_publish(b"message three", true, None)?;
+    let id_1 = group
+        .prepare_message_for_later_publish(b"message one", true, None)
+        .await?;
+    let id_2 = group
+        .prepare_message_for_later_publish(b"message two", true, None)
+        .await?;
+    let _id_3 = group
+        .prepare_message_for_later_publish(b"message three", true, None)
+        .await?;
 
     // Only publish messages 1 and 2
     group.publish_stored_message(&id_1).await?;
     group.publish_stored_message(&id_2).await?;
 
     group.sync().await?;
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
+    let messages = group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .await?;
 
     assert_eq!(messages.len(), 3);
 
@@ -135,17 +159,19 @@ async fn test_selective_publish_of_prepared_messages() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_explicit_idempotency_key_produces_deterministic_id() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
     let key = "stable-key-123".to_string();
     let content = b"hello idempotent";
-    let id = group.prepare_message_for_later_publish(content, true, Some(key.clone()))?;
+    let id = group
+        .prepare_message_for_later_publish(content, true, Some(key.clone()))
+        .await?;
 
     // The id is derived from the supplied key, not from a timestamp.
     assert_eq!(id, calculate_message_id(group.group_id, content, &key));
 
     // The resolved key is persisted alongside the message.
-    let stored = group.find_messages(&MsgQueryArgs::default())?;
+    let stored = group.find_messages(&MsgQueryArgs::default()).await?;
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].id, id);
     assert_eq!(stored[0].idempotency_key, key);
@@ -156,10 +182,14 @@ async fn test_explicit_idempotency_key_produces_deterministic_id() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_default_idempotency_key_is_unique_per_send() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
-    let id_1 = group.prepare_message_for_later_publish(b"same content", true, None)?;
-    let id_2 = group.prepare_message_for_later_publish(b"same content", true, None)?;
+    let id_1 = group
+        .prepare_message_for_later_publish(b"same content", true, None)
+        .await?;
+    let id_2 = group
+        .prepare_message_for_later_publish(b"same content", true, None)
+        .await?;
 
     assert_ne!(
         id_1, id_2,
@@ -174,20 +204,26 @@ async fn test_default_idempotency_key_is_unique_per_send() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_duplicate_idempotency_key_is_idempotent() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
     let key = "retry-key".to_string();
-    let id_1 = group.prepare_message_for_later_publish(b"retry me", true, Some(key.clone()))?;
+    let id_1 = group
+        .prepare_message_for_later_publish(b"retry me", true, Some(key.clone()))
+        .await?;
     // Second identical prepare must not error and must return the same id.
-    let id_2 = group.prepare_message_for_later_publish(b"retry me", true, Some(key))?;
+    let id_2 = group
+        .prepare_message_for_later_publish(b"retry me", true, Some(key))
+        .await?;
 
     assert_eq!(id_1, id_2);
 
     // Only one row was stored.
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
+    let messages = group
+        .find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })
+        .await?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].id, id_1);
 }
@@ -199,7 +235,7 @@ async fn test_duplicate_idempotency_key_is_idempotent() {
 async fn test_idempotency_key_crosses_the_wire() {
     tester!(alix);
     tester!(bo);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
 
     let key = "wire-key-xyz".to_string();
@@ -223,7 +259,8 @@ async fn test_idempotency_key_crosses_the_wire() {
         .find_messages(&MsgQueryArgs {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
-        })?
+        })
+        .await?
         .into_iter()
         .find(|m| m.decrypted_message_bytes == content)
         .expect("bo should receive the message");

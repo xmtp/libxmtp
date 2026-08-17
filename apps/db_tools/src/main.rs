@@ -22,14 +22,15 @@ where
     Db: XmtpDb + Clone,
     <Db as XmtpDb>::Connection: ConnectionExt,
 {
-    fn new_bencher(&self) -> Result<DbBencher<Db>> {
-        DbBencher::new(self.store.clone())
+    async fn new_bencher(&self) -> Result<DbBencher<Db>> {
+        DbBencher::new(self.store.clone()).await
     }
 }
 
 const ENV_ENC_KEY: &str = "XMTP_DB_ENCRYPTION_KEY";
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .with_target(false)
@@ -72,7 +73,7 @@ fn main() -> Result<()> {
     match &args.task {
         Task::QueryBench => {
             tracing::info!("Running query bench task.");
-            manager.new_bencher()?.bench()?;
+            manager.new_bencher().await?.bench()?;
         }
         Task::DbVacuum => {
             let target =
@@ -82,42 +83,43 @@ fn main() -> Result<()> {
         Task::DbRollback => {
             let target = args
                 .target("This will be the target version you want to roll the database back to.");
-            tasks::rollback(&manager.store.conn(), target)?;
+            tasks::rollback(&manager.store.conn(), target).await?;
         }
         Task::DbClearAllMessages => {
-            tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;
+            tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None).await?;
         }
         Task::DbClearMessages => {
             let group_ids = args.group_ids()?;
-            tasks::clear_all_messages(&manager.store.conn(), args.retain_days, Some(&group_ids))?;
+            tasks::clear_all_messages(&manager.store.conn(), args.retain_days, Some(&group_ids))
+                .await?;
         }
         Task::DbRunMigration => {
             let target = args.target(
                 "This will be the name of the target migration you wish to run on the database.",
             );
-            tasks::run_migration(&manager.store.conn(), target)?;
+            tasks::run_migration(&manager.store.conn(), target).await?;
         }
         Task::DbRevertMigration => {
             let target = args.target(
                 "This will be the name of the target migration you wish to run on the database.",
             );
-            tasks::revert_migration(&manager.store.conn(), target)?;
+            tasks::revert_migration(&manager.store.conn(), target).await?;
         }
         Task::EnableGroup => {
             let arg_group_ids = args.group_ids()?;
             let group_ids: Vec<_> = arg_group_ids.iter().map(GroupId::as_slice).collect();
-            tasks::enable_groups(&manager.store.db(), &group_ids)?;
+            tasks::enable_groups(&manager.store.db(), &group_ids).await?;
         }
         Task::DisableGroup => {
             let arg_group_ids = args.group_ids()?;
             let group_ids: Vec<_> = arg_group_ids.iter().map(GroupId::as_slice).collect();
-            tasks::disable_groups(&manager.store.db(), &group_ids)?;
+            tasks::disable_groups(&manager.store.db(), &group_ids).await?;
         }
         Task::DbListMigrations => {
             let conn = manager.store.conn();
             let db = DbConnection::new(&conn);
-            let mut available = db.available_migrations()?;
-            let applied = db.applied_migrations()?;
+            let mut available = db.available_migrations().await?;
+            let applied = db.applied_migrations().await?;
 
             // Sort by date descending (most recent first)
             available.sort_by(|a, b| b.cmp(a));

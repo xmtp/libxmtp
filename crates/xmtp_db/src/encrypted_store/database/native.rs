@@ -928,7 +928,7 @@ mod tests {
             let provider = SqlKeyStore::new(db.conn());
 
             provider
-                .transaction(|conn| {
+                .transaction(async |conn| {
                     // `conn` is `&mut SqliteConnection`; `key_store()` (from
                     // `TransactionalKeyStore`) gives a transaction-scoped provider.
                     // `identity` is a singleton table, so only the outer write
@@ -944,7 +944,7 @@ mod tests {
 
                     // Nested write inside a SQLite savepoint, re-deriving the
                     // key store from the savepoint's `&mut SqliteConnection`.
-                    storage.savepoint(|sp_conn| {
+                    storage.savepoint(async |sp_conn| {
                         let inner = sp_conn.key_store();
                         RefreshState {
                             entity_id: rand_vec::<24>(),

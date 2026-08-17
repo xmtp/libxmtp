@@ -22,12 +22,16 @@ impl HealthOp for CreateGroup {
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateGroup"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
-        let outcome: color_eyre::eyre::Result<(GroupId, InboxId)> = (|| {
+        let outcome: color_eyre::eyre::Result<(GroupId, InboxId)> = async {
             let primary = ctx.primary()?;
-            let group = primary.create_group(None, None).map_err(|e| eyre!("{e}"))?;
+            let group = primary
+                .create_group(None, None)
+                .await
+                .map_err(|e| eyre!("{e}"))?;
             let creator = ctx.primary.inbox_id_bytes();
             Ok((group.group_id, creator))
-        })();
+        }
+        .await;
         match outcome {
             Ok((new_group_id, creator)) => {
                 let target = Some(format!("{new_group_id}"));

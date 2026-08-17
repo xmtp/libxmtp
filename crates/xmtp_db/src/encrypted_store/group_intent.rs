@@ -244,7 +244,7 @@ pub trait QueryGroupIntent {
     // Query for group_intents by group_id, optionally filtering by state and kind
     fn find_group_intents(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> impl std::future::Future<Output = Result<Vec<StoredGroupIntent>, crate::ConnectionError>>
@@ -328,7 +328,7 @@ where
 
     async fn find_group_intents(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -430,7 +430,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     #[xmtp_common::db_span]
     async fn find_group_intents(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -612,9 +612,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         use super::schema::refresh_state;
         use crate::encrypted_store::refresh_state::EntityKind;
 
-        let hashes = payload_hashes
-            .iter()
-            .map(|h| PayloadHashRef::from(h.as_ref()));
+        let hashes = payload_hashes.iter().map(|h| PayloadHashRef::from(*h));
 
         // Query all dependencies in a single database call
         let map: HashMap<PayloadHash, Vec<IntentDependency>> = self.raw_query(|conn| {
@@ -837,7 +835,7 @@ pub(crate) mod tests {
             // excluded in SQL, the known intent still comes back.
             let intents = conn
                 .find_group_intents(
-                    group_id.as_slice(),
+                    &group_id,
                     Some(vec![IntentState::ToPublish]),
                     Some(IntentKind::all().collect()),
                 )
@@ -849,13 +847,9 @@ pub(crate) mod tests {
             // Unfiltered: the unknown discriminant fails row
             // deserialization and poisons the whole query.
             assert!(
-                conn.find_group_intents(
-                    group_id.as_slice(),
-                    Some(vec![IntentState::ToPublish]),
-                    None
-                )
-                .await
-                .is_err(),
+                conn.find_group_intents(&group_id, Some(vec![IntentState::ToPublish]), None)
+                    .await
+                    .is_err(),
                 "unfiltered query should surface the FromSql error for unknown kinds"
             );
         })
@@ -878,11 +872,7 @@ pub(crate) mod tests {
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(
-                    group_id.as_slice(),
-                    Some(vec![IntentState::ToPublish]),
-                    None,
-                )
+                .find_group_intents(&group_id, Some(vec![IntentState::ToPublish]), None)
                 .await
                 .unwrap();
 
@@ -936,7 +926,7 @@ pub(crate) mod tests {
             // Can query for multiple states
             let mut results = conn
                 .find_group_intents(
-                    group_id.as_slice(),
+                    &group_id,
                     Some(vec![IntentState::ToPublish, IntentState::Published]),
                     None,
                 )
@@ -947,7 +937,7 @@ pub(crate) mod tests {
 
             // Can query by kind
             results = conn
-                .find_group_intents(group_id.as_slice(), None, Some(vec![IntentKind::KeyUpdate]))
+                .find_group_intents(&group_id, None, Some(vec![IntentKind::KeyUpdate]))
                 .await
                 .unwrap();
             assert_eq!(results.len(), 2);
@@ -955,7 +945,7 @@ pub(crate) mod tests {
             // Can query by kind and state
             results = conn
                 .find_group_intents(
-                    group_id.as_slice(),
+                    &group_id,
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::KeyUpdate]),
                 )
@@ -967,7 +957,7 @@ pub(crate) mod tests {
             // Can get no results
             results = conn
                 .find_group_intents(
-                    group_id.as_slice(),
+                    &group_id,
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::SendMessage]),
                 )
@@ -978,7 +968,7 @@ pub(crate) mod tests {
 
             // Can get all intents
             results = conn
-                .find_group_intents(group_id.as_slice(), None, None)
+                .find_group_intents(&group_id, None, None)
                 .await
                 .unwrap();
             assert_eq!(results.len(), 3);
@@ -1216,7 +1206,7 @@ pub(crate) mod tests {
                 .store(conn)
                 .unwrap();
             let intents = conn
-                .find_group_intents(group_id.as_slice(), None, None)
+                .find_group_intents(&group_id, None, None)
                 .await
                 .unwrap();
             let intent2 = intents.iter().find(|i| i.id != intent1.id).unwrap();
@@ -1271,11 +1261,7 @@ pub(crate) mod tests {
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(
-                    group_id.as_slice(),
-                    Some(vec![IntentState::ToPublish]),
-                    None,
-                )
+                .find_group_intents(&group_id, Some(vec![IntentState::ToPublish]), None)
                 .await
                 .unwrap();
 
@@ -1326,7 +1312,7 @@ mod pg_impl {
 
         async fn find_group_intents(
             &self,
-            group_id: &[u8],
+            group_id: &GroupId,
             allowed_states: Option<Vec<IntentState>>,
             allowed_kinds: Option<Vec<IntentKind>>,
         ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {

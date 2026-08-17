@@ -105,7 +105,7 @@ async fn test_archive_excludes_disappearing_messages() {
         .unwrap();
 
     // Step 6: Find the group and check messages
-    let alix2_group = alix2.conversation(alix_group.id()).unwrap();
+    let alix2_group = alix2.conversation(alix_group.id()).await.unwrap();
     let alix2_messages = alix2_group
         .find_messages(FfiListMessagesOptions::default())
         .await

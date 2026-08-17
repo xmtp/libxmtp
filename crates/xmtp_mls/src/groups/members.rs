@@ -85,31 +85,34 @@ where
             }
         }
         let mutable_metadata = self.mutable_metadata()?;
-        let members = association_states
-            .into_iter()
-            .map(|association_state| {
-                let inbox_id_str = association_state.inbox_id().to_string();
-                let is_admin = mutable_metadata.is_admin(&inbox_id_str);
-                let is_super_admin = mutable_metadata.is_super_admin(&inbox_id_str);
-                let permission_level = if is_super_admin {
-                    PermissionLevel::SuperAdmin
-                } else if is_admin {
-                    PermissionLevel::Admin
-                } else {
-                    PermissionLevel::Member
-                };
+        // A `for` loop rather than `.map(..).collect::<Result<_, _>>()`: the
+        // consent lookup awaits now, and an async block inside `map` would only
+        // yield an iterator of futures with no way to `?` through it.
+        let mut members = Vec::with_capacity(association_states.len());
+        for association_state in association_states {
+            let inbox_id_str = association_state.inbox_id().to_string();
+            let is_admin = mutable_metadata.is_admin(&inbox_id_str);
+            let is_super_admin = mutable_metadata.is_super_admin(&inbox_id_str);
+            let permission_level = if is_super_admin {
+                PermissionLevel::SuperAdmin
+            } else if is_admin {
+                PermissionLevel::Admin
+            } else {
+                PermissionLevel::Member
+            };
 
-                let consent = db.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+            let consent = db
+                .get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)
+                .await?;
 
-                Ok(GroupMember {
-                    inbox_id: inbox_id_str.clone(),
-                    account_identifiers: association_state.identifiers(),
-                    installation_ids: association_state.installation_ids(),
-                    permission_level,
-                    consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
-                })
-            })
-            .collect::<Result<Vec<GroupMember>, GroupError>>()?;
+            members.push(GroupMember {
+                inbox_id: inbox_id_str.clone(),
+                account_identifiers: association_state.identifiers(),
+                installation_ids: association_state.installation_ids(),
+                permission_level,
+                consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
+            });
+        }
 
         Ok(members)
     }

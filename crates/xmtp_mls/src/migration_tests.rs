@@ -38,6 +38,7 @@ async fn migrated_migration_client(owner: &PrivateKeySigner) -> MigrationXmtpCli
         .temp_store()
         .await
         .local_migration()
+        .await
         .default_mls_store()
         .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
@@ -56,7 +57,7 @@ async fn migration_client_delivers_a_group_message_on_the_d14n_backend() {
     let alix = migrated_migration_client(&generate_local_wallet()).await;
     let bo = migrated_migration_client(&generate_local_wallet()).await;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
 
     const MSG: &[u8] = b"hello over d14n through the migration client";

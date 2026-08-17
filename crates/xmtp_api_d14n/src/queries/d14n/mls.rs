@@ -88,13 +88,16 @@ where
         request: mls_v1::SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
         let hashes = request.messages.sha256_hashes()?;
-        let mut dependencies = self.cursor_store.find_message_dependencies(
-            hashes
-                .iter()
-                .map(AsRef::as_ref)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )?;
+        let mut dependencies = self
+            .cursor_store
+            .find_message_dependencies(
+                hashes
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .await?;
         let mut envelopes: Vec<ClientEnvelope> = request.messages.client_envelopes()?;
         envelopes.iter_mut().try_for_each(|envelope| {
             let data = envelope.sha256_hash()?;
@@ -138,7 +141,7 @@ where
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(group_id);
-        let cursor = self.cursor_store.latest(&topic, None)?;
+        let cursor = self.cursor_store.latest(&topic, None).await?;
         tracing::debug!(%topic, %cursor, "querying messages");
         let mut topic_cursor = TopicCursor::default();
         topic_cursor.insert(topic.clone(), cursor.clone());
@@ -192,7 +195,7 @@ where
         installation_key: InstallationId,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
-        let cursor = self.cursor_store.latest(&topic, None)?;
+        let cursor = self.cursor_store.latest(&topic, None).await?;
         tracing::debug!("querying welcomes @{:?}", cursor);
         let response = QueryEnvelope::builder()
             .topic(topic)

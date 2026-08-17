@@ -40,6 +40,7 @@ async fn test_can_stream_group_messages_for_updates() {
     let bo_groups = bo
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     let bo_group = &bo_groups[0];
     bo_group.conversation.sync().await.unwrap();
@@ -206,7 +207,7 @@ async fn test_message_streaming() {
         .unwrap();
 
     bola.inner_client.sync_welcomes().await.unwrap();
-    let bola_group = bola.conversation(amal_group.id()).unwrap();
+    let bola_group = bola.conversation(amal_group.id()).await.unwrap();
 
     let stream_callback = Arc::new(RustStreamCallback::default());
     let stream_closer = bola_group.stream(stream_callback.clone()).await;
@@ -713,6 +714,7 @@ async fn test_can_stream_and_update_name_without_forking_group() {
     let bo_groups = bo
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(bo_groups.len(), 1);
     let bo_group = bo_groups[0].clone();
@@ -782,6 +784,7 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
     let alix_group = alix
         .conversations()
         .create_group_optimistic(FfiCreateGroupOptions::default())
+        .await
         .unwrap();
 
     // add bo
@@ -805,6 +808,7 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
     let alix_group_2 = alix
         .conversations()
         .create_group_optimistic(FfiCreateGroupOptions::default())
+        .await
         .unwrap();
     alix_group_2
         .add_members_by_identity(vec![bo.account_identifier.clone()])
@@ -873,7 +877,7 @@ async fn test_stream_message_deletions_with_full_message_details() {
     stream.wait_for_ready().await;
 
     // Delete the message
-    let deleted_count = alix.delete_message(message_id.clone()).unwrap();
+    let deleted_count = alix.delete_message(message_id.clone()).await.unwrap();
     assert_eq!(deleted_count, 1);
 
     // Wait for stream to receive the deleted message

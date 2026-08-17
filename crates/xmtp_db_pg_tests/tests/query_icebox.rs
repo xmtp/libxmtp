@@ -256,7 +256,7 @@ async fn prune_drops_entries_the_cursor_has_passed() {
     // Originator 1 has been processed through sequence 40, so (40,1) goes and
     // (41,1) stays. Originator 2 is untouched, so (39,2) stays.
     db.update_cursor(
-        gid(1),
+        gid(1).as_slice(),
         EntityKind::ApplicationMessage,
         Cursor::new(40, 1u32),
     )
@@ -281,7 +281,7 @@ async fn prune_drops_entries_the_cursor_has_passed() {
 async fn prune_ignores_unrelated_entity_kinds() {
     let db = iced_chain("ice_prune_kind").await;
     db.update_cursor(
-        gid(1),
+        gid(1).as_slice(),
         EntityKind::CommitLogDownload,
         Cursor::new(999, 1u32),
     )
@@ -289,9 +289,13 @@ async fn prune_ignores_unrelated_entity_kinds() {
     .unwrap();
     assert_eq!(db.prune_icebox().await.unwrap(), 0);
 
-    db.update_cursor(gid(1), EntityKind::CommitMessage, Cursor::new(999, 1u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(1).as_slice(),
+        EntityKind::CommitMessage,
+        Cursor::new(999, 1u32),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         db.prune_icebox().await.unwrap(),
         2,
@@ -306,7 +310,7 @@ async fn prune_is_scoped_to_the_group() {
     let db = iced_chain("ice_prune_group").await;
     make_group(&db, gid(2)).await;
     db.update_cursor(
-        gid(2),
+        gid(2).as_slice(),
         EntityKind::ApplicationMessage,
         Cursor::new(999, 1u32),
     )

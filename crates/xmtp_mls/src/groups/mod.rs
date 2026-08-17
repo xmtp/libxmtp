@@ -465,12 +465,12 @@ where
     /// # Returns
     ///
     /// Returns the Group and the stored group information as a tuple.
-    pub fn new_cached(
+    pub async fn new_cached(
         context: Context,
         group_id: &GroupId,
     ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
-        if let Some(group) = conn.find_group(group_id)? {
+        if let Some(group) = conn.find_group(group_id).await? {
             Ok((
                 Self::new_from_arc(
                     context,
@@ -1247,7 +1247,7 @@ where
     }
 
     // Create a new group and save it to the DB
-    pub(crate) fn create_and_insert(
+    pub(crate) async fn create_and_insert(
         context: Context,
         conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
@@ -1274,7 +1274,9 @@ where
 
         // Consent state defaults to allowed when the user creates the group
         if !conversation_type.is_virtual() {
-            new_group.update_consent_state(ConsentState::Allowed)?;
+            new_group
+                .update_consent_state(ConsentState::Allowed)
+                .await?;
         }
 
         Ok(new_group)
@@ -1349,7 +1351,7 @@ where
     }
 
     // Create a new DM and save it to the DB
-    pub(crate) fn create_dm_and_insert(
+    pub(crate) async fn create_dm_and_insert(
         context: &Context,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
@@ -1416,7 +1418,9 @@ where
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        new_group
+            .update_consent_state(ConsentState::Allowed)
+            .await?;
         Ok(new_group)
     }
 
@@ -1438,7 +1442,7 @@ where
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        if !self.is_active()? {
+        if !self.is_active().await? {
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
         }
@@ -1451,13 +1455,14 @@ where
         // OpenMLS blocks message creation when there are pending proposals
         self.commit_pending_proposals_if_any().await?;
 
-        let message_id =
-            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
+        let message_id = self
+            .prepare_message(message, opts, |key| Self::into_envelope(message, key))
+            .await?;
 
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(message_id)
     }
@@ -1501,7 +1506,7 @@ where
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(())
     }
@@ -1517,13 +1522,14 @@ where
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
-    pub fn send_message_optimistic(
+    pub async fn send_message_optimistic(
         &self,
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        let message_id =
-            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
+        let message_id = self
+            .prepare_message(message, opts, |key| Self::into_envelope(message, key))
+            .await?;
         Ok(message_id)
     }
 
@@ -1539,7 +1545,7 @@ where
     ///   derived from. Defaults to the send timestamp when `None`.
     ///
     /// Returns the message ID.
-    pub fn prepare_message_for_later_publish(
+    pub async fn prepare_message_for_later_publish(
         &self,
         message: &[u8],
         should_push: bool,
@@ -1556,7 +1562,7 @@ where
         // Idempotent: a retry with the same key + content resolves to the same id.
         // Return the existing message rather than failing on the PK conflict, so
         // crash-recovery retries are at-least-once-with-dedup instead of an error.
-        if let Some(existing) = self.context.db().get_group_message(&message_id)? {
+        if let Some(existing) = self.context.db().get_group_message(&message_id).await? {
             return Ok(existing.id);
         }
 
@@ -1598,7 +1604,7 @@ where
         tracing::instrument(level = "trace", skip(self))
     )]
     pub async fn publish_stored_message(&self, message_id: &[u8]) -> Result<(), GroupError> {
-        if !self.is_active()? {
+        if !self.is_active().await? {
             return Err(GroupError::GroupInactive);
         }
         self.ensure_not_paused().await?;
@@ -1636,7 +1642,7 @@ where
         self.sync_until_last_intent_resolved().await?;
 
         // Implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(())
     }
@@ -1657,14 +1663,15 @@ where
     ///
     /// # Returns
     /// The ID of the deletion message
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
+    pub async fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
         use error::DeleteMessageError;
 
         let conn = self.context.db();
 
         // Load the original message
         let original_msg = conn
-            .get_group_message(&message_id)?
+            .get_group_message(&message_id)
+            .await?
             .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
 
         // Validate message belongs to this group (prevent cross-group deletion)
@@ -1673,7 +1680,7 @@ where
         }
 
         // Check if message is already deleted
-        if conn.is_message_deleted(&message_id)? {
+        if conn.is_message_deleted(&message_id).await? {
             return Err(DeleteMessageError::MessageAlreadyDeleted.into());
         }
 
@@ -1697,7 +1704,9 @@ where
         let mut buf = Vec::new();
         encoded_delete.encode(&mut buf)?;
 
-        let deletion_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
+        let deletion_message_id = self
+            .send_message_optimistic(&buf, SendMessageOpts::default())
+            .await?;
 
         let is_super_admin_deletion = !is_sender && is_super_admin;
 
@@ -1741,7 +1750,7 @@ where
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub(crate) fn prepare_message<F>(
+    pub(crate) async fn prepare_message<F>(
         &self,
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
@@ -1751,17 +1760,16 @@ where
         F: FnOnce(&str) -> PlaintextEnvelope,
     {
         // Store the message locally first (with should_push preference)
-        let message_id = self.prepare_message_for_later_publish(
-            message,
-            opts.should_push,
-            opts.idempotency_key,
-        )?;
+        let message_id = self
+            .prepare_message_for_later_publish(message, opts.should_push, opts.idempotency_key)
+            .await?;
 
         // Fetch the stored message to get the resolved idempotency key
         let stored_message = self
             .context
             .db()
-            .get_group_message(&message_id)?
+            .get_group_message(&message_id)
+            .await?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
 
         // Create envelope using the stored idempotency key so the id stays consistent
@@ -1790,56 +1798,59 @@ where
 
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     /// and limit
-    pub fn find_messages(
+    pub async fn find_messages(
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let messages = conn.get_group_messages(&self.group_id, args).await?;
         Ok(messages)
     }
 
     /// Count the number of stored messages matching the given criteria
-    pub fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
+    pub async fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
         let conn = self.context.db();
-        let count = conn.count_group_messages(&self.group_id, args)?;
+        let count = conn.count_group_messages(&self.group_id, args).await?;
         Ok(count)
     }
 
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     /// and limit
-    pub fn find_messages_with_reactions(
+    pub async fn find_messages_with_reactions(
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
+        let messages = conn
+            .get_group_messages_with_reactions(&self.group_id, args)
+            .await?;
         Ok(messages)
     }
 
     /// Query for enriched messages (with reactions, replies, and deletion status)
-    pub fn find_enriched_messages(
+    pub async fn find_enriched_messages(
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let messages = conn.get_group_messages(&self.group_id, args).await?;
         let enriched =
-            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
+            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages).await?;
         Ok(enriched)
     }
 
-    pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
+    pub async fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
         let conn = self.context.db();
-        let latest_read_receipt =
-            conn.get_latest_message_times_by_sender(self.group_id, &[ContentType::ReadReceipt])?;
+        let latest_read_receipt = conn
+            .get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])
+            .await?;
         Ok(latest_read_receipt)
     }
 
     /// Load the group reference stored in the local database
-    pub fn load(&self) -> Result<StoredGroup, StorageError> {
+    pub async fn load(&self) -> Result<StoredGroup, StorageError> {
         let conn = self.context.db();
-        if let Some(group) = conn.find_group(&self.group_id)? {
+        if let Some(group) = conn.find_group(&self.group_id).await? {
             Ok(group)
         } else {
             tracing::error!("group {} does not exist", hex::encode(self.group_id));
@@ -2063,7 +2074,7 @@ where
     /// * `Ok(())` - All valid pending members were successfully removed
     /// * `Err(GroupError)` - Failed to retrieve metadata, validate permissions or execute removals
     pub async fn remove_members_pending_removal(&self) -> Result<(), GroupError> {
-        let pending_removal_list = self.pending_remove_list()?;
+        let pending_removal_list = self.pending_remove_list().await?;
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
@@ -2166,7 +2177,7 @@ where
         );
 
         // Get both lists upfront
-        let pending_removal_list = self.pending_remove_list()?;
+        let pending_removal_list = self.pending_remove_list().await?;
 
         if pending_removal_list.is_empty() {
             tracing::debug!(
@@ -2211,7 +2222,7 @@ where
         }
 
         // After cleanup, check if there are any pending removals left
-        let remaining_pending_list = self.pending_remove_list()?;
+        let remaining_pending_list = self.pending_remove_list().await?;
         if remaining_pending_list.is_empty() {
             // Clear the pending leave request status if no pending removals remain
             self.context
@@ -2259,7 +2270,7 @@ where
             return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
         }
 
-        if !self.is_in_pending_remove(self.context.inbox_id())? {
+        if !self.is_in_pending_remove(self.context.inbox_id()).await? {
             let content = LeaveRequestCodec::encode(LeaveRequest {
                 authenticated_note: None,
             })?;
@@ -2678,8 +2689,12 @@ where
     }
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
-    pub fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
-        let paused_for_version = self.context.db().get_group_paused_version(&self.group_id)?;
+    pub async fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
+        let paused_for_version = self
+            .context
+            .db()
+            .get_group_paused_version(&self.group_id)
+            .await?;
         Ok(paused_for_version)
     }
 
@@ -2729,7 +2744,7 @@ where
         }
     }
 
-    pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
+    pub async fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
         self.context
             .db()
             .get_pending_remove_users(&self.group_id)
@@ -2738,7 +2753,7 @@ where
     }
 
     /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
-    pub fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
+    pub async fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
         self.context
             .db()
             .get_user_pending_remove_status(&self.group_id, inbox_id)
@@ -2916,19 +2931,21 @@ where
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group
-    pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
+    pub async fn added_by_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context.db();
         let group = conn
-            .find_group(&self.group_id)?
+            .find_group(&self.group_id)
+            .await?
             .ok_or(NotFound::GroupById(self.group_id))?;
         Ok(group.added_by_inbox_id)
     }
 
     /// Find the `consent_state` of the group
-    pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
+    pub async fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context.db();
-        let record =
-            conn.get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?;
+        let record = conn
+            .get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)
+            .await?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -2937,7 +2954,7 @@ where
     }
 
     // Returns new consent records. Does not broadcast changes.
-    pub fn quietly_update_consent_state(
+    pub async fn quietly_update_consent_state(
         &self,
         state: ConsentState,
         db: &impl DbQuery,
@@ -2948,14 +2965,17 @@ where
             hex::encode(self.group_id),
         );
 
-        Ok(db.insert_or_replace_consent_records(std::slice::from_ref(&consent_record))?)
+        Ok(db
+            .insert_or_replace_consent_records(std::slice::from_ref(&consent_record))
+            .await?)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let db = self.context.db();
         let new_records: Vec<PreferenceUpdate> = self
-            .quietly_update_consent_state(state, &db)?
+            .quietly_update_consent_state(state, &db)
+            .await?
             .into_iter()
             .map(PreferenceUpdate::Consent)
             .collect();
@@ -2995,14 +3015,14 @@ where
         let db = self.context.db();
         let msgs = db
             .get_last_cursor_for_originator(
-                self.group_id,
+                self.group_id.as_slice(),
                 EntityKind::ApplicationMessage,
                 Originators::APPLICATION_MESSAGES,
             )
             .await?;
         let commits = db
             .get_last_cursor_for_originator(
-                self.group_id,
+                self.group_id.as_slice(),
                 EntityKind::CommitMessage,
                 Originators::MLS_COMMITS,
             )
@@ -3067,9 +3087,9 @@ where
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn is_active(&self) -> Result<bool, GroupError> {
+    pub async fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
-        let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
+        let Some(stored_group) = self.context.db().find_group(&self.group_id).await? else {
             return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
         };
         if matches!(
@@ -3086,11 +3106,12 @@ where
 
     /// Returns the membership state of the current user in this group.
     #[tracing::instrument(skip_all, level = "trace")]
-    pub fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
+    pub async fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
         let stored_group = self
             .context
             .db()
-            .find_group(&self.group_id)?
+            .find_group(&self.group_id)
+            .await?
             .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id)))?;
         Ok(stored_group.membership_state)
     }
@@ -3245,8 +3266,8 @@ where
     }
 
     /// Find all the duplicate dms for this group
-    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, ClientError> {
-        let duplicates = self.context.db().other_dms(&self.group_id)?;
+    pub async fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, ClientError> {
+        let duplicates = self.context.db().other_dms(&self.group_id).await?;
 
         let mls_groups = duplicates
             .into_iter()
@@ -3751,12 +3772,13 @@ pub(crate) fn build_group_config(
         .build())
 }
 
-pub fn filter_inbox_ids_needing_updates<'a>(
+pub async fn filter_inbox_ids_needing_updates<'a>(
     conn: &impl DbQuery,
     filters: &[(&'a str, i64)],
 ) -> Result<Vec<&'a str>, xmtp_db::ConnectionError> {
-    let existing_sequence_ids =
-        conn.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
+    let existing_sequence_ids = conn
+        .get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())
+        .await?;
 
     let needs_update = filters
         .iter()

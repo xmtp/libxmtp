@@ -24,6 +24,7 @@ async fn test_find_or_create_dm() {
     let dms = client1
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(dms.len(), 1, "Should have one DM conversation");
     assert_eq!(
@@ -56,6 +57,7 @@ async fn test_find_or_create_dm() {
     let dms = client1
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(dms.len(), 1, "Should still have one DM conversation");
 
@@ -79,6 +81,7 @@ async fn test_find_or_create_dm() {
     let dms = client2
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(dms.len(), 1, "Should still have one DM conversation");
 }
@@ -114,31 +117,37 @@ async fn test_dms_sync_but_do_not_list() {
 
     let alix_groups = alix_conversations
         .list_groups(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(alix_groups.len(), 0);
 
     let bola_groups = bola_conversations
         .list_groups(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(bola_groups.len(), 0);
 
     let alix_dms = alix_conversations
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(alix_dms.len(), 1);
 
     let bola_dms = bola_conversations
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(bola_dms.len(), 1);
 
     let alix_conversations = alix_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(alix_conversations.len(), 1);
 
     let bola_conversations = bola_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(bola_conversations.len(), 1);
 }
@@ -390,8 +399,8 @@ async fn test_dm_first_messages() {
 
     // Bo syncs to get both conversations
     bo.conversations().sync().await.unwrap();
-    let bo_dm = bo.conversation(alix_dm.id()).unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_dm = bo.conversation(alix_dm.id()).await.unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // Alix sends messages in both conversations
     alix_dm
@@ -471,7 +480,7 @@ async fn test_get_dm_peer_inbox_id() {
     assert_eq!(alix_dm_peer_inbox, bo.inbox_id());
 
     bo.conversations().sync().await.unwrap();
-    let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+    let bo_dm = bo.conversation(alix_dm.id()).await.unwrap();
 
     let bo_dm_peer_inbox = bo_dm.dm_peer_inbox_id().unwrap();
     assert_eq!(bo_dm_peer_inbox, alix.inbox_id());
@@ -575,6 +584,7 @@ async fn test_set_disappearing_messages_when_creating_dm() {
         .key_store()
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         group_from_db
@@ -629,10 +639,12 @@ async fn test_can_successfully_thread_dms() {
 
     let group_bo = bo_conn
         .find_group(&GroupId::try_from(convo_bo.id()).unwrap())
+        .await
         .unwrap()
         .unwrap();
     let group_alix = alix_conn
         .find_group(&GroupId::try_from(convo_alix.id()).unwrap())
+        .await
         .unwrap()
         .unwrap();
     assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
@@ -690,8 +702,8 @@ async fn test_can_successfully_thread_dms() {
         .await
         .unwrap();
 
-    let topic_bo_same = client_bo.conversation(convo_bo.id()).unwrap();
-    let topic_alix_same = client_alix.conversation(convo_alix.id()).unwrap();
+    let topic_bo_same = client_bo.conversation(convo_bo.id()).await.unwrap();
+    let topic_alix_same = client_alix.conversation(convo_alix.id()).await.unwrap();
 
     assert_eq!(
         convo_alix_2.id(),
@@ -713,10 +725,12 @@ async fn test_can_successfully_thread_dms() {
     let alix_dms = client_alix
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     let bo_dms = client_bo
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(
         convo_alix.id(),
@@ -795,8 +809,8 @@ async fn test_can_successfully_thread_dms_with_no_messages() {
         .await
         .unwrap();
 
-    let group_bo = client_bo.conversation(convo_bo.id()).unwrap();
-    let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
+    let group_bo = client_bo.conversation(convo_bo.id()).await.unwrap();
+    let group_alix = client_alix.conversation(convo_alix.id()).await.unwrap();
     assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
 }
 
@@ -831,6 +845,7 @@ async fn test_can_quickly_fetch_dm_peer_inbox_id() {
     let client_a_conversation_list = client_a
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(client_a_conversation_list.len(), 1);
     assert_eq!(
@@ -908,10 +923,12 @@ async fn test_create_new_installation_can_see_dm() {
     let client1_groups = client1
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     let client2_groups = client2
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(client1_groups.len(), 1, "Client1 should see 1 conversation");
     assert_eq!(client2_groups.len(), 1, "Client2 should see 1 conversation");
@@ -923,6 +940,7 @@ async fn test_create_new_installation_can_see_dm() {
     let initial_conversations = client1_second
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(
         initial_conversations.len(),
@@ -953,6 +971,7 @@ async fn test_create_new_installation_can_see_dm() {
     let client1_second_groups = client1_second
         .conversations()
         .list_dms(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(
         client1_second_groups.len(),
@@ -998,7 +1017,7 @@ async fn test_can_find_duplicate_dms_for_group() {
         .await
         .unwrap();
 
-    let group_a = client_a.conversation(dm1.id()).unwrap();
+    let group_a = client_a.conversation(dm1.id()).await.unwrap();
     let duplicates = group_a.find_duplicate_dms().await.unwrap();
 
     assert_eq!(duplicates.len(), 1);
@@ -1015,19 +1034,20 @@ async fn test_set_and_get_dm_consent() {
         .await
         .unwrap();
 
-    let alix_initial_consent = alix_dm.consent_state().unwrap();
+    let alix_initial_consent = alix_dm.consent_state().await.unwrap();
     assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
 
     bo.conversations().sync().await.unwrap();
-    let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+    let bo_dm = bo.conversation(alix_dm.id()).await.unwrap();
 
-    let bo_initial_consent = bo_dm.consent_state().unwrap();
+    let bo_initial_consent = bo_dm.consent_state().await.unwrap();
     assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
 
     alix_dm
         .update_consent_state(FfiConsentState::Denied)
+        .await
         .unwrap();
-    let alix_updated_consent = alix_dm.consent_state().unwrap();
+    let alix_updated_consent = alix_dm.consent_state().await.unwrap();
     assert_eq!(alix_updated_consent, FfiConsentState::Denied);
     bo.set_consent_states(vec![FfiConsent {
         state: FfiConsentState::Allowed,
@@ -1036,6 +1056,6 @@ async fn test_set_and_get_dm_consent() {
     }])
     .await
     .unwrap();
-    let bo_updated_consent = bo_dm.consent_state().unwrap();
+    let bo_updated_consent = bo_dm.consent_state().await.unwrap();
     assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
 }

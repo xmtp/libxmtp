@@ -86,7 +86,7 @@ async fn test_removed_members_no_longer_update() {
         .unwrap();
 
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     alix_group.sync().await.unwrap();
     let alix_members = alix_group.list_members().await.unwrap();
@@ -113,7 +113,7 @@ async fn test_removed_members_no_longer_update() {
         .unwrap();
 
     bo_group.sync().await.unwrap();
-    assert!(!bo_group.is_active().unwrap());
+    assert!(!bo_group.is_active().await.unwrap());
 
     let bo_messages = bo_group
         .find_messages(FfiListMessagesOptions::default())
@@ -264,6 +264,7 @@ async fn test_permissions_updates() {
     let _ = bola_conversations.sync().await;
     let bola_groups = bola_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     let bola_group = bola_groups.first().unwrap();
@@ -327,6 +328,7 @@ async fn test_app_data_permission_update() {
     let _ = bola_conversations.sync().await;
     let bola_groups = bola_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     let bola_group = bola_groups.first().unwrap();
 
@@ -462,6 +464,7 @@ async fn test_group_creation_custom_permissions() {
     let _ = bola_conversations.sync().await;
     let bola_groups = bola_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     let bola_group = bola_groups.first().unwrap();
@@ -713,6 +716,7 @@ async fn test_can_stream_and_receive_metadata_update() {
     let bo_groups = bo
         .conversations()
         .list_groups(FfiListConversationsOptions::default())
+        .await
         .unwrap();
     assert_eq!(bo_groups.len(), 1);
     let bo_group = bo_groups[0].conversation.clone();
@@ -799,6 +803,7 @@ async fn test_disappearing_messages_deletion() {
         .context
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         group_from_db
@@ -827,6 +832,7 @@ async fn test_disappearing_messages_deletion() {
         .key_store()
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         bola_group_from_db
@@ -894,6 +900,7 @@ async fn test_disappearing_messages_deletion() {
         .key_store()
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         group_from_db
@@ -987,6 +994,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
         .context
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1015,6 +1023,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
         .key_store()
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         bola_group_from_db
@@ -1065,6 +1074,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
         .key_store()
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1145,6 +1155,7 @@ async fn test_set_disappearing_messages_when_creating_group() {
         .key_store()
         .db()
         .find_group(&GroupId::try_from(alix_group.id()).unwrap())
+        .await
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1213,12 +1224,13 @@ async fn test_group_who_added_me() {
     // the database.
     let bola_groups = bola_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     let bola_group = bola_groups.first().unwrap();
 
     // Check Bola's group for the added_by_inbox_id of the inviter
-    let added_by_inbox_id = bola_group.conversation.added_by_inbox_id().unwrap();
+    let added_by_inbox_id = bola_group.conversation.added_by_inbox_id().await.unwrap();
 
     // // Verify the welcome host_credential is equal to Amal's
     assert_eq!(
@@ -1301,6 +1313,7 @@ async fn test_list_conversations_last_message() {
     // Step 4: List conversations and verify
     let conversations = alix_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     // Ensure the group is included
@@ -1340,6 +1353,7 @@ async fn test_list_conversations_no_messages() {
     // Step 4: List conversations and verify
     let conversations = alix_conversations
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     // Ensure the group is included
@@ -1574,6 +1588,7 @@ async fn test_conversation_list_filters_readable_messages() {
     // Step 5: Fetch the list of conversations
     let conversations = conversations_api
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     // Step 6: Verify the order of conversations by last readable message sent (or recently created if no readable message)
@@ -1660,7 +1675,7 @@ async fn test_can_list_messages_with_content_types() {
 
     // Bo syncs to get the group
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // Alix sends first message
     alix_group
@@ -1791,8 +1806,8 @@ async fn test_get_last_read_times() {
         .unwrap();
 
     // Test get_last_read_times - should return Bo's read receipt timestamp
-    let alix_last_read_times = alix_dm.get_last_read_times().unwrap();
-    let bo_last_read_times = bo_dm.get_last_read_times().unwrap();
+    let alix_last_read_times = alix_dm.get_last_read_times().await.unwrap();
+    let bo_last_read_times = bo_dm.get_last_read_times().await.unwrap();
 
     // Should have one entry for Bo's inbox ID
     assert_eq!(alix_last_read_times.len(), 1);
@@ -1853,6 +1868,7 @@ async fn test_pagination_of_conversations_list() {
             order_by: Some(FfiGroupQueryOrderBy::LastActivity),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     while !page.is_empty() {
@@ -1888,6 +1904,7 @@ async fn test_pagination_of_conversations_list() {
                 limit: Some(5),
                 ..Default::default()
             })
+            .await
             .unwrap();
 
         // Safety check to prevent infinite loop
@@ -1929,15 +1946,15 @@ async fn test_membership_state() {
         .unwrap();
 
     // Amal should have Allowed membership state (creator is immediately Allowed)
-    let state = group.membership_state().unwrap();
+    let state = group.membership_state().await.unwrap();
     assert_eq!(state, FfiGroupMembershipState::Allowed);
 
     // Sync so bola receives the group
     bola.conversations().sync().await.unwrap();
-    let bola_group = bola.conversation(group.id()).unwrap();
+    let bola_group = bola.conversation(group.id()).await.unwrap();
 
     // Bola should have Pending membership state when first receiving the welcome
     // (invited members start as Pending until explicitly accepted)
-    let bola_state = bola_group.membership_state().unwrap();
+    let bola_state = bola_group.membership_state().await.unwrap();
     assert_eq!(bola_state, FfiGroupMembershipState::Pending);
 }

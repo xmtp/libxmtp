@@ -101,7 +101,7 @@ async fn open_group_history_sub(
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
-    let group = alix.create_group(None, None).expect("create group");
+    let group = alix.create_group(None, None).await.expect("create group");
     group
         .add_members(&[bo.inbox_id()])
         .await
@@ -163,7 +163,7 @@ async fn d14n_bidi_delivers_live_welcome_over_the_wire() {
     };
     tracing::info!("d14n bidi started; server keepalive = {keepalive_interval_ms}ms");
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[caro.inbox_id()]).await?;
 
     // The loop's break condition is the delivery proof: a non-empty

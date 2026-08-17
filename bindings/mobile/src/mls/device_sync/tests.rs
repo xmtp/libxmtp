@@ -37,8 +37,8 @@ async fn test_create_new_installation_without_breaking_group() {
     client2.conversations().sync().await.unwrap();
 
     // Find groups for both clients
-    let client1_group = client1.conversation(group.id()).unwrap();
-    let client2_group = client2.conversation(group.id()).unwrap();
+    let client1_group = client1.conversation(group.id()).await.unwrap();
+    let client2_group = client2.conversation(group.id()).await.unwrap();
 
     // Sync both groups
     client1_group.sync().await.unwrap();
@@ -73,7 +73,7 @@ async fn test_create_new_installation_without_breaking_group() {
     assert_eq!(client1_members.len(), 2);
 
     client2.conversations().sync().await.unwrap();
-    let client2_group = client2.conversation(group.id()).unwrap();
+    let client2_group = client2.conversation(group.id()).await.unwrap();
     let client2_members = client2_group.list_members().await.unwrap();
     assert_eq!(client2_members.len(), 2);
 }
@@ -114,9 +114,9 @@ async fn test_create_new_installations_does_not_fork_group() {
     caro.conversations().sync().await.unwrap();
 
     // Alix and Caro find the group
-    let alix_group = alix.conversation(group.id()).unwrap();
-    let bo_group = bo.conversation(group.id()).unwrap();
-    let caro_group = caro.conversation(group.id()).unwrap();
+    let alix_group = alix.conversation(group.id()).await.unwrap();
+    let bo_group = bo.conversation(group.id()).await.unwrap();
+    let caro_group = caro.conversation(group.id()).await.unwrap();
 
     alix_group.update_installations().await.unwrap();
     log::info!("Alix sending first message");
@@ -168,7 +168,7 @@ async fn test_create_new_installations_does_not_fork_group() {
 
     // New installation of bo finds the group
     bo2.conversations().sync().await.unwrap();
-    let bo2_group = bo2.conversation(group.id()).unwrap();
+    let bo2_group = bo2.conversation(group.id()).await.unwrap();
 
     log::info!("Bo sending fourth message");
     // Bo sends a message to the group
@@ -252,6 +252,7 @@ async fn test_can_sync_all_groups() {
     let alix_groups = alix
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     if cfg!(feature = "d14n") {
@@ -260,8 +261,14 @@ async fn test_can_sync_all_groups() {
 
     let alix_group1 = alix_groups[0].clone();
     let alix_group5 = alix_groups[5].clone();
-    let bo_group1 = bo.conversation(alix_group1.conversation.id()).unwrap();
-    let bo_group5 = bo.conversation(alix_group5.conversation.id()).unwrap();
+    let bo_group1 = bo
+        .conversation(alix_group1.conversation.id())
+        .await
+        .unwrap();
+    let bo_group5 = bo
+        .conversation(alix_group5.conversation.id())
+        .await
+        .unwrap();
 
     alix_group1
         .conversation
@@ -330,6 +337,7 @@ async fn test_can_sync_all_groups_active_only() {
     for group in alix
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap()
     {
         group
@@ -351,6 +359,7 @@ async fn test_can_sync_all_groups_active_only() {
     for group in alix
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap()
     {
         group
@@ -388,7 +397,7 @@ async fn test_can_send_message_when_out_of_sync() {
         .unwrap();
 
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     bo_group
         .send("bo1".as_bytes().to_vec(), FfiSendMessageOpts::default())
@@ -480,7 +489,7 @@ async fn test_can_send_messages_when_epochs_behind() {
 
     bo.conversations().sync().await.unwrap();
 
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     // Move forward 4 epochs
     alix_group
@@ -556,7 +565,7 @@ async fn test_can_add_members_when_out_of_sync() {
         .unwrap();
 
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
     bo_group
         .send("bo1".as_bytes().to_vec(), FfiSendMessageOpts::default())
@@ -660,6 +669,7 @@ async fn test_revoke_installation_for_two_users_and_group_modification() {
 
     alix_client_1
         .conversation(group.id())
+        .await
         .unwrap()
         .sync()
         .await
@@ -667,6 +677,7 @@ async fn test_revoke_installation_for_two_users_and_group_modification() {
     alix_client_2.conversations().sync().await.unwrap();
     alix_client_2
         .conversation(group.id())
+        .await
         .unwrap()
         .sync()
         .await
@@ -674,6 +685,7 @@ async fn test_revoke_installation_for_two_users_and_group_modification() {
     bola_client_1.conversations().sync().await.unwrap();
     bola_client_1
         .conversation(group.id())
+        .await
         .unwrap()
         .sync()
         .await
@@ -691,6 +703,7 @@ async fn test_revoke_installation_for_two_users_and_group_modification() {
     let alix_2_groups = alix_client_2
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     assert!(
@@ -754,11 +767,11 @@ async fn test_revoke_installation_for_one_user_and_group_modification() {
 
     assert_eq!(client_1_state_after_revoke.installations.len(), 1);
 
-    let alix_conversation_1 = alix_client_1.conversation(group.id()).unwrap();
+    let alix_conversation_1 = alix_client_1.conversation(group.id()).await.unwrap();
     alix_conversation_1.sync().await.unwrap();
 
     alix_client_2.conversations().sync().await.unwrap();
-    let alix_conversation_2 = alix_client_2.conversation(group.id()).unwrap();
+    let alix_conversation_2 = alix_client_2.conversation(group.id()).await.unwrap();
     alix_conversation_2.sync().await.unwrap();
 
     // Re-fetch group members
@@ -772,6 +785,7 @@ async fn test_revoke_installation_for_one_user_and_group_modification() {
     let alix_2_groups = alix_client_2
         .conversations()
         .list(FfiListConversationsOptions::default())
+        .await
         .unwrap();
 
     assert!(
@@ -834,11 +848,11 @@ async fn test_send_sync_request_flow() {
         .unwrap();
 
     let dm2: Result<crate::FfiConversation, crate::FfiError> =
-        alix2.conversation(dm.group_id.into());
+        alix2.conversation(dm.group_id.into()).await;
     assert!(dm2.is_ok());
     let dm2 = dm2.unwrap();
 
-    assert_eq!(dm2.consent_state().unwrap(), FfiConsentState::Allowed);
+    assert_eq!(dm2.consent_state().await.unwrap(), FfiConsentState::Allowed);
 
     // Ensure old message was synced
     let msgs2 = dm2
@@ -896,7 +910,7 @@ async fn test_new_installation_group_message_visibility() {
 
     // Bo syncs their groups and sends a message in the group with Alix
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(group.id()).unwrap();
+    let bo_group = bo.conversation(group.id()).await.unwrap();
     let text_message_bo = TextCodec::encode("hello from bo".to_string()).unwrap();
     bo_group
         .send(
@@ -923,9 +937,10 @@ async fn test_new_installation_group_message_visibility() {
         .unwrap();
 
     // Initially Alix2 group only has two messages, the group created message and the message from Bo (sent after the installation was created)
-    let group2 = alix2.conversation(group.id()).unwrap();
+    let group2 = alix2.conversation(group.id()).await.unwrap();
     let messages: Vec<Arc<FfiDecodedMessage>> = group2
         .find_enriched_messages(FfiListMessagesOptions::default())
+        .await
         .unwrap();
 
     assert_eq!(
@@ -949,7 +964,7 @@ async fn test_new_installation_group_message_visibility() {
         .await
         .unwrap();
 
-    let group2 = alix2.conversation(group.id()).unwrap();
+    let group2 = alix2.conversation(group.id()).await.unwrap();
     let messages: Vec<FfiMessage> = group2
         .find_messages(FfiListMessagesOptions::default())
         .await
@@ -978,7 +993,7 @@ async fn test_sync_consent() {
         .create_group(vec![bo.inbox_id()], FfiCreateGroupOptions::default())
         .await
         .unwrap();
-    let initial_consent = alix_group.consent_state().unwrap();
+    let initial_consent = alix_group.consent_state().await.unwrap();
     assert_eq!(initial_consent, FfiConsentState::Allowed);
 
     let alix2 = alix.builder.build().await;
@@ -1019,6 +1034,7 @@ async fn test_sync_consent() {
     // Update consent state
     alix_group
         .update_consent_state(FfiConsentState::Denied)
+        .await
         .unwrap();
     alix.worker()
         .register_interest(SyncMetric::ConsentSent, 3)
@@ -1035,9 +1051,9 @@ async fn test_sync_consent() {
         .await
         .unwrap();
 
-    let alix_group2 = alix2.conversation(alix_group.id()).unwrap();
+    let alix_group2 = alix2.conversation(alix_group.id()).await.unwrap();
     assert_eq!(
-        alix_group2.consent_state().unwrap(),
+        alix_group2.consent_state().await.unwrap(),
         FfiConsentState::Denied
     );
 }
@@ -1056,19 +1072,20 @@ async fn test_set_and_get_group_consent() {
         .await
         .unwrap();
 
-    let alix_initial_consent = alix_group.consent_state().unwrap();
+    let alix_initial_consent = alix_group.consent_state().await.unwrap();
     assert_eq!(alix_initial_consent, FfiConsentState::Allowed);
 
     bo.conversations().sync().await.unwrap();
-    let bo_group = bo.conversation(alix_group.id()).unwrap();
+    let bo_group = bo.conversation(alix_group.id()).await.unwrap();
 
-    let bo_initial_consent = bo_group.consent_state().unwrap();
+    let bo_initial_consent = bo_group.consent_state().await.unwrap();
     assert_eq!(bo_initial_consent, FfiConsentState::Unknown);
 
     alix_group
         .update_consent_state(FfiConsentState::Denied)
+        .await
         .unwrap();
-    let alix_updated_consent = alix_group.consent_state().unwrap();
+    let alix_updated_consent = alix_group.consent_state().await.unwrap();
     assert_eq!(alix_updated_consent, FfiConsentState::Denied);
     bo.set_consent_states(vec![FfiConsent {
         state: FfiConsentState::Allowed,
@@ -1077,7 +1094,7 @@ async fn test_set_and_get_group_consent() {
     }])
     .await
     .unwrap();
-    let bo_updated_consent = bo_group.consent_state().unwrap();
+    let bo_updated_consent = bo_group.consent_state().await.unwrap();
     assert_eq!(bo_updated_consent, FfiConsentState::Allowed);
 }
 

@@ -11,12 +11,13 @@ use std::ops::Deref;
 impl Conversations {
   #[napi]
   #[xmtp_common::err_span]
-  pub fn get_message_by_id(&self, message_id: String) -> Result<Message> {
+  pub async fn get_message_by_id(&self, message_id: String) -> Result<Message> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
     let message = self
       .inner_client
       .message(message_id)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(Message::from(message))
@@ -24,12 +25,13 @@ impl Conversations {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn get_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
+  pub async fn get_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
     let message = self
       .inner_client
       .message_v2(message_id)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     message.try_into()
@@ -37,12 +39,13 @@ impl Conversations {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
+  pub async fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
     let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
 
     let deleted_count = self
       .inner_client
       .delete_message(message_id)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(deleted_count as u32)

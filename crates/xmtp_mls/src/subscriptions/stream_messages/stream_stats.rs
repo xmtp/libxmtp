@@ -142,7 +142,10 @@ impl<'a, Out> From<&State<'a, Out>> for StreamState {
     fn from(state: &State<'a, Out>) -> Self {
         match state {
             State::Adding { .. } => Self::Adding,
-            State::Processing { .. } => Self::Processing,
+            // The DB fast-path probe and the decrypt pass are one unit of work
+            // for stats: reporting them separately would double the observed
+            // state transitions for every message.
+            State::Preparing { .. } | State::Processing { .. } => Self::Processing,
             State::Waiting => Self::Waiting,
         }
     }

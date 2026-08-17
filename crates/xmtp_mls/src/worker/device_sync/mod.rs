@@ -324,19 +324,21 @@ where
         };
         let content_bytes = encoded_content_to_bytes(encoded_content);
 
-        let message_id = sync_group.prepare_message(
-            &content_bytes,
-            send_message_opts::SendMessageOpts {
-                should_push: false,
-                idempotency_key: None,
-            },
-            |key| PlaintextEnvelope {
-                content: Some(Content::V1(V1 {
-                    content: content_bytes.clone(),
-                    idempotency_key: key.to_string(),
-                })),
-            },
-        )?;
+        let message_id = sync_group
+            .prepare_message(
+                &content_bytes,
+                send_message_opts::SendMessageOpts {
+                    should_push: false,
+                    idempotency_key: None,
+                },
+                |key| PlaintextEnvelope {
+                    content: Some(Content::V1(V1 {
+                        content: content_bytes.clone(),
+                        idempotency_key: key.to_string(),
+                    })),
+                },
+            )
+            .await?;
 
         sync_group.sync_until_last_intent_resolved().await?;
 
@@ -361,7 +363,8 @@ where
                     PreconfiguredPolicies::default().to_policy_set(),
                     GroupMetadataOptions::default(),
                     None,
-                )?;
+                )
+                .await?;
                 tracing::info!(
                     "[{}] Creating sync group: {}",
                     hex::encode(self.context.installation_id()),
@@ -375,6 +378,7 @@ where
                     // enqueue-first duplicated the reconcile (and its identity
                     // fetch) on every sync-group creation.
                     self.schedule_add_missing_installations_task(sync_group.group_id)
+                        .await
                         .map_err(Box::new)?;
                     return Err(inline_err);
                 }
@@ -400,15 +404,19 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all)
     )]
-    pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
-        let groups = self.mls_store.find_groups(GroupQueryArgs {
-            last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
-            consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
-            ..Default::default()
-        })?;
+    pub async fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
+        let groups = self
+            .mls_store
+            .find_groups(GroupQueryArgs {
+                last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
+                consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+                ..Default::default()
+            })
+            .await?;
 
         for group in &groups {
-            self.schedule_add_missing_installations_task(group.group_id)?;
+            self.schedule_add_missing_installations_task(group.group_id)
+                .await?;
         }
         Ok(groups.len())
     }
@@ -416,7 +424,7 @@ where
     /// Durably enqueue one AddMissingInstallations task for `group_id`
     /// (deduped by payload hash against any pending row for the same group)
     /// and wake the TaskRunner.
-    pub(crate) fn schedule_add_missing_installations_task(
+    pub(crate) async fn schedule_add_missing_installations_task(
         &self,
         group_id: GroupId,
     ) -> Result<(), DeviceSyncError> {
@@ -430,7 +438,7 @@ where
                     },
                 )),
             })?;
-        self.context.db().create_or_ignore_task(task)?;
+        self.context.db().create_or_ignore_task(task).await?;
         self.context.task_channels().wake();
         Ok(())
     }

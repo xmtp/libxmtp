@@ -1534,7 +1534,7 @@ async fn test_get_latest_message_times_by_sender_single_sender() {
 
         // Test getting latest message times
         let latest_times = conn
-            .get_latest_message_times_by_sender(group.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -1605,7 +1605,7 @@ async fn test_get_latest_message_times_by_sender_multiple_senders() {
 
         // Test getting latest message times
         let latest_times = conn
-            .get_latest_message_times_by_sender(group.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -1625,7 +1625,7 @@ async fn test_get_latest_message_times_by_sender_empty_results() {
 
         // Test with no messages
         let latest_times = conn
-            .get_latest_message_times_by_sender(group.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -1646,7 +1646,7 @@ async fn test_get_latest_message_times_by_sender_empty_results() {
 
         // Filter by content type that doesn't match
         let latest_times = conn
-            .get_latest_message_times_by_sender(group.id.as_slice(), &[ContentType::Attachment])
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Attachment])
             .await
             .unwrap();
 
@@ -1738,7 +1738,7 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
         // Test getting latest message times for any of the groups with the shared dm_id
         // The query should find messages from all groups that share the same dm_id
         let latest_times = conn
-            .get_latest_message_times_by_sender(group1.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group1.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -1750,7 +1750,7 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
 
         // Test that querying any of the groups returns the same result
         let latest_times_group2 = conn
-            .get_latest_message_times_by_sender(group2.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group2.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -1758,7 +1758,7 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
         assert_eq!(latest_times_group2.get(&sender_id).unwrap(), &6000);
 
         let latest_times_group3 = conn
-            .get_latest_message_times_by_sender(group3.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group3.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -2243,7 +2243,7 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
 
         // Test filtering by text only - should get both senders
         let latest_times_text = conn
-            .get_latest_message_times_by_sender(group.id.as_slice(), &[ContentType::Text])
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Text])
             .await
             .unwrap();
 
@@ -2253,7 +2253,7 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
 
         // Test filtering by attachment only - should get only sender1
         let latest_times_attachment = conn
-            .get_latest_message_times_by_sender(group.id.as_slice(), &[ContentType::Attachment])
+            .get_latest_message_times_by_sender(&group.id, &[ContentType::Attachment])
             .await
             .unwrap();
 
@@ -2263,7 +2263,7 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
         // Test filtering by both - should get both senders with their latest overall times
         let latest_times_both = conn
             .get_latest_message_times_by_sender(
-                group.id.as_slice(),
+                &group.id,
                 &[ContentType::Text, ContentType::Attachment],
             )
             .await
@@ -2757,7 +2757,7 @@ async fn test_inserted_at_populated_in_all_queries() {
 
         // Test get_group_message_by_timestamp
         let by_timestamp = conn
-            .get_group_message_by_timestamp(group.id.as_slice(), 1000)
+            .get_group_message_by_timestamp(&group.id, 1000)
             .await
             .unwrap()
             .unwrap();

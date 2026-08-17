@@ -189,8 +189,11 @@ where
         if self.ephemeral_db || self.snapshot.is_some() {
             let db = if let Some(snapshot) = &self.snapshot {
                 client.allow_offline = true;
-                TestDb::create_ephemeral_store_from_snapshot(snapshot, self.snapshot_path.as_ref())
-                    .await
+                TestDb::create_ephemeral_store_from_snapshot(
+                    snapshot,
+                    self.snapshot_path.as_deref(),
+                )
+                .await
             } else {
                 TestDb::create_ephemeral_store().await
             };
@@ -293,6 +296,7 @@ where
         let updates = self
             .db()
             .get_identity_updates(self.inbox_id(), None, None)
+            .await
             .unwrap();
         for update in updates {
             let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
@@ -844,7 +848,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_snapshots() {
         tester!(alix);
-        let g = alix.create_group(None, None)?;
+        let g = alix.create_group(None, None).await?;
         let snap = Arc::new(alix.db_snapshot());
         tester!(alix2, snapshot: snap);
 

@@ -50,7 +50,7 @@ async fn test_dm_welcome_with_preexisting_consent() {
         ConsentState::Allowed,
         hex::encode(a_group.group_id),
     );
-    bo2.context.db().insert_newer_consent_record(cr)?;
+    bo2.context.db().insert_newer_consent_record(cr).await?;
     // Now bo2 processes the welcome
     bo1.find_or_create_dm(alix.inbox_id(), None)
         .await?
@@ -72,30 +72,32 @@ async fn test_group_update_dedupes() {
 
     let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
 
-    let updates = || {
+    let updates = async || {
         dm.find_messages(&MsgQueryArgs {
             content_types: Some(vec![ContentType::GroupUpdated]),
             ..Default::default()
-        })?
+        })
+        .await
+        .unwrap()
     };
-    assert_eq!(updates().len(), 1);
+    assert_eq!(updates().await.len(), 1);
 
     dm.update_conversation_message_disappear_from_ns(1).await?;
-    assert_eq!(updates().len(), 2);
+    assert_eq!(updates().await.len(), 2);
 
     // The same event in a row will be deduped
     dm.update_conversation_message_disappear_from_ns(1).await?;
-    assert_eq!(updates().len(), 2);
+    assert_eq!(updates().await.len(), 2);
 
     // Different time means different update, will not be deduped.
     dm.update_conversation_message_disappear_from_ns(2).await?;
-    assert_eq!(updates().len(), 3);
+    assert_eq!(updates().await.len(), 3);
 
     // Back to 1, will not be deduped because we set it to 2 and back.
     dm.update_conversation_message_disappear_from_ns(1).await?;
-    assert_eq!(updates().len(), 4);
+    assert_eq!(updates().await.len(), 4);
 
     // Continue to dedupe because the field did not change.
     dm.update_conversation_message_disappear_from_ns(1).await?;
-    assert_eq!(updates().len(), 4);
+    assert_eq!(updates().await.len(), 4);
 }

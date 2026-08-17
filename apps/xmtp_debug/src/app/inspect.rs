@@ -64,7 +64,8 @@ impl Inspect {
                     created_at_ns: i64,
                 }
                 let groups = client
-                    .find_groups(Default::default())?
+                    .find_groups(Default::default())
+                    .await?
                     .into_iter()
                     .map(|g| PrintableGroup {
                         group_id: hex::encode(g.group_id),

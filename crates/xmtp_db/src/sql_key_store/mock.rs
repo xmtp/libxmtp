@@ -55,20 +55,20 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
     #[tracing::instrument(level = "trace", skip_all)]
     fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let mut store = self.mock_mls.lock();
-        f(&mut store)
+        super::transactions::drive_to_completion(f(&mut store))
     }
 
     fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let mut store = self.mock_mls.lock();
-        f(&mut store)
+        super::transactions::drive_to_completion(f(&mut store))
     }
 
     #[tracing::instrument(level = "trace", skip(self))]

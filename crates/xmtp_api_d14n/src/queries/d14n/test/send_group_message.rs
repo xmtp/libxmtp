@@ -105,8 +105,9 @@ pub struct TestCursorStore {
     pub dependencies: HashMap<DataHash, Cursor>,
 }
 
+#[xmtp_common::async_trait]
 impl CursorStore for TestCursorStore {
-    fn latest(
+    async fn latest(
         &self,
         _: &Topic,
         _: Option<&[&OriginatorId]>,
@@ -114,55 +115,55 @@ impl CursorStore for TestCursorStore {
         unreachable!()
     }
 
-    fn latest_for_topics(
+    async fn latest_for_topics(
         &self,
-        _: &mut dyn Iterator<Item = &Topic>,
+        _: &mut (dyn Iterator<Item = &Topic> + Send),
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
         unreachable!()
     }
 
-    fn find_message_dependencies(
+    async fn find_message_dependencies(
         &self,
         _hashes: &[&[u8]],
     ) -> Result<HashMap<Vec<u8>, Cursor>, CursorStoreError> {
         Ok(self.dependencies.clone())
     }
 
-    fn ice(
+    async fn ice(
         &self,
         _orphans: Vec<xmtp_proto::types::OrphanedEnvelope>,
     ) -> Result<(), CursorStoreError> {
         unreachable!()
     }
 
-    fn resolve_children(
+    async fn resolve_children(
         &self,
         _cursors: &[Cursor],
     ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
         unreachable!()
     }
 
-    fn set_cutover_ns(&self, _cutover_ns: i64) -> Result<(), CursorStoreError> {
+    async fn set_cutover_ns(&self, _cutover_ns: i64) -> Result<(), CursorStoreError> {
         Ok(())
     }
 
-    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+    async fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
         Ok(i64::MAX)
     }
 
-    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+    async fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
         Ok(0)
     }
 
-    fn set_last_checked_ns(&self, _last_checked_ns: i64) -> Result<(), CursorStoreError> {
+    async fn set_last_checked_ns(&self, _last_checked_ns: i64) -> Result<(), CursorStoreError> {
         Ok(())
     }
 
-    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+    async fn has_migrated(&self) -> Result<bool, CursorStoreError> {
         Ok(false)
     }
 
-    fn set_has_migrated(&self, _has_migrated: bool) -> Result<(), CursorStoreError> {
+    async fn set_has_migrated(&self, _has_migrated: bool) -> Result<(), CursorStoreError> {
         Ok(())
     }
 }

@@ -133,7 +133,7 @@ pub(crate) fn delete_key_package<Context: XmtpSharedContext>(
 
 /// Delete expired local key-package material (delete_at_ns <= now). Late execution
 /// is harmless — deletion is local-only; the network copy expires independently.
-pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
+pub(crate) async fn sweep_expired<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), KeyPackageMaintenanceError> {
     let conn = context.db();
@@ -176,13 +176,14 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
 /// then wake the worker. Neither write can land without the other. The rotation
 /// seed rides along in the same transaction (insert-or-ignore) so the pull-in
 /// always has a live target, even if startup seeding never ran.
-pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
+pub(crate) async fn queue_key_rotation<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let now = xmtp_common::time::now_ns();
     context
         .db()
-        .queue_key_rotation_with_nudge(&kp_rotation_hash(), kp_seed(kp_rotation_proto(), now)?)?;
+        .queue_key_rotation_with_nudge(&kp_rotation_hash(), kp_seed(kp_rotation_proto(), now)?)
+        .await?;
     // In-memory only; must stay outside the transaction.
     context.task_channels().wake();
     Ok(())
@@ -192,34 +193,37 @@ pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
 /// singleton exists (pull-in against a missing target is a no-op), then pull
 /// it in to the earliest pending delete_at. No-op when nothing is marked, so
 /// it is safe (and idempotent) to call on every dispatch.
-pub(crate) fn nudge_deletion<Context: XmtpSharedContext>(
+pub(crate) async fn nudge_deletion<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let db = context.db();
     let now = xmtp_common::time::now_ns();
-    if let Some(at) = db.min_key_package_delete_at_ns()? {
-        db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
-        enqueue_pull_in(context, kp_deletion_hash(), at, NEVER_EXPIRES)?;
+    if let Some(at) = db.min_key_package_delete_at_ns().await? {
+        db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)
+            .await?;
+        enqueue_pull_in(context, kp_deletion_hash(), at, NEVER_EXPIRES).await?;
     }
     Ok(())
 }
 
 /// Idempotent startup seeding + reconcile: pull-ins only LOWER task deadlines to
 /// the live DB columns, repairing rows stranded by a crash mid-nudge.
-pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
+pub(crate) async fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
     let db = context.db();
     let now = xmtp_common::time::now_ns();
-    db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
-    db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
+    db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)
+        .await?;
+    db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)
+        .await?;
     // None = pre-registration (no identity row): the seed row already fires at
     // startup; a pull-in to `now` would be redundant noise.
-    if let Some(rot) = db.next_key_package_rotation_ns()? {
-        enqueue_pull_in(context, kp_rotation_hash(), rot, NEVER_EXPIRES)?;
+    if let Some(rot) = db.next_key_package_rotation_ns().await? {
+        enqueue_pull_in(context, kp_rotation_hash(), rot, NEVER_EXPIRES).await?;
     }
-    if let Some(del) = db.min_key_package_delete_at_ns()? {
-        enqueue_pull_in(context, kp_deletion_hash(), del, NEVER_EXPIRES)?;
+    if let Some(del) = db.min_key_package_delete_at_ns().await? {
+        enqueue_pull_in(context, kp_deletion_hash(), del, NEVER_EXPIRES).await?;
     }
     Ok(())
 }
@@ -252,8 +256,12 @@ mod tests {
         cfg
     }
 
-    fn row_by_hash(db: &impl QueryTasks, hash: impl AsRef<[u8]>) -> Option<xmtp_db::tasks::Task> {
+    async fn row_by_hash(
+        db: &impl QueryTasks,
+        hash: impl AsRef<[u8]>,
+    ) -> Option<xmtp_db::tasks::Task> {
         db.get_tasks()
+            .await
             .expect("get_tasks should not fail")
             .into_iter()
             .find(|t| t.data_hash == hash.as_ref())
@@ -261,6 +269,7 @@ mod tests {
 
     async fn make_rotation_due(db: &impl QueryIdentity) {
         db.queue_key_package_rotation()
+            .await
             .expect("queue_key_package_rotation should not fail"); // column := now + 5s
         xmtp_common::time::sleep(std::time::Duration::from_secs(6)).await;
     }
@@ -297,15 +306,15 @@ mod tests {
     async fn manual_rotation_nudges_deletion() {
         tester!(alix, worker_config: no_runner_cfg());
         let db = alix.context.db();
-        assert!(row_by_hash(&db, kp_deletion_hash()).is_none());
+        assert!(row_by_hash(&db, kp_deletion_hash()).await.is_none());
 
         alix.rotate_and_upload_key_package().await?;
 
         assert!(
-            row_by_hash(&db, kp_deletion_hash()).is_some(),
+            row_by_hash(&db, kp_deletion_hash()).await.is_some(),
             "manual rotation must self-heal the deletion singleton"
         );
-        let has_pull_in = db.get_tasks()?.into_iter().any(|t| matches!(
+        let has_pull_in = db.get_tasks().await?.into_iter().any(|t| matches!(
             TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
             Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_deletion_hash().as_ref()
         ));
@@ -320,18 +329,21 @@ mod tests {
         tester!(alix, worker_config: no_runner_cfg());
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
-        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)
+            .await?;
         make_rotation_due(&db).await;
 
-        let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
+        let row = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
         assert!(
-            !db.is_identity_needs_rotation()?,
+            !db.is_identity_needs_rotation().await?,
             "rotation must have happened"
         );
-        let after = row_by_hash(&db, kp_rotation_hash()).expect("recurring row survives");
-        let col = db.next_key_package_rotation_ns()?.unwrap();
+        let after = row_by_hash(&db, kp_rotation_hash())
+            .await
+            .expect("recurring row survives");
+        let col = db.next_key_package_rotation_ns().await?.unwrap();
         assert_eq!(
             after.next_attempt_at_ns, col,
             "reschedule must read the live column"
@@ -344,18 +356,19 @@ mod tests {
         tester!(alix, worker_config: no_runner_cfg());
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
-        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)
+            .await?;
         // Deliberately NO KpDeletion seed: the handler must self-heal it.
         make_rotation_due(&db).await;
 
-        let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
+        let row = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
         assert!(
-            row_by_hash(&db, kp_deletion_hash()).is_some(),
+            row_by_hash(&db, kp_deletion_hash()).await.is_some(),
             "rotation must recreate a missing KpDeletion singleton"
         );
-        let has_pull_in = db.get_tasks()?.iter().any(|t| {
+        let has_pull_in = db.get_tasks().await?.iter().any(|t| {
             matches!(
                 TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
                 Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_deletion_hash().as_ref()
@@ -369,22 +382,25 @@ mod tests {
         tester!(alix, worker_config: no_runner_cfg());
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
-        db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)?;
+        db.create_or_ignore_task(kp_seed(kp_deletion_proto(), now)?)
+            .await?;
 
         // A rotation marks the superseded KP delete_at = now + 3s (test cfg).
         make_rotation_due(&db).await;
         rotate_if_needed(&alix.context).await?;
-        assert!(db.min_key_package_delete_at_ns()?.is_some());
+        assert!(db.min_key_package_delete_at_ns().await?.is_some());
         xmtp_common::time::sleep(std::time::Duration::from_secs(4)).await; // pass the grace
 
-        let row = row_by_hash(&db, kp_deletion_hash()).unwrap();
+        let row = row_by_hash(&db, kp_deletion_hash()).await.unwrap();
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
         assert!(
-            db.get_expired_key_packages()?.is_empty(),
+            db.get_expired_key_packages().await?.is_empty(),
             "sweep must delete expired KPs"
         );
-        let after = row_by_hash(&db, kp_deletion_hash()).expect("recurring row survives");
+        let after = row_by_hash(&db, kp_deletion_hash())
+            .await
+            .expect("recurring row survives");
         assert!(
             after.next_attempt_at_ns > xmtp_common::time::now_ns(),
             "deletion reschedules to next pending deadline or far-future"
@@ -395,13 +411,13 @@ mod tests {
     async fn kp_tasks_seeded_when_workers_run_absent_when_passive() {
         tester!(alix); // default: TaskRunner on -> seeds present
         let db = alix.context.db();
-        assert!(row_by_hash(&db, kp_rotation_hash()).is_some());
-        assert!(row_by_hash(&db, kp_deletion_hash()).is_some());
+        assert!(row_by_hash(&db, kp_rotation_hash()).await.is_some());
+        assert!(row_by_hash(&db, kp_deletion_hash()).await.is_some());
 
         tester!(bo, worker_config: no_runner_cfg()); // no TaskRunner -> no seeds
         let db = bo.context.db();
-        assert!(row_by_hash(&db, kp_rotation_hash()).is_none());
-        assert!(row_by_hash(&db, kp_deletion_hash()).is_none());
+        assert!(row_by_hash(&db, kp_rotation_hash()).await.is_none());
+        assert!(row_by_hash(&db, kp_deletion_hash()).await.is_none());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -411,15 +427,17 @@ mod tests {
         let now = xmtp_common::time::now_ns();
         // Stale persisted row 30d out while the column says due-in-5s
         // (crash-between-writes scenario).
-        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
-        let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        db.update_task(row.id, 0, now, now + 30 * xmtp_common::NS_IN_DAY)?;
-        db.queue_key_package_rotation()?; // column := now + 5s
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)
+            .await?;
+        let row = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
+        db.update_task(row.id, 0, now, now + 30 * xmtp_common::NS_IN_DAY)
+            .await?;
+        db.queue_key_package_rotation().await?; // column := now + 5s
 
-        seed_and_reconcile_kp_tasks(&alix.context)?;
+        seed_and_reconcile_kp_tasks(&alix.context).await?;
 
         let pull_in = db
-            .get_tasks()?
+            .get_tasks().await?
             .into_iter()
             .find(|t| {
                 matches!(
@@ -430,8 +448,8 @@ mod tests {
             .expect("reconcile must enqueue a rotation pull-in");
         TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
 
-        let after = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        let col = db.next_key_package_rotation_ns()?.unwrap();
+        let after = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
+        let col = db.next_key_package_rotation_ns().await?.unwrap();
         assert_eq!(after.next_attempt_at_ns, col);
     }
 
@@ -442,20 +460,21 @@ mod tests {
         tester!(alix, worker_config: no_runner_cfg());
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
-        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)
+            .await?;
         // Post-registration column is ~now+30d: not due.
-        let row = row_by_hash(&db, kp_rotation_hash()).unwrap();
+        let row = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
         TaskWorker::run_and_reschedule_task(row, &alix.context).await?;
 
         assert!(
-            row_by_hash(&db, kp_deletion_hash()).is_none(),
+            row_by_hash(&db, kp_deletion_hash()).await.is_none(),
             "must not seed deletion"
         );
-        assert!(db.min_key_package_delete_at_ns()?.is_none());
-        let after = row_by_hash(&db, kp_rotation_hash()).unwrap();
+        assert!(db.min_key_package_delete_at_ns().await?.is_none());
+        let after = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
         assert_eq!(
             after.next_attempt_at_ns,
-            db.next_key_package_rotation_ns()?.unwrap()
+            db.next_key_package_rotation_ns().await?.unwrap()
         );
     }
 
@@ -465,15 +484,15 @@ mod tests {
     async fn welcome_nudge_selfheals_missing_rotation_seed() {
         tester!(alix, worker_config: no_runner_cfg()); // no TaskRunner -> no seeds
         let db = alix.context.db();
-        assert!(row_by_hash(&db, kp_rotation_hash()).is_none());
+        assert!(row_by_hash(&db, kp_rotation_hash()).await.is_none());
 
-        queue_key_rotation(&alix.context)?;
+        queue_key_rotation(&alix.context).await?;
 
         assert!(
-            row_by_hash(&db, kp_rotation_hash()).is_some(),
+            row_by_hash(&db, kp_rotation_hash()).await.is_some(),
             "nudge must recreate the missing KpRotation singleton"
         );
-        let has_pull_in = db.get_tasks()?.iter().any(|t| {
+        let has_pull_in = db.get_tasks().await?.iter().any(|t| {
             matches!(
                 TaskProtoDecode::decode(t.data.as_slice()).ok().and_then(|p| p.task),
                 Some(TaskKind::PullInDeadline(p)) if p.target_data_hash == kp_rotation_hash().as_ref()
@@ -489,11 +508,13 @@ mod tests {
         tester!(alix, worker_config: no_runner_cfg());
         let db = alix.context.db();
         let now = xmtp_common::time::now_ns();
-        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)?;
+        db.create_or_ignore_task(kp_seed(kp_rotation_proto(), now)?)
+            .await?;
         // Simulate the seed having already dispatched not-due: park it on the column (~+30d).
-        let parked = row_by_hash(&db, kp_rotation_hash()).unwrap();
+        let parked = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
         TaskWorker::run_and_reschedule_task(parked, &alix.context).await?;
         let parked_at = row_by_hash(&db, kp_rotation_hash())
+            .await
             .unwrap()
             .next_attempt_at_ns;
         assert!(
@@ -501,10 +522,10 @@ mod tests {
             "precondition: parked far out"
         );
 
-        queue_key_rotation(&alix.context)?; // welcome: column + pull-in, atomically
+        queue_key_rotation(&alix.context).await?; // welcome: column + pull-in, atomically
 
         let pull_in = db
-            .get_tasks()?
+            .get_tasks().await?
             .into_iter()
             .find(|t| {
                 matches!(
@@ -515,8 +536,8 @@ mod tests {
             .expect("nudge must enqueue a durable pull-in");
         TaskWorker::run_and_reschedule_task(pull_in, &alix.context).await?;
 
-        let after = row_by_hash(&db, kp_rotation_hash()).unwrap();
-        let col = db.next_key_package_rotation_ns()?.unwrap();
+        let after = row_by_hash(&db, kp_rotation_hash()).await.unwrap();
+        let col = db.next_key_package_rotation_ns().await?.unwrap();
         assert_eq!(
             after.next_attempt_at_ns, col,
             "rotation row must be pulled in to the lowered column"

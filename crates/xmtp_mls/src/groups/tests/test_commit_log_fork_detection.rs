@@ -22,7 +22,7 @@ use xmtp_proto::types::Cursor;
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    let group = alix.create_group(None, None).await.unwrap();
     let group_id = group.group_id;
 
     // Insert local commit log entries
@@ -102,7 +102,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    let group = alix.create_group(None, None).await.unwrap();
     let group_id = group.group_id;
 
     // Insert local commit log entries
@@ -182,7 +182,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    let group = alix.create_group(None, None).await.unwrap();
     let group_id = group.group_id;
 
     // Insert local commit log entry
@@ -214,16 +214,24 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     remote_entry.store(&alix.context.db())?;
 
     // Get initial cursor values (should be 0)
-    let initial_local_cursor = alix.context.db().get_last_cursor_for_originator(
-        group_id,
-        xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
-    )?;
-    let initial_remote_cursor = alix.context.db().get_last_cursor_for_originator(
-        group_id,
-        xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
-    )?;
+    let initial_local_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_originator(
+            group_id.as_slice(),
+            xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            Originators::REMOTE_COMMIT_LOG,
+        )
+        .await?;
+    let initial_remote_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_originator(
+            group_id.as_slice(),
+            xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            Originators::REMOTE_COMMIT_LOG,
+        )
+        .await?;
 
     assert_eq!(initial_local_cursor, Cursor::commit_log(0));
     assert_eq!(initial_remote_cursor, Cursor::commit_log(0));
@@ -252,16 +260,24 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     );
 
     // Verify cursors were updated
-    let updated_local_cursor = alix.context.db().get_last_cursor_for_originator(
-        group_id,
-        xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
-    )?;
-    let updated_remote_cursor = alix.context.db().get_last_cursor_for_originator(
-        group_id,
-        xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
-    )?;
+    let updated_local_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_originator(
+            group_id.as_slice(),
+            xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            Originators::REMOTE_COMMIT_LOG,
+        )
+        .await?;
+    let updated_remote_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_originator(
+            group_id.as_slice(),
+            xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            Originators::REMOTE_COMMIT_LOG,
+        )
+        .await?;
 
     // Cursors should be updated to the rowids of the matching entries
     assert!(
@@ -325,21 +341,34 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     );
 
     // Verify cursors were updated
-    let updated_two_local_cursor = alix.context.db().get_last_cursor_for_originator(
-        group_id,
-        xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
-    )?;
-    let updated_two_remote_cursor = alix.context.db().get_last_cursor_for_originator(
-        group_id,
-        xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
-    )?;
-    let latest_two_local_log = alix.context.db().get_latest_log_for_group(&group_id)?;
+    let updated_two_local_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_originator(
+            group_id.as_slice(),
+            xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            Originators::REMOTE_COMMIT_LOG,
+        )
+        .await?;
+    let updated_two_remote_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_originator(
+            group_id.as_slice(),
+            xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            Originators::REMOTE_COMMIT_LOG,
+        )
+        .await?;
+    let latest_two_local_log = alix
+        .context
+        .db()
+        .get_latest_log_for_group(&group_id)
+        .await?;
     let latest_two_remote_log = alix
         .context
         .db()
-        .get_latest_remote_log_for_group(&group_id)?;
+        .get_latest_remote_log_for_group(&group_id)
+        .await?;
 
     assert_eq!(
         updated_two_local_cursor,
@@ -362,7 +391,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    let group = alix.create_group(None, None).await.unwrap();
     let group_id = group.group_id;
 
     // Insert local commit log entries
@@ -438,7 +467,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
-    let group = alix.create_group(None, None).unwrap();
+    let group = alix.create_group(None, None).await.unwrap();
     let group_id = group.group_id;
 
     // Insert local commit log entries
@@ -516,7 +545,8 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&group_id)?;
+        .get_group_commit_log_forked_status(&group_id)
+        .await?;
     assert_eq!(
         db_fork_status,
         Some(false),
@@ -550,7 +580,8 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status_second = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&group_id)?;
+        .get_group_commit_log_forked_status(&group_id)
+        .await?;
     assert_eq!(
         db_fork_status_second,
         Some(false),
@@ -584,7 +615,8 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status_final = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&group_id)?;
+        .get_group_commit_log_forked_status(&group_id)
+        .await?;
     assert_eq!(
         db_fork_status_final,
         Some(false),
@@ -622,7 +654,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
     tester!(bo);
 
     // Alix creates a group and adds Bo; Bo joins and settles.
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&alix_group.group_id)?;
@@ -642,7 +674,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
     // The removal is recorded truthfully: RemovedFromGroup, Success, and the
     // PRE-commit epoch + authenticator (a removed member cannot derive the
     // new epoch's secrets).
-    let bo_logs = bo.context.db().get_group_logs(&bo_group.group_id)?;
+    let bo_logs = bo.context.db().get_group_logs(&bo_group.group_id).await?;
     let bo_removal = bo_logs.last().expect("bo logged the removal commit");
     assert_eq!(
         bo_removal.commit_type,
@@ -661,7 +693,11 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
 
     // The remaining member applied the commit fully: new epoch, new
     // authenticator, different from anything Bo could compute.
-    let alix_logs = alix.context.db().get_group_logs(&alix_group.group_id)?;
+    let alix_logs = alix
+        .context
+        .db()
+        .get_group_logs(&alix_group.group_id)
+        .await?;
     let alix_removal = alix_logs
         .iter()
         .find(|l| l.commit_sequence_id == bo_removal.commit_sequence_id)
@@ -738,7 +774,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
     bo.sync_welcomes().await?;
     bo_group.sync().await?;
     assert!(
-        bo_group.is_active()?,
+        bo_group.is_active().await?,
         "bo must have rejoined via the new welcome"
     );
 
@@ -761,7 +797,8 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
     let db_status = bo
         .context
         .db()
-        .get_group_commit_log_forked_status(&bo_group.group_id)?;
+        .get_group_commit_log_forked_status(&bo_group.group_id)
+        .await?;
     assert_eq!(db_status, None, "stored status must not be forked");
 
     Ok(())
@@ -865,7 +902,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     tester!(caro);
 
     // Alix creates a group and adds Bo.
-    let alix_group = alix.create_group(None, None)?;
+    let alix_group = alix.create_group(None, None).await?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&alix_group.group_id)?;
@@ -914,7 +951,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     // commit.
     let provider = bo.context.mls_provider();
     let mut processed_message = None;
-    let result = provider.key_store().transaction(|conn| {
+    let result = provider.key_store().transaction(async |conn| {
         let storage = conn.key_store();
         let provider = XmtpOpenMlsProvider::new(storage);
         processed_message = Some(process_message_with_app_data(
@@ -985,7 +1022,12 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         "torn group already carries the post-commit epoch secrets"
     );
 
-    let logs_before = bo.context.db().get_group_logs(&bo_group.group_id)?.len();
+    let logs_before = bo
+        .context
+        .db()
+        .get_group_logs(&bo_group.group_id)
+        .await?
+        .len();
 
     // --- Pass 2: merge the stale staged commit on the torn group. ---
     // From the torn group's perspective this is an ordinary merge (epoch E ->
@@ -1005,7 +1047,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     );
 
     // And the corrupt row must not have been written.
-    let logs = bo.context.db().get_group_logs(&bo_group.group_id)?;
+    let logs = bo.context.db().get_group_logs(&bo_group.group_id).await?;
     assert_eq!(
         logs.len(),
         logs_before,

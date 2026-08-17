@@ -27,9 +27,15 @@ async fn test_request_readd() {
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     let b_group = bo.group(&group.group_id).unwrap();
-    b_group.update_consent_state(ConsentState::Allowed).unwrap();
+    b_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
     let c_group = caro.group(&group.group_id).unwrap();
-    c_group.update_consent_state(ConsentState::Allowed).unwrap();
+    c_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
 
     let mut a_worker = CommitLogWorker::new(alix.context.clone());
     a_worker._tick().await.unwrap();
@@ -40,22 +46,26 @@ async fn test_request_readd() {
     // Simulate a fork
     a_conn
         .set_group_commit_log_forked_status(&group.group_id, Some(true))
+        .await
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !b_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !c_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 
@@ -72,31 +82,37 @@ async fn test_request_readd() {
     assert!(
         a_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         b_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !c_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !a_conn
             .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !b_conn
             .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !c_conn
             .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 }
@@ -112,7 +128,10 @@ async fn test_request_readd_dm() {
         .unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     let bo_dm = bo.group(&dm.group_id).unwrap();
-    bo_dm.update_consent_state(ConsentState::Allowed).unwrap();
+    bo_dm
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
 
     let mut a_worker = CommitLogWorker::new(alix.context.clone());
     a_worker._tick().await.unwrap();
@@ -122,17 +141,20 @@ async fn test_request_readd_dm() {
     // Simulate a fork
     a_conn
         .set_group_commit_log_forked_status(&dm.group_id, Some(true))
+        .await
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
             .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !b_conn
             .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 
@@ -147,21 +169,25 @@ async fn test_request_readd_dm() {
     assert!(
         a_conn
             .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         b_conn
             .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !a_conn
             .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !b_conn
             .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 }
@@ -236,11 +262,20 @@ async fn test_readd_bookkeeping() {
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
     devon.sync_all_welcomes_and_groups(None).await.unwrap();
     let b_group = bo.group(&group.group_id).unwrap();
-    b_group.update_consent_state(ConsentState::Allowed).unwrap();
+    b_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
     let c_group = caro.group(&group.group_id).unwrap();
-    c_group.update_consent_state(ConsentState::Allowed).unwrap();
+    c_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
     let d_group = devon.group(&group.group_id).unwrap();
-    d_group.update_consent_state(ConsentState::Allowed).unwrap();
+    d_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
 
     let mut a_worker = CommitLogWorker::new(alix.context.clone());
     // Publishes remote commit log (needed for readd request to be sent)
@@ -253,22 +288,26 @@ async fn test_readd_bookkeeping() {
     // Simulate a fork
     a_conn
         .set_group_commit_log_forked_status(&group.group_id, Some(true))
+        .await
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !b_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !c_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 
@@ -284,21 +323,25 @@ async fn test_readd_bookkeeping() {
     assert!(
         a_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         b_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         c_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !d_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 
@@ -313,16 +356,19 @@ async fn test_readd_bookkeeping() {
     assert!(
         !b_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !c_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !d_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 
@@ -330,6 +376,7 @@ async fn test_readd_bookkeeping() {
     assert!(
         !a_conn
             .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 }
@@ -365,9 +412,15 @@ async fn test_request_readd_with_allowlisted_groups() {
 
     // Fork detection and recovery does not operate on non-consented groups
     let a_group = alix.group(&group_id).unwrap();
-    a_group.update_consent_state(ConsentState::Allowed).unwrap();
+    a_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
     let c_group = caro.group(&group_id).unwrap();
-    c_group.update_consent_state(ConsentState::Allowed).unwrap();
+    c_group
+        .update_consent_state(ConsentState::Allowed)
+        .await
+        .unwrap();
 
     // Upload remote commit log on Bo's end
     let mut b_worker = CommitLogWorker::new(bo.context.clone());
@@ -383,17 +436,20 @@ async fn test_request_readd_with_allowlisted_groups() {
     // Simulate a fork
     a_conn
         .set_group_commit_log_forked_status(&group_id, Some(true))
+        .await
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
             .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     assert!(
         !b_conn
             .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 
@@ -407,18 +463,21 @@ async fn test_request_readd_with_allowlisted_groups() {
     assert!(
         a_conn
             .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     // Bo is a superadmin so should have recorded the request
     assert!(
         b_conn
             .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
     // Caro is not a superadmin so should not have received the request
     assert!(
         !c_conn
             .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
+            .await
             .unwrap()
     );
 }

@@ -22,8 +22,8 @@ where
 {
     type Error = ApiClientError;
 
-    fn is_d14n(&self) -> Result<bool, Self::Error> {
-        Ok(self.store.has_migrated()?)
+    async fn is_d14n(&self) -> Result<bool, Self::Error> {
+        Ok(self.store.has_migrated().await?)
     }
 
     // WARN query_at is used only in tests so far, so

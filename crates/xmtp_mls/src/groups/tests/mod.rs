@@ -88,14 +88,14 @@ use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope}
 
 async fn receive_group_invite(client: &FullXmtpClient) -> TestMlsGroup {
     client.sync_welcomes().await.unwrap();
-    let mut groups = client.find_groups(&GroupQueryArgs::default()).unwrap();
+    let mut groups = client.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     groups.remove(0)
 }
 
 async fn get_latest_message(group: &TestMlsGroup) -> StoredGroupMessage {
     group.sync().await.unwrap();
-    let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let mut messages = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     messages.pop().unwrap()
 }
 
@@ -146,6 +146,7 @@ async fn force_add_member(
     );
     let messages = sender_group
         .prepare_group_messages(vec![(serialized_commit.as_slice(), false)])
+        .await
         .unwrap();
     sender_client
         .context
@@ -162,7 +163,7 @@ async fn force_add_member(
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message() {
     tester!(alix);
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group
         .send_message(b"hello", SendMessageOpts::default())
         .await?;
@@ -173,7 +174,7 @@ async fn test_send_message() {
         .await?;
 
     group.sync().await?;
-    let decrypted_messages = group.find_messages(&MsgQueryArgs::default())?;
+    let decrypted_messages = group.find_messages(&MsgQueryArgs::default()).await?;
 
     tracing::info!("The messages: {decrypted_messages:?}");
 
@@ -184,7 +185,7 @@ async fn test_send_message() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_self_message() {
     tester!(alix);
-    let group = alix.create_group(None, None).expect("create group");
+    let group = alix.create_group(None, None).await.expect("create group");
     let msg = b"hello";
 
     group
@@ -194,7 +195,7 @@ async fn test_receive_self_message() {
 
     group.receive().await?;
     // Check for messages
-    let messages = group.find_messages(&MsgQueryArgs::default())?;
+    let messages = group.find_messages(&MsgQueryArgs::default()).await?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
 }
@@ -203,7 +204,7 @@ async fn test_receive_self_message() {
 async fn test_receive_message_from_other() {
     tester!(alix);
     tester!(bo);
-    let alix_group = alix.create_group(None, None).expect("create group");
+    let alix_group = alix.create_group(None, None).await.expect("create group");
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     let alix_message = b"hello from alix";
     alix_group
@@ -231,7 +232,7 @@ async fn test_members_func_from_non_creator() {
     tester!(amal);
     tester!(bola);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Get bola's version of the same group
@@ -278,7 +279,7 @@ async fn test_add_member_conflict() {
     tester!(bola);
     tester!(charlie);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     // Add bola
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
@@ -324,7 +325,7 @@ async fn test_add_member_conflict() {
 
     let amal_uncommitted_intents = amal_db
         .find_group_intents(
-            amal_group.group_id,
+            &amal_group.group_id,
             Some(vec![
                 IntentState::ToPublish,
                 IntentState::Published,
@@ -332,11 +333,13 @@ async fn test_add_member_conflict() {
             ]),
             None,
         )
+        .await
         .unwrap();
     assert_eq!(amal_uncommitted_intents.len(), 0);
 
     let bola_failed_intents = bola_db
-        .find_group_intents(bola_group.group_id, Some(vec![IntentState::Error]), None)
+        .find_group_intents(&bola_group.group_id, Some(vec![IntentState::Error]), None)
+        .await
         .unwrap();
     // Bola's attempted add should be deleted, since it will have been a no-op on the second try
     assert_eq!(bola_failed_intents.len(), 0);
@@ -351,7 +354,10 @@ async fn test_add_member_conflict() {
         .await
         .unwrap();
 
-    let bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let bola_messages = bola_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     let matching_message = bola_messages
         .iter()
         .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
@@ -369,7 +375,7 @@ fn test_create_from_welcome_validation() {
         tester!(alix);
         tester!(bo);
 
-        let alix_group = alix.create_group(None, None).unwrap();
+        let alix_group = alix.create_group(None, None).await.unwrap();
         let provider = alix.context.mls_provider();
         // Doctor the group membership
         let mut mls_group = alix_group
@@ -399,7 +405,7 @@ fn test_create_from_welcome_validation() {
 
         // Bo should not be able to actually read this group
         bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+        let groups = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
         assert_eq!(groups.len(), 0);
         assert_logged!("failed to create group from welcome", 1);
     });
@@ -449,6 +455,7 @@ async fn test_dm_stitching() {
         .context
         .db()
         .find_groups(&GroupQueryArgs::default())
+        .await
         .unwrap();
     assert_eq!(alix_filtered_groups.len(), 1);
 
@@ -469,6 +476,7 @@ async fn test_dm_stitching() {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     assert_eq!(alix_msgs.len(), 2);
@@ -484,7 +492,7 @@ async fn test_dm_stitching() {
 async fn test_add_inbox() {
     tester!(client);
     tester!(client_2);
-    let group = client.create_group(None, None).expect("create group");
+    let group = client.create_group(None, None).await.expect("create group");
 
     group.add_members(&[client_2.inbox_id()]).await.unwrap();
 
@@ -531,8 +539,8 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     bola_2.sync_welcomes().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    let bola_1_groups = bola_1.find_groups(&GroupQueryArgs::default()).unwrap();
-    let bola_2_groups = bola_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).await.unwrap();
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
     assert_eq!(bola_2_groups.len(), 0, "Bola_2 should see no groups!");
@@ -634,8 +642,8 @@ async fn test_create_group_with_member_all_malformed_installations() {
     bola_1.sync_welcomes().await.unwrap();
     bola_2.sync_welcomes().await.unwrap();
 
-    let bola_1_groups = bola_1.find_groups(&GroupQueryArgs::default()).unwrap();
-    let bola_2_groups = bola_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).await.unwrap();
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     assert_eq!(
         bola_1_groups.len(),
@@ -687,7 +695,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
     bola_1.sync_welcomes().await.unwrap();
     // xmtp_common::time::sleep(std::time::Duration::from_secs(4)).await;
 
-    let bola_groups = bola_1.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola_1.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     assert_eq!(bola_groups.len(), 1, "Bola_1 should see the DM group");
 
@@ -696,7 +704,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     // 6) Ensure Bola_2 does NOT have the group
     bola_2.sync_welcomes().await.unwrap();
-    let bola_2_groups = bola_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(
         bola_2_groups.len(),
         0,
@@ -715,7 +723,10 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
     bola_1_dm.sync().await.unwrap();
 
     // Verify Bola_1 received the message
-    let messages_bola_1 = bola_1_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages_bola_1 = bola_1_dm
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(
         messages_bola_1.len(),
         2,
@@ -736,7 +747,10 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
         .unwrap();
 
     amal_dm.sync().await.unwrap();
-    let messages_amal = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages_amal = amal_dm
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages_amal.len(), 3, "Amal should receive Bola_1's reply");
 
     let last_message_amal = messages_amal.last().unwrap();
@@ -782,7 +796,7 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
 
     // 5) Ensure Bola_1 does not have any groups
     bola_1.sync_welcomes().await.unwrap();
-    let bola_1_groups = bola_1.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(
         bola_1_groups.len(),
         0,
@@ -791,7 +805,7 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
 
     // 6) Ensure Bola_2 does not have any groups
     bola_2.sync_welcomes().await.unwrap();
-    let bola_2_groups = bola_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(
         bola_2_groups.len(),
         0,
@@ -824,11 +838,11 @@ async fn test_add_inbox_with_bad_installation_to_group() {
     bo_2.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
 
-    let bo_2_groups = bo_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bo_2_groups = bo_2.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bo_2_groups.len(), 1);
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(caro_groups.len(), 1);
-    let alix_groups = alix.find_groups(&GroupQueryArgs::default()).unwrap();
+    let alix_groups = alix.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(alix_groups.len(), 1);
 }
 
@@ -856,11 +870,11 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
 
     caro.sync_welcomes().await.unwrap();
     bo_2.sync_welcomes().await.unwrap();
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(caro_groups.len(), 1);
-    let bo_groups = bo_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bo_groups = bo_2.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bo_groups.len(), 1);
-    let alix_groups = alix.find_groups(&GroupQueryArgs::default()).unwrap();
+    let alix_groups = alix.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(alix_groups.len(), 1);
 }
 
@@ -891,11 +905,11 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
     bo.sync_welcomes().await.unwrap();
     group.sync().await.unwrap();
 
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
-    assert!(!caro_group.is_active().unwrap());
-    let bo_groups = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    assert!(!caro_group.is_active().await.unwrap());
+    let bo_groups = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = bo_groups.first().unwrap();
     bo_group.sync().await.unwrap();
     assert_eq!(bo_group.members().await.unwrap().len(), 2);
@@ -934,17 +948,23 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     caro.sync_welcomes().await.unwrap();
     group.sync().await.unwrap();
 
-    let bo_groups = bo_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bo_groups = bo_2.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = bo_groups.first().unwrap();
     bo_group.sync().await.unwrap();
-    let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let bo_msgs = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bo_msgs.len(), 2);
     assert_eq!(bo_msgs[1].decrypted_message_bytes, message_from_alix);
 
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
-    let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let caro_msgs = caro_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(caro_msgs.len(), 2);
     assert_eq!(caro_msgs[1].decrypted_message_bytes, message_from_alix);
 
@@ -956,7 +976,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
         .unwrap();
 
     group.sync().await.unwrap();
-    let group_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let group_msgs = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     assert_eq!(group_msgs.len(), 3);
     assert_eq!(group_msgs.last().unwrap().decrypted_message_bytes, bo_reply);
 
@@ -972,7 +992,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
     // Bo should no longer be active
     bo_group.sync().await.unwrap();
-    assert!(!bo_group.is_active().unwrap());
+    assert!(!bo_group.is_active().await.unwrap());
 
     let post_removal_msg = b"Caro, just us now!";
     group
@@ -986,21 +1006,27 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
         .unwrap();
 
     caro_group.sync().await.unwrap();
-    let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let caro_msgs = caro_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(caro_msgs.len(), 6);
     assert_eq!(
         caro_msgs.last().unwrap().decrypted_message_bytes,
         caro_post_removal_msg
     );
     group.sync().await.unwrap();
-    let alix_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let alix_msgs = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     assert_eq!(alix_msgs.len(), 6);
     assert_eq!(
         alix_msgs.last().unwrap().decrypted_message_bytes,
         caro_post_removal_msg
     );
 
-    let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let bo_msgs = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(
         bo_msgs.len(),
         4,
@@ -1014,7 +1040,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 #[xmtp_common::test]
 async fn test_add_invalid_member() {
     tester!(client);
-    let group = client.create_group(None, None).expect("create group");
+    let group = client.create_group(None, None).await.expect("create group");
 
     let result = group.add_members(&["1234".to_string()]).await;
 
@@ -1025,7 +1051,7 @@ async fn test_add_invalid_member() {
 async fn test_add_unregistered_member() {
     tester!(amal);
     let unconnected_ident = Identifier::rand_ethereum();
-    let group = amal.create_group(None, None).unwrap();
+    let group = amal.create_group(None, None).await.unwrap();
     let result = group.add_members_by_identity(&[unconnected_ident]).await;
 
     assert!(result.is_err());
@@ -1037,13 +1063,16 @@ async fn test_remove_inbox() {
     // Add another client onto the network
     tester!(client_2);
 
-    let group = client_1.create_group(None, None).expect("create group");
+    let group = client_1
+        .create_group(None, None)
+        .await
+        .expect("create group");
     group
         .add_members(&[client_2.inbox_id()])
         .await
         .expect("group create failure");
 
-    let messages_with_add = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages_with_add = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     assert_eq!(messages_with_add.len(), 1);
 
     // Try and add another member without merging the pending commit
@@ -1052,7 +1081,7 @@ async fn test_remove_inbox() {
         .await
         .expect("group remove members failure");
 
-    let messages_with_remove = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages_with_remove = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     assert_eq!(messages_with_remove.len(), 2);
 
     // We are expecting 1 message on the group topic, not 2, because the second one should have
@@ -1084,7 +1113,7 @@ async fn test_self_remove_dm_must_fail() {
 
     // Bola can message amal
     let _ = bola.sync_welcomes().await;
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     let bola_dm = bola_groups.first().unwrap();
     bola_dm
@@ -1094,7 +1123,10 @@ async fn test_self_remove_dm_must_fail() {
 
     // Amal syncs and reads message
     amal_dm.sync().await.unwrap();
-    let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_dm
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 2);
     let message = messages.last().unwrap();
     assert_eq!(message.decrypted_message_bytes, b"test one");
@@ -1135,7 +1167,10 @@ async fn test_self_remove_dm_must_fail() {
 
     // Amal syncs and reads message
     amal_dm.sync().await.unwrap();
-    let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_dm
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 3);
     let message = messages.last().unwrap();
     assert_eq!(message.decrypted_message_bytes, b"test one");
@@ -1145,12 +1180,13 @@ async fn test_self_remove_group_fail_with_one_member() {
     tester!(amal);
 
     // Create a group and verify it has the default group name
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let amal_group_pending_leave_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
@@ -1165,7 +1201,7 @@ async fn test_self_remove_super_admin_must_fail() {
     tester!(amal);
     tester!(bola);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     let result = amal_group.leave_group().await;
@@ -1180,7 +1216,7 @@ async fn test_non_member_cannot_leave_group() {
     tester!(bola);
 
     // Create a group and verify it has the default group name
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
@@ -1191,9 +1227,10 @@ async fn test_non_member_cannot_leave_group() {
     let amal_group_pending_leave_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
@@ -1204,6 +1241,7 @@ async fn test_non_member_cannot_leave_group() {
     let bola_group_pending_leave_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
+        .await
         .unwrap();
     assert!(bola_group_pending_leave_users.is_empty());
 
@@ -1222,7 +1260,7 @@ async fn test_self_removal() {
     tester!(bola_i1);
     tester!(bola_i2, from: bola_i1);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
@@ -1233,10 +1271,14 @@ async fn test_self_removal() {
     let amal_group_pending_leave_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
-    let bola_i1_groups = bola_i1.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_i1_groups = bola_i1
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_i1_groups.len(), 1);
     let bola_i1_group = bola_i1_groups.first().unwrap();
     assert_eq!(bola_i1_group.members().await.unwrap().len(), 2);
@@ -1247,6 +1289,7 @@ async fn test_self_removal() {
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
         .get_pending_remove_users(&bola_i1_group.group_id)
+        .await
         .unwrap();
     assert!(bola_i1_group_pending_leave_users.is_empty());
 
@@ -1258,6 +1301,7 @@ async fn test_self_removal() {
     let amal_group_pending_leave_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
@@ -1270,6 +1314,7 @@ async fn test_self_removal() {
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
         .get_pending_remove_users(&bola_i1_group.group_id)
+        .await
         .unwrap();
     tracing::info!(
         "Bola_i1_group_pending_leave_users: {:?}",
@@ -1280,7 +1325,11 @@ async fn test_self_removal() {
     assert_eq!(bola_i1_group_pending_leave_users.len(), 1);
 
     // Bola's state for the group should be set to PendingRemove
-    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i1_group_from_db = bola_i1
+        .db()
+        .find_group(&bola_i1_group.group_id)
+        .await
+        .unwrap();
     assert_eq!(
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1291,6 +1340,7 @@ async fn test_self_removal() {
     let amal_group_member_state = amal
         .db()
         .find_group(&amal_group.group_id)
+        .await
         .unwrap()
         .unwrap()
         .membership_state;
@@ -1303,7 +1353,10 @@ async fn test_self_removal() {
     // therefore assert the eventual, deterministic outcome (Bola removed) rather
     // than the transient pending window.
     bola_i2.sync_welcomes().await.unwrap();
-    let bola_i2_groups = bola_i2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_i2_groups = bola_i2
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_i2_groups.len(), 1);
     let bola_i2_group = bola_i2_groups.first().unwrap();
 
@@ -1311,8 +1364,8 @@ async fn test_self_removal() {
 
     let _ = bola_i1_group.sync().await;
     let _ = bola_i2_group.sync().await;
-    assert!(!bola_i1_group.is_active().unwrap());
-    assert!(!bola_i2_group.is_active().unwrap());
+    assert!(!bola_i1_group.is_active().await.unwrap());
+    assert!(!bola_i2_group.is_active().await.unwrap());
     let _ = amal_group.sync().await;
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
@@ -1321,17 +1374,17 @@ async fn test_self_removal() {
 async fn test_self_removal_simple() {
     tester!(amal);
     tester!(bola);
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
 
     // Verify Bola's membership state is Pending when first invited
     assert_eq!(
-        bola_group.membership_state().unwrap(),
+        bola_group.membership_state().await.unwrap(),
         GroupMembershipState::Pending
     );
 
@@ -1339,7 +1392,7 @@ async fn test_self_removal_simple() {
 
     // Verify Bola's membership state is PendingRemove after requesting to leave
     assert_eq!(
-        bola_group.membership_state().unwrap(),
+        bola_group.membership_state().await.unwrap(),
         GroupMembershipState::PendingRemove
     );
 
@@ -1347,12 +1400,12 @@ async fn test_self_removal_simple() {
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     bola_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
-    assert!(!bola_group.is_active().unwrap());
+    assert!(!bola_group.is_active().await.unwrap());
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 
     // Verify Amal's membership state remains Allowed
     assert_eq!(
-        amal_group.membership_state().unwrap(),
+        amal_group.membership_state().await.unwrap(),
         GroupMembershipState::Allowed
     );
 }
@@ -1363,17 +1416,17 @@ async fn test_membership_state_after_readd() {
     tester!(bola);
 
     // Amal creates a group and adds Bola
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Bola syncs and gets the group
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
 
     // Verify Bola's initial membership state is Pending
     assert_eq!(
-        bola_group.membership_state().unwrap(),
+        bola_group.membership_state().await.unwrap(),
         GroupMembershipState::Pending,
         "Bola should be in Pending state when first invited"
     );
@@ -1383,7 +1436,7 @@ async fn test_membership_state_after_readd() {
 
     // Verify Bola's membership state is PendingRemove after requesting to leave
     assert_eq!(
-        bola_group.membership_state().unwrap(),
+        bola_group.membership_state().await.unwrap(),
         GroupMembershipState::PendingRemove,
         "Bola should be in PendingRemove state after leaving"
     );
@@ -1399,7 +1452,7 @@ async fn test_membership_state_after_readd() {
 
     // Verify Bola's group is no longer active
     assert!(
-        !bola_group.is_active().unwrap(),
+        !bola_group.is_active().await.unwrap(),
         "Bola's group should be inactive after removal"
     );
 
@@ -1413,7 +1466,7 @@ async fn test_membership_state_after_readd() {
     bola.sync_welcomes().await.unwrap();
 
     // Bola should have the group again (same ID)
-    let bola_groups_after_readd = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups_after_readd = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group_after_readd = bola_groups_after_readd
         .iter()
         .find(|g| g.group_id == bola_group.group_id)
@@ -1421,20 +1474,20 @@ async fn test_membership_state_after_readd() {
 
     // CRITICAL: Verify Bola's membership state is Allowed (not PendingRemove)
     assert_eq!(
-        bola_group_after_readd.membership_state().unwrap(),
+        bola_group_after_readd.membership_state().await.unwrap(),
         GroupMembershipState::Allowed,
         "Bola should be in Allowed state after being re-added, not PendingRemove"
     );
 
     // Verify the group is active again
     assert!(
-        bola_group_after_readd.is_active().unwrap(),
+        bola_group_after_readd.is_active().await.unwrap(),
         "Bola's group should be active after re-add"
     );
 
     // Verify consent state is Unknown (user needs to accept)
     assert_eq!(
-        bola_group_after_readd.consent_state().unwrap(),
+        bola_group_after_readd.consent_state().await.unwrap(),
         ConsentState::Unknown,
         "Bola's consent should be Unknown after re-add, requiring explicit acceptance"
     );
@@ -1453,11 +1506,11 @@ async fn test_membership_state_after_readd() {
 async fn test_self_removal_group_update_message() {
     tester!(amal);
     tester!(bola);
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
 
@@ -1466,10 +1519,13 @@ async fn test_self_removal_group_update_message() {
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     bola_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
-    assert!(!bola_group.is_active().unwrap());
+    assert!(!bola_group.is_active().await.unwrap());
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
     amal_group.sync().await.unwrap();
-    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     tracing::info!("{:?}", messages.len());
     let message = messages[2].clone();
     assert_eq!(message.kind, GroupMessageKind::MembershipChange);
@@ -1489,7 +1545,7 @@ async fn test_self_removal_single_installations() {
     tester!(amal);
     tester!(bola);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
@@ -1500,10 +1556,11 @@ async fn test_self_removal_single_installations() {
     let amal_group_pending_leave_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     assert_eq!(bola_group.members().await.unwrap().len(), 2);
@@ -1514,6 +1571,7 @@ async fn test_self_removal_single_installations() {
     let bola_group_pending_leave_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
+        .await
         .unwrap();
     assert!(bola_group_pending_leave_users.is_empty());
 
@@ -1525,6 +1583,7 @@ async fn test_self_removal_single_installations() {
     let amal_group_pending_leave_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     // Amal's inboxId shouldn't be in the pending-remove list
     assert!(!amal_group_pending_leave_users.contains(&amal.inbox_id().to_string()));
@@ -1536,7 +1595,7 @@ async fn test_self_removal_single_installations() {
 
     // Verify Bola's membership state is Pending when first invited
     assert_eq!(
-        bola_group.membership_state().unwrap(),
+        bola_group.membership_state().await.unwrap(),
         GroupMembershipState::Pending
     );
 
@@ -1544,20 +1603,21 @@ async fn test_self_removal_single_installations() {
 
     // Verify Bola's membership state is PendingRemove after requesting to leave
     assert_eq!(
-        bola_group.membership_state().unwrap(),
+        bola_group.membership_state().await.unwrap(),
         GroupMembershipState::PendingRemove
     );
 
     let bola_group_pending_leave_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
+        .await
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on Bola's group
     assert!(bola_group_pending_leave_users.contains(&bola.inbox_id().to_string()));
 
     // Bola's state for the group should be set to PendingRemove
-    let bola_group_from_db = bola.db().find_group(&bola_group.group_id).unwrap();
+    let bola_group_from_db = bola.db().find_group(&bola_group.group_id).await.unwrap();
     assert_eq!(
         bola_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1568,6 +1628,7 @@ async fn test_self_removal_single_installations() {
     let amal_group_member_state = amal
         .db()
         .find_group(&amal_group.group_id)
+        .await
         .unwrap()
         .unwrap()
         .membership_state;
@@ -1581,7 +1642,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     tester!(bola_i1);
     tester!(bola_i2, from: bola_i1);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
@@ -1590,11 +1651,17 @@ async fn test_self_removal_with_multiple_initial_installations() {
 
     assert_eq!(amal_group.members().await.unwrap().len(), 2);
 
-    let bola_i1_groups = bola_i1.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_i1_groups = bola_i1
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_i1_groups.len(), 1);
     let bola_i1_group = bola_i1_groups.first().unwrap();
 
-    let bola_i2_groups = bola_i2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_i2_groups = bola_i2
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_i2_groups.len(), 1);
     let bola_i2_group = bola_i2_groups.first().unwrap();
 
@@ -1606,13 +1673,18 @@ async fn test_self_removal_with_multiple_initial_installations() {
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
         .get_pending_remove_users(&bola_i1_group.group_id)
+        .await
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on Bola_i1's group
     assert!(bola_i1_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
 
     // Bola_i1's state for the group should be set to PendingRemove
-    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i1_group_from_db = bola_i1
+        .db()
+        .find_group(&bola_i1_group.group_id)
+        .await
+        .unwrap();
     assert_eq!(
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1623,6 +1695,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     let bola_i2_group_pending_leave_users = bola_i2
         .db()
         .get_pending_remove_users(&bola_i2_group.group_id)
+        .await
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on i2 as well
@@ -1630,7 +1703,11 @@ async fn test_self_removal_with_multiple_initial_installations() {
     // The pending-remove list should only contain one item
     assert_eq!(bola_i2_group_pending_leave_users.len(), 1);
 
-    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+    let bola_i2_group_state_in_db = bola_i2
+        .db()
+        .find_group(&bola_i2_group.group_id)
+        .await
+        .unwrap();
     // Group's state should be set to PendingRemove on Bola's other installation
     assert_eq!(
         bola_i2_group_state_in_db.unwrap().membership_state,
@@ -1644,13 +1721,16 @@ async fn test_self_removal_with_late_installation() {
     tester!(amal);
     tester!(bola_i1);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola_i1.sync_welcomes().await.unwrap();
 
-    let bola_i1_groups = bola_i1.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_i1_groups = bola_i1
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_i1_groups.len(), 1);
     let bola_i1_group = bola_i1_groups.first().unwrap();
 
@@ -1661,13 +1741,18 @@ async fn test_self_removal_with_late_installation() {
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
         .get_pending_remove_users(&bola_i1_group.group_id)
+        .await
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on Bola_i1's group
     assert!(bola_i1_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
 
     // Bola_i1's state for the group should be set to PendingRemove
-    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i1_group_from_db = bola_i1
+        .db()
+        .find_group(&bola_i1_group.group_id)
+        .await
+        .unwrap();
     assert_eq!(
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1684,7 +1769,10 @@ async fn test_self_removal_with_late_installation() {
 
     // New installation processes the welcome
     bola_i3.sync_welcomes().await.unwrap();
-    let bola_i3_groups = bola_i3.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_i3_groups = bola_i3
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_i3_groups.len(), 1);
     let bola_i3_group = bola_i3_groups.first().unwrap();
     assert_eq!(bola_i3_group.members().await.unwrap().len(), 2);
@@ -1694,6 +1782,7 @@ async fn test_self_removal_with_late_installation() {
     let bola_i3_group_pending_leave_users = bola_i3
         .db()
         .get_pending_remove_users(&bola_i3_group.group_id)
+        .await
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on the new installation
@@ -1701,7 +1790,11 @@ async fn test_self_removal_with_late_installation() {
     // The pending-remove list should only contain one item
     assert_eq!(bola_i3_group_pending_leave_users.len(), 1);
 
-    let bola_i3_group_state_in_db = bola_i3.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i3_group_state_in_db = bola_i3
+        .db()
+        .find_group(&bola_i1_group.group_id)
+        .await
+        .unwrap();
     // Group's state should be set to PendingRemove on the new installation
     assert_eq!(
         bola_i3_group_state_in_db.unwrap().membership_state,
@@ -1716,7 +1809,7 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     tester!(bola);
     tester!(caro);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
@@ -1726,11 +1819,11 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     bola.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
 
@@ -1741,6 +1834,7 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     let pending_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
+        .await
         .unwrap();
     assert_eq!(pending_users.len(), 1);
     assert!(pending_users.contains(&bola.inbox_id().to_string()));
@@ -1761,12 +1855,14 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     let amal_pending = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(amal_pending.is_empty());
 
     let caro_pending = caro
         .db()
         .get_pending_remove_users(&caro_group.group_id)
+        .await
         .unwrap();
     assert!(caro_pending.is_empty());
 
@@ -1775,7 +1871,10 @@ async fn test_clean_pending_remove_list_on_member_removal() {
 
     // Verify the GroupUpdated message correctly classifies Bola as "left" (not "removed")
     // since they were in the pending_remove list
-    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
 
     // Find all membership change messages
     let membership_messages: Vec<_> = messages
@@ -1822,7 +1921,7 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     tester!(bola, disable_workers);
     tester!(caro, disable_workers);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
@@ -1832,11 +1931,11 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     bola.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
 
@@ -1847,12 +1946,18 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     let pending_users = caro
         .db()
         .get_pending_remove_users(&caro_group.group_id)
+        .await
         .unwrap();
     assert_eq!(pending_users.len(), 1);
     assert!(pending_users.contains(&caro.inbox_id().to_string()));
 
     // Initially, the group should not have pending leave requests on Bola's side (not super admin)
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, None);
 
     // Amal promotes Bola to super_admin
@@ -1874,7 +1979,12 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     );
 
     // Verify the group is marked as having pending leave requests
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
 }
 
@@ -1888,7 +1998,7 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     tester!(bola, disable_workers);
     tester!(caro, disable_workers);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
@@ -1898,11 +2008,11 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     bola.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
 
@@ -1928,7 +2038,12 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     bola_group.sync().await.unwrap();
 
     // Verify the group is marked as having pending leave requests on Bola's side
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
 
     // Bola demotes themselves from super_admin
@@ -1950,7 +2065,12 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     );
 
     // Verify the pending leave request flag is cleared
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(false));
 }
 
@@ -1960,13 +2080,13 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     tester!(amal);
     tester!(bola);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
@@ -1974,6 +2094,7 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     let pending_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
+        .await
         .unwrap();
     assert!(pending_users.is_empty());
 
@@ -1994,7 +2115,12 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     );
 
     // Verify the group is NOT marked as having pending leave requests (no pending users)
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .await
+        .unwrap()
+        .unwrap();
     // The status should be false or None since there are no pending remove users
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
@@ -2009,13 +2135,13 @@ async fn test_promotion_excludes_self_from_pending_check() {
     tester!(amal);
     tester!(bola);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
@@ -2026,6 +2152,7 @@ async fn test_promotion_excludes_self_from_pending_check() {
     let pending_users = bola
         .db()
         .get_pending_remove_users(&bola_group.group_id)
+        .await
         .unwrap();
     assert!(pending_users.contains(&bola.inbox_id().to_string()));
 
@@ -2047,7 +2174,12 @@ async fn test_promotion_excludes_self_from_pending_check() {
 
     // Verify the group is NOT marked as having pending leave requests
     // (because the only pending user is Bola themselves)
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&bola_group.group_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
             || bola_group_status.has_pending_leave_request.is_none()
@@ -2062,7 +2194,7 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
     tester!(bola);
     tester!(caro);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
@@ -2072,11 +2204,11 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
     bola.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
 
@@ -2084,6 +2216,7 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
     let pending_users = amal
         .db()
         .get_pending_remove_users(&amal_group.group_id)
+        .await
         .unwrap();
     assert!(pending_users.is_empty());
 
@@ -2100,7 +2233,10 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
 
     // Verify the GroupUpdated message correctly classifies Bola as "removed" (not "left")
     // since they were NOT in the pending_remove list
-    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
 
     // Find all membership change messages
     let membership_messages: Vec<_> = messages
@@ -2140,7 +2276,7 @@ async fn test_key_update() {
     tester!(client);
     tester!(bola_client);
 
-    let group = client.create_group(None, None).expect("create group");
+    let group = client.create_group(None, None).await.expect("create group");
     group.add_members(&[bola_client.inbox_id()]).await.unwrap();
 
     group.key_update().await.unwrap();
@@ -2167,10 +2303,16 @@ async fn test_key_update() {
         .expect("send message");
 
     bola_client.sync_welcomes().await.unwrap();
-    let bola_groups = bola_client.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola_client
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
-    let bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let bola_messages = bola_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(bola_messages.len(), 2);
 }
 
@@ -2178,7 +2320,7 @@ async fn test_key_update() {
 async fn test_post_commit() {
     tester!(client);
     tester!(client_2);
-    let group = client.create_group(None, None).expect("create group");
+    let group = client.create_group(None, None).await.expect("create group");
 
     group.add_members(&[client_2.inbox_id()]).await.unwrap();
 
@@ -2202,14 +2344,14 @@ async fn test_remove_by_account_address() {
     tester!(bola);
     tester!(charlie);
 
-    let group = amal.create_group(None, None).unwrap();
+    let group = amal.create_group(None, None).await.unwrap();
     group
         .add_members_by_identity(&[bola.identifier(), charlie.identifier()])
         .await
         .unwrap();
     tracing::info!("created the group with 2 additional members");
     assert_eq!(group.members().await.unwrap().len(), 3);
-    let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
     let encoded_content =
@@ -2225,7 +2367,7 @@ async fn test_remove_by_account_address() {
         .unwrap();
     assert_eq!(group.members().await.unwrap().len(), 2);
     tracing::info!("removed bola");
-    let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = group.find_messages(&MsgQueryArgs::default()).await.unwrap();
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
     let encoded_content =
@@ -2237,7 +2379,7 @@ async fn test_remove_by_account_address() {
 
     let bola_group = receive_group_invite(&bola).await;
     bola_group.sync().await.unwrap();
-    assert!(!bola_group.is_active().unwrap())
+    assert!(!bola_group.is_active().await.unwrap())
 }
 
 #[xmtp_common::test]
@@ -2246,7 +2388,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
     tester!(bola);
     tester!(charlie);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members_by_identity(&[bola.identifier(), charlie.identifier()])
         .await
@@ -2299,6 +2441,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap()
         .into_iter()
         .collect::<Vec<StoredGroupMessage>>();
@@ -2312,7 +2455,7 @@ async fn test_add_missing_installations() {
     tester!(amal);
     tester!(bola);
 
-    let group = amal.create_group(None, None).unwrap();
+    let group = amal.create_group(None, None).await.unwrap();
     group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     assert_eq!(group.members().await.unwrap().len(), 2);
@@ -2341,7 +2484,7 @@ async fn test_self_resolve_epoch_mismatch() {
     tester!(bola);
     tester!(charlie);
     tester!(dave);
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     // Add bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
@@ -2387,6 +2530,7 @@ async fn test_group_permissions() {
             Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
             None,
         )
+        .await
         .unwrap();
     // Add bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -2413,6 +2557,7 @@ async fn test_group_options() {
                 app_data: None,
             }),
         )
+        .await
         .unwrap();
 
     let binding = amal_group.mutable_metadata().expect("msg");
@@ -2462,6 +2607,7 @@ async fn test_max_limit_add() {
             Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
             None,
         )
+        .await
         .unwrap();
     let mut clients = Vec::new();
     for _ in 0..249 {
@@ -2480,7 +2626,7 @@ async fn test_group_mutable_data() {
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -2497,7 +2643,7 @@ async fn test_group_mutable_data() {
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
     bola.sync_welcomes().await.unwrap();
 
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -2588,7 +2734,7 @@ async fn test_update_policies_empty_group() {
 
     // Create a group with just amal
     let policy_set_2 = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group_2 = amal.create_group(policy_set_2, None).unwrap();
+    let amal_group_2 = amal.create_group(policy_set_2, None).await.unwrap();
 
     // Verify empty group fails to update metadata before syncing
     amal_group_2
@@ -2621,7 +2767,7 @@ async fn test_update_group_image_url_square() {
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -2655,7 +2801,7 @@ async fn test_update_group_message_expiration_settings() {
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -2712,7 +2858,7 @@ async fn test_group_mutable_data_group_permissions() {
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -2730,7 +2876,7 @@ async fn test_group_mutable_data_group_permissions() {
         .await
         .unwrap();
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -2791,7 +2937,7 @@ async fn test_group_admin_list_update() {
     tester!(charlie);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     // Add bola to the group
@@ -2800,7 +2946,7 @@ async fn test_group_admin_list_update() {
         .await
         .unwrap();
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -2814,7 +2960,7 @@ async fn test_group_admin_list_update() {
 
     // Verify that bola can not add caro because they are not an admin
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -2870,7 +3016,7 @@ async fn test_group_admin_list_update() {
 
     // Verify that bola can not add charlie because they are not an admin
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -2887,13 +3033,13 @@ async fn test_group_super_admin_list_update() {
     tester!(caro);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     // Add bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -2907,7 +3053,7 @@ async fn test_group_super_admin_list_update() {
 
     // Verify that bola can not add caro as an admin because they are not a super admin
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     assert_eq!(bola_groups.len(), 1);
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
@@ -2986,7 +3132,7 @@ async fn test_group_members_permission_level_update() {
     tester!(caro);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     // Add Bola and Caro to the group
@@ -3081,7 +3227,7 @@ async fn test_staged_welcome() {
     tester!(bola);
 
     // Amal creates a group
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
 
     // Amal adds Bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -3099,7 +3245,7 @@ async fn test_staged_welcome() {
     let bola_fetched_group = bola.group(&bola_group_id).unwrap();
 
     // Check Bola's group for the added_by_inbox_id of the inviter
-    let added_by_inbox = bola_fetched_group.added_by_inbox_id().unwrap();
+    let added_by_inbox = bola_fetched_group.added_by_inbox_id().await.unwrap();
 
     // Verify the welcome host_credential is equal to Amal's
     assert_eq!(
@@ -3113,7 +3259,7 @@ async fn test_staged_welcome() {
 async fn test_can_read_group_creator_inbox_id() {
     tester!(amal);
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let mutable_metadata = amal_group.mutable_metadata().unwrap();
@@ -3134,7 +3280,7 @@ async fn test_can_update_gce_after_failed_commit() {
     // Step 1: Amal creates a group
     tester!(amal);
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     // Step 2:  Amal adds Bola to the group
@@ -3143,7 +3289,7 @@ async fn test_can_update_gce_after_failed_commit() {
 
     // Step 3: Verify that Bola can update the group name, and amal sees the update
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
@@ -3188,7 +3334,7 @@ async fn test_can_update_gce_after_failed_commit() {
 async fn test_can_update_permissions_after_group_creation() {
     tester!(amal);
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group: &TestMlsGroup = &amal.create_group(policy_set, None).unwrap();
+    let amal_group: &TestMlsGroup = &amal.create_group(policy_set, None).await.unwrap();
 
     // Step 2:  Amal adds Bola to the group
     tester!(bola);
@@ -3197,7 +3343,7 @@ async fn test_can_update_permissions_after_group_creation() {
     // Step 3: Bola attempts to add Caro, but fails because group is admin only
     tester!(caro);
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
@@ -3244,7 +3390,7 @@ async fn test_optimistic_send() {
     tester!(amal);
     tester!(bola);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group.sync().await.unwrap();
     // Add bola to the group
     amal_group
@@ -3256,15 +3402,19 @@ async fn test_optimistic_send() {
     let ids = vec![
         amal_group
             .send_message_optimistic(b"test one", SendMessageOpts::default())
+            .await
             .unwrap(),
         amal_group
             .send_message_optimistic(b"test two", SendMessageOpts::default())
+            .await
             .unwrap(),
         amal_group
             .send_message_optimistic(b"test three", SendMessageOpts::default())
+            .await
             .unwrap(),
         amal_group
             .send_message_optimistic(b"test four", SendMessageOpts::default())
+            .await
             .unwrap(),
     ];
 
@@ -3273,6 +3423,7 @@ async fn test_optimistic_send() {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap()
         .into_iter()
         .collect::<Vec<StoredGroupMessage>>();
@@ -3316,7 +3467,10 @@ async fn test_optimistic_send() {
     amal_group.publish_messages().await.unwrap();
     bola_group.sync().await.unwrap();
 
-    let messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = bola_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     let delivery = messages
         .iter()
         .map(|m| m.delivery_status)
@@ -3360,7 +3514,7 @@ async fn test_dm_creation() {
 
     // Bola can message amal
     let _ = bola.sync_welcomes().await;
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
 
     let bola_dm: &TestMlsGroup = bola_groups.first().unwrap();
     bola_dm
@@ -3370,7 +3524,10 @@ async fn test_dm_creation() {
 
     // Amal sync and reads message
     amal_dm.sync().await.unwrap();
-    let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_dm
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 2);
     let message = messages.last().unwrap();
     assert_eq!(message.decrypted_message_bytes, b"test one");
@@ -3400,7 +3557,7 @@ async fn process_messages_abort_on_retryable_error() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
 
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
@@ -3447,7 +3604,7 @@ async fn skip_already_processed_messages() {
     tester!(alix);
     tester!(bo);
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
 
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
@@ -3457,7 +3614,7 @@ async fn skip_already_processed_messages() {
         .await
         .unwrap();
     bo.sync_welcomes().await.unwrap();
-    let bo_groups = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bo_groups = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = bo_groups.first().unwrap();
 
     let mut bo_messages_from_api = bo
@@ -3500,7 +3657,7 @@ async fn skip_already_processed_intents() {
     let bo_wallet = generate_local_wallet();
     let bo_client = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
 
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
 
     alix_group
         .add_members(&[bo_client.inbox_id()])
@@ -3508,7 +3665,10 @@ async fn skip_already_processed_intents() {
         .unwrap();
 
     bo_client.sync_welcomes().await.unwrap();
-    let bo_groups = bo_client.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bo_groups = bo_client
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let bo_group = bo_groups.first().unwrap();
     bo_group
         .send_message(&[2], SendMessageOpts::default())
@@ -3517,7 +3677,8 @@ async fn skip_already_processed_intents() {
     let intent = bo_client
         .context
         .db()
-        .find_group_intents(bo_group.group_id, Some(vec![IntentState::Processed]), None)
+        .find_group_intents(&bo_group.group_id, Some(vec![IntentState::Processed]), None)
+        .await
         .unwrap();
     assert_eq!(intent.len(), 2); //key_update and send_message
 
@@ -3529,7 +3690,7 @@ async fn skip_already_processed_intents() {
 async fn test_parallel_syncs() {
     tester!(alix1, sync_worker);
 
-    let alix1_group = alix1.create_group(None, None).unwrap();
+    let alix1_group = alix1.create_group(None, None).await.unwrap();
 
     tester!(alix2, from: alix1);
 
@@ -3592,8 +3753,14 @@ async fn test_parallel_syncs() {
     alix1_group.sync().await.unwrap();
     alix2_group.sync().await.unwrap();
 
-    let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let alix1_messages = alix1_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
+    let alix2_messages = alix2_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(alix1_messages.len(), alix2_messages.len() - 1);
 
     assert!(
@@ -3635,7 +3802,7 @@ async fn create_membership_update_no_sync(group: &TestMlsGroup) {
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn add_missing_installs_reentrancy() {
     tester!(alix1);
-    let alix1_group = alix1.create_group(None, None).unwrap();
+    let alix1_group = alix1.create_group(None, None).await.unwrap();
 
     tester!(alix2, from: alix1);
 
@@ -3702,8 +3869,14 @@ async fn add_missing_installs_reentrancy() {
     alix1_group.sync().await.unwrap();
     alix2_group.sync().await.unwrap();
 
-    let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let alix1_messages = alix1_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
+    let alix2_messages = alix2_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(alix1_messages.len(), alix2_messages.len() - 1);
 
     assert!(
@@ -3722,7 +3895,7 @@ async fn add_missing_installs_reentrancy() {
 async fn respect_allow_epoch_increment() {
     tester!(client);
 
-    let group = client.create_group(None, None).unwrap();
+    let group = client.create_group(None, None).await.unwrap();
 
     tester!(_client_2);
 
@@ -3758,23 +3931,33 @@ async fn test_get_and_set_consent(
     #[future] bola: ClientTester,
     #[future] caro: ClientTester,
 ) {
-    let alix_group = alix.create_group(None, None).unwrap();
+    let alix_group = alix.create_group(None, None).await.unwrap();
 
     // group consent state should be allowed if user created it
-    assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Allowed);
+    assert_eq!(
+        alix_group.consent_state().await.unwrap(),
+        ConsentState::Allowed
+    );
 
     alix_group
         .update_consent_state(ConsentState::Denied)
+        .await
         .unwrap();
-    assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
+    assert_eq!(
+        alix_group.consent_state().await.unwrap(),
+        ConsentState::Denied
+    );
 
     alix_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     bola.sync_welcomes().await.unwrap();
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     // group consent state should default to unknown for users who did not create the group
-    assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
+    assert_eq!(
+        bola_group.consent_state().await.unwrap(),
+        ConsentState::Unknown
+    );
 
     bola_group
         .send_message("hi from bola".as_bytes(), SendMessageOpts::default())
@@ -3782,22 +3965,29 @@ async fn test_get_and_set_consent(
         .unwrap();
 
     // group consent state should be allowed if user sends a message to the group
-    assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
+    assert_eq!(
+        bola_group.consent_state().await.unwrap(),
+        ConsentState::Allowed
+    );
 
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     caro.sync_welcomes().await.unwrap();
-    let caro_groups = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let caro_groups = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = caro_groups.first().unwrap();
 
     caro_group
         .send_message_optimistic("hi from caro".as_bytes(), SendMessageOpts::default())
+        .await
         .unwrap();
 
     caro_group.publish_messages().await.unwrap();
 
     // group consent state should be allowed if user publishes a message to the group
-    assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
+    assert_eq!(
+        caro_group.consent_state().await.unwrap(),
+        ConsentState::Allowed
+    );
 }
 
 #[xmtp_common::test]
@@ -3813,7 +4003,7 @@ async fn test_max_past_epochs() {
         .unwrap();
 
     bo.sync_welcomes().await.unwrap();
-    let bo_groups = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let bo_groups = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = bo_groups.first().unwrap();
 
     // Both members see the same amount of messages to start
@@ -3833,12 +4023,14 @@ async fn test_max_past_epochs() {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap();
     let bo_messages = bo_group
         .find_messages(&MsgQueryArgs {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap();
 
     assert_eq!(alix_messages.len(), 2);
@@ -3865,12 +4057,14 @@ async fn test_max_past_epochs() {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap();
     let bo_messages = bo_group
         .find_messages(&MsgQueryArgs {
             kind: Some(GroupMessageKind::Application),
             ..Default::default()
         })
+        .await
         .unwrap();
     assert_eq!(bo_messages.len(), 3);
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
@@ -4017,7 +4211,7 @@ async fn test_respects_character_limits_for_group_metadata() {
     tester!(amal);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     let overlong_name = "a".repeat(MAX_GROUP_NAME_LENGTH + 1);
@@ -4117,7 +4311,7 @@ async fn test_update_app_data() {
     tester!(amal);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group = amal.create_group(policy_set, None).unwrap();
+    let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
     // Update app data with a valid value
@@ -4180,6 +4374,7 @@ async fn test_create_group_with_app_data() {
                 app_data: Some(initial_app_data.clone()),
             }),
         )
+        .await
         .unwrap();
 
     group.sync().await.unwrap();
@@ -4207,6 +4402,7 @@ async fn test_create_group_with_default_app_data() {
     // Create a group without specifying app_data (should default to empty string)
     let group = amal
         .create_group(None, Some(GroupMetadataOptions::default()))
+        .await
         .unwrap();
 
     group.sync().await.unwrap();
@@ -4277,7 +4473,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     // ensure the version is as expected
     assert!(bo.context.version_info() != &amal_version);
     // Step 2: Amal creates a group and adds bo as a member
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await
@@ -4295,10 +4491,13 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
 
     // Step 4: Verify that bo can read the message even though they are on different client versions
     bo.sync_welcomes().await.unwrap();
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
-    let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 3);
 
     let message_text = String::from_utf8_lossy(&messages[2].decrypted_message_bytes);
@@ -4317,7 +4516,10 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
 
     // Step 6: Bo should now be unable to sync messages for the group
     let _ = bo_group.sync().await;
-    let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 3);
 
     // Step 7: Bo updates their client, and see if we can then download latest messages
@@ -4336,12 +4538,15 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     assert_eq!(bo.context.version_info(), amal.context.version_info());
 
     // Refresh Bo's group context
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
 
     bo_group.sync().await.unwrap();
     let _ = bo_group.sync().await;
-    let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 5);
 }
 
@@ -4370,7 +4575,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     assert!(bo.version_info().pkg_version() == amal.version_info().pkg_version());
 
     // Step 2: Amal creates a group and adds bo as a member
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await
@@ -4384,10 +4589,13 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
     // Step 4: Verify that bo can read the message
     bo.sync_welcomes().await.unwrap();
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
-    let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 2);
 
     let message_text = String::from_utf8_lossy(&messages[1].decrypted_message_bytes);
@@ -4406,7 +4614,10 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
     // Step 6: Bo should still be able to sync messages for the group
     let _ = bo_group.sync().await;
-    let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = bo_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 4);
 
     // Step 7: Amal adds caro as a member
@@ -4417,12 +4628,12 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
     // Caro received the invite for the group
     caro.sync_welcomes().await.unwrap();
-    let binding = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
 
     // Caro group is paused immediately after joining
-    let is_paused = caro_group.paused_for_version().unwrap().is_some();
+    let is_paused = caro_group.paused_for_version().await.unwrap().is_some();
     assert!(is_paused);
     let result = caro_group
         .send_message("Hello from Caro".as_bytes(), SendMessageOpts::default())
@@ -4440,7 +4651,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     let snapshot = Arc::new(caro.db_snapshot());
     drop(caro);
     tester!(caro, snapshot: snapshot, version: caro_version);
-    let binding = caro.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = caro.find_groups(GroupQueryArgs::default()).await.unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
     caro_group.sync().await.unwrap();
@@ -4451,7 +4662,10 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
         .await
         .unwrap();
     amal_group.sync().await.unwrap();
-    let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = amal_group
+        .find_messages(&MsgQueryArgs::default())
+        .await
+        .unwrap();
     assert_eq!(
         messages[messages.len() - 1].decrypted_message_bytes,
         "Hello from Caro".as_bytes()
@@ -4463,7 +4677,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     tester!(amal);
     tester!(bo);
 
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await
@@ -4488,7 +4702,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     assert!(!is_bo_super_admin);
 
     bo.sync_welcomes().await.unwrap();
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
@@ -4535,7 +4749,7 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     tester!(bo);
 
     // Amal creates a group and adds bo
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await
@@ -4550,7 +4764,7 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
 
     // Bo joins group and attempts to send message
     bo.sync_welcomes().await.unwrap();
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
 
     // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
@@ -4593,7 +4807,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     // Amal creates a group and adds bo
-    let amal_group = amal.create_group(None, None).unwrap();
+    let amal_group = amal.create_group(None, None).await.unwrap();
     amal_group
         .add_members(&[bo.context.identity.inbox_id()])
         .await
@@ -4601,7 +4815,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 
     // Bo joins group and successfully sends initial message
     bo.sync_welcomes().await.unwrap();
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
@@ -4657,7 +4871,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .unwrap();
 
     // Need to get fresh group reference after version update
-    let binding = bo.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
@@ -4694,6 +4908,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
             Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
             None,
         )
+        .await
         .unwrap();
     amal_group.sync().await.unwrap();
 
@@ -4712,7 +4927,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
 
     // 6) Test that bola can not perform an admin only action
     bola_2.sync_welcomes().await.unwrap();
-    let binding = bola_2.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = bola_2.find_groups(GroupQueryArgs::default()).await.unwrap();
     let bola_group = binding.first().unwrap();
     bola_group.sync().await.unwrap();
     let result = bola_group
@@ -4759,12 +4974,15 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     tester!(client_a);
     tester!(client_b);
 
-    let group_a = client_a.create_group(None, None).unwrap();
+    let group_a = client_a.create_group(None, None).await.unwrap();
     group_a.add_members(&[client_b.inbox_id()]).await.unwrap();
 
     client_b.sync_welcomes().await.unwrap();
 
-    let binding = client_b.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = client_b
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let group_b = binding.first().unwrap();
 
     group_a
@@ -4781,6 +4999,7 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
         .context
         .db()
         .clear_fork_flag_for_group(&group_b.group_id)
+        .await
         .unwrap();
     let group_debug_info = group_b.debug_info().await.unwrap();
     assert!(!group_debug_info.maybe_forked);
@@ -4794,7 +5013,7 @@ async fn can_stream_out_of_order_without_forking() {
     tester!(client_c);
 
     // Create a group
-    let group_a = client_a1.create_group(None, None).unwrap();
+    let group_a = client_a1.create_group(None, None).await.unwrap();
 
     // Add client_b and client_c to the group
     group_a
@@ -4804,16 +5023,23 @@ async fn can_stream_out_of_order_without_forking() {
 
     // Sync the group
     client_b.sync_welcomes().await.unwrap();
-    let binding = client_b.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = client_b
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let group_b = binding.first().unwrap();
 
     client_c.sync_welcomes().await.unwrap();
-    let binding = client_c.find_groups(&GroupQueryArgs::default()).unwrap();
+    let binding = client_c
+        .find_groups(GroupQueryArgs::default())
+        .await
+        .unwrap();
     let group_c = binding.first().unwrap();
 
     // Each client sends a message and syncs (ensures any key update commits are sent)
     group_a
         .send_message_optimistic("Message a1".as_bytes(), SendMessageOpts::default())
+        .await
         .unwrap();
     group_a.publish_intents().await.unwrap();
 
@@ -4823,6 +5049,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     group_b
         .send_message_optimistic("Message b1".as_bytes(), SendMessageOpts::default())
+        .await
         .unwrap();
     group_b.publish_intents().await.unwrap();
 
@@ -4832,6 +5059,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     group_c
         .send_message_optimistic("Message c1".as_bytes(), SendMessageOpts::default())
+        .await
         .unwrap();
     group_c.publish_intents().await.unwrap();
 
@@ -4855,6 +5083,7 @@ async fn can_stream_out_of_order_without_forking() {
     // Client c sends two text messages before incrementing the epoch
     group_c
         .send_message_optimistic("Message c2".as_bytes(), SendMessageOpts::default())
+        .await
         .unwrap();
     group_c.publish_intents().await.unwrap();
     group_b.sync().await.unwrap();
@@ -4896,7 +5125,7 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
     let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
     // Create a group
-    let group = alice.create_group(None, None).unwrap();
+    let group = alice.create_group(None, None).await.unwrap();
     group.add_members::<String>(&[]).await.unwrap();
 
     let storage = alice.context.mls_storage();
@@ -4952,10 +5181,11 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
         .context
         .db()
         .get_last_cursor_for_originator(
-            group.group_id,
+            group.group_id.as_slice(),
             EntityKind::ApplicationMessage,
             Originators::MLS_COMMITS,
         )
+        .await
         .unwrap();
     assert_eq!(new_cursor, last_cursor);
 }
@@ -4964,7 +5194,7 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
 async fn test_generate_commit_with_rollback() {
     tester!(alix);
     tester!(bo);
-    let group = alix.create_group(None, None).unwrap();
+    let group = alix.create_group(None, None).await.unwrap();
     group.add_members(&[bo.inbox_id()]).await.unwrap();
     group.sync().await.unwrap();
 
@@ -5032,10 +5262,10 @@ async fn test_membership_state() {
     tester!(bola);
 
     // Create a group with alix as creator
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
 
     // Alix should have Allowed membership state (creator is immediately Allowed)
-    let state = group.membership_state()?;
+    let state = group.membership_state().await?;
     assert_eq!(state, GroupMembershipState::Allowed);
 
     // Add bola to the group
@@ -5043,11 +5273,11 @@ async fn test_membership_state() {
 
     // Sync so bola receives the welcome
     bola.sync_welcomes().await?;
-    let bola_groups = bola.find_groups(&GroupQueryArgs::default())?;
+    let bola_groups = bola.find_groups(GroupQueryArgs::default()).await?;
     assert_eq!(bola_groups.len(), 1);
     let bola_group = &bola_groups[0];
 
     // Bola should have Pending membership state when first receiving the welcome
-    let bola_state = bola_group.membership_state()?;
+    let bola_state = bola_group.membership_state().await?;
     assert_eq!(bola_state, GroupMembershipState::Pending);
 }

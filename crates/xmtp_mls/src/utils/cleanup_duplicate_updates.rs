@@ -78,7 +78,7 @@ where
                     sent_after_ns = Some(msg.sent_at_ns);
                 }
 
-                let msgs = enrich_messages(&db, &group.id, msgs)?;
+                let msgs = enrich_messages(&db, &group.id, msgs).await?;
 
                 for msg in msgs {
                     let MessageBody::GroupUpdated(update) = msg.content else {
@@ -165,10 +165,12 @@ mod tests {
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
         dm.sync().await?;
-        let old_updates = dm.find_messages_v2(&MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        })?;
+        let old_updates = dm
+            .find_messages_v2(&MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
+            .await?;
 
         // Insert some duplicate group_updated messages
         let payload1 = GroupUpdated {
@@ -208,10 +210,12 @@ mod tests {
         clear_migrated_flag(&alix.db())?;
         perform(alix.db()).await;
 
-        let msgs = dm.find_messages_v2(&MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        })?;
+        let msgs = dm
+            .find_messages_v2(&MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
+            .await?;
 
         for msg in &msgs {
             assert!(
@@ -230,10 +234,12 @@ mod tests {
         perform(alix.db()).await;
 
         // The duplicate should remain because perform will only clean up once.
-        let msgs = dm.find_messages_v2(&MsgQueryArgs {
-            content_types: Some(vec![ContentType::GroupUpdated]),
-            ..Default::default()
-        })?;
+        let msgs = dm
+            .find_messages_v2(&MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
+            .await?;
         assert!(msgs.iter().any(|m| m.metadata.id == msg.id));
     }
 
@@ -257,12 +263,20 @@ mod tests {
         tester!(alix);
 
         // The startup run recorded it; a second run is a no-op.
-        assert!(alix.db().load_user_preferences()?.dm_group_updates_migrated);
+        assert!(
+            alix.db()
+                .load_user_preferences()
+                .await?
+                .dm_group_updates_migrated
+        );
 
         clear_migrated_flag(&alix.db())?;
         perform(alix.db()).await;
         assert!(
-            alix.db().load_user_preferences()?.dm_group_updates_migrated,
+            alix.db()
+                .load_user_preferences()
+                .await?
+                .dm_group_updates_migrated,
             "running the migration records that it ran"
         );
     }

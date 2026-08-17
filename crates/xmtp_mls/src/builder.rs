@@ -207,12 +207,12 @@ where
 ///
 /// TODO(#3748): removable once every client has shipped a release that enqueues
 /// these tasks inline — safe to delete by the next-next stable release.
-fn backfill_pending_self_remove_tasks<C>(context: &C) -> Result<(), StorageError>
+async fn backfill_pending_self_remove_tasks<C>(context: &C) -> Result<(), StorageError>
 where
     C: XmtpSharedContext,
 {
     let db = context.db();
-    for raw_id in db.get_groups_have_pending_leave_request()? {
+    for raw_id in db.get_groups_have_pending_leave_request().await? {
         let Ok(group_id) = xmtp_proto::types::GroupId::try_from(raw_id.as_slice()) else {
             continue;
         };
@@ -233,7 +233,7 @@ where
         // Insert-if-absent per group: leaves any live retrying task (and its
         // backoff) untouched, only replacing dead rows. Safe to call on every
         // startup without resurrecting exhausted tasks.
-        db.upsert_pending_self_remove_task(&group_id, task)?;
+        db.upsert_pending_self_remove_task(&group_id, task).await?;
     }
     Ok(())
 }
@@ -425,7 +425,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 // build: the DB was already opened/migrated above, so an error
                 // here means it is broken; building a client whose critical
                 // maintenance silently never got seeded would be worse.
-                crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)?;
+                crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)
+                    .await?;
                 // One-time backfill: pending self-removes recorded before the
                 // worker became event-driven have no LeaveRequest to re-fire, so
                 // seed a ProcessPendingSelfRemove task for each already-flagged
@@ -434,7 +435,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 // TODO: remove this migration once all clients have shipped a
                 // release that enqueues these tasks inline — safe to delete by the
                 // next-next stable release.
-                if let Err(e) = backfill_pending_self_remove_tasks(&context) {
+                if let Err(e) = backfill_pending_self_remove_tasks(&context).await {
                     tracing::warn!(
                         "pending-self-remove backfill failed (will rely on next sync): {e}"
                     );

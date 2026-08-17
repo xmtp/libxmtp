@@ -100,7 +100,7 @@ async fn bidi_connection_delivers_live_welcome_over_the_wire() {
     };
     tracing::info!("bidi started; server keepalive = {keepalive_interval_ms}ms");
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[caro.inbox_id()]).await?;
 
     let welcomes = loop {
@@ -128,7 +128,7 @@ async fn bidi_catch_up_precedes_live_marker_then_streams_live() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
 
     const HISTORY: usize = 5;
@@ -266,7 +266,7 @@ async fn bidi_history_only_catches_up_then_delivers_nothing_live() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
 
     const HISTORY: usize = 4;
@@ -361,7 +361,7 @@ async fn bidi_history_only_half_close_drains_then_server_closes() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
-    let group = alix.create_group(None, None)?;
+    let group = alix.create_group(None, None).await?;
     group.add_members(&[bo.inbox_id()]).await?;
 
     const HISTORY: usize = 4;

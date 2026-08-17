@@ -1380,7 +1380,7 @@ pub(crate) mod tests {
 
         // Commit: a value written inside a committing transaction is visible after.
         let outcome = key_store
-            .transaction(|conn| {
+            .transaction(async |conn| {
                 conn.key_store().write::<CURRENT_VERSION>(
                     crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
                     &committed_key,
@@ -1394,7 +1394,7 @@ pub(crate) mod tests {
 
         // Rollback: returns Ok(Rollback), NOT an Err, and the write is discarded.
         let outcome = key_store
-            .transaction(|conn| {
+            .transaction(async |conn| {
                 conn.key_store().write::<CURRENT_VERSION>(
                     crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
                     &rolled_back_key,
@@ -1408,7 +1408,7 @@ pub(crate) mod tests {
 
         // Real error: a closure returning Err propagates as Err (and rolls back).
         let result: Result<TransactionOutcome<()>, StorageError> =
-            key_store.transaction(|_conn| Err(StorageError::DbSerialize));
+            key_store.transaction(async |_conn| Err(StorageError::DbSerialize));
         assert!(matches!(result, Err(StorageError::DbSerialize)));
     }
 

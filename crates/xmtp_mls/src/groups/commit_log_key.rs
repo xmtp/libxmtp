@@ -111,7 +111,7 @@ pub(crate) async fn maybe_share_private_key(
     if let Some(stored_private_key) = provider.key_store().read_commit_log_key(group_id)?
         && RustCrypto::public_key_matches_private_key(consensus_public_key, &stored_private_key)
     {
-        let (group, _) = MlsGroup::new_cached(context, group_id)?;
+        let (group, _) = MlsGroup::new_cached(context, group_id).await?;
         if group.dm_id.is_some() {
             // We cannot update mutable metadata for DMs
             return Ok(());
@@ -156,7 +156,7 @@ pub(crate) async fn derive_consensus_public_key(
     Ok(None)
 }
 
-pub(crate) fn get_or_create_signing_key(
+pub(crate) async fn get_or_create_signing_key(
     context: &impl XmtpSharedContext,
     conversation: &StoredGroupCommitLogPublicKey,
 ) -> Result<Option<Secret>, CommitLogError> {
@@ -175,7 +175,7 @@ pub(crate) fn get_or_create_signing_key(
         return Ok(Some(private_key));
     }
 
-    let (group, _) = MlsGroup::new_cached(context, &conversation.id)?;
+    let (group, _) = MlsGroup::new_cached(context, &conversation.id).await?;
     if let Some(private_key) = group.mutable_metadata()?.commit_log_signer()
         && consensus_public_key.is_none_or(|consensus_public_key| {
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
@@ -294,7 +294,7 @@ mod tests {
         let crypto = provider.crypto();
 
         // Use an actual group ID to avoid database conflicts
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
 
         // Create first key pair (this should be chosen as consensus key)
         let first_private_key = crypto.generate_commit_log_key().unwrap();
@@ -371,7 +371,7 @@ mod tests {
         let crypto = provider.crypto();
 
         // Use an actual group ID to avoid database conflicts
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
 
         // Create a valid second entry
         let valid_private_key = crypto.generate_commit_log_key().unwrap();
@@ -428,7 +428,7 @@ mod tests {
         let crypto = provider.crypto();
 
         // Use an actual group ID to avoid database conflicts
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
 
         // Create keys for invalid first entry
         let invalid_private_key = crypto.generate_commit_log_key().unwrap();
@@ -496,7 +496,7 @@ mod tests {
         tester!(alix);
 
         // Create a group - this will have a commit_log_signer in mutable metadata by default
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
         let metadata = group.mutable_metadata().unwrap();
         let mutable_metadata_key = metadata.commit_log_signer().unwrap();
 
@@ -505,7 +505,9 @@ mod tests {
             commit_log_public_key: None, // No consensus key
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_or_create_signing_key(&alix.context, &conversation)
+            .await
+            .unwrap();
         assert!(key.is_some());
         // Should return the key from mutable metadata
         assert_eq!(key.unwrap().as_slice(), mutable_metadata_key.as_slice());
@@ -518,7 +520,7 @@ mod tests {
         let crypto = provider.crypto();
         let key_store = provider.key_store();
 
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
 
         // Store a key that doesn't match the consensus
         let stored_key = crypto.generate_commit_log_key().unwrap();
@@ -537,7 +539,9 @@ mod tests {
             commit_log_public_key: Some(consensus_public_key),
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_or_create_signing_key(&alix.context, &conversation)
+            .await
+            .unwrap();
         // Should return None because stored key doesn't match consensus
         assert!(key.is_none());
     }
@@ -549,7 +553,7 @@ mod tests {
         let crypto = provider.crypto();
         let key_store = provider.key_store();
 
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
 
         // Store a key
         let stored_key = crypto.generate_commit_log_key().unwrap();
@@ -566,7 +570,9 @@ mod tests {
             commit_log_public_key: Some(stored_public_key),
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_or_create_signing_key(&alix.context, &conversation)
+            .await
+            .unwrap();
         assert!(key.is_some());
         // Should return the stored key that matches consensus
         assert_eq!(key.unwrap().as_slice(), stored_key.as_slice());
@@ -576,7 +582,7 @@ mod tests {
     async fn test_get_or_create_signing_key_uses_matching_mutable_metadata() {
         tester!(alix);
 
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
         let metadata = group.mutable_metadata().unwrap();
         let metadata_key = metadata.commit_log_signer().unwrap();
         let metadata_public_key = xmtp_cryptography::signature::to_public_key(&metadata_key)
@@ -589,7 +595,9 @@ mod tests {
             commit_log_public_key: Some(metadata_public_key),
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_or_create_signing_key(&alix.context, &conversation)
+            .await
+            .unwrap();
         assert!(key.is_some());
         // Should return the key from mutable metadata that matches consensus
         assert_eq!(key.unwrap().as_slice(), metadata_key.as_slice());
@@ -602,7 +610,7 @@ mod tests {
         let crypto = provider.crypto();
         let key_store = provider.key_store();
 
-        let group = alix.create_group(None, None).unwrap();
+        let group = alix.create_group(None, None).await.unwrap();
         let group_id = group.group_id;
 
         // Clear the key store to ensure no stored key exists
@@ -624,7 +632,9 @@ mod tests {
             commit_log_public_key: Some(consensus_public_key),
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_or_create_signing_key(&alix.context, &conversation)
+            .await
+            .unwrap();
         // Should return None because:
         // 1. No key exists in the key store
         // 2. Mutable metadata key doesn't match consensus

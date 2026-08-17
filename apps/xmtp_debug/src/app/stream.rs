@@ -74,7 +74,7 @@ impl Stream {
                             continue;
                         }
                     };
-                    let stored: StoredGroup = group.load()?;
+                    let stored: StoredGroup = group.load().await?;
                     let item = Conversation {
                         group_id: hex::encode(stored.id),
                         dm_id: stored.dm_id.unwrap_or("".to_string()),

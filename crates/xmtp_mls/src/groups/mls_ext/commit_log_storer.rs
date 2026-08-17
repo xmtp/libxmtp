@@ -17,6 +17,7 @@ use xmtp_db::{
 use xmtp_proto::types::GroupId;
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
+#[allow(async_fn_in_trait)]
 pub trait CommitLogStorer: std::marker::Sized {
     fn from_creation_logged(
         provider: &impl MlsProviderExt,
@@ -50,7 +51,7 @@ pub trait CommitLogStorer: std::marker::Sized {
     /// Only call this when the status of the commit is final.
     /// Specifically, do not call this for retryable errors, or
     /// VersionTooLow/GroupPaused errors.
-    fn mark_failed_commit_logged(
+    async fn mark_failed_commit_logged(
         &self,
         provider: &impl MlsProviderExt,
         commit_cursor: u64,
@@ -242,7 +243,7 @@ impl CommitLogStorer for MlsGroup {
         Ok(())
     }
 
-    fn mark_failed_commit_logged(
+    async fn mark_failed_commit_logged(
         &self,
         provider: &impl MlsProviderExt,
         commit_sequence_id: u64,
@@ -258,7 +259,7 @@ impl CommitLogStorer for MlsGroup {
         let conn = provider.key_store().db();
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
-        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)?
+        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id).await?
             && latest_log.commit_type != Some(CommitType::Welcome.to_string())
         {
             maybe_recently_welcomed = false;

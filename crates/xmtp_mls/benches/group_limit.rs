@@ -79,7 +79,7 @@ fn add_to_empty_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     (
-                        client.create_group(None, None).unwrap(),
+                        runtime.block_on(client.create_group(None, None)).unwrap(),
                         addrs.clone(),
                         span.clone(),
                     )
@@ -119,7 +119,7 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     (
-                        client.create_group(None, None).unwrap(),
+                        runtime.block_on(client.create_group(None, None)).unwrap(),
                         span.clone(),
                         ids.clone(),
                     )
@@ -162,7 +162,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None, None).unwrap();
+                        let group = client.create_group(None, None).await.unwrap();
                         group
                             .add_members(
                                 // it is OK to take from the back for now because we aren't getting
@@ -209,7 +209,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None, None).unwrap();
+                        let group = client.create_group(None, None).await.unwrap();
                         group.add_members(ids).await.unwrap();
                         let ids = id_slice.clone();
                         (group, span.clone(), ids)
@@ -247,7 +247,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None, None).unwrap();
+                        let group = client.create_group(None, None).await.unwrap();
                         group.add_members(ids).await.unwrap();
                         let ids = ids
                             .iter()
@@ -289,7 +289,7 @@ fn add_1_member_to_group(c: &mut Criterion) {
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
-                        let group = client.create_group(None, None).unwrap();
+                        let group = client.create_group(None, None).await.unwrap();
                         group.add_members(ids).await.unwrap();
                         let member = inbox_ids.last().unwrap().clone();
                         (group, vec![member], span.clone())

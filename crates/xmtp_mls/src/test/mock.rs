@@ -64,7 +64,7 @@ mock! {
     pub ProcessFutureFactory {}
     impl ProcessFutureFactory<'_> for ProcessFutureFactory {
         fn create(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::BoxDynFuture<'_, Result<ProcessedMessage, SubscribeError>>;
-        fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
+        fn prepare(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::BoxDynFuture<'_, Result<crate::subscriptions::process_message::Prepared, SubscribeError>>;
     }
 }
 

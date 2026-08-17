@@ -623,11 +623,12 @@ impl Identity {
         (*self.installation_keys.public_bytes()).into()
     }
 
-    pub fn sequence_id(
+    pub async fn sequence_id(
         &self,
         conn: &impl xmtp_db::DbQuery,
     ) -> Result<i64, xmtp_db::ConnectionError> {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
+            .await
     }
 
     pub fn is_ready(&self) -> bool {
@@ -718,8 +719,9 @@ impl Identity {
         tracing::info!("Start rotating keys and uploading the new key package");
 
         // Generate and store key package locally
-        let (kp_bytes, history_id) =
-            self.generate_and_store_key_package(mls_storage, include_post_quantum)?;
+        let (kp_bytes, history_id) = self
+            .generate_and_store_key_package(mls_storage, include_post_quantum)
+            .await?;
 
         // Upload to network
         match api_client.upload_key_package(kp_bytes, true).await {
@@ -728,11 +730,12 @@ impl Identity {
                 let provider = XmtpOpenMlsProviderRef::new(mls_storage);
                 provider
                     .storage()
-                    .transaction(|conn| {
+                    .transaction(async |conn| {
                         let storage = conn.key_store();
                         storage
                             .db()
-                            .mark_key_package_before_id_to_be_deleted(history_id)?;
+                            .mark_key_package_before_id_to_be_deleted(history_id)
+                            .await?;
                         Ok::<_, StorageError>(Continue(()))
                     })
                     .map(TransactionOutcome::into_continued)?;
@@ -750,7 +753,7 @@ impl Identity {
     /// Returns serialized bytes and history ID for later upload/cleanup.
     /// Prevents orphaned key packages if signature validation fails.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
+    pub(crate) async fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
         &self,
         mls_storage: &S,
         include_post_quantum: bool,
@@ -765,7 +768,8 @@ impl Identity {
         let history_id = provider
             .storage()
             .db()
-            .store_key_package_history_entry(hash_ref, pq_pub_key)?
+            .store_key_package_history_entry(hash_ref, pq_pub_key)
+            .await?
             .id;
 
         let kp_bytes = kp.tls_serialize_detached()?;
@@ -1353,8 +1357,8 @@ mod tests {
                 ..GroupQueryArgs::default()
             };
 
-            let amal_convos = amal.list_conversations(query_args.clone()).unwrap();
-            let bola_convos = bola.list_conversations(query_args).unwrap();
+            let amal_convos = amal.list_conversations(query_args.clone()).await.unwrap();
+            let bola_convos = bola.list_conversations(query_args).await.unwrap();
 
             assert_eq!(amal_convos.len(), 1);
             assert_eq!(bola_convos.len(), 1);

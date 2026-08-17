@@ -13,7 +13,7 @@ use xmtp_macro::log_event;
 
 use super::{
     Result, SubscribeError,
-    process_message::{Prepared, ProcessFutureFactory, ProcessMessageFuture, finish, prepare},
+    process_message::{Prepared, ProcessFutureFactory, ProcessMessageFuture, finish},
 };
 use crate::{
     context::XmtpSharedContext,
@@ -86,6 +86,14 @@ enum State<'a, Out> {
     /// State that indicates the stream is waiting on the next message from the network
     #[default]
     Waiting,
+    /// State that indicates the stream is waiting on the DB fast-path probe for the
+    /// current message. A hit yields the stored message without decrypting; a miss
+    /// moves to `Processing`.
+    Preparing {
+        #[pin]
+        future: BoxDynFuture<'a, Result<Prepared>>,
+        message: Cursor,
+    },
     /// State that indicates the stream is waiting on a IO/Network future to finish processing
     /// the current message before moving on to the next one
     Processing {
@@ -340,6 +348,13 @@ where
                 }
                 r
             }
+            Preparing { message, .. } => {
+                tracing::trace!(
+                    "stream messages in preparing state. Probing local db for envelope @cursor=[{}]",
+                    message
+                );
+                self.as_mut().resolve_futures(cx)
+            }
             Processing { message, .. } => {
                 tracing::trace!(
                     "stream messages in processing state. Processing future for envelope @cursor=[{}]",
@@ -394,6 +409,7 @@ where
     fn current_state(self: Pin<&mut Self>) -> String {
         match self.as_ref().state {
             State::Waiting { .. } => "waiting".into(),
+            State::Preparing { .. } => "preparing".into(),
             State::Processing { .. } => "processing".into(),
             State::Adding { .. } => "adding".into(),
         }
@@ -436,39 +452,17 @@ where
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
-        match prepare(&self.factory, next_msg)? {
-            Prepared::Ready {
-                message,
-                group_id,
-                cursor,
-            } => {
-                // Already stored locally — surface it without decrypting.
-                tracing::debug!(
-                    "msg @cursor[{:?}] for group_id@[{}] is available locally",
-                    cursor,
-                    hex::encode(group_id),
-                );
-                let this = self.as_mut().project();
-                this.groups.set(group_id.as_slice(), cursor);
-                Poll::Ready(Some(Ok(message)))
-            }
-            Prepared::NeedsProcessing(msg) => {
-                tracing::debug!(
-                    "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
-                    msg.group_id,
-                    msg.cursor
-                );
-                let msg_cursor = msg.cursor;
-                let future = self.factory.create(msg);
-                let mut this = self.as_mut().project();
-                this.state.set(State::Processing {
-                    future,
-                    message: msg_cursor,
-                });
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-        }
+        // Probe the DB fast path. Under an async store this is a real round-trip, so
+        // it has to be parked like any other IO future rather than run inline here.
+        let msg_cursor = next_msg.cursor;
+        let future = self.factory.prepare(next_msg);
+        let mut this = self.as_mut().project();
+        this.state.set(State::Preparing {
+            future,
+            message: msg_cursor,
+        });
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     /// Add the group to the group list
@@ -549,6 +543,43 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use ProjectState::*;
+        if let Preparing { future, .. } = self.as_mut().project().state.project() {
+            let prepared = ready!(future.poll(cx))
+                .inspect_err(|_| self.as_mut().project().state.set(State::Waiting))?;
+            match prepared {
+                Prepared::Ready {
+                    message,
+                    group_id,
+                    cursor,
+                } => {
+                    // Already stored locally — surface it without decrypting.
+                    tracing::debug!(
+                        "msg @cursor[{:?}] for group_id@[{}] is available locally",
+                        cursor,
+                        hex::encode(group_id),
+                    );
+                    self.as_mut().set_cursor(group_id.as_slice(), cursor);
+                    self.as_mut().project().state.set(State::Waiting);
+                    return Poll::Ready(Some(Ok(message)));
+                }
+                Prepared::NeedsProcessing(msg) => {
+                    tracing::debug!(
+                        "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
+                        msg.group_id,
+                        msg.cursor
+                    );
+                    let msg_cursor = msg.cursor;
+                    let future = self.factory.create(msg);
+                    let mut this = self.as_mut().project();
+                    this.state.set(State::Processing {
+                        future,
+                        message: msg_cursor,
+                    });
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+            }
+        }
         if let Processing { future, .. } = self.as_mut().project().state.project() {
             let processed = ready!(future.poll(cx))
                 .inspect_err(|_| self.as_mut().project().state.set(State::Waiting))?;
@@ -619,7 +650,7 @@ pub mod tests {
         tester!(alice, with_name: "alice");
         tester!(bob, with_name: "bob");
 
-        let alice_group = alice.create_group(None, None).unwrap();
+        let alice_group = alice.create_group(None, None).await.unwrap();
         tracing::info!("Group Id = [{}]", hex::encode(alice_group.group_id));
 
         alice_group.add_members(&[bob.inbox_id()]).await.unwrap();

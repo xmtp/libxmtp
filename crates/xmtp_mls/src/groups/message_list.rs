@@ -10,15 +10,15 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    pub fn find_messages_v2(
+    pub async fn find_messages_v2(
         &self,
         query: &MsgQueryArgs,
     ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
-        self.find_messages_v2_with_conn(query, conn)
+        self.find_messages_v2_with_conn(query, conn).await
     }
 
-    pub fn find_messages_v2_with_conn<C>(
+    pub async fn find_messages_v2_with_conn<C>(
         &self,
         query: &MsgQueryArgs,
         conn: C,
@@ -26,12 +26,14 @@ where
     where
         C: QueryGroupMessage + DbQuery,
     {
-        let initial_messages = conn.get_group_messages(
-            &self.group_id,
-            &filter_out_hidden_message_types_from_query(query),
-        )?;
+        let initial_messages = conn
+            .get_group_messages(
+                &self.group_id,
+                &filter_out_hidden_message_types_from_query(query),
+            )
+            .await?;
 
-        enrich_messages(conn, &self.group_id, initial_messages)
+        enrich_messages(conn, &self.group_id, initial_messages).await
     }
 }
 
@@ -82,7 +84,7 @@ mod tests {
 
     async fn setup_test_group() -> (MlsGroup<impl XmtpSharedContext>, impl XmtpSharedContext) {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = client.create_group(None, Default::default()).unwrap();
+        let group = client.create_group(None, Default::default()).await.unwrap();
 
         (group, client.context.clone())
     }
@@ -292,7 +294,10 @@ mod tests {
         );
 
         // Query with default args - should return both messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 2);
 
         // Query excluding Text messages - should only return the GroupUpdated message
@@ -300,7 +305,7 @@ mod tests {
             exclude_content_types: Some(vec![DbContentType::Text]),
             ..Default::default()
         };
-        let messages = group.find_messages_v2(&query).unwrap();
+        let messages = group.find_messages_v2(&query).await.unwrap();
 
         assert_message_count(&messages, 1);
         if let MessageBody::GroupUpdated(_) = &messages[0].content {
@@ -338,7 +343,10 @@ mod tests {
         );
 
         // Query and verify
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 2);
         assert_text_content(&messages[0], "Hello World");
         assert_text_content(&messages[1], "Another message");
@@ -383,7 +391,10 @@ mod tests {
         );
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // Should have 1 message (reactions are attached to the message, not returned separately)
         assert_message_count(&messages, 1);
@@ -427,7 +438,10 @@ mod tests {
         );
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         assert_message_count(&messages, 2);
 
@@ -462,7 +476,10 @@ mod tests {
         );
 
         // Query messages - should still return the reply but with None in_reply_to
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 1);
 
         assert_reply_has_no_reference(&messages[0]);
@@ -492,7 +509,10 @@ mod tests {
         );
 
         // Query messages - should still return the reply but with None in_reply_to
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 1);
         assert_reply_has_no_reference(&messages[0]);
 
@@ -537,7 +557,10 @@ mod tests {
         );
 
         // Query messages - malformed content still creates a message
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // We should get all 3 messages even though some have malformed content
         assert_message_count(&messages, 3);
@@ -596,7 +619,10 @@ mod tests {
         invalid_reaction.store(&conn).unwrap();
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // Should have 1 message total
         assert_message_count(&messages, 1);
@@ -667,7 +693,10 @@ mod tests {
 
         // Query messages - should only return the 2 text messages
         // Reactions, ReadReceipt, and DeleteMessage should be filtered out
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         // We expect only 2 messages (the text messages)
         // Reaction is attached to message 1, ReadReceipt and DeleteMessage are filtered
@@ -729,7 +758,10 @@ mod tests {
         );
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
 
         assert_message_count(&messages, 3);
 
@@ -815,7 +847,10 @@ mod tests {
         );
 
         // Query messages
-        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        let messages = group
+            .find_messages_v2(&MsgQueryArgs::default())
+            .await
+            .unwrap();
         assert_message_count(&messages, 2);
 
         // Find the reply message

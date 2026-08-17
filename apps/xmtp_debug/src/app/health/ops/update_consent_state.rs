@@ -22,7 +22,8 @@ impl HealthOp for UpdateConsentState {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
                 .group(&gid)?
-                .update_consent_state(ConsentState::Allowed)?;
+                .update_consent_state(ConsentState::Allowed)
+                .await?;
             Ok(())
         })
         .await
@@ -47,7 +48,8 @@ impl HealthOp for UpdateConsentStateQuiet {
             let db = primary.db();
             primary
                 .group(&gid)?
-                .quietly_update_consent_state(ConsentState::Allowed, &db)?;
+                .quietly_update_consent_state(ConsentState::Allowed, &db)
+                .await?;
             Ok(())
         })
         .await

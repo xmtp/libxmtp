@@ -52,7 +52,7 @@ async fn with_intent(name: &str) -> (PgDb, StoredGroupIntent) {
 }
 
 async fn reload(db: &PgDb, id: i32) -> StoredGroupIntent {
-    db.find_group_intents(gid(1), None, None)
+    db.find_group_intents(&gid(1), None, None)
         .await
         .unwrap()
         .into_iter()
@@ -93,7 +93,7 @@ async fn find_group_intents_filters_by_state_and_kind() {
     db.set_group_intent_error(key_update.id).await.unwrap();
 
     let ids = async |states: Option<Vec<IntentState>>, kinds: Option<Vec<IntentKind>>| {
-        db.find_group_intents(gid(1), states, kinds)
+        db.find_group_intents(&gid(1), states, kinds)
             .await
             .unwrap()
             .into_iter()
@@ -349,7 +349,7 @@ async fn error_and_fail_msg_updates_the_intent_and_its_message() {
         .unwrap();
 
     assert_eq!(reload(&db, intent.id).await.state, IntentState::Error);
-    let stored = db.get_group_message([1u8]).await.unwrap().unwrap();
+    let stored = db.get_group_message(&[1u8]).await.unwrap().unwrap();
     assert_eq!(stored.delivery_status, DeliveryStatus::Failed);
 }
 
@@ -376,12 +376,16 @@ async fn dependant_commits_join_the_commit_message_refresh_state() {
         .await
         .unwrap();
 
-    db.update_cursor(gid(1), EntityKind::CommitMessage, Cursor::new(11, 3u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(1).as_slice(),
+        EntityKind::CommitMessage,
+        Cursor::new(11, 3u32),
+    )
+    .await
+    .unwrap();
     // A different entity kind for the same group must not be picked up.
     db.update_cursor(
-        gid(1),
+        gid(1).as_slice(),
         EntityKind::ApplicationMessage,
         Cursor::new(99, 3u32),
     )
@@ -413,12 +417,20 @@ async fn dependant_commits_reject_a_hash_that_spans_two_cursors() {
 
     // `refresh_state` is keyed by (entity, kind, originator), so one group can
     // carry a commit-message cursor per originator.
-    db.update_cursor(gid(1), EntityKind::CommitMessage, Cursor::new(11, 3u32))
-        .await
-        .unwrap();
-    db.update_cursor(gid(1), EntityKind::CommitMessage, Cursor::new(12, 4u32))
-        .await
-        .unwrap();
+    db.update_cursor(
+        gid(1).as_slice(),
+        EntityKind::CommitMessage,
+        Cursor::new(11, 3u32),
+    )
+    .await
+    .unwrap();
+    db.update_cursor(
+        gid(1).as_slice(),
+        EntityKind::CommitMessage,
+        Cursor::new(12, 4u32),
+    )
+    .await
+    .unwrap();
 
     assert!(
         db.find_dependant_commits(&[&[0xaau8][..]]).await.is_err(),

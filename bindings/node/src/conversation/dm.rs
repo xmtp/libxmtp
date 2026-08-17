@@ -21,7 +21,10 @@ impl Conversation {
   #[xmtp_common::err_span]
   pub async fn duplicate_dms(&self) -> Result<Vec<Conversation>> {
     let group = self.create_mls_group();
-    let dms = group.find_duplicate_dms().map_err(ErrorWrapper::from)?;
+    let dms = group
+      .find_duplicate_dms()
+      .await
+      .map_err(ErrorWrapper::from)?;
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)

@@ -518,7 +518,7 @@ where
         load_identity_updates(
             self.context.api(),
             conn,
-            &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice())?,
+            &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice()).await?,
         )
         .await?;
 
@@ -765,7 +765,7 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    fn insert_identity_update<C>(conn: &DbConnection<C>, inbox_id: &str, sequence_id: i64)
+    async fn insert_identity_update<C>(conn: &DbConnection<C>, inbox_id: &str, sequence_id: i64)
     where
         C: ConnectionExt,
     {
@@ -778,6 +778,7 @@ pub(crate) mod tests {
         );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
+            .await
             .expect("insert should succeed");
     }
 
@@ -987,15 +988,15 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         let conn = client.context.db();
 
-        insert_identity_update(&conn, "inbox_1", 1);
-        insert_identity_update(&conn, "inbox_2", 2);
-        insert_identity_update(&conn, "inbox_3", 3);
+        insert_identity_update(&conn, "inbox_1", 1).await;
+        insert_identity_update(&conn, "inbox_2", 2).await;
+        insert_identity_update(&conn, "inbox_3", 3).await;
 
         let filtered =
             // Inbox 1 is requesting an inbox ID higher than what is in the DB. Inbox 2 is requesting one that matches the DB.
             // Inbox 3 is requesting one lower than what is in the DB
             crate::groups::filter_inbox_ids_needing_updates(&conn, &[("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
-        assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
+        assert_eq!(filtered.await.unwrap(), vec!["inbox_1"]);
     }
 
     #[rstest::rstest]
@@ -1060,10 +1061,14 @@ pub(crate) mod tests {
             .expect("load should succeed");
 
         // Get the latest sequence IDs so we can construct the updates
-        let latest_sequence_ids = other_conn.get_latest_sequence_id(ids.as_slice()).unwrap();
+        let latest_sequence_ids = other_conn
+            .get_latest_sequence_id(ids.as_slice())
+            .await
+            .unwrap();
 
         let inbox_1_first_sequence_id = other_conn
-            .get_identity_updates(inbox_ids[0].clone(), None, None)
+            .get_identity_updates(&inbox_ids[0].clone(), None, None)
+            .await
             .unwrap()
             .first()
             .unwrap()

@@ -69,7 +69,7 @@ pub trait XmtpMlsStorageProvider:
     /// Returning `Err(e)` also rolls back and propagates `e` as a real error.
     fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     /// Start a savepoint within a transaction.
@@ -81,7 +81,7 @@ pub trait XmtpMlsStorageProvider:
     // we can ensure this by checking sqlite transaction depth.
     fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
+        F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}

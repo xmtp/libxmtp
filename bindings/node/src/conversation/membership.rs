@@ -106,9 +106,9 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn membership_state(&self) -> Result<GroupMembershipState> {
+  pub async fn membership_state(&self) -> Result<GroupMembershipState> {
     let group = self.create_mls_group();
-    let state = group.membership_state().map_err(ErrorWrapper::from)?;
+    let state = group.membership_state().await.map_err(ErrorWrapper::from)?;
     Ok(state.into())
   }
 
@@ -267,10 +267,15 @@ impl Conversation {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn added_by_inbox_id(&self) -> Result<String> {
+  pub async fn added_by_inbox_id(&self) -> Result<String> {
     let group = self.create_mls_group();
 
-    Ok(group.added_by_inbox_id().map_err(ErrorWrapper::from)?)
+    Ok(
+      group
+        .added_by_inbox_id()
+        .await
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]

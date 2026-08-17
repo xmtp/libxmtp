@@ -59,10 +59,11 @@ fn bench_find_groups(c: &mut Criterion) {
                         async {
                             let groups = setup
                                 .client
-                                .find_groups(&GroupQueryArgs {
+                                .find_groups(GroupQueryArgs {
                                     limit: Some(TARGET_GROUPS as i64),
                                     ..Default::default()
                                 })
+                                .await
                                 .unwrap();
 
                             assert!(groups.len() >= TARGET_GROUPS.min(total_groups));
@@ -111,6 +112,7 @@ fn bench_list_conversations(c: &mut Criterion) {
                                     limit: Some(TARGET_GROUPS as i64),
                                     ..Default::default()
                                 })
+                                .await
                                 .unwrap();
 
                             assert!(conversations.len() >= TARGET_GROUPS.min(total_groups));
@@ -156,11 +158,12 @@ fn bench_find_groups_with_filters(c: &mut Criterion) {
                         async {
                             let groups = setup
                                 .client
-                                .find_groups(&GroupQueryArgs {
+                                .find_groups(GroupQueryArgs {
                                     limit: Some(TARGET_GROUPS as i64),
                                     created_after_ns: Some(created_after_ns),
                                     ..Default::default()
                                 })
+                                .await
                                 .unwrap();
 
                             assert!(!groups.is_empty());

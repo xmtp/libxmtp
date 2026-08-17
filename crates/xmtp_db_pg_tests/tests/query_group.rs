@@ -591,7 +591,7 @@ async fn membership_and_disappearing_settings_update() {
     let db = fresh_db("g_updates").await;
     store(&db, group(gid(1), 1)).await;
 
-    db.update_group_membership(gid(1), GroupMembershipState::Rejected)
+    db.update_group_membership(&gid(1), GroupMembershipState::Rejected)
         .await
         .unwrap();
     db.update_message_disappearing_from_ns(&gid(1), Some(10))

@@ -163,7 +163,7 @@ where
             // committed: don't discard `groups` over a failed queue — nothing
             // half-landed, and the next welcome retries the whole thing.
             if let Err(e) =
-                crate::worker::key_package_maintenance::queue_key_rotation(&self.context)
+                crate::worker::key_package_maintenance::queue_key_rotation(&self.context).await
             {
                 tracing::warn!("key rotation queue failed after welcome sync: {e}");
             }
@@ -224,10 +224,9 @@ where
         let api = self.context.api();
 
         let group_ids: Vec<GroupId> = groups.iter().map(|group| group.group_id).collect();
-        let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
         let last_synced_cursors = db
             .get_last_cursor_for_ids(
-                &id_slices,
+                &group_ids,
                 &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
             )
             .await?;

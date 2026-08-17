@@ -62,10 +62,11 @@ impl Conversations {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub fn get_dm_by_inbox_id(&self, inbox_id: String) -> Result<Conversation> {
+  pub async fn get_dm_by_inbox_id(&self, inbox_id: String) -> Result<Conversation> {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(inbox_id)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(convo.into())
