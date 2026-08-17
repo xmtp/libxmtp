@@ -1,0 +1,30 @@
+name: Update PR lockfile
+
+on:
+  push:
+    branches:
+      - fix/1109-replace-clap-with-lexopt
+
+permissions:
+  contents: write
+
+jobs:
+  update-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/1109-replace-clap-with-lexopt
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+      - name: Commit Cargo.lock if changed
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: update Cargo.lock for lexopt"
+          git push origin HEAD:fix/1109-replace-clap-with-lexopt
