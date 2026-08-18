@@ -1908,6 +1908,13 @@ where
             .iter()
             .map(AsIdRef::as_ref)
             .collect::<Vec<&str>>();
+
+        // get current number of users in group
+        let member_count = self.members().await?.len();
+        if member_count + ids.len() > MAX_GROUP_SIZE {
+            return Err(GroupError::UserLimitExceeded);
+        }
+
         let intent_data = self
             .get_membership_update_intent(ids.as_slice(), &[])
             .await?;

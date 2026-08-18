@@ -2457,7 +2457,6 @@ async fn test_group_options() {
 }
 
 #[xmtp_common::test]
-#[ignore]
 async fn test_max_limit_add() {
     tester!(amal);
     let amal_group = amal
