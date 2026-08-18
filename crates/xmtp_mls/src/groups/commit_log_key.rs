@@ -116,7 +116,7 @@ pub(crate) async fn maybe_share_private_key(
             // We cannot update mutable metadata for DMs
             return Ok(());
         }
-        let metadata = group.mutable_metadata()?;
+        let metadata = group.mutable_metadata().await?;
         if metadata.commit_log_signer().is_none_or(|private_key| {
             !RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
         }) {
@@ -176,7 +176,7 @@ pub(crate) async fn get_or_create_signing_key(
     }
 
     let (group, _) = MlsGroup::new_cached(context, &conversation.id).await?;
-    if let Some(private_key) = group.mutable_metadata()?.commit_log_signer()
+    if let Some(private_key) = group.mutable_metadata().await?.commit_log_signer()
         && consensus_public_key.is_none_or(|consensus_public_key| {
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
         })
@@ -497,7 +497,7 @@ mod tests {
 
         // Create a group - this will have a commit_log_signer in mutable metadata by default
         let group = alix.create_group(None, None).await.unwrap();
-        let metadata = group.mutable_metadata().unwrap();
+        let metadata = group.mutable_metadata().await.unwrap();
         let mutable_metadata_key = metadata.commit_log_signer().unwrap();
 
         let conversation = StoredGroupCommitLogPublicKey {
@@ -583,7 +583,7 @@ mod tests {
         tester!(alix);
 
         let group = alix.create_group(None, None).await.unwrap();
-        let metadata = group.mutable_metadata().unwrap();
+        let metadata = group.mutable_metadata().await.unwrap();
         let metadata_key = metadata.commit_log_signer().unwrap();
         let metadata_public_key = xmtp_cryptography::signature::to_public_key(&metadata_key)
             .unwrap()

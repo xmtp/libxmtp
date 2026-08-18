@@ -119,7 +119,11 @@ impl HealthOp for EnsurePerVersionMembership {
             // cross-version runs can pick one via `pick_super_admin`.
             for inbox in version_representative.values() {
                 let hex_inbox = hex::encode(inbox);
-                if group.is_super_admin(hex_inbox.clone()).unwrap_or(false) {
+                if group
+                    .is_super_admin(hex_inbox.clone())
+                    .await
+                    .unwrap_or(false)
+                {
                     continue;
                 }
                 group.update_admin_list(AddSuper, hex_inbox).await?;

@@ -27,7 +27,6 @@ pub mod test;
 mod tests;
 mod traits;
 
-use crate::groups::GroupError;
 pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -78,23 +77,6 @@ impl GroupCommitLock {
         MlsGroupGuard {
             _permit: lock.lock_owned().await,
         }
-    }
-
-    /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(&self, group_id: GroupId) -> Result<MlsGroupGuard, GroupError> {
-        let lock = {
-            let mut locks = self.locks.lock();
-            locks
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(TokioMutex::new(())))
-                .clone()
-        };
-
-        // Synchronously acquire the permit
-        let permit = lock
-            .try_lock_owned()
-            .map_err(|_| GroupError::LockUnavailable)?;
-        Ok(MlsGroupGuard { _permit: permit })
     }
 }
 /// A guard that releases the semaphore when dropped

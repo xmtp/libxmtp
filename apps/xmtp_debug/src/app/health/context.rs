@@ -487,9 +487,20 @@ impl HealthContext {
             }
             candidates.push((client, group));
         }
-        Ok(candidates
-            .iter()
-            .find(|(c, g)| g.is_super_admin(c.inbox_id().to_string()).unwrap_or(false))
+        // `.await` inside `.find` isn't possible, so prefer a super-admin via an
+        // explicit loop, falling back to the first candidate.
+        let mut chosen = None;
+        for pair in candidates.iter() {
+            let (c, g) = pair;
+            if g.is_super_admin(c.inbox_id().to_string())
+                .await
+                .unwrap_or(false)
+            {
+                chosen = Some(pair);
+                break;
+            }
+        }
+        Ok(chosen
             .or_else(|| candidates.first())
             .map(|(_, g)| g.clone()))
     }

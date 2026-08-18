@@ -63,8 +63,8 @@ async fn test_commit_log_signer_on_group_creation() {
 
     let a = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let a_metadata = a.mutable_metadata()?;
-    let b_metadata = b.mutable_metadata()?;
+    let a_metadata = a.mutable_metadata().await?;
+    let b_metadata = b.mutable_metadata().await?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
     let b_commit_log_signer = b_metadata.commit_log_signer();
 
@@ -83,8 +83,8 @@ async fn test_commit_log_signer_on_group_creation() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let a_metadata = a.mutable_metadata()?;
-    let b_metadata = b.mutable_metadata()?;
+    let a_metadata = a.mutable_metadata().await?;
+    let b_metadata = b.mutable_metadata().await?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
     let b_commit_log_signer = b_metadata.commit_log_signer();
 
@@ -123,8 +123,8 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
         None,
     )?;
     let b = bo.group(&a.group_id)?;
-    let a_metadata = a.mutable_metadata()?;
-    let b_metadata = b.mutable_metadata()?;
+    let a_metadata = a.mutable_metadata().await?;
+    let b_metadata = b.mutable_metadata().await?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
     let b_commit_log_signer = b_metadata.commit_log_signer();
     assert_ne!(
@@ -133,7 +133,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     );
 
     let b = bo.sync_welcomes().await?.first()?.to_owned();
-    let b_metadata = b.mutable_metadata()?;
+    let b_metadata = b.mutable_metadata().await?;
     let b_commit_log_signer = b_metadata.commit_log_signer();
     assert_eq!(
         a_commit_log_signer.as_ref().unwrap().as_slice(),
@@ -1321,16 +1321,19 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // Get initial commit log signer for all parties
     let initial_alix_signer = alix_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let initial_bo_signer = bo_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let initial_charlie_signer = charlie_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1359,6 +1362,7 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // Alix should see the new signer immediately
     let alix_updated_signer = alix_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1372,11 +1376,13 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // Bo and charlie shouldn't see the change yet (before sync)
     let bo_pre_sync_signer = bo_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let charlie_pre_sync_signer = charlie_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1399,16 +1405,19 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     // After sync, everyone should see the new signer
     let final_alix_signer = alix_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let final_bo_signer = bo_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
     let final_charlie_signer = charlie_group
         .mutable_metadata()
+        .await
         .unwrap()
         .commit_log_signer()
         .unwrap();
@@ -1449,9 +1458,9 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     let bo_group = &bo_groups[0];
 
     // Get the initial signing key from alix's perspective
-    let alix_initial_metadata = group.mutable_metadata().unwrap();
+    let alix_initial_metadata = group.mutable_metadata().await.unwrap();
     let initial_signer = alix_initial_metadata.commit_log_signer().unwrap();
-    let bo_initial_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_initial_metadata = bo_group.mutable_metadata().await.unwrap();
     let bo_initial_signer = bo_initial_metadata.commit_log_signer().unwrap();
 
     // Verify both parties have the same signing key initially
@@ -1471,11 +1480,11 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     println!("✓ Updated group name and synced to all parties");
 
     // Verify the signing key is preserved on alix's side
-    let alix_updated_metadata = group.mutable_metadata().unwrap();
+    let alix_updated_metadata = group.mutable_metadata().await.unwrap();
     let alix_updated_signer = alix_updated_metadata.commit_log_signer().unwrap();
 
     // Verify the signing key is preserved on bo's side
-    let bo_updated_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_updated_metadata = bo_group.mutable_metadata().await.unwrap();
     let bo_updated_signer = bo_updated_metadata.commit_log_signer().unwrap();
 
     // Verify the group name was actually updated
@@ -1572,7 +1581,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ Alix saved remote commit logs and processed them");
 
     // Verify alix now has the new signing key in mutable metadata
-    let alix_metadata_after = group.mutable_metadata().unwrap();
+    let alix_metadata_after = group.mutable_metadata().await.unwrap();
     let alix_signer_after = alix_metadata_after.commit_log_signer();
 
     assert!(
@@ -1593,10 +1602,10 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ Bo and Charlie synced to get metadata updates");
 
     // Verify bo and charlie now have the signing key in their mutable metadata
-    let bo_metadata = bo_group.mutable_metadata().unwrap();
+    let bo_metadata = bo_group.mutable_metadata().await.unwrap();
     let bo_signer = bo_metadata.commit_log_signer();
 
-    let charlie_metadata = charlie_group.mutable_metadata().unwrap();
+    let charlie_metadata = charlie_group.mutable_metadata().await.unwrap();
     let charlie_signer = charlie_metadata.commit_log_signer();
 
     assert!(

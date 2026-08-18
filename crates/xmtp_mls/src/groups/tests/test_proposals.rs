@@ -137,7 +137,7 @@ async fn test_proposals_enabled_default_false() {
         .await?;
 
     assert!(
-        !alix_group.is_proposals_enabled()?,
+        !alix_group.is_proposals_enabled().await?,
         "Proposals should not be enabled by default"
     );
 }
@@ -176,7 +176,7 @@ async fn test_e2e_propose_add_member_flow() {
     alix_group
         .enable_proposals(EnableProposalsOptions::test_default())
         .await?;
-    assert!(alix_group.is_proposals_enabled()?);
+    assert!(alix_group.is_proposals_enabled().await?);
     bo_group.sync().await?;
 
     // 2. Alix proposes to add caro
@@ -1805,7 +1805,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 
     // Bo syncs to receive the metadata update
     bo_group.sync().await?;
-    let bo_group_name = bo_group.group_name()?;
+    let bo_group_name = bo_group.group_name().await?;
     assert_eq!(
         bo_group_name, "New Admin Group Name",
         "Bo should see the updated group name"
@@ -1936,14 +1936,14 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
         .await?;
 
     bo_group.sync().await?;
-    let bo_name = bo_group.group_name()?;
+    let bo_name = bo_group.group_name().await?;
     assert_eq!(
         bo_name, "Updated by Admin",
         "Group name should be updated by admin"
     );
 
     caro_group.sync().await?;
-    let caro_name = caro_group.group_name()?;
+    let caro_name = caro_group.group_name().await?;
     assert_eq!(
         caro_name, "Updated by Admin",
         "Group name should be updated for all members"
@@ -2259,7 +2259,7 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
     );
 
     // Verify group name is unchanged
-    let name = alix_group.group_name()?;
+    let name = alix_group.group_name().await?;
     assert_ne!(name, "hacked", "Group name should not have changed");
 }
 
@@ -3138,12 +3138,12 @@ async fn test_update_group_name_via_app_data_update() {
 
     bo_group.sync().await?;
     assert_eq!(
-        bo_group.group_name()?,
+        bo_group.group_name().await?,
         "AppData Group Name",
         "Bo should see the new group name written through the AppData path"
     );
     assert_eq!(
-        alix_group.group_name()?,
+        alix_group.group_name().await?,
         "AppData Group Name",
         "Alix should see her own update reflected through the read accessor"
     );
@@ -3151,7 +3151,7 @@ async fn test_update_group_name_via_app_data_update() {
     // The capability-gated `mutable_metadata()` accessor should also surface
     // the new value (it backs `group_name()`, but we exercise it directly to
     // pin the merge-into-GMM path).
-    let bo_meta = bo_group.mutable_metadata()?;
+    let bo_meta = bo_group.mutable_metadata().await?;
     assert_eq!(
         bo_meta
             .attributes
@@ -3187,7 +3187,7 @@ async fn test_update_group_description_via_app_data_update() {
 
     bo_group.sync().await?;
     assert_eq!(
-        bo_group.group_description()?,
+        bo_group.group_description().await?,
         "AppData Description",
         "Bo should see the new group description through the AppData path"
     );
@@ -3454,8 +3454,8 @@ async fn test_update_group_name_uses_legacy_path_when_proposals_disabled() {
         .await?;
     bo_group.sync().await?;
 
-    assert_eq!(bo_group.group_name()?, "Legacy Path Name");
-    assert_eq!(alix_group.group_name()?, "Legacy Path Name");
+    assert_eq!(bo_group.group_name().await?, "Legacy Path Name");
+    assert_eq!(alix_group.group_name().await?, "Legacy Path Name");
 }
 
 // `test_update_group_name_uses_legacy_path_when_registry_is_empty`
@@ -3533,7 +3533,7 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     bo_group.sync().await?;
 
     // Capture the pre-update group name so we can assert it didn't change.
-    let original = alix_group.group_name()?;
+    let original = alix_group.group_name().await?;
 
     // Attempt the update. The validator should reject the AppDataUpdate
     // proposal because GROUP_NAME's update_policy is now `Deny`.
@@ -3563,7 +3563,7 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     // Group name unchanged because the rejected commit never made
     // it past validation.
     assert_eq!(
-        alix_group.group_name()?,
+        alix_group.group_name().await?,
         original,
         "group name should be unchanged after the rejected update"
     );
@@ -3704,8 +3704,8 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
     // per peer catches consensus drift (one peer sees the update,
     // the other doesn't).
     for (label, meta) in [
-        ("alix", alix_group.mutable_metadata()?),
-        ("bo", bo_group.mutable_metadata()?),
+        ("alix", alix_group.mutable_metadata().await?),
+        ("bo", bo_group.mutable_metadata().await?),
     ] {
         assert!(
             meta.admin_list.contains(&bo.inbox_id().to_string()),
@@ -3751,8 +3751,8 @@ async fn test_admin_list_remove_via_app_data_path_after_migration() {
     bo_group.sync().await?;
 
     for (label, meta) in [
-        ("alix", alix_group.mutable_metadata()?),
-        ("bo", bo_group.mutable_metadata()?),
+        ("alix", alix_group.mutable_metadata().await?),
+        ("bo", bo_group.mutable_metadata().await?),
     ] {
         assert!(
             !meta.admin_list.contains(&bo.inbox_id().to_string()),
@@ -3796,8 +3796,8 @@ async fn test_super_admin_list_add_via_app_data_path_after_migration() {
     // group, so the weaker check passes even if AddSuper routed to
     // the wrong list with a different inbox.
     for (label, meta) in [
-        ("alix", alix_group.mutable_metadata()?),
-        ("bo", bo_group.mutable_metadata()?),
+        ("alix", alix_group.mutable_metadata().await?),
+        ("bo", bo_group.mutable_metadata().await?),
     ] {
         assert!(
             meta.super_admin_list.contains(&bo.inbox_id().to_string()),
@@ -3911,13 +3911,13 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
         .await?;
     bo_group.sync().await?;
 
-    let alix_meta = alix_group.mutable_metadata()?;
+    let alix_meta = alix_group.mutable_metadata().await?;
     assert!(
         alix_meta.admin_list.contains(&bo.inbox_id().to_string()),
         "legacy GCE admin-list update broke, admin_list={:?}",
         alix_meta.admin_list,
     );
-    let bo_meta = bo_group.mutable_metadata()?;
+    let bo_meta = bo_group.mutable_metadata().await?;
     assert!(
         bo_meta.admin_list.contains(&bo.inbox_id().to_string()),
         "bo should see himself as admin via legacy GMM, admin_list={:?}",

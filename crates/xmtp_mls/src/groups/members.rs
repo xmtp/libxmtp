@@ -34,10 +34,11 @@ where
     /// Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let db = self.context.db();
-        let storage = self.context.mls_storage();
-        let group_membership = self.load_mls_group_with_lock(storage, |mls_group| {
-            Ok(extract_group_membership(mls_group.extensions())?)
-        })?;
+        let group_membership = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                Ok::<_, GroupError>(extract_group_membership(mls_group.extensions())?)
+            })
+            .await?;
         let requests = group_membership
             .members
             .into_iter()
@@ -84,7 +85,7 @@ where
                 return Err(GroupError::InvalidGroupMembership);
             }
         }
-        let mutable_metadata = self.mutable_metadata()?;
+        let mutable_metadata = self.mutable_metadata().await?;
         // A `for` loop rather than `.map(..).collect::<Result<_, _>>()`: the
         // consent lookup awaits now, and an async block inside `map` would only
         // yield an iterator of futures with no way to `?` through it.

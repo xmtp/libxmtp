@@ -3005,8 +3005,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_name(&self) -> Result<String, FfiError> {
-        let group_name = self.inner.group_name()?;
+    pub async fn group_name(&self) -> Result<String, FfiError> {
+        let group_name = self.inner.group_name().await?;
         Ok(group_name)
     }
 
@@ -3017,8 +3017,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn app_data(&self) -> Result<String, FfiError> {
-        let app_data = self.inner.app_data()?;
+    pub async fn app_data(&self) -> Result<String, FfiError> {
+        let app_data = self.inner.app_data().await?;
         Ok(app_data)
     }
 
@@ -3034,8 +3034,8 @@ impl FfiConversation {
     /// and the marker extension is an internal protocol detail.
     /// Mirrors `proposalsEnabled` on the wasm and node bindings.
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn proposals_enabled(&self) -> Result<bool, FfiError> {
-        Ok(self.inner.is_proposals_enabled()?)
+    pub async fn proposals_enabled(&self) -> Result<bool, FfiError> {
+        Ok(self.inner.is_proposals_enabled().await?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3051,8 +3051,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_image_url_square(&self) -> Result<String, FfiError> {
-        Ok(self.inner.group_image_url_square()?)
+    pub async fn group_image_url_square(&self) -> Result<String, FfiError> {
+        Ok(self.inner.group_image_url_square().await?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3068,8 +3068,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_description(&self) -> Result<String, FfiError> {
-        Ok(self.inner.group_description()?)
+    pub async fn group_description(&self) -> Result<String, FfiError> {
+        Ok(self.inner.group_description().await?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -3118,24 +3118,24 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn admin_list(&self) -> Result<Vec<String>, FfiError> {
-        self.inner.admin_list().map_err(Into::into)
+    pub async fn admin_list(&self) -> Result<Vec<String>, FfiError> {
+        self.inner.admin_list().await.map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn super_admin_list(&self) -> Result<Vec<String>, FfiError> {
-        self.inner.super_admin_list().map_err(Into::into)
+    pub async fn super_admin_list(&self) -> Result<Vec<String>, FfiError> {
+        self.inner.super_admin_list().await.map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn is_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
-        let admin_list = self.admin_list()?;
+    pub async fn is_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
+        let admin_list = self.admin_list().await?;
         Ok(admin_list.contains(inbox_id))
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
-        let super_admin_list = self.super_admin_list()?;
+    pub async fn is_super_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
+        let super_admin_list = self.super_admin_list().await?;
         Ok(super_admin_list.contains(inbox_id))
     }
 
@@ -3172,8 +3172,8 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, FfiError> {
-        let permissions = self.inner.permissions()?;
+    pub async fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, FfiError> {
+        let permissions = self.inner.permissions().await?;
         Ok(Arc::new(FfiGroupPermissions {
             inner: Arc::new(permissions),
         }))

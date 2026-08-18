@@ -500,6 +500,7 @@ async fn test_dm_permissions_show_expected_values() {
     // Verify we can read the expected permissions
     let alix_permission_policy_set = alix_group_admin_only
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -530,6 +531,7 @@ async fn test_dm_permissions_show_expected_values() {
     // Verify we can read the expected permissions
     let alix_permission_policy_set = alix_group_all_members
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();

@@ -518,7 +518,7 @@ mod tests {
         // Loading all the groups works fine
         let _groups = alix2.find_groups(GroupQueryArgs::default()).await?;
         // Can fetch the group name no problem
-        alix2_group.group_name()?;
+        alix2_group.group_name().await?;
         assert!(!alix2_group.is_active().await?);
 
         // Add the new inbox to the groups
@@ -651,18 +651,18 @@ mod tests {
         // must round-trip through the archive, or per-field loss in
         // the exporter's dict read would go unnoticed.
         let restored_group = alix2.group(&alix_group.group_id)?;
-        assert_eq!(restored_group.group_name()?, "post-migration name");
+        assert_eq!(restored_group.group_name().await?, "post-migration name");
         assert_eq!(
-            restored_group.group_description()?,
+            restored_group.group_description().await?,
             "post-migration description"
         );
         assert_eq!(
-            restored_group.group_image_url_square()?,
+            restored_group.group_image_url_square().await?,
             "https://example.com/post-migration.png"
         );
 
         // The legacy group in the same archive restores alongside it.
         let restored_legacy = alix2.group(&legacy_group.group_id)?;
-        assert_eq!(restored_legacy.group_name()?, "legacy name");
+        assert_eq!(restored_legacy.group_name().await?, "legacy name");
     }
 }

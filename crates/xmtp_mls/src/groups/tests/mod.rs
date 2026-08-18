@@ -244,7 +244,7 @@ async fn test_members_func_from_non_creator() {
     bola_group.sync().await.unwrap();
 
     // Verify bola can see the group name
-    let bola_group_name = bola_group.group_name().unwrap();
+    let bola_group_name = bola_group.group_name().await.unwrap();
     assert_eq!(bola_group_name, "");
 
     // Check if both clients can see the members correctly
@@ -306,9 +306,10 @@ async fn test_add_member_conflict() {
     // Check Amal's MLS group state.
     let amal_db = amal.context.db();
     let amal_members_len = amal_group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
-            Ok(mls_group.members().count())
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(mls_group.members().count())
         })
+        .await
         .unwrap();
 
     assert_eq!(amal_members_len, 3);
@@ -316,9 +317,10 @@ async fn test_add_member_conflict() {
     // Check Bola's MLS group state.
     let bola_db = bola.context.db();
     let bola_members_len = bola_group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
-            Ok(mls_group.members().count())
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(mls_group.members().count())
         })
+        .await
         .unwrap();
 
     assert_eq!(bola_members_len, 3);
@@ -379,7 +381,7 @@ fn test_create_from_welcome_validation() {
         let provider = alix.context.mls_provider();
         // Doctor the group membership
         let mut mls_group = alix_group
-            .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
+            .load_mls_group_with_lock_async(async |mut mls_group| {
                 let mut existing_extensions = mls_group.extensions().clone();
                 let mut group_membership = GroupMembership::new();
                 group_membership.add("deadbeef".to_string(), 1);
@@ -396,8 +398,9 @@ fn test_create_from_welcome_validation() {
                     .unwrap();
                 mls_group.merge_pending_commit(&provider).unwrap();
 
-                Ok(mls_group) // Return the updated group if necessary
+                Ok::<_, GroupError>(mls_group) // Return the updated group if necessary
             })
+            .await
             .unwrap();
 
         // Now add bo to the group
@@ -1141,10 +1144,16 @@ async fn test_self_remove_dm_must_fail() {
     // Neither Amal nor Bola is an admin or super admin
     amal_dm.sync().await.unwrap();
     bola_dm.sync().await.unwrap();
-    let is_amal_admin = amal_dm.is_admin(amal.inbox_id().to_string()).unwrap();
-    let is_bola_admin = amal_dm.is_admin(bola.inbox_id().to_string()).unwrap();
-    let is_amal_super_admin = amal_dm.is_super_admin(amal.inbox_id().to_string()).unwrap();
-    let is_bola_super_admin = amal_dm.is_super_admin(bola.inbox_id().to_string()).unwrap();
+    let is_amal_admin = amal_dm.is_admin(amal.inbox_id().to_string()).await.unwrap();
+    let is_bola_admin = amal_dm.is_admin(bola.inbox_id().to_string()).await.unwrap();
+    let is_amal_super_admin = amal_dm
+        .is_super_admin(amal.inbox_id().to_string())
+        .await
+        .unwrap();
+    let is_bola_super_admin = amal_dm
+        .is_super_admin(bola.inbox_id().to_string())
+        .await
+        .unwrap();
     assert!(!is_amal_admin);
     assert!(!is_bola_admin);
     assert!(!is_amal_super_admin);
@@ -1974,6 +1983,7 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     assert!(
         bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -2028,6 +2038,7 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     assert!(
         bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -2060,6 +2071,7 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     assert!(
         !bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -2110,6 +2122,7 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     assert!(
         bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -2168,6 +2181,7 @@ async fn test_promotion_excludes_self_from_pending_check() {
     assert!(
         bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -2290,9 +2304,10 @@ async fn test_key_update() {
     assert_eq!(messages.len(), 2);
 
     let pending_commit_is_none = group
-        .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-            Ok(mls_group.pending_commit().is_none())
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(mls_group.pending_commit().is_none())
         })
+        .await
         .unwrap();
 
     assert!(pending_commit_is_none);
@@ -2470,9 +2485,10 @@ async fn test_add_missing_installations() {
 
     group.sync().await.unwrap();
     let num_members = group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
-            Ok(mls_group.members().collect::<Vec<_>>().len())
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(mls_group.members().collect::<Vec<_>>().len())
         })
+        .await
         .unwrap();
 
     assert_eq!(num_members, 3);
@@ -2560,7 +2576,7 @@ async fn test_group_options() {
         .await
         .unwrap();
 
-    let binding = amal_group.mutable_metadata().expect("msg");
+    let binding = amal_group.mutable_metadata().await.expect("msg");
     let amal_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2629,7 +2645,7 @@ async fn test_group_mutable_data() {
     let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = amal_group.mutable_metadata().await.unwrap();
     assert!(group_mutable_metadata.attributes.len().eq(&5));
     assert!(
         group_mutable_metadata
@@ -2647,7 +2663,7 @@ async fn test_group_mutable_data() {
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
-    let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = bola_group.mutable_metadata().await.unwrap();
     assert!(
         group_mutable_metadata
             .attributes
@@ -2669,7 +2685,7 @@ async fn test_group_mutable_data() {
 
     // Verify amal group sees update
     amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
+    let binding = amal_group.mutable_metadata().await.expect("msg");
     let amal_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2678,7 +2694,7 @@ async fn test_group_mutable_data() {
 
     // Verify bola group sees update
     bola_group.sync().await.unwrap();
-    let binding = bola_group.mutable_metadata().expect("msg");
+    let binding = bola_group.mutable_metadata().await.expect("msg");
     let bola_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2693,7 +2709,7 @@ async fn test_group_mutable_data() {
 
     // Verify bola group does not see an update
     bola_group.sync().await.unwrap();
-    let binding = bola_group.mutable_metadata().expect("msg");
+    let binding = bola_group.mutable_metadata().await.expect("msg");
     let bola_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2725,7 +2741,7 @@ async fn test_update_policies_empty_group() {
 
     // Verify the name is updated
     amal_group.sync().await.unwrap();
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = amal_group.mutable_metadata().await.unwrap();
     let group_name_1 = group_mutable_metadata
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2753,7 +2769,7 @@ async fn test_update_policies_empty_group() {
 
     // Verify the name is updated
     amal_group_2.sync().await.unwrap();
-    let group_mutable_metadata = amal_group_2.mutable_metadata().unwrap();
+    let group_mutable_metadata = amal_group_2.mutable_metadata().await.unwrap();
     let group_name_2 = group_mutable_metadata
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2770,7 +2786,7 @@ async fn test_update_group_image_url_square() {
     let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = amal_group.mutable_metadata().await.unwrap();
     assert!(
         group_mutable_metadata
             .attributes
@@ -2787,7 +2803,7 @@ async fn test_update_group_image_url_square() {
 
     // Verify amal group sees update
     amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
+    let binding = amal_group.mutable_metadata().await.expect("msg");
     let amal_group_image_url: &String = binding
         .attributes
         .get(&MetadataField::GroupImageUrlSquare.to_string())
@@ -2804,7 +2820,7 @@ async fn test_update_group_message_expiration_settings() {
     let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = amal_group.mutable_metadata().await.unwrap();
     assert_eq!(
         group_mutable_metadata
             .attributes
@@ -2830,7 +2846,7 @@ async fn test_update_group_message_expiration_settings() {
 
     // Verify amal group sees update
     amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
+    let binding = amal_group.mutable_metadata().await.expect("msg");
     let amal_message_expiration_from_ms: &String = binding
         .attributes
         .get(&MetadataField::MessageDisappearFromNS.to_string())
@@ -2861,7 +2877,7 @@ async fn test_group_mutable_data_group_permissions() {
     let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
-    let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = amal_group.mutable_metadata().await.unwrap();
     assert!(
         group_mutable_metadata
             .attributes
@@ -2880,7 +2896,7 @@ async fn test_group_mutable_data_group_permissions() {
     assert_eq!(bola_groups.len(), 1);
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
-    let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+    let group_mutable_metadata = bola_group.mutable_metadata().await.unwrap();
     assert!(
         group_mutable_metadata
             .attributes
@@ -2897,7 +2913,7 @@ async fn test_group_mutable_data_group_permissions() {
 
     // Verify amal group sees update
     amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().unwrap();
+    let binding = amal_group.mutable_metadata().await.unwrap();
     let amal_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2906,7 +2922,7 @@ async fn test_group_mutable_data_group_permissions() {
 
     // Verify bola group sees update
     bola_group.sync().await.unwrap();
-    let binding = bola_group.mutable_metadata().expect("msg");
+    let binding = bola_group.mutable_metadata().await.expect("msg");
     let bola_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2921,7 +2937,7 @@ async fn test_group_mutable_data_group_permissions() {
 
     // Verify amal group sees an update
     amal_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
+    let binding = amal_group.mutable_metadata().await.expect("msg");
     let amal_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -2952,8 +2968,8 @@ async fn test_group_admin_list_update() {
     bola_group.sync().await.unwrap();
 
     // Verify Amal is the only admin and super admin
-    let admin_list = amal_group.admin_list().unwrap();
-    let super_admin_list = amal_group.super_admin_list().unwrap();
+    let admin_list = amal_group.admin_list().await.unwrap();
+    let super_admin_list = amal_group.super_admin_list().await.unwrap();
     assert_eq!(admin_list.len(), 0);
     assert_eq!(super_admin_list.len(), 1);
     assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
@@ -2976,10 +2992,11 @@ async fn test_group_admin_list_update() {
         .unwrap();
     amal_group.sync().await.unwrap();
     bola_group.sync().await.unwrap();
-    assert_eq!(bola_group.admin_list().unwrap().len(), 1);
+    assert_eq!(bola_group.admin_list().await.unwrap().len(), 1);
     assert!(
         bola_group
             .admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -3006,10 +3023,11 @@ async fn test_group_admin_list_update() {
         .unwrap();
     amal_group.sync().await.unwrap();
     bola_group.sync().await.unwrap();
-    assert_eq!(bola_group.admin_list().unwrap().len(), 0);
+    assert_eq!(bola_group.admin_list().await.unwrap().len(), 0);
     assert!(
         !bola_group
             .admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -3045,8 +3063,8 @@ async fn test_group_super_admin_list_update() {
     bola_group.sync().await.unwrap();
 
     // Verify Amal is the only super admin
-    let admin_list = amal_group.admin_list().unwrap();
-    let super_admin_list = amal_group.super_admin_list().unwrap();
+    let admin_list = amal_group.admin_list().await.unwrap();
+    let super_admin_list = amal_group.super_admin_list().await.unwrap();
     assert_eq!(admin_list.len(), 0);
     assert_eq!(super_admin_list.len(), 1);
     assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
@@ -3070,10 +3088,11 @@ async fn test_group_super_admin_list_update() {
         .unwrap();
     amal_group.sync().await.unwrap();
     bola_group.sync().await.unwrap();
-    assert_eq!(bola_group.super_admin_list().unwrap().len(), 2);
+    assert_eq!(bola_group.super_admin_list().await.unwrap().len(), 2);
     assert!(
         bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -3084,10 +3103,11 @@ async fn test_group_super_admin_list_update() {
         .await
         .unwrap();
     bola_group.sync().await.unwrap();
-    assert_eq!(bola_group.admin_list().unwrap().len(), 1);
+    assert_eq!(bola_group.admin_list().await.unwrap().len(), 1);
     assert!(
         bola_group
             .admin_list()
+            .await
             .unwrap()
             .contains(&caro.inbox_id().to_string())
     );
@@ -3107,10 +3127,11 @@ async fn test_group_super_admin_list_update() {
         .await
         .unwrap();
     bola_group.sync().await.unwrap();
-    assert_eq!(bola_group.super_admin_list().unwrap().len(), 1);
+    assert_eq!(bola_group.super_admin_list().await.unwrap().len(), 1);
     assert!(
         !bola_group
             .super_admin_list()
+            .await
             .unwrap()
             .contains(&bola.inbox_id().to_string())
     );
@@ -3262,7 +3283,7 @@ async fn test_can_read_group_creator_inbox_id() {
     let amal_group = amal.create_group(policy_set, None).await.unwrap();
     amal_group.sync().await.unwrap();
 
-    let mutable_metadata = amal_group.mutable_metadata().unwrap();
+    let mutable_metadata = amal_group.mutable_metadata().await.unwrap();
     assert_eq!(mutable_metadata.super_admin_list.len(), 1);
     assert_eq!(mutable_metadata.super_admin_list[0], amal.inbox_id());
 
@@ -3297,7 +3318,7 @@ async fn test_can_update_gce_after_failed_commit() {
         .await
         .unwrap();
     amal_group.sync().await.unwrap();
-    let name = amal_group.group_name().unwrap();
+    let name = amal_group.group_name().await.unwrap();
     assert_eq!(name, "Name Update 1");
 
     // Step 4:  Bola attempts an action that they do not have permissions for like add admin, fails as expected
@@ -3316,13 +3337,13 @@ async fn test_can_update_gce_after_failed_commit() {
     // Step 6: Verify that both clients can sync without error and that the group name has been updated
     amal_group.sync().await.unwrap();
     bola_group.sync().await.unwrap();
-    let binding = amal_group.mutable_metadata().expect("msg");
+    let binding = amal_group.mutable_metadata().await.expect("msg");
     let amal_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
         .unwrap();
     assert_eq!(amal_group_name, "Name Update 2");
-    let binding = bola_group.mutable_metadata().expect("msg");
+    let binding = bola_group.mutable_metadata().await.expect("msg");
     let bola_group_name: &String = binding
         .attributes
         .get(&MetadataField::GroupName.to_string())
@@ -3542,10 +3563,16 @@ async fn test_dm_creation() {
     // Neither Amal nor Bola is an admin or super admin
     amal_dm.sync().await.unwrap();
     bola_dm.sync().await.unwrap();
-    let is_amal_admin = amal_dm.is_admin(amal.inbox_id().to_string()).unwrap();
-    let is_bola_admin = amal_dm.is_admin(bola.inbox_id().to_string()).unwrap();
-    let is_amal_super_admin = amal_dm.is_super_admin(amal.inbox_id().to_string()).unwrap();
-    let is_bola_super_admin = amal_dm.is_super_admin(bola.inbox_id().to_string()).unwrap();
+    let is_amal_admin = amal_dm.is_admin(amal.inbox_id().to_string()).await.unwrap();
+    let is_bola_admin = amal_dm.is_admin(bola.inbox_id().to_string()).await.unwrap();
+    let is_amal_super_admin = amal_dm
+        .is_super_admin(amal.inbox_id().to_string())
+        .await
+        .unwrap();
+    let is_bola_super_admin = amal_dm
+        .is_super_admin(bola.inbox_id().to_string())
+        .await
+        .unwrap();
     assert!(!is_amal_admin);
     assert!(!is_bola_admin);
     assert!(!is_amal_super_admin);
@@ -4090,9 +4117,11 @@ async fn test_validate_dm_group() {
     .unwrap();
     assert!(
         valid_dm_group
-            .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+            .load_mls_group_with_lock_async(async |mls_group| {
+                validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                    .map_err(GroupError::from)
             })
+            .await
             .is_ok()
     );
 
@@ -4110,12 +4139,11 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
-    let err =
-        invalid_type_group.load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-        });
+    let err = invalid_type_group.load_mls_group_with_lock_async(async |mls_group| {
+        validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+    });
     assert!(matches!(
-        err,
+        err.await,
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
         ))
@@ -4137,14 +4165,11 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
-    let err = mismatched_dm_members_group.load_mls_group_with_lock(
-        client.context.mls_storage(),
-        |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-        },
-    );
+    let err = mismatched_dm_members_group.load_mls_group_with_lock_async(async |mls_group| {
+        validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+    });
     assert!(matches!(
-        err,
+        err.await,
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(DmValidationError::ExpectedInboxesDoNotMatch)
         ))
@@ -4165,12 +4190,12 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        non_empty_admin_list_group.load_mls_group_with_lock(
-            client.context.mls_storage(),
-            |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            }
-        ),
+        non_empty_admin_list_group
+            .load_mls_group_with_lock_async(async |mls_group| {
+                validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                    .map_err(GroupError::from)
+            })
+            .await,
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(
                 DmValidationError::MustHaveEmptyAdminAndSuperAdmin
@@ -4194,12 +4219,12 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        invalid_permissions_group.load_mls_group_with_lock(
-            client.context.mls_storage(),
-            |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            }
-        ),
+        invalid_permissions_group
+            .load_mls_group_with_lock_async(async |mls_group| {
+                validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                    .map_err(GroupError::from)
+            })
+            .await,
         Err(GroupError::MetadataPermissionsError(
             MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
         ))
@@ -4274,7 +4299,7 @@ async fn test_respects_character_limits_for_group_metadata() {
     // Sync and verify stored values
     amal_group.sync().await.unwrap();
 
-    let metadata = amal_group.mutable_metadata().unwrap();
+    let metadata = amal_group.mutable_metadata().await.unwrap();
 
     assert_eq!(
         metadata
@@ -4320,7 +4345,7 @@ async fn test_update_app_data() {
     amal_group.sync().await.unwrap();
 
     // Verify the app data was updated using the getter
-    let retrieved_app_data = amal_group.app_data().unwrap();
+    let retrieved_app_data = amal_group.app_data().await.unwrap();
     assert_eq!(retrieved_app_data, app_data);
 
     // Update with maximum allowed size (8KB)
@@ -4331,7 +4356,7 @@ async fn test_update_app_data() {
         .unwrap();
     amal_group.sync().await.unwrap();
 
-    let retrieved_max_data = amal_group.app_data().unwrap();
+    let retrieved_max_data = amal_group.app_data().await.unwrap();
     assert_eq!(retrieved_max_data, max_size_data);
 }
 
@@ -4380,7 +4405,7 @@ async fn test_create_group_with_app_data() {
     group.sync().await.unwrap();
 
     // Verify the app_data was set correctly
-    let retrieved_app_data = group.app_data().unwrap();
+    let retrieved_app_data = group.app_data().await.unwrap();
     assert_eq!(retrieved_app_data, initial_app_data);
 
     // Verify we can also update it
@@ -4391,7 +4416,7 @@ async fn test_create_group_with_app_data() {
         .unwrap();
     group.sync().await.unwrap();
 
-    let final_app_data = group.app_data().unwrap();
+    let final_app_data = group.app_data().await.unwrap();
     assert_eq!(final_app_data, updated_app_data);
 }
 
@@ -4408,7 +4433,7 @@ async fn test_create_group_with_default_app_data() {
     group.sync().await.unwrap();
 
     // Verify the app_data defaults to empty string
-    let retrieved_app_data = group.app_data().unwrap();
+    let retrieved_app_data = group.app_data().await.unwrap();
     assert_eq!(retrieved_app_data, "");
 }
 
@@ -4693,11 +4718,13 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
 
     let is_bo_admin = amal_group
         .is_admin(bo.context.identity.inbox_id().to_string())
+        .await
         .unwrap();
     assert!(is_bo_admin);
 
     let is_bo_super_admin = amal_group
         .is_super_admin(bo.context.identity.inbox_id().to_string())
+        .await
         .unwrap();
     assert!(!is_bo_super_admin);
 
@@ -4706,7 +4733,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
 
-    let metadata = bo_group.mutable_metadata().unwrap();
+    let metadata = bo_group.mutable_metadata().await.unwrap();
     let min_version = metadata
         .attributes
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
@@ -4716,7 +4743,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     assert!(result.is_err());
     bo_group.sync().await.unwrap();
 
-    let metadata = bo_group.mutable_metadata().unwrap();
+    let metadata = bo_group.mutable_metadata().await.unwrap();
     let min_version = metadata
         .attributes
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
@@ -4727,7 +4754,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     assert!(result.is_ok());
     bo_group.sync().await.unwrap();
 
-    let metadata = bo_group.mutable_metadata().unwrap();
+    let metadata = bo_group.mutable_metadata().await.unwrap();
     let min_version = metadata
         .attributes
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
@@ -4955,7 +4982,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
     assert!(result.is_ok());
 
     // 10) Verify bola is not an admin
-    let admins = amal_group.admin_list().unwrap();
+    let admins = amal_group.admin_list().await.unwrap();
     assert!(!admins.contains(&bola.inbox_id().to_string()));
 
     // 11) verify bola can't perform an admin only action
@@ -5141,7 +5168,7 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
     let invalid_payload_message = PlaintextEnvelope { content: None };
     let invalid_message_bytes = invalid_payload_message.encode_to_vec();
     let message = group
-        .load_mls_group_with_lock(storage, |mut mls_group| {
+        .load_mls_group_with_lock_async(async |mut mls_group| {
             let m = mls_group
                 .create_message(
                     &XmtpOpenMlsProviderRef::new(storage),
@@ -5149,8 +5176,9 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
                     invalid_message_bytes.as_slice(),
                 )
                 .unwrap();
-            Ok(m)
+            Ok::<_, GroupError>(m)
         })
+        .await
         .unwrap();
 
     // what the new cursor should be

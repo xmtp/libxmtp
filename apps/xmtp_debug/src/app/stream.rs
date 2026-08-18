@@ -85,8 +85,8 @@ impl Stream {
                         sequence_id: stored.sequence_id.unwrap_or(0),
                         originator_id: stored.originator_id.unwrap_or(0),
                         added_by: stored.added_by_inbox_id,
-                        group_name: group.group_name()?,
-                        group_description: group.group_description()?,
+                        group_name: group.group_name().await?,
+                        group_description: group.group_description().await?,
                     };
                     write(format, buffer.as_mut(), &item)?;
                     buffer.flush()?;

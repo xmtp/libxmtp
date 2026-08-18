@@ -673,7 +673,7 @@ where
             let other_id = dm_id.other_inbox_id(self.context.inbox_id());
             return Ok(vec![other_id]);
         }
-        let super_admins = group.super_admin_list()?;
+        let super_admins = group.super_admin_list().await?;
         Ok(super_admins)
     }
 
@@ -873,7 +873,9 @@ where
                 "Group is not active".to_string(),
             ));
         }
-        let is_super_admin = mls_group.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = mls_group
+            .is_super_admin(self.context.inbox_id().to_string())
+            .await?;
         if !is_super_admin {
             return Err(CommitLogError::GroupReaddValidationError(
                 "No longer super admin of group".to_string(),

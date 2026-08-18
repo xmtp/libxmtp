@@ -79,6 +79,7 @@ use xmtp_db::group_message::Deletable;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
+use xmtp_db::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
@@ -87,10 +88,6 @@ use xmtp_db::{
     refresh_state::EntityKind,
 };
 use xmtp_db::{Store, StoreOrIgnore};
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
-};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
@@ -507,31 +504,6 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn load_mls_group_with_lock<F, R>(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        operation: F,
-    ) -> Result<R, GroupError>
-    where
-        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
-    {
-        // Get the group ID for locking
-        let group_id = self.group_id;
-
-        // Acquire the lock synchronously using blocking_lock
-        let _lock = self.mls_commit_lock.get_lock_sync(group_id);
-        // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &self.group_id.to_openmls())
-            .inspect_err(|e| tracing::error!("openmls error while loading group {e}"))
-            .map_err(|_| NotFound::MlsGroup(self.group_id))?
-            .ok_or(NotFound::MlsGroup(self.group_id))?;
-
-        // Perform the operation with the MLS group
-        operation(mls_group)
-    }
-
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip(operation))]
     pub(crate) async fn load_mls_group_with_lock_async<R, E>(
         &self,
@@ -809,10 +781,11 @@ where
     /// Like [`Self::proposals_enabled`], but loads the group from storage
     /// instead of taking a caller-held `OpenMlsGroup`. The convenience
     /// shape bindings need for a plain "is this group migrated?" read.
-    pub fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(self.proposals_enabled(&mls_group))
-        })
+    pub async fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
+        self.load_mls_group_with_lock_async(
+            async |mls_group| Ok(self.proposals_enabled(&mls_group)),
+        )
+        .await
     }
 
     /// Enable proposals on this group (proposal-by-reference flow).
@@ -1686,7 +1659,7 @@ where
 
         let sender_inbox_id = self.context.inbox_id();
         let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
-        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string())?;
+        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string()).await?;
 
         if !is_sender && !is_super_admin {
             return Err(DeleteMessageError::NotAuthorized.into());
@@ -2028,7 +2001,7 @@ where
 
         let readd_min_version =
             LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)?;
-        let metadata = self.mutable_metadata()?;
+        let metadata = self.mutable_metadata().await?;
         let group_version = metadata
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
@@ -2085,7 +2058,9 @@ where
             return Ok(());
         }
 
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self
+            .is_super_admin(self.context.inbox_id().to_string())
+            .await?;
         if !is_super_admin {
             tracing::debug!(
                 group_id = %self.group_id,
@@ -2262,7 +2237,9 @@ where
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self
+            .is_super_admin(self.context.inbox_id().to_string())
+            .await?;
 
         // super-admin cannot leave a group; must be demoted first
         // since SuperAdmins can't remove other SuperAdmins they need to be demoted first
@@ -2411,7 +2388,8 @@ where
             });
         }
         let current_str = self
-            .mutable_metadata()?
+            .mutable_metadata()
+            .await?
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
             .cloned();
@@ -2525,16 +2503,18 @@ where
     }
 
     /// Retrieves the group name from the group's mutable metadata extension.
-    pub fn group_name(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupNameComponent>()?
+    pub async fn group_name(&self) -> Result<String, GroupError> {
+        self.read_single_component::<GroupNameComponent>()
+            .await?
             .ok_or_else(|| {
                 MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
             })
     }
 
     /// Retrieves the app_data field from the group's mutable metadata extension
-    pub fn app_data(&self) -> Result<String, GroupError> {
-        self.read_single_component::<AppDataComponent>()?
+    pub async fn app_data(&self) -> Result<String, GroupError> {
+        self.read_single_component::<AppDataComponent>()
+            .await?
             .ok_or_else(|| {
                 MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
             })
@@ -2571,8 +2551,9 @@ where
         Ok(())
     }
 
-    pub fn group_description(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupDescriptionComponent>()?
+    pub async fn group_description(&self) -> Result<String, GroupError> {
+        self.read_single_component::<GroupDescriptionComponent>()
+            .await?
             .ok_or_else(|| {
                 GroupError::MetadataPermissionsError(
                     GroupMutableMetadataError::MissingExtension.into(),
@@ -2613,8 +2594,9 @@ where
     }
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
-    pub fn group_image_url_square(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupImageUrlComponent>()?
+    pub async fn group_image_url_square(&self) -> Result<String, GroupError> {
+        self.read_single_component::<GroupImageUrlComponent>()
+            .await?
             .ok_or_else(|| {
                 MetadataPermissionsError::Mutable(GroupMutableMetadataError::MissingExtension)
                     .into()
@@ -2712,10 +2694,10 @@ where
         }
     }
 
-    pub fn conversation_message_disappearing_settings(
+    pub async fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<MessageDisappearingSettings, GroupError> {
-        let metadata = self.mutable_metadata()?;
+        let metadata = self.mutable_metadata().await?;
         Self::conversation_message_disappearing_settings_from_extensions(&metadata)
     }
 
@@ -2769,22 +2751,24 @@ where
     /// stored (insertion) order. Both contracts pre-date this refactor;
     /// preserving each side avoids surprising binding consumers that
     /// rely on the pre-migration order.
-    pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
+    pub async fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         self.read_admin_set_preserving_legacy_order(AdminListKind::Admin)
+            .await
     }
 
     /// Retrieves the super admin list of the group from the group's mutable metadata extension.
     ///
     /// Same ordering contract as [`Self::admin_list`].
-    pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
+    pub async fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
         self.read_admin_set_preserving_legacy_order(AdminListKind::SuperAdmin)
+            .await
     }
 
-    fn read_admin_set_preserving_legacy_order(
+    async fn read_admin_set_preserving_legacy_order(
         &self,
         kind: AdminListKind,
     ) -> Result<Vec<String>, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             if self::app_data::is_migrated_group(&mls_group) {
                 let facade = self::app_data::typed_facade::MlsGroupAppData::new(&mls_group);
                 let set = match kind {
@@ -2847,17 +2831,18 @@ where
                     .unwrap_or_default())
             }
         })
+        .await
     }
 
     /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
-    pub fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub async fn is_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata().await?;
         Ok(mutable_metadata.admin_list.contains(&inbox_id))
     }
 
     /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch.
-    pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
-        let mutable_metadata = self.mutable_metadata()?;
+    pub async fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
+        let mutable_metadata = self.mutable_metadata().await?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
@@ -3099,9 +3084,8 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(mls_group.is_active())
-        })
+        self.load_mls_group_with_lock_async(async |mls_group| Ok(mls_group.is_active()))
+            .await
     }
 
     /// Returns the membership state of the current user in this group.
@@ -3180,9 +3164,9 @@ where
     /// have `proposals_enabled == true` but not yet have completed
     /// its bootstrap commit, during which window the legacy GMM is
     /// still authoritative.
-    pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
+    pub async fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         use self::app_data::component_source::ComponentSourceError;
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             self::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 &mls_group,
             )
@@ -3201,12 +3185,14 @@ where
                 ),
             })
         })
+        .await
     }
 
-    pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+    pub async fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
         })
+        .await
     }
 
     /// Capability-aware single-component read.
@@ -3229,12 +3215,12 @@ where
     /// what binding consumers used to see. Other `ComponentSourceError`
     /// variants (TLS codec, set/map apply failures) surface as
     /// `MetadataPermissionsError::ComponentSource(other)`.
-    fn read_single_component<C>(&self) -> Result<Option<C::Value>, GroupError>
+    async fn read_single_component<C>(&self) -> Result<Option<C::Value>, GroupError>
     where
         C: xmtp_mls_common::app_data::typed::Component,
     {
         use self::app_data::component_source::ComponentSourceError;
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             let facade = self::app_data::typed_facade::MlsGroupAppData::new(&mls_group);
             facade.get::<C>().map_err(|e| match e {
                 ComponentSourceError::GroupMutableMetadata(inner) => {
@@ -3245,6 +3231,7 @@ where
                 ),
             })
         })
+        .await
     }
 
     /// Fetches the message disappearing settings for a given group ID.

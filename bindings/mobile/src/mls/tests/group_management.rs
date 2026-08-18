@@ -50,9 +50,12 @@ async fn test_create_group_with_metadata() {
 
     let members = group.list_members().await.unwrap();
     assert_eq!(members.len(), 2);
-    assert_eq!(group.group_name().unwrap(), "Group Name");
-    assert_eq!(group.group_image_url_square().unwrap(), "url");
-    assert_eq!(group.group_description().unwrap(), "group description");
+    assert_eq!(group.group_name().await.unwrap(), "Group Name");
+    assert_eq!(group.group_image_url_square().await.unwrap(), "url");
+    assert_eq!(
+        group.group_description().await.unwrap(),
+        "group description"
+    );
     assert_eq!(
         group
             .conversation_message_disappearing_settings()
@@ -151,6 +154,7 @@ async fn test_group_permissions_show_expected_values() {
     // Verify we can read the expected permissions
     let alix_permission_policy_set = alix_group_admin_only
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -181,6 +185,7 @@ async fn test_group_permissions_show_expected_values() {
     // Verify we can read the expected permissions
     let alix_permission_policy_set = alix_group_all_members
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -215,6 +220,7 @@ async fn test_permissions_updates() {
 
     let alix_group_permissions = alix_group
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -243,6 +249,7 @@ async fn test_permissions_updates() {
     alix_group.sync().await.unwrap();
     let alix_group_permissions = alix_group
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -285,15 +292,19 @@ async fn test_permissions_updates() {
     bola_group.conversation.sync().await.unwrap();
     alix_group.sync().await.unwrap();
     assert_eq!(
-        bola_group.conversation.group_image_url_square().unwrap(),
+        bola_group
+            .conversation
+            .group_image_url_square()
+            .await
+            .unwrap(),
         "https://example.com/image.png"
     );
-    assert_eq!(bola_group.conversation.group_name().unwrap(), "");
+    assert_eq!(bola_group.conversation.group_name().await.unwrap(), "");
     assert_eq!(
-        alix_group.group_image_url_square().unwrap(),
+        alix_group.group_image_url_square().await.unwrap(),
         "https://example.com/image.png"
     );
-    assert_eq!(alix_group.group_name().unwrap(), "");
+    assert_eq!(alix_group.group_name().await.unwrap(), "");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -315,6 +326,7 @@ async fn test_app_data_permission_update() {
     // Verify initial app_data permission is Admin
     let alix_group_permissions = alix_group
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -355,6 +367,7 @@ async fn test_app_data_permission_update() {
     // Verify the permission was updated
     let updated_permissions = alix_group
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -378,8 +391,11 @@ async fn test_app_data_permission_update() {
     // Verify we can read the updated app_data
     bola_group.conversation.sync().await.unwrap();
     alix_group.sync().await.unwrap();
-    assert_eq!(bola_group.conversation.app_data().unwrap(), "bola's data");
-    assert_eq!(alix_group.app_data().unwrap(), "bola's data");
+    assert_eq!(
+        bola_group.conversation.app_data().await.unwrap(),
+        "bola's data"
+    );
+    assert_eq!(alix_group.app_data().await.unwrap(), "bola's data");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -418,6 +434,7 @@ async fn test_group_creation_custom_permissions() {
     // Verify the group was created with the correct permissions
     let group_permissions_policy_set = alix_group
         .group_permissions()
+        .await
         .unwrap()
         .policy_set()
         .unwrap();
@@ -637,7 +654,7 @@ async fn test_update_policies_empty_group() {
 
     // Verify the name is updated
     amal_group.sync().await.unwrap();
-    assert_eq!(amal_group.group_name().unwrap(), "New Group Name 1");
+    assert_eq!(amal_group.group_name().await.unwrap(), "New Group Name 1");
 
     // Create a group with just amal
     let amal_solo_group = amal
@@ -654,7 +671,10 @@ async fn test_update_policies_empty_group() {
 
     // Verify the name is updated
     amal_solo_group.sync().await.unwrap();
-    assert_eq!(amal_solo_group.group_name().unwrap(), "New Group Name 2");
+    assert_eq!(
+        amal_solo_group.group_name().await.unwrap(),
+        "New Group Name 2"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -746,9 +766,9 @@ async fn test_can_stream_and_receive_metadata_update() {
     assert_eq!(message_types[2], "group_updated");
     assert_eq!(message_types[3], "text");
 
-    assert_eq!(alix_group.group_name().unwrap(), "hello");
+    assert_eq!(alix_group.group_name().await.unwrap(), "hello");
     // this assertion will also fail
-    assert_eq!(bo_group.group_name().unwrap(), "hello");
+    assert_eq!(bo_group.group_name().await.unwrap(), "hello");
 
     // Clean up stream
     stream.end_and_wait().await.unwrap();
