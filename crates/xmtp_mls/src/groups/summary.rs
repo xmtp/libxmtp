@@ -6,7 +6,7 @@ use xmtp_common::RetryableError;
 use xmtp_db::group_intent::IntentKind;
 use xmtp_proto::types::Cursor;
 
-use super::{GroupError, mls_sync::GroupMessageProcessingError};
+use super::{GroupError, change_callbacks::AppDataChange, mls_sync::GroupMessageProcessingError};
 use xmtp_proto::types::GroupId;
 
 #[derive(Default)]
@@ -253,6 +253,12 @@ pub struct ProcessSummary {
     pub total_messages: HashSet<Cursor>,
     pub new_messages: Vec<MessageIdentifier>,
     pub errored: Vec<(Cursor, GroupMessageProcessingError)>,
+    /// App-data changes seen while processing, in the order they were observed.
+    ///
+    /// Carried rather than dispatched because processing runs under the
+    /// per-group sync mutex; the caller fires them once it holds no group
+    /// locks. See `MlsGroup::dispatch_app_data_changes`.
+    pub app_data_changes: Vec<AppDataChange>,
 }
 
 impl std::fmt::Debug for ProcessSummary {

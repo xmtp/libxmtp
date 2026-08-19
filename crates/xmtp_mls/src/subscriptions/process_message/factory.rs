@@ -111,16 +111,24 @@ where
             epoch,
         );
 
-        group
+        let outcome = group
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))
             .await
-            // Streaming path (trust_message_order = false): any captured
-            // intent_error is intentionally discarded — intent-resolution
-            // reporting belongs to the query/sync path, not the stream. Surface
-            // only the identifier, matching prior behavior.
-            .map(|outcome| outcome.identifier)
-            .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
+            .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))?;
+
+        // Safe to dispatch inline: unlike `sync_with_conn`, this path holds no
+        // per-group mutex, so a host is free to publish a merged value back
+        // into this group from the callback.
+        group
+            .dispatch_app_data_changes(outcome.app_data_change.into_iter().collect())
+            .await;
+
+        // Streaming path (trust_message_order = false): any captured
+        // intent_error is intentionally discarded — intent-resolution
+        // reporting belongs to the query/sync path, not the stream. Surface
+        // only the identifier, matching prior behavior.
+        Ok(outcome.identifier)
     }
 
     async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {

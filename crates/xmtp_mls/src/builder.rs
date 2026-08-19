@@ -2,6 +2,7 @@ use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
+    groups::change_callbacks::UnstableChangeCallbacks,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
@@ -100,6 +101,8 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync_worker_mode: DeviceSyncMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
+    /// Unstable: group-change callbacks the host registered at construction.
+    pub(crate) change_callbacks: UnstableChangeCallbacks,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
     pub(crate) disable_commit_log_worker: bool,
@@ -159,6 +162,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: None,
             device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
+            change_callbacks: UnstableChangeCallbacks::default(),
             version_info: VersionInfo::default(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -189,6 +193,7 @@ where
             scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
+            change_callbacks: client.context.change_callbacks.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -271,6 +276,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_worker_mode,
             fork_recovery_opts,
+            change_callbacks,
             version_info,
             allow_offline,
             disable_commit_log_worker,
@@ -375,6 +381,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 mode: device_sync_worker_mode,
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
+            change_callbacks,
             worker_config,
 
             worker_metrics: workers.metrics().clone(),
@@ -487,6 +494,21 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    /// Unstable: register callbacks notified when group state changes.
+    ///
+    /// Registration is construction-time by necessity — the changes these
+    /// report arrive from the stream and sync paths, where no SDK call is on
+    /// the stack. Passing [`UnstableChangeCallbacks::default`] (nothing set)
+    /// is equivalent to not calling this at all.
+    ///
+    /// See [`crate::groups::change_callbacks`] for the delivery contract.
+    pub fn unstable_change_callbacks(self, change_callbacks: UnstableChangeCallbacks) -> Self {
+        Self {
+            change_callbacks,
+            ..self
+        }
+    }
+
     pub fn store<NewDb>(self, db: NewDb) -> ClientBuilder<ApiClient, S, NewDb> {
         ClientBuilder {
             store: Some(db),
@@ -496,6 +518,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -523,6 +546,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -550,6 +574,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -602,6 +627,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -692,6 +718,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -715,6 +742,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -747,6 +775,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,

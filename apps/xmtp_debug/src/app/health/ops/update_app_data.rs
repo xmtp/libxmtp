@@ -18,7 +18,7 @@ impl HealthOp for UpdateAppData {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
                 .group(&gid)?
-                .update_app_data("healthcheck-app-data".into())
+                .update_app_data("healthcheck-app-data".into(), None)
                 .await?;
             Ok(())
         })

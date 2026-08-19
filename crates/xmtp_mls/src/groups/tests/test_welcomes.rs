@@ -160,6 +160,7 @@ async fn test_spoofed_inbox_id() {
         scw_verifier: alix.context.scw_verifier.clone(),
         device_sync: alix.context.device_sync.clone(),
         fork_recovery_opts: alix.context.fork_recovery_opts.clone(),
+        change_callbacks: alix.context.change_callbacks.clone(),
         worker_config: alix.context.worker_config.clone(),
         task_channels: alix.context.task_channels.clone(),
         disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),

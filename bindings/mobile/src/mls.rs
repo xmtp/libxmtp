@@ -2987,7 +2987,7 @@ impl FfiConversation {
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_app_data(&self, options: FfiUpdateAppDataOptions) -> Result<(), FfiError> {
-        self.inner.update_app_data(options.value).await?;
+        self.inner.update_app_data(options.value, None).await?;
         Ok(())
     }
 

@@ -35,6 +35,7 @@ pub fn context() -> NewMockContext {
             mode: DeviceSyncMode::Disabled,
         },
         fork_recovery_opts: Default::default(),
+        change_callbacks: Default::default(),
         worker_config: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         task_channels: TaskWorkerChannels::default(),
@@ -78,6 +79,7 @@ pub fn generate_successful_summary(messages: &[xmtp_proto::types::GroupMessage])
             total_messages: HashSet::from_iter(messages.iter().map(|m| m.cursor)),
             new_messages: messages.iter().map(Into::into).collect(),
             errored: Vec::new(),
+            app_data_changes: Vec::new(),
         },
         post_commit_errors: vec![],
         other: None,
@@ -108,6 +110,7 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
                     )
                 })
                 .collect(),
+            app_data_changes: Vec::new(),
         },
         post_commit_errors: vec![],
         other: None,
@@ -147,6 +150,7 @@ pub fn generate_errored_summary_with_group(
                     )
                 })
                 .collect(),
+            app_data_changes: Vec::new(),
         },
         post_commit_errors: vec![],
         other: None,
