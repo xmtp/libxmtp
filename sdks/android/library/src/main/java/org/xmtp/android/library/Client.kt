@@ -60,6 +60,11 @@ data class ClientOptions(
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
     val dbPoolOptions: DbPoolOptions? = null,
     val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
+    /**
+     * Unstable: notifications for group state changes, for clients that
+     * reconcile a group's `appData` themselves. See [UnstableChangeCallbacks].
+     */
+    val unstableChangeCallbacks: UnstableChangeCallbacks? = null,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -369,6 +374,9 @@ class Client(
                         allowOffline = false,
                         forkRecoveryOpts = null,
                         workerConfig = null,
+                        // Identity-probe client: never processes messages, so
+                        // nothing to notify about.
+                        changeCallbacks = null,
                     )
 
                 useClient(ffiClient)
@@ -595,6 +603,7 @@ class Client(
                             allowOffline = buildOffline,
                             forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                             workerConfig = null,
+                            changeCallbacks = options.unstableChangeCallbacks?.toFfi(),
                         )
                     return@withContext Pair(ffiClient, IN_MEMORY_DB_PATH)
                 }
@@ -640,6 +649,7 @@ class Client(
                         allowOffline = buildOffline,
                         forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                         workerConfig = null,
+                        changeCallbacks = options.unstableChangeCallbacks?.toFfi(),
                     )
                 Pair(ffiClient, dbPath)
             }

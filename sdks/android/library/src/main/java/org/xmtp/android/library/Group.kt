@@ -614,14 +614,29 @@ class Group(
             }
         }
 
-    suspend fun updateAppData(appData: String) =
-        withContext(Dispatchers.IO) {
-            try {
-                libXMTPGroup.updateAppData(FfiUpdateAppDataOptions(value = appData))
-            } catch (e: Exception) {
-                throw XMTPException("Permission denied: Unable to update group app data", e)
-            }
+    /**
+     * Set the group's opaque `appData`.
+     *
+     * [expectedAppData] is an optional compare-and-swap guard. When provided,
+     * the update is abandoned — rather than overwriting — if the committed
+     * value is no longer that, including when another member's commit wins the
+     * race after this update was published. Callers reconciling structured
+     * state should pass the value they merged against, so a concurrent write
+     * surfaces as an error instead of silently discarding someone else's
+     * change. Omit it for last-writer-wins.
+     */
+    suspend fun updateAppData(
+        appData: String,
+        expectedAppData: String? = null,
+    ) = withContext(Dispatchers.IO) {
+        try {
+            libXMTPGroup.updateAppData(
+                FfiUpdateAppDataOptions(value = appData, expectedValue = expectedAppData),
+            )
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to update group app data", e)
         }
+    }
 
     /**
      * Pre-release APIs, grouped under [UnstableGroup]. The `@UnstableApi`
