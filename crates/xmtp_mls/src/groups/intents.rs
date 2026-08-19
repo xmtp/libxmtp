@@ -260,6 +260,9 @@ impl From<UpdateMetadataIntentData> for Vec<u8> {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
                 field_name: intent.field_name.to_string(),
                 field_value: intent.field_value.clone(),
+                // Populated once the intent carries a compare-and-swap guard;
+                // absent means last-writer-wins, the existing behavior.
+                expected_field_value: None,
             })),
         }
         .encode(&mut buf)
