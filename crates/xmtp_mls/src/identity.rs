@@ -397,6 +397,9 @@ impl TryFrom<&Identity> for StoredIdentity {
             .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
             .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
             .next_key_package_rotation_ns(now_ns() + KEY_PACKAGE_ROTATION_INTERVAL_NS)
+            // Registration uploads a key package before it builds this row, so
+            // liveness is already established. Same reason as the line above.
+            .key_package_liveness_checked_at_ns(now_ns())
             .build()
     }
 }
@@ -740,6 +743,10 @@ impl Identity {
                 mls_storage
                     .db()
                     .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+                // The server accepted this upload, so defer the liveness probe.
+                // A new client then does not race its own registration, and a
+                // client that rotates does not re-confirm what it just did.
+                mls_storage.db().record_key_package_liveness_check()?;
                 Ok(())
             }
             Err(err) => Err(IdentityError::ApiClient(err)),

@@ -508,6 +508,12 @@ mock! {
         fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
 
         fn next_key_package_rotation_ns(&self) -> Result<Option<i64>, StorageError>;
+
+        fn key_package_liveness_checked_at_ns(&self) -> Result<Option<i64>, StorageError>;
+
+        fn record_key_package_liveness_check(&self) -> Result<(), StorageError>;
+
+        fn set_key_package_liveness_checked_at_ns(&self, at_ns: i64) -> Result<(), StorageError>;
     }
 
     impl QueryIdentityCache for DbQuery {

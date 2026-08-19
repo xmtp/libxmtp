@@ -416,6 +416,12 @@ where
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpRotation(_)) => {
                 let now = xmtp_common::time::now_ns();
                 kp::rotate_if_needed(context).await?;
+                // Hand off to the watchdog on every dispatch, rotated or not.
+                // "Not rotating" must now come with proof that was correct. The
+                // rotated case also un-strands a drifted liveness row, which a
+                // rotated-only check would skip on a healthy client. The
+                // liveness throttle decides if any network work happens.
+                kp::nudge_liveness(context)?;
                 // Unconditional (no-op when nothing is marked): a backoff retry
                 // after rotate-succeeded/nudge-failed must still re-nudge.
                 kp::nudge_deletion(context)?;
@@ -425,6 +431,14 @@ where
                     .db()
                     .next_key_package_rotation_ns()?
                     .unwrap_or(now + KEY_PACKAGE_ROTATION_INTERVAL_NS);
+                return Ok(TaskOutcome::RescheduleAt(next));
+            }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpLiveness(_)) => {
+                // Check the network for our own key package. Queue a rotation if
+                // it is gone. The handler throttles, and returns network
+                // failures as a deadline, not an `Err`. An offline client must
+                // not drive this task into the TaskRunner's backoff.
+                let next = kp::run_liveness_check(context).await?;
                 return Ok(TaskOutcome::RescheduleAt(next));
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpDeletion(_)) => {
