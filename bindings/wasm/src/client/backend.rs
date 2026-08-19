@@ -118,6 +118,9 @@ pub async fn create_client_with_backend(
   #[wasm_bindgen(js_name = logOptions)] log_options: Option<super::LogOptions>,
   #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
   nonce: Option<u64>,
+  #[wasm_bindgen(js_name = changeCallbacks)] change_callbacks: Option<
+    super::change_callbacks::UnstableChangeCallbacks,
+  >,
 ) -> Result<super::Client, JsError> {
   super::init_logging(log_options.unwrap_or_default())?;
 
@@ -140,6 +143,7 @@ pub async fn create_client_with_backend(
     allow_offline,
     Some(backend.app_version()),
     nonce.unwrap_or(1),
+    change_callbacks,
   )
   .await
 }

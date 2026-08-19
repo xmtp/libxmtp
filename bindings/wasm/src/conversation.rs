@@ -181,6 +181,14 @@ impl UnstableConversation {
 pub struct UpdateAppDataOptions {
   /// The new value for the group's opaque `APP_DATA` string slot.
   pub value: String,
+  /// Optional compare-and-swap guard. When set, the update is abandoned with
+  /// an `AppDataSuperseded` error — rather than overwriting — if the committed
+  /// value is no longer this, including when another member's commit wins the
+  /// race after this update was published. Omit for the historical
+  /// last-writer-wins behavior.
+  #[tsify(optional)]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expected_value: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -752,7 +760,7 @@ impl Conversation {
     let group = self.to_mls_group();
 
     group
-      .update_app_data(options.value, None)
+      .update_app_data(options.value, options.expected_value)
       .await
       .map_err(ErrorWrapper::js)?;
 
