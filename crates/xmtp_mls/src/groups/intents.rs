@@ -186,6 +186,10 @@ impl From<Vec<Vec<u8>>> for AddressesOrInstallationIds {
 pub struct UpdateMetadataIntentData {
     pub field_name: String,
     pub field_value: String,
+    /// Compare-and-swap guard. When set, publishing abandons this intent
+    /// unless the field's currently committed value still equals this.
+    /// `None` keeps the historical last-writer-wins behavior.
+    pub expected_field_value: Option<String>,
 }
 
 impl UpdateMetadataIntentData {
@@ -193,62 +197,74 @@ impl UpdateMetadataIntentData {
         Self {
             field_name,
             field_value,
+            expected_field_value: None,
+        }
+    }
+
+    /// A guarded update: publishing abandons the intent (marking it
+    /// [`xmtp_db::group_intent::IntentState::Superseded`]) unless the
+    /// committed value still equals `expected_field_value`.
+    pub fn new_guarded(
+        field_name: String,
+        field_value: String,
+        expected_field_value: String,
+    ) -> Self {
+        Self {
+            field_name,
+            field_value,
+            expected_field_value: Some(expected_field_value),
         }
     }
 
     pub fn new_update_group_name(group_name: String) -> Self {
-        Self {
-            field_name: MetadataField::GroupName.to_string(),
-            field_value: group_name,
-        }
+        Self::new(MetadataField::GroupName.to_string(), group_name)
     }
 
     pub fn new_update_group_image_url_square(group_image_url_square: String) -> Self {
-        Self {
-            field_name: MetadataField::GroupImageUrlSquare.to_string(),
-            field_value: group_image_url_square,
-        }
+        Self::new(
+            MetadataField::GroupImageUrlSquare.to_string(),
+            group_image_url_square,
+        )
     }
 
     pub fn new_update_group_description(group_description: String) -> Self {
-        Self {
-            field_name: MetadataField::Description.to_string(),
-            field_value: group_description,
-        }
+        Self::new(MetadataField::Description.to_string(), group_description)
     }
 
-    pub fn new_update_app_data(app_data: String) -> Self {
-        Self {
-            field_name: MetadataField::AppData.to_string(),
-            field_value: app_data,
+    pub fn new_update_app_data(app_data: String, expected_app_data: Option<String>) -> Self {
+        match expected_app_data {
+            Some(expected) => {
+                Self::new_guarded(MetadataField::AppData.to_string(), app_data, expected)
+            }
+            None => Self::new(MetadataField::AppData.to_string(), app_data),
         }
     }
 
     pub fn new_update_conversation_message_disappear_from_ns(from_ns: i64) -> Self {
-        Self {
-            field_name: MetadataField::MessageDisappearFromNS.to_string(),
-            field_value: from_ns.to_string(),
-        }
+        Self::new(
+            MetadataField::MessageDisappearFromNS.to_string(),
+            from_ns.to_string(),
+        )
     }
     pub fn new_update_conversation_message_disappear_in_ns(in_ns: i64) -> Self {
-        Self {
-            field_name: MetadataField::MessageDisappearInNS.to_string(),
-            field_value: in_ns.to_string(),
-        }
+        Self::new(
+            MetadataField::MessageDisappearInNS.to_string(),
+            in_ns.to_string(),
+        )
     }
 
     pub fn new_update_group_min_version_to_match_self(min_version: String) -> Self {
-        Self {
-            field_name: MetadataField::MinimumSupportedProtocolVersion.to_string(),
-            field_value: min_version,
-        }
+        Self::new(
+            MetadataField::MinimumSupportedProtocolVersion.to_string(),
+            min_version,
+        )
     }
 
     pub fn new_update_commit_log_signer(commit_log_signer: xmtp_cryptography::Secret) -> Self {
-        Self {
-            field_name: MetadataField::CommitLogSigner.to_string(),
-            field_value: hex::encode(commit_log_signer.as_slice()),
-        }
+        Self::new(
+            MetadataField::CommitLogSigner.to_string(),
+            hex::encode(commit_log_signer.as_slice()),
+        )
     }
 }
 
@@ -260,9 +276,7 @@ impl From<UpdateMetadataIntentData> for Vec<u8> {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
                 field_name: intent.field_name.to_string(),
                 field_value: intent.field_value.clone(),
-                // Populated once the intent carries a compare-and-swap guard;
-                // absent means last-writer-wins, the existing behavior.
-                expected_field_value: None,
+                expected_field_value: intent.expected_field_value.clone(),
             })),
         }
         .encode(&mut buf)
@@ -286,8 +300,17 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
             Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_value.clone(),
             None => return Err(IntentError::MissingPayload),
         };
+        // Absent on intents queued before the guard existed, and on payloads
+        // written by a client that predates it — both mean last-writer-wins.
+        let expected_field_value = match msg.version {
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1.expected_field_value.clone(),
+            None => return Err(IntentError::MissingPayload),
+        };
 
-        Ok(Self::new(field_name, field_value))
+        Ok(match expected_field_value {
+            Some(expected) => Self::new_guarded(field_name, field_value, expected),
+            None => Self::new(field_name, field_value),
+        })
     }
 }
 

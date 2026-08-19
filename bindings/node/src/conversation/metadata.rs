@@ -129,7 +129,7 @@ impl Conversation {
     let group = self.create_mls_group();
 
     group
-      .update_app_data(options.value)
+      .update_app_data(options.value, None)
       .await
       .map_err(ErrorWrapper::from)?;
 

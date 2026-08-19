@@ -370,6 +370,16 @@ pub enum GroupError {
     /// Field value exceeds character limit. Not retryable.
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    /// A guarded metadata update was abandoned because another member changed
+    /// the field first.
+    ///
+    /// Not retryable as-is: the value was derived from state that no longer
+    /// exists. Re-derive it from `actual` and queue a new update. Distinct
+    /// from a sync failure — nothing went wrong, the write is just stale.
+    #[error(
+        "app data update was superseded; expected {expected:?} but the committed value is {actual:?}"
+    )]
+    AppDataSuperseded { expected: String, actual: String },
     /// Group paused until update.
     ///
     /// Group is paused until a newer version is available. Not retryable.
@@ -649,6 +659,7 @@ impl RetryableError for GroupError {
             | Self::ConversionError(_)
             | Self::CryptoError(_)
             | Self::TooManyCharacters { .. }
+            | Self::AppDataSuperseded { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations(_)

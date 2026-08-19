@@ -224,7 +224,8 @@ where
             .maybe_version(self.version.clone())
             .with_commit_log_worker(self.commit_log_worker)
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default())
-            .worker_config(self.worker_config.clone().unwrap_or_default());
+            .worker_config(self.worker_config.clone().unwrap_or_default())
+            .unstable_change_callbacks(self.change_callbacks.clone());
 
         if self.in_memory_cursors {
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
@@ -426,6 +427,7 @@ where
     pub installation: bool,
     pub disable_workers: bool,
     pub worker_config: Option<crate::worker::WorkerConfig>,
+    pub change_callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
 }
 
 #[derive(Clone)]
@@ -462,6 +464,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             snapshot_path: None,
             disable_workers: false,
             worker_config: None,
+            change_callbacks: Default::default(),
         }
     }
 }
@@ -494,6 +497,7 @@ where
             snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            change_callbacks: self.change_callbacks,
         }
     }
 
@@ -562,6 +566,14 @@ where
 
     pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
         self.worker_config = Some(cfg);
+        self
+    }
+
+    pub fn change_callbacks(
+        mut self,
+        callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
+    ) -> Self {
+        self.change_callbacks = callbacks;
         self
     }
 

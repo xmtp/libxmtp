@@ -2,6 +2,7 @@ use super::{
     FailedInstallationIds, GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
     build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     build_group_membership_extension,
+    change_callbacks::AppDataChange,
     group_permissions::extract_group_permissions,
     intents::{
         CommitPendingProposalsIntentData, Installation, IntentError, PostCommitAction,
@@ -432,6 +433,11 @@ pub(crate) struct ProcessedMessageOutcome {
     /// (see `process_message`), so the worker's `min_expire_at_ns`
     /// query is guaranteed to observe the newly written `expire_at_ns`.
     pub(crate) disappearing_message_stored: bool,
+    /// Set when processing this message changed the group's `app_data`.
+    /// Carried out of the group commit lock so the host callback can be
+    /// awaited post-commit (see `process_message`); `None` whenever no
+    /// callback is registered, since the snapshot is skipped entirely then.
+    pub(crate) app_data_change: Option<AppDataChange>,
 }
 
 impl ProcessedMessageOutcome {
@@ -442,6 +448,7 @@ impl ProcessedMessageOutcome {
             identifier,
             intent_error: None,
             disappearing_message_stored: false,
+            app_data_change: None,
         }
     }
 }
@@ -528,6 +535,23 @@ where
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, fields(who = %self.context.inbox_id(), operation = "sync_with_conn")))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
+        // App-data changes observed while processing are collected here and
+        // dispatched below, *after* the per-group mutex is released. The block
+        // exists to bound the guard's lifetime: a host callback is expected to
+        // react by publishing its merged value, which re-enters
+        // `sync_with_conn` and would deadlock on a guard still held here.
+        let mut app_data_changes = Vec::new();
+        let result = self.sync_with_conn_locked(&mut app_data_changes).await;
+        self.dispatch_app_data_changes(app_data_changes).await;
+        result
+    }
+
+    /// The body of [`Self::sync_with_conn`], holding the per-group mutex for
+    /// its whole duration. Never dispatch host callbacks from in here.
+    async fn sync_with_conn_locked(
+        &self,
+        app_data_changes: &mut Vec<AppDataChange>,
+    ) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
 
@@ -560,7 +584,10 @@ where
         // Errors are collected in the summary.
         let result = self.receive().await;
         match result {
-            Ok(s) => summary.add_process(s),
+            Ok(mut s) => {
+                app_data_changes.append(&mut s.app_data_changes);
+                summary.add_process(s)
+            }
             Err(e) => {
                 summary.add_other(e);
                 // We don't return an error if receive fails, because it's possible this is caused
@@ -694,6 +721,26 @@ where
                          This is still okay, but unexpected. intent_id: {intent_id}",
                     );
                     return Ok(summary);
+                }
+
+                // Terminal: the guard no longer matched, so the intent will
+                // never publish. Returning here rather than looping is what
+                // keeps a superseded write from spinning until the sync
+                // retry budget runs out. `update_app_data` inspects the state
+                // and translates this into `AppDataSuperseded`.
+                Ok(Some(StoredGroupIntent {
+                    state: IntentState::Superseded,
+                    kind,
+                    ..
+                })) => {
+                    log_event!(
+                        Event::GroupSyncIntentErrored,
+                        self.context.installation_id(),
+                        level = warn,
+                        group_id = self.group_id, intent_id = intent_id,
+                        intent_kind = ?kind
+                    );
+                    return Err(GroupError::from(summary));
                 }
 
                 Ok(Some(StoredGroupIntent {
@@ -2217,42 +2264,148 @@ where
             }
         }
 
-        self.load_mls_group_with_lock_async(async |mut mls_group| {
-            // ensure we are processing a private message
-            match &envelope.message {
-                ProtocolMessage::PrivateMessage(_) => (),
-                other => {
-                    return Err(GroupMessageProcessingError::UnsupportedMessageType(
-                        discriminant(other),
-                    ));
-                }
-            };
-            let mut result = self
-                .process_message_inner(&mut mls_group, envelope, trust_message_order)
-                .await;
-            if trust_message_order {
-                result = self
-                    .post_process_message(&mls_group, result, envelope)
+        // Only snapshot when a host callback is actually watching — an
+        // unregistered client must not pay for the before/after reads.
+        let watch_app_data = self.context.change_callbacks().watches_app_data();
+
+        let outcome = self
+            .load_mls_group_with_lock_async(async |mut mls_group| {
+                // ensure we are processing a private message
+                match &envelope.message {
+                    ProtocolMessage::PrivateMessage(_) => (),
+                    other => {
+                        return Err(GroupMessageProcessingError::UnsupportedMessageType(
+                            discriminant(other),
+                        ));
+                    }
+                };
+                // Snapshot before/after around the whole message rather than
+                // threading an out-param through the intent state machine: it
+                // reports the *net* change (what a merge actually needs), it
+                // covers the own-intent and external paths identically, and it
+                // generalizes to the other mutable fields without touching
+                // commit processing again. Both reads are in-memory off the
+                // already-loaded group — no extra storage round-trip.
+                let before = watch_app_data
+                    .then(|| Self::read_app_data_slot(&mls_group))
+                    .flatten();
+                let mut result = self
+                    .process_message_inner(&mut mls_group, envelope, trust_message_order)
                     .await;
-            }
-            result
-        })
-        .await
-        .inspect(|outcome| {
-            // Re-arm the disappearing worker only after the storage transaction
-            // has committed, so its `min_expire_at_ns` read is sure to observe the
-            // message's `expire_at_ns`. Skipped when the worker is disabled so it
-            // never receives signals it won't drain (the channel is also
-            // capacity-1, bounding memory regardless).
-            if outcome.disappearing_message_stored
-                && self
-                    .context
-                    .worker_config()
-                    .worker_enabled(crate::worker::WorkerKind::DisappearingMessages)
-            {
-                self.context.disappearing_channels().rearm();
-            }
-        })
+                if trust_message_order {
+                    result = self
+                        .post_process_message(&mls_group, result, envelope)
+                        .await;
+                }
+                // Both reads must have succeeded to claim a change. Comparing a
+                // good `before` against a failed `after` would report a clear
+                // that never happened, and a host that trusts it would write
+                // the slot back from stale state.
+                if watch_app_data
+                    && let Ok(outcome) = result.as_mut()
+                    && let (Some(before), Some(after)) =
+                        (before, Self::read_app_data_slot(&mls_group))
+                    && before != after
+                {
+                    outcome.app_data_change = Some(AppDataChange {
+                        group_id: self.group_id.to_vec(),
+                        old_value: before,
+                        new_value: after,
+                    });
+                }
+                result
+            })
+            .await
+            .inspect(|outcome| {
+                // Re-arm the disappearing worker only after the storage transaction
+                // has committed, so its `min_expire_at_ns` read is sure to observe the
+                // message's `expire_at_ns`. Skipped when the worker is disabled so it
+                // never receives signals it won't drain (the channel is also
+                // capacity-1, bounding memory regardless).
+                if outcome.disappearing_message_stored
+                    && self
+                        .context
+                        .worker_config()
+                        .worker_enabled(crate::worker::WorkerKind::DisappearingMessages)
+                {
+                    self.context.disappearing_channels().rearm();
+                }
+            });
+
+        // Any observed change rides out in the outcome rather than being
+        // dispatched here. On the `sync_with_conn` path this runs under the
+        // per-group mutex, and a host that reacts by publishing its merged
+        // value re-enters `sync_with_conn` and would deadlock on it. Callers
+        // hand the change to `dispatch_app_data_changes` once they hold no
+        // group locks.
+        outcome
+    }
+
+    /// Hand observed app-data changes to the host's registered callback.
+    ///
+    /// **Call this only with no group locks held.** The callback exists so the
+    /// host can semantically merge and publish the result straight back into
+    /// the same group, which takes the per-group sync mutex and the commit
+    /// lock; dispatching while either is held deadlocks that host.
+    ///
+    /// Awaited in order, one at a time: a merge decides what to write from the
+    /// value it was handed, so overlapping or reordered dispatches would let a
+    /// host publish a merge derived from state that has already moved on.
+    pub(crate) async fn dispatch_app_data_changes(&self, changes: Vec<AppDataChange>) {
+        let Some(callback) = self.context.change_callbacks().app_data.clone() else {
+            return;
+        };
+
+        for change in changes {
+            callback.on_app_data_changed(change).await;
+        }
+    }
+
+    /// The group's opaque `app_data` slot as currently committed, read from the
+    /// in-memory group state.
+    ///
+    /// Reads the `APP_DATA` component on its own rather than decoding the whole
+    /// mutable-metadata composite. Decoding the composite would let a malformed
+    /// *unrelated* component — a corrupt `ADMIN_LIST`, say — fail the read and
+    /// make a perfectly good app-data change look unreadable, silently
+    /// suppressing the callback the host depends on.
+    ///
+    /// The outer `Option` separates "could not read the component at all" from
+    /// the inner "read fine, no value set" — the caller must not treat an
+    /// unreadable group as a cleared slot.
+    fn read_app_data_slot(mls_group: &OpenMlsGroup) -> Option<Option<String>> {
+        use xmtp_mls_common::app_data::components::metadata_attributes::AppDataComponent;
+
+        super::app_data::typed_facade::MlsGroupAppData::new(mls_group)
+            .get::<AppDataComponent>()
+            .inspect_err(|err| tracing::debug!("could not read the app_data component: {err}"))
+            .ok()
+    }
+
+    /// A single mutable-metadata attribute as currently committed, read from
+    /// the in-memory group state.
+    ///
+    /// The outer `Option` separates "could not read the metadata at all" from
+    /// the inner "read fine, no value set for this field" — callers must not
+    /// treat an unreadable group as an unset field.
+    fn read_metadata_field(mls_group: &OpenMlsGroup, field_name: &str) -> Option<Option<String>> {
+        // `app_data` has a typed component reader, so use it and keep the guard
+        // immune to damage in the rest of the composite. The remaining fields
+        // have no string-typed per-component read, so they still go through the
+        // full decode.
+        if field_name == MetadataField::AppData.as_str() {
+            return Self::read_app_data_slot(mls_group);
+        }
+
+        let metadata =
+            super::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+                mls_group,
+            )
+            .inspect_err(|err| {
+                tracing::debug!("could not read mutable metadata for field {field_name}: {err}")
+            })
+            .ok()?;
+        Some(metadata.attributes.get(field_name).cloned())
     }
 
     #[tracing::instrument(skip(self, mls_group, envelope), level = "trace")]
@@ -2462,6 +2615,9 @@ where
                     identifier,
                     intent_error,
                     disappearing_message_stored: disappearing_stored,
+                    // Filled by `process_message`'s snapshot diff, which spans
+                    // both the own-intent and external paths.
+                    app_data_change: None,
                 })
             }
             // No matching intent found. The message did not originate here.
@@ -2666,7 +2822,12 @@ where
                     identifier,
                     intent_error,
                     disappearing_message_stored: _,
+                    app_data_change,
                 }) => {
+                    // Collected, not dispatched: this loop runs under the
+                    // per-group mutex when reached via `sync_with_conn`.
+                    summary.app_data_changes.extend(app_data_change);
+
                     // An own-intent that failed non-retryably advances the cursor and
                     // is marked Error in its row, then returns success — so the message
                     // is counted as processed. Record the swallowed cause here so the
@@ -3050,7 +3211,22 @@ where
                             installation_id = %self.context.installation_id(),
                             "Skipping intent because no publish data returned"
                         );
-                        db.set_group_intent_processed(intent.id)?
+                        // `get_publish_intent_data` may already have assigned a
+                        // terminal state (a guarded metadata update whose
+                        // compare-and-swap no longer matches is marked
+                        // `Superseded`). Overwriting that with `Processed`
+                        // would report a silently dropped write to the caller
+                        // as a success, so only advance an intent that is still
+                        // waiting to publish.
+                        // A failed read must propagate rather than be treated as
+                        // "not ToPublish": swallowing it would leave the intent
+                        // stuck in `ToPublish` while reporting success, and the
+                        // caller waiting on it would spin until it timed out.
+                        let still_to_publish = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)?
+                            .is_some_and(|intent| intent.state == IntentState::ToPublish);
+                        if still_to_publish {
+                            db.set_group_intent_processed(intent.id)?
+                        }
                     }
                 }
             }
@@ -3118,6 +3294,36 @@ where
             }
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+
+                // Compare-and-swap guard. This runs on every publish attempt,
+                // including the republish after an intent loses an epoch race,
+                // which is exactly when the frozen `field_value` has gone
+                // stale. Abandoning here is what stops the intent from
+                // silently overwriting whatever landed in the meantime.
+                //
+                // Marked `Superseded` (not `Error`) and reported as
+                // `Ok(None)`, so it is terminal without burning publish
+                // attempts or aborting the publish loop for the other intents
+                // queued on this group.
+                if let Some(expected) = &metadata_intent.expected_field_value {
+                    // A failed read is not evidence the guard was violated —
+                    // leave the intent alone and let the normal error path
+                    // surface whatever is actually wrong. The outer `Option`
+                    // separates "unreadable" from "readable but unset".
+                    if let Some(committed) =
+                        Self::read_metadata_field(openmls_group, &metadata_intent.field_name)
+                        && committed.as_deref() != Some(expected.as_str())
+                    {
+                        tracing::info!(
+                            group_id = %self.group_id,
+                            intent.id,
+                            field = %metadata_intent.field_name,
+                            "abandoning guarded metadata update: committed value no longer matches"
+                        );
+                        self.context.db().set_group_intent_superseded(intent.id)?;
+                        return Ok(None);
+                    }
+                }
 
                 // Route through AppDataUpdate only on migrated groups,
                 // via the same `is_migrated_group` predicate the

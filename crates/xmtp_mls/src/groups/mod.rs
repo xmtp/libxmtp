@@ -1,4 +1,5 @@
 pub mod app_data;
+pub mod change_callbacks;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
@@ -84,6 +85,7 @@ use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
     NotFound, StorageError,
+    group_intent::{IntentState, StoredGroupIntent},
     group_message::{ContentType, StoredGroupMessageWithReactions},
     refresh_state::EntityKind,
 };
@@ -2302,12 +2304,27 @@ where
         Ok(())
     }
 
+    /// Set the group's opaque `app_data` slot.
+    ///
+    /// `expected_app_data` is an optional compare-and-swap guard. When
+    /// `Some`, the update is abandoned with [`GroupError::AppDataSuperseded`]
+    /// unless the committed value still equals it — including when another
+    /// member's commit wins the epoch race *after* this intent was published.
+    /// Callers reconciling structured state should pass the value they merged
+    /// against, so a concurrent write is reported rather than overwritten.
+    ///
+    /// `None` keeps the historical last-writer-wins behavior: whatever landed
+    /// in the meantime is overwritten.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub async fn update_app_data(&self, app_data: String) -> Result<(), GroupError> {
+    pub async fn update_app_data(
+        &self,
+        app_data: String,
+        expected_app_data: Option<String>,
+    ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 
         if app_data.len() > MAX_APP_DATA_LENGTH {
@@ -2318,13 +2335,64 @@ where
         if self.metadata().await?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
-        let intent_data: Vec<u8> = UpdateMetadataIntentData::new_update_app_data(app_data).into();
+
+        // Fail the already-stale case before touching the network. The
+        // authoritative check runs again at publish time, which is what
+        // catches a change that lands between here and the commit.
+        if let Some(expected) = &expected_app_data {
+            // Read the slot itself rather than going through `app_data()`: a
+            // group whose `app_data` has never been set is a legitimate "not
+            // what you expected", and reporting it as `MissingExtension` would
+            // hand the caller an error where it asked a question. A genuine
+            // read failure still propagates — an unreadable group is not
+            // evidence that someone else wrote the field.
+            let actual = self.read_single_component::<AppDataComponent>()?;
+            if actual.as_deref() != Some(expected.as_str()) {
+                return Err(GroupError::AppDataSuperseded {
+                    expected: expected.clone(),
+                    // An unset slot reports as empty. The guard cannot yet
+                    // *express* "I expect this to be unset" — the intent's
+                    // `expected_field_value` is an optional string, where
+                    // absent already means "no guard" — so an unset slot can
+                    // only ever be a mismatch here, never an expectation.
+                    actual: actual.unwrap_or_default(),
+                });
+            }
+        }
+
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_app_data(app_data, expected_app_data.clone())
+                .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
 
-        let _ = self.sync_until_intent_resolved(intent.id).await?;
-        Ok(())
+        match self.sync_until_intent_resolved(intent.id).await {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                // A guarded intent that lost the race is marked `Superseded`
+                // rather than `Error`; translate it into the typed error so a
+                // stale write is distinguishable from a genuine sync failure.
+                if let Some(expected) = expected_app_data
+                    && matches!(
+                        self.context.db().fetch(&intent.id),
+                        Ok(Some(StoredGroupIntent {
+                            state: IntentState::Superseded,
+                            ..
+                        }))
+                    )
+                {
+                    // Superseded is only set after the publish path read the
+                    // committed value successfully, so this read should too;
+                    // if it somehow fails, that error is the honest one.
+                    return Err(GroupError::AppDataSuperseded {
+                        expected,
+                        actual: self.app_data()?,
+                    });
+                }
+                Err(err)
+            }
+        }
     }
 
     /// Updates min version of the group to match this client's version.

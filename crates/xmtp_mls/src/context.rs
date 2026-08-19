@@ -1,6 +1,7 @@
 use crate::GroupCommitLock;
 use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 use crate::client::DeviceSync;
+use crate::groups::change_callbacks::UnstableChangeCallbacks;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
@@ -50,6 +51,9 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
+    /// Unstable: SDK-registered notifications for group-state changes. Empty
+    /// unless the host opted in at build time.
+    pub(crate) change_callbacks: UnstableChangeCallbacks,
     pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
@@ -125,6 +129,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
@@ -247,6 +252,8 @@ where
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
     fn task_channels(&self) -> &TaskWorkerChannels;
     fn disappearing_channels(&self) -> &DisappearingChannels;
+    /// Unstable: the host's registered group-change callbacks.
+    fn change_callbacks(&self) -> &UnstableChangeCallbacks;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
@@ -337,6 +344,10 @@ where
 
     fn disappearing_channels(&self) -> &DisappearingChannels {
         &self.disappearing_channels
+    }
+
+    fn change_callbacks(&self) -> &UnstableChangeCallbacks {
+        &self.change_callbacks
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -434,6 +445,10 @@ where
 
     fn disappearing_channels(&self) -> &DisappearingChannels {
         <T as XmtpSharedContext>::disappearing_channels(self)
+    }
+
+    fn change_callbacks(&self) -> &UnstableChangeCallbacks {
+        <T as XmtpSharedContext>::change_callbacks(self)
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {

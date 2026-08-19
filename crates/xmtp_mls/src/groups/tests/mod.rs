@@ -1,3 +1,4 @@
+mod test_change_callbacks;
 mod test_commit_log_fork_detection;
 mod test_commit_log_local;
 mod test_commit_log_readd_requests;
@@ -4045,7 +4046,7 @@ async fn test_respects_character_limits_for_group_metadata() {
 
     // Verify that updating the app data with an excessive length fails
     let overlong_app_data = "d".repeat(MAX_APP_DATA_LENGTH + 1);
-    let result = amal_group.update_app_data(overlong_app_data).await;
+    let result = amal_group.update_app_data(overlong_app_data, None).await;
     assert!(
         matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_APP_DATA_LENGTH)
     );
@@ -4069,7 +4070,7 @@ async fn test_respects_character_limits_for_group_metadata() {
         .await
         .unwrap();
     amal_group
-        .update_app_data(valid_app_data.clone())
+        .update_app_data(valid_app_data.clone(), None)
         .await
         .unwrap();
 
@@ -4118,7 +4119,10 @@ async fn test_update_app_data() {
 
     // Update app data with a valid value
     let app_data = "Test application data".to_string();
-    amal_group.update_app_data(app_data.clone()).await.unwrap();
+    amal_group
+        .update_app_data(app_data.clone(), None)
+        .await
+        .unwrap();
     amal_group.sync().await.unwrap();
 
     // Verify the app data was updated using the getter
@@ -4128,7 +4132,7 @@ async fn test_update_app_data() {
     // Update with maximum allowed size (8KB)
     let max_size_data = "x".repeat(MAX_APP_DATA_LENGTH);
     amal_group
-        .update_app_data(max_size_data.clone())
+        .update_app_data(max_size_data.clone(), None)
         .await
         .unwrap();
     amal_group.sync().await.unwrap();
@@ -4149,7 +4153,7 @@ async fn test_app_data_in_dm() {
         .unwrap();
 
     // Verify that updating app_data on a DM fails
-    let result = dm.update_app_data("test data".to_string()).await;
+    let result = dm.update_app_data("test data".to_string(), None).await;
     assert!(matches!(
         result,
         Err(GroupError::MetadataPermissionsError(
@@ -4187,7 +4191,7 @@ async fn test_create_group_with_app_data() {
     // Verify we can also update it
     let updated_app_data = "Updated app data".to_string();
     group
-        .update_app_data(updated_app_data.clone())
+        .update_app_data(updated_app_data.clone(), None)
         .await
         .unwrap();
     group.sync().await.unwrap();
