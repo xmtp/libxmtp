@@ -104,15 +104,18 @@ const MAX_WELCOME_TASKS: usize = 16;
 /// durable cursor over the wire lease, so nothing is lost.
 const MAX_WELCOME_BACKLOG: usize = 512;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, xmtp_common::Retryable)]
 pub enum RouterError {
-    /// Leasing topics from the transport failed.
+    /// Leasing topics from the transport failed. Re-subscribing recovers
+    /// from a transient open failure — follow the transport's verdict.
     #[error(transparent)]
+    #[retry(inherit)]
     Transport(#[from] TransportError),
     /// Seeding cursors failed while subscribing.
     #[error(transparent)]
+    #[retry(inherit)]
     Subscribe(#[from] SubscribeError),
-    /// The router task is gone (client shutdown).
+    /// The router task is gone (client shutdown). Not retryable.
     #[error("the stream router is closed")]
     Closed,
 }

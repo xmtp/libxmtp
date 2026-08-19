@@ -4,7 +4,7 @@ use prost::Message;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
-use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_common::{ErrorCode, Retryable};
 use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
@@ -20,7 +20,7 @@ use super::{
 
 use alloy::signers::k256::ecdsa::Signature as K256Signature;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
 pub enum SignatureError {
     /// Malformed legacy key.
     ///
@@ -30,8 +30,13 @@ pub enum SignatureError {
     #[error(transparent)]
     #[error_code(inherit)]
     CryptoSignatureError(#[from] xmtp_cryptography::signature::SignatureError),
+    // Smart contract wallet verification goes through an RPC provider;
+    // transient provider/IO failures must surface as retryable so the
+    // welcome sync path does not permanently advance the cursor past
+    // welcomes involving SCW users. See xmtp/libxmtp#3394.
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(inherit)]
     VerifierError(#[from] crate::scw_verifier::VerifierError),
     /// Ed25519 signature failed.
     ///
@@ -89,19 +94,6 @@ pub enum SignatureError {
     /// Ethereum signature parsing failed. Not retryable.
     #[error(transparent)]
     Signature(#[from] alloy::primitives::SignatureError),
-}
-
-impl RetryableError for SignatureError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            // Smart contract wallet verification goes through an RPC provider;
-            // transient provider/IO failures must surface as retryable so the
-            // welcome sync path does not permanently advance the cursor past
-            // welcomes involving SCW users. See xmtp/libxmtp#3394.
-            SignatureError::VerifierError(e) => e.is_retryable(),
-            _ => false,
-        }
-    }
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity

@@ -37,6 +37,7 @@ use openmls::{
     prelude::{CommitMessageBundle, ProcessedMessageContent},
     storage::OpenMlsProvider,
 };
+use xmtp_common::{Retryable, RetryableError};
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
 use self::component_source::{
@@ -61,21 +62,27 @@ tokio::task_local! {
 /// payload). Splitting them keeps "the message was bad in OpenMLS terms"
 /// distinct from "we couldn't decode an AppData payload" so callers can
 /// log / retry / surface them differently.
-#[derive(Debug, thiserror::Error)]
-pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
+#[derive(Debug, thiserror::Error, Retryable)]
+pub enum ProcessMessageWithAppDataError<StorageError>
+where
+    StorageError: std::error::Error,
+    ProcessMessageError<StorageError>: RetryableError<xmtp_db::Mls>,
+{
     /// Standard OpenMLS processing failure (decryption, validation, …).
     #[error(transparent)]
+    #[retry(inherit)]
     OpenMls(#[from] ProcessMessageError<StorageError>),
     /// Failed to decode an incoming `AppDataUpdate` payload via
     /// [`apply_app_data_update_payload`]. Almost always indicates a
     /// malformed proposal from a peer (or a wire-format mismatch with a
     /// future version we don't understand yet).
     ///
-    /// **Not retryable.** Decode failures are deterministic over the
-    /// exact bytes on the wire, so retrying the same message will fail
-    /// the same way. `GroupMessageProcessingError::is_retryable` and
-    /// `commit_result` treat this as a terminal wire-format violation
-    /// (mapped to `CommitResult::Invalid`).
+    /// **Not retryable.** Decode failures are wire-format violations from
+    /// the peer — deterministic over the exact bytes on the wire, so
+    /// retrying the same message will fail the same way.
+    /// `GroupMessageProcessingError::is_retryable` and `commit_result`
+    /// treat this as a terminal wire-format violation (mapped to
+    /// `CommitResult::Invalid`).
     #[error("failed to decode incoming AppDataUpdate payload: {0}")]
     AppDataDecode(#[from] ComponentSourceError),
     /// The group's committed `MIN_SUPPORTED_PROTOCOL_VERSION` floor
@@ -238,7 +245,10 @@ pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
     provider: &Provider,
     message: impl Into<ProtocolMessage>,
     own: &LibXMTPVersion,
-) -> Result<ProcessedMessage, ProcessMessageWithAppDataError<Provider::StorageError>> {
+) -> Result<ProcessedMessage, ProcessMessageWithAppDataError<Provider::StorageError>>
+where
+    ProcessMessageError<Provider::StorageError>: RetryableError<xmtp_db::Mls>,
+{
     let processed = mls_group.process_message(provider, message)?;
 
     // PAUSE BEFORE PARSE: every commit on a below-floor group must pause

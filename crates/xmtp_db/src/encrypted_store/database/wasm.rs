@@ -11,35 +11,29 @@ use std::rc::Rc;
 use std::sync::Arc;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, Retryable};
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
+#[retry(default = true)]
 pub enum PlatformStorageError {
     /// OPFS error.
     ///
     /// Origin Private File System (OPFS) error. Retryable.
     #[error("OPFS {0}")]
+    #[retry(true)]
     SAH(#[from] OpfsSAHError),
     /// Connection error.
     ///
     /// Diesel connection error. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Connection(#[from] diesel::ConnectionError),
     /// Diesel result error.
     ///
     /// Database query error. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     DieselResult(#[from] diesel::result::Error),
-}
-
-impl xmtp_common::RetryableError for PlatformStorageError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::SAH(_) => true,
-            Self::Connection(_) => true,
-            Self::DieselResult(_) => true,
-        }
-    }
 }
 
 #[derive(Clone)]

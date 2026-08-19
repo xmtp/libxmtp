@@ -1,7 +1,7 @@
 use std::array::TryFromSliceError;
 
 use thiserror::Error;
-use xmtp_common::{ErrorCode, RetryableError};
+use xmtp_common::{ErrorCode, Retryable};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiEndpoint {
@@ -61,7 +61,11 @@ impl std::fmt::Display for ApiEndpoint {
 /// Loosely Modeled after serdes [error](https://docs.rs/serde/latest/serde/de/value/struct.Error.html) type.
 /// This general error type avoid circular hard-dependencies on crates further up the tree
 /// (xmtp_id/xmtp_mls) if they had defined the error themselves.
-#[derive(thiserror::Error, Debug, ErrorCode)]
+// No variant carries a `#[retry]` rule: conversions are deterministic over
+// static in-memory bytes, so retrying can never change the outcome — the
+// enclosing API call is what should be retried. If a retryable conversion
+// failure ever appears, give it its own error enum with explicit rules.
+#[derive(thiserror::Error, Debug, ErrorCode, Retryable)]
 pub enum ConversionError {
     /// Missing field.
     ///
@@ -166,17 +170,6 @@ pub enum ConversionError {
     /// Byte slice conversion failed. Not retryable.
     #[error(transparent)]
     Slice(#[from] TryFromSliceError),
-}
-
-// Conversion errors themselves not really retryable because the bytes are static,
-// the conversions are done in-memory, so a retrying a conversion should not change the outcome.
-// The API call is what should be retried.
-// If retry on a conversion error is desired a new error enum + custom Retrayble implementation
-// should be preferred.
-impl RetryableError for ConversionError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }
 
 /// Error resulting from proto conversions/mutations

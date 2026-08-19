@@ -18,11 +18,11 @@ use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::{ArchiveError, BackupMetadata};
 use xmtp_common::ErrorCode;
-use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
+use xmtp_common::{NS_IN_DAY, Retryable, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::tasks::NewTask;
 use xmtp_db::{
-    NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
+    StorageError, consent_record::ConsentState, group::GroupQueryArgs,
     group_message::StoredGroupMessage,
 };
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
@@ -54,33 +54,41 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Error, ErrorCode)]
+#[derive(Debug, Error, ErrorCode, Retryable)]
+// Inverted logic: every variant is retryable EXCEPT the explicit exceptions below.
+#[retry(default = true)]
 pub enum DeviceSyncError {
     /// I/O error.
     ///
     /// File system or network I/O failed. May be retryable.
     #[error("IO error: {0}")]
+    #[retry(true)]
     IO(#[from] std::io::Error),
     /// Serialization error.
     ///
     /// JSON serialization/deserialization failed. Retryable.
     #[error("Serialization/Deserialization Error {0}")]
+    #[retry(true)]
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(true)]
     ProtoConversion(#[from] xmtp_proto::ConversionError),
     /// AES-GCM encryption error.
     ///
     /// Encryption/decryption of sync payload failed. Retryable.
     #[error("AES-GCM encryption error")]
+    #[retry(true)]
     AesGcm(#[from] aes_gcm::Error),
     #[error("storage error: {0}")]
     #[error_code(inherit)]
+    #[retry(true)]
     Storage(#[from] StorageError),
     /// HTTP request error.
     ///
     /// HTTP request for sync payload failed. Retryable.
     #[error("reqwest error: {0}")]
+    #[retry(true)]
     Reqwest(#[from] reqwest::Error),
     /// Type conversion error.
     ///
@@ -91,12 +99,15 @@ pub enum DeviceSyncError {
     ///
     /// String is not valid UTF-8. Retryable.
     #[error("utf-8 error: {0}")]
+    #[retry(true)]
     UTF8(#[from] std::str::Utf8Error),
     #[error("client error: {0}")]
     #[error_code(inherit)]
+    #[retry(true)]
     Client(#[from] ClientError),
     #[error("group error: {0}")]
     #[error_code(inherit)]
+    #[retry(true)]
     Group(#[from] GroupError),
     /// No pending request.
     ///
@@ -112,6 +123,7 @@ pub enum DeviceSyncError {
     ///
     /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
+    #[retry(false)]
     UnspecifiedDeviceSyncKind,
     /// Sync payload too old.
     ///
@@ -120,29 +132,35 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(true)]
     Subscribe(#[from] SubscribeError),
     /// Bincode error.
     ///
     /// Binary serialization failed. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Bincode(#[from] bincode::Error),
     /// Archive error.
     ///
     /// Sync archive operation failed. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Archive(#[from] ArchiveError),
     /// Decode error.
     ///
     /// Protobuf decoding failed. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(true)]
     Deserialization(#[from] DeserializationError),
     /// Already acknowledged.
     ///
     /// Sync interaction already acknowledged. Not retryable.
     #[error("Sync interaction is already acknowledged by another installation")]
+    #[retry(false)]
     AlreadyAcknowledged,
     /// Missing options.
     ///
@@ -153,14 +171,17 @@ pub enum DeviceSyncError {
     ///
     /// Sync server URL not configured. Not retryable.
     #[error("Missing sync server url")]
+    #[retry(false)]
     MissingSyncServerUrl,
     /// Missing sync group.
     ///
     /// Sync group not found. Not retryable.
     #[error("Missing sync group")]
+    #[retry(false)]
     MissingSyncGroup,
     #[error(transparent)]
     #[error_code(inherit)]
+    #[retry(true)]
     Db(#[from] xmtp_db::ConnectionError),
     /// Sync summary.
     ///
@@ -171,11 +192,13 @@ pub enum DeviceSyncError {
     ///
     /// OpenMLS key store operation failed. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     MlsStore(#[from] MlsStoreError),
     /// Receive error.
     ///
     /// Channel receive failed. Retryable.
     #[error(transparent)]
+    #[retry(true)]
     Recv(#[from] RecvError),
     /// Missing field.
     ///
@@ -222,20 +245,8 @@ impl NeedsDbReconnect for DeviceSyncError {
     }
 }
 
-impl RetryableError for DeviceSyncError {
-    fn is_retryable(&self) -> bool {
-        !matches!(
-            self,
-            Self::AlreadyAcknowledged
-                | Self::MissingSyncGroup
-                | Self::MissingSyncServerUrl
-                | Self::UnspecifiedDeviceSyncKind
-        )
-    }
-}
-
-impl From<NotFound> for DeviceSyncError {
-    fn from(value: NotFound) -> Self {
+impl From<xmtp_db::NotFound> for DeviceSyncError {
+    fn from(value: xmtp_db::NotFound) -> Self {
         DeviceSyncError::Storage(StorageError::NotFound(value))
     }
 }

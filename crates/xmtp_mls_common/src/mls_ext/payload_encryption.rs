@@ -4,7 +4,7 @@ use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_id::key_package::WrapperAlgorithm;
 
 static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<openmls_libcrux_crypto::CryptoProvider> =
@@ -12,7 +12,7 @@ static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<openmls_libcrux_crypto::Cryp
         openmls_libcrux_crypto::CryptoProvider::new().expect("Failed to create CryptoProvider")
     });
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum WrapPayloadError {
     #[error("OpenMLS HPKE error: {0}")]
     Hpke(#[from] OpenmlsHpkeError),
@@ -22,7 +22,7 @@ pub enum WrapPayloadError {
     Crypto(#[from] openmls_traits::types::CryptoError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum UnwrapPayloadError {
     #[error("OpenMLS HPKE error: {0}")]
     Hpke(#[from] OpenmlsHpkeError),
@@ -30,18 +30,6 @@ pub enum UnwrapPayloadError {
     TlsError(#[from] TlsCodecError),
     #[error(transparent)]
     Crypto(#[from] openmls_traits::types::CryptoError),
-}
-
-impl RetryableError for WrapPayloadError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
-}
-
-impl RetryableError for UnwrapPayloadError {
-    fn is_retryable(&self) -> bool {
-        false
-    }
 }
 
 /// Wrap a payload (plus optional secondary payload) in an outer layer of HPKE

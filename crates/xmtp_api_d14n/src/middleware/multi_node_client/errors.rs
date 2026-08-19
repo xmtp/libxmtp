@@ -1,14 +1,15 @@
 use thiserror::Error;
 use xmtp_api_grpc::error::GrpcBuilderError;
-use xmtp_common::RetryableError;
+use xmtp_common::Retryable;
 use xmtp_proto::api::{ApiClientError, BodyError};
 
 /// Errors that can occur during multi-node client operations.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Retryable)]
 pub enum MultiNodeClientError {
     #[error("all node clients failed to build")]
     AllNodeClientsFailedToBuild,
     #[error(transparent)]
+    #[retry(inherit)]
     BodyError(#[from] BodyError),
     #[error("node {} timed out under {}ms latency", node_id, latency)]
     NodeTimedOut { node_id: u32, latency: u64 },
@@ -34,16 +35,6 @@ pub enum MultiNodeClientError {
 impl From<MultiNodeClientError> for ApiClientError {
     fn from(value: MultiNodeClientError) -> ApiClientError {
         ApiClientError::Other(Box::new(value))
-    }
-}
-
-/// Implements RetryableError to enable proper retry behavior in the API client error handling system.
-impl RetryableError for MultiNodeClientError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::BodyError(e) => e.is_retryable(),
-            _ => false,
-        }
     }
 }
 
