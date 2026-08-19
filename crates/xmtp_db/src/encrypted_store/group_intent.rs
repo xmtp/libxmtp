@@ -130,6 +130,12 @@ pub enum IntentState {
     Committed = 3,
     Error = 4,
     Processed = 5,
+    /// Abandoned before publishing because its compare-and-swap guard no
+    /// longer matched the committed state — another member changed the field
+    /// first. Terminal and distinct from [`IntentState::Error`]: nothing went
+    /// wrong, the write is simply stale, and the caller is expected to
+    /// re-derive it from the value that actually landed and queue again.
+    Superseded = 6,
 }
 
 #[derive(Queryable, Identifiable, PartialEq, Clone)]
@@ -271,6 +277,10 @@ pub trait QueryGroupIntent {
     // Set the intent with the given ID to `Committed`
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError>;
 
+    /// Set the intent with the given ID to `Superseded` — abandoned because its
+    /// compare-and-swap guard no longer matches the committed state.
+    fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError>;
+
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
@@ -347,6 +357,10 @@ where
 
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
         (**self).set_group_intent_processed(intent_id)
+    }
+
+    fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_superseded(intent_id)
     }
 
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -490,6 +504,30 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         // If nothing matched the query, return an error. Either ID or state was wrong
         if rows_changed == 0 {
             return Err(NotFound::IntentForCommitted(intent_id).into());
+        }
+
+        Ok(())
+    }
+
+    /// Mark the intent abandoned because its compare-and-swap guard no longer
+    /// matches. Terminal, and deliberately not `Error`: the caller needs to
+    /// tell a stale write apart from a genuine failure.
+    #[tracing::instrument(level = "debug", skip(self))]
+    fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError> {
+        let rows_changed = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::id.eq(intent_id))
+                // State machine requires that the only valid state transition to
+                // Superseded is from ToPublish. The guard is evaluated at publish
+                // time, so without this filter a racing caller could abandon an
+                // intent that had already been published or committed.
+                .filter(dsl::state.eq(IntentState::ToPublish))
+                .set(dsl::state.eq(IntentState::Superseded))
+                .execute(conn)
+        })?;
+
+        if rows_changed == 0 {
+            return Err(NotFound::IntentForToPublish(intent_id).into());
         }
 
         Ok(())
@@ -721,6 +759,7 @@ where
             3 => Ok(IntentState::Committed),
             4 => Ok(IntentState::Error),
             5 => Ok(IntentState::Processed),
+            6 => Ok(IntentState::Superseded),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

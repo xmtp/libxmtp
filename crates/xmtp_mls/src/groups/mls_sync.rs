@@ -2445,6 +2445,14 @@ where
                             tracing::debug!("Intent [{}] moved to Processed status", intent_id);
                             db.set_group_intent_processed(intent_id)?;
                         }
+                        IntentState::Superseded => {
+                            // Supersession is decided at publish time, before
+                            // an intent has a message to process, so no
+                            // resolution path returns it here.
+                            tracing::error!(
+                                "Unexpected behaviour: returned intent state superseded from process_own_message"
+                            );
+                        }
                     }
                     Ok(Continue(intent_error))
                 })
