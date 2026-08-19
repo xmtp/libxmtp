@@ -111,6 +111,7 @@ pub use crate::message::{
     FfiRemoteAttachment, FfiTransactionReference,
 };
 
+pub mod change_callbacks;
 pub mod device_sync;
 pub mod gateway_auth;
 #[cfg(any(test, feature = "bench"))]
@@ -393,8 +394,17 @@ impl DbOptions {
 ///
 /// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
+///
+/// `change_callbacks` is unstable: notifications for group-state changes,
+/// registered here because the changes they report arrive from the stream and
+/// sync paths, where no SDK call is on the stack to carry them. `None` (the
+/// SDK-side default) registers nothing. See
+/// [`change_callbacks::FfiUnstableChangeCallbacks`].
 #[allow(clippy::too_many_arguments)]
-#[uniffi::export(async_runtime = "tokio")]
+// `change_callbacks` is defaulted so adding it leaves the generated
+// Swift/Kotlin signature unchanged for callers that register nothing — the
+// same additive-by-default rule the options records follow.
+#[uniffi::export(async_runtime = "tokio", default(change_callbacks = None))]
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
@@ -407,6 +417,7 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
     worker_config: Option<FfiWorkerConfig>,
+    change_callbacks: Option<change_callbacks::FfiUnstableChangeCallbacks>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -497,6 +508,10 @@ pub async fn create_client(
 
     if let Some(worker_config) = worker_config {
         builder = builder.worker_config(worker_config.into());
+    }
+
+    if let Some(change_callbacks) = change_callbacks {
+        builder = builder.unstable_change_callbacks(change_callbacks.into());
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
@@ -1717,6 +1732,13 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
 pub struct FfiUpdateAppDataOptions {
     /// The new value for the group's opaque `APP_DATA` string slot.
     pub value: String,
+    /// Optional compare-and-swap guard. When set, the update is abandoned
+    /// with an `AppDataSuperseded` error — rather than overwriting — if the
+    /// committed value is no longer this, including when another member's
+    /// commit wins the race after this update was published. Leave unset for
+    /// the historical last-writer-wins behavior.
+    #[uniffi(default = None)]
+    pub expected_value: Option<String>,
 }
 
 #[derive(uniffi::Enum, Debug)]
@@ -2987,7 +3009,9 @@ impl FfiConversation {
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn update_app_data(&self, options: FfiUpdateAppDataOptions) -> Result<(), FfiError> {
-        self.inner.update_app_data(options.value, None).await?;
+        self.inner
+            .update_app_data(options.value, options.expected_value)
+            .await?;
         Ok(())
     }
 
