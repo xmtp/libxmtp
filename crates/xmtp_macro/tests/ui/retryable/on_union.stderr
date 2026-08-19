@@ -1,0 +1,8 @@
+error: `Retryable` cannot be derived for unions
+ --> tests/ui/retryable/on_union.rs:4:1
+  |
+4 | / union U {
+5 | |     a: u32,
+6 | |     b: f32,
+7 | | }
+  | |_^

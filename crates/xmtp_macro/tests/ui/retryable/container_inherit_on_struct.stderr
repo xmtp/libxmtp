@@ -1,0 +1,5 @@
+error: `#[retry(inherit)]` is not valid on a struct; use `#[retry(when = self.<field>.is_retryable())]` to forward
+ --> tests/ui/retryable/container_inherit_on_struct.rs:6:1
+  |
+6 | #[retry(inherit)]
+  | ^
