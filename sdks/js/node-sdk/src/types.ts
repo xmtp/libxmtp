@@ -1,6 +1,7 @@
 import type { ContentCodec } from "@xmtp/content-type-primitives";
 import {
   type Actions,
+  type AppDataChange,
   type Attachment,
   type Backend,
   type ContentTypeId,
@@ -195,6 +196,23 @@ export type OtherOptions = {
    * to confirm the registration before resolving.
    */
   waitForRegistrationVisible?: VisibilityConfirmationOptions;
+  /**
+   * Unstable: notifications for group state changes, for clients that
+   * reconcile a group's `appData` themselves.
+   *
+   * Only `appData` exists today; callbacks for the other mutable fields will
+   * be added as further optional properties. Registered at client creation
+   * because the changes they report arrive from the stream and sync paths,
+   * where no SDK call is on the stack to carry them.
+   *
+   * The `appData` callback is awaited before message processing continues, so
+   * a semantic merge — including republishing via `updateAppData` — can finish
+   * first. It fires for changes this client made as well as remote ones, so
+   * the merge must be idempotent.
+   */
+  unstableChangeCallbacks?: {
+    appData?: (change: AppDataChange) => Promise<void>;
+  };
 };
 
 export type ClientOptions = (NetworkOptions | { backend: Backend }) &
