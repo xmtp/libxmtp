@@ -297,6 +297,12 @@ pub mod update_metadata_data {
         pub field_name: ::prost::alloc::string::String,
         #[prost(string, tag = "2")]
         pub field_value: ::prost::alloc::string::String,
+        /// Compare-and-swap guard. When set, the publisher must abandon this
+        /// intent unless the field's currently committed value equals this,
+        /// rather than overwriting whatever landed in the meantime. Absent
+        /// means last-writer-wins, which is the historical behavior.
+        #[prost(string, optional, tag = "3")]
+        pub expected_field_value: ::core::option::Option<::prost::alloc::string::String>,
     }
     impl ::prost::Name for V1 {
         const NAME: &'static str = "V1";
@@ -783,7 +789,7 @@ impl PermissionPolicyOption {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Task {
-    #[prost(oneof = "task::Task", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "task::Task", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
     pub task: ::core::option::Option<task::Task>,
 }
 /// Nested message and enum types in `Task`.
@@ -804,6 +810,8 @@ pub mod task {
         KpDeletion(super::KpDeletion),
         #[prost(message, tag = "7")]
         AddMissingInstallations(super::AddMissingInstallations),
+        #[prost(message, tag = "8")]
+        KpLiveness(super::KpLiveness),
     }
 }
 impl ::prost::Name for Task {
@@ -863,6 +871,29 @@ impl ::prost::Name for KpDeletion {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.database.KpDeletion".into()
+    }
+}
+/// Recurring singleton: verify that THIS installation still has a usable key
+/// package published on the network, and queue a rotation when it does not.
+///
+/// Distinct from KpRotation on purpose. Rotation is driven by a local deadline
+/// column; if that column is ever wrong the client stops rotating, its published
+/// key package expires, and it becomes permanently unreachable (added to groups
+/// only as a failed installation, so it never receives a welcome and never gets
+/// the welcome-driven rotation nudge either) without observing any local error.
+/// Liveness is the independent watchdog for that closed loop: its own schedule,
+/// its own retry/backoff, and a network probe rather than a local deadline as
+/// its source of truth. Empty payload => stable data_hash for pull-ins.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct KpLiveness {}
+impl ::prost::Name for KpLiveness {
+    const NAME: &'static str = "KpLiveness";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.KpLiveness".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.KpLiveness".into()
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

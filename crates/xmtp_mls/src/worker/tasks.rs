@@ -442,6 +442,17 @@ where
             Some(xmtp_proto::xmtp::mls::database::task::Task::AddMissingInstallations(add)) => {
                 Self::run_add_missing_installations(task, add, context).await?;
             }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::KpLiveness(_)) => {
+                // The variant exists in the regenerated protos but nothing in
+                // this crate schedules it yet, so a row can only appear from a
+                // newer client sharing this database. Drop it rather than
+                // retrying forever; the owning feature will add real handling.
+                tracing::warn!(
+                    "Task {} is a KpLiveness task, which this version does not handle. Deleting.",
+                    task.id
+                );
+                context.db().delete_task(task.id)?;
+            }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
                 context.db().delete_task(task.id)?;
