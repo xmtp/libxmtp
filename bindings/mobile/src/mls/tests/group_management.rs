@@ -335,6 +335,7 @@ async fn test_app_data_permission_update() {
         .conversation
         .update_app_data(FfiUpdateAppDataOptions {
             value: "bola's data".to_string(),
+            expected_value: None,
         })
         .await
         .unwrap_err();
@@ -369,6 +370,7 @@ async fn test_app_data_permission_update() {
         .conversation
         .update_app_data(FfiUpdateAppDataOptions {
             value: "bola's data".to_string(),
+            expected_value: None,
         })
         .await
         .unwrap();
