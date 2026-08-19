@@ -299,6 +299,11 @@ mock! {
             intent_id: crate::group_intent::ID,
         ) -> Result<(), StorageError>;
 
+        fn set_group_intent_superseded(
+            &self,
+            intent_id: crate::group_intent::ID,
+        ) -> Result<(), StorageError>;
+
         fn set_group_intent_to_publish(
             &self,
             intent_id: crate::group_intent::ID,
