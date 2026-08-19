@@ -19,6 +19,11 @@ use xmtp_proto::{
     xmtp::mls::database::Task as TaskProto,
 };
 
+/// How far out to push a task whose kind this build does not understand. Long
+/// enough that an old client sharing the database does not spin on it, short
+/// enough that a newer client picks it up soon after it starts.
+const UNKNOWN_TASK_DEFER_NS: i64 = 60 * 60 * 1_000_000_000;
+
 /// `Done` = one-shot, row deleted. `RescheduleAt(ns)` = recurring, row kept and
 /// advanced to that absolute deadline.
 #[derive(Debug, PartialEq, Eq)]
@@ -445,13 +450,18 @@ where
             Some(xmtp_proto::xmtp::mls::database::task::Task::KpLiveness(_)) => {
                 // The variant exists in the regenerated protos but nothing in
                 // this crate schedules it yet, so a row can only appear from a
-                // newer client sharing this database. Drop it rather than
-                // retrying forever; the owning feature will add real handling.
+                // newer client sharing this database. Leave it for that client
+                // rather than deleting it: falling through to `Done` would drop
+                // work this build simply cannot see, and the owning feature will
+                // add real handling. `expires_at_ns` still bounds how long an
+                // unclaimed row can sit here, so deferring cannot leak rows.
                 tracing::warn!(
-                    "Task {} is a KpLiveness task, which this version does not handle. Deleting.",
+                    "Task {} is a KpLiveness task, which this version does not handle. Deferring.",
                     task.id
                 );
-                context.db().delete_task(task.id)?;
+                return Ok(TaskOutcome::RescheduleAt(
+                    xmtp_common::time::now_ns() + UNKNOWN_TASK_DEFER_NS,
+                ));
             }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);
