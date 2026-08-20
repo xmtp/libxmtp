@@ -13,6 +13,8 @@ mod test_group_updated;
 mod test_libxmtp_version;
 mod test_message_disappearing_settings;
 #[cfg(not(target_arch = "wasm32"))]
+mod test_metadata_read_amplification;
+#[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;

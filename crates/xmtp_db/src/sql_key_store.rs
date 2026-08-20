@@ -87,6 +87,46 @@ pub struct SqlKeyStore<T> {
     conn: T,
 }
 
+// Test-only instrumentation (compiled out of release/production builds): counts
+// openmls KV read round-trips (`select_query`) so the metadata
+// read-amplification fix can be measured. Every `read`/`read_list`/
+// `group_context` bottoms out in `select_query`, so this is the single point
+// that observes an actual storage read.
+//
+// The counter is a **tokio task-local**, established for the duration of a
+// [`count_kv_reads`] call. Being task-scoped (not thread- or process-scoped) it
+// follows the measured work across `.await` points and across worker threads on
+// a multi-threaded runtime, and stays isolated from any other concurrently
+// running task. Reads performed outside a `count_kv_reads` scope — production
+// code and unrelated tests — are ignored, so the measurement is deterministic
+// regardless of runtime flavor or whether the measured accessors are sync or
+// async.
+// Native-only: the sole consumer is the native metadata read-amplification test,
+// and the task-local relies on the (native-only) `tokio` dep enabled by
+// `test-utils`.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+tokio::task_local! {
+    static KV_READS: std::cell::Cell<u64>;
+}
+
+/// Record one KV read round-trip against the enclosing [`count_kv_reads`] scope.
+/// Outside such a scope this is a no-op.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+fn record_kv_read() {
+    let _ = KV_READS.try_with(|c| c.set(c.get() + 1));
+}
+
+/// Run `f` with a fresh KV-read counter scoped to the current task and return
+/// its result together with the number of `select_query` round-trips it made.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub fn count_kv_reads<R>(f: impl FnOnce() -> R) -> (R, u64) {
+    KV_READS.sync_scope(std::cell::Cell::new(0), || {
+        let result = f();
+        let count = KV_READS.with(|c| c.get());
+        (result, count)
+    })
+}
+
 impl<A> SqlKeyStore<A> {
     pub fn new(conn: A) -> Self {
         Self { conn }
@@ -112,6 +152,8 @@ where
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, crate::ConnectionError> {
+        #[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+        record_kv_read();
         self.conn.raw_query(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
