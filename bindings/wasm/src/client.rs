@@ -29,6 +29,7 @@ pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
 pub mod backend;
+pub mod change_callbacks;
 pub mod gateway_auth;
 
 #[wasm_bindgen]
@@ -383,6 +384,7 @@ pub(crate) async fn create_client_inner(
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
+  change_callbacks: Option<change_callbacks::UnstableChangeCallbacks>,
 ) -> Result<Client, JsError> {
   let identity_strategy = IdentityStrategy::new(
     inbox_id,
@@ -404,6 +406,10 @@ pub(crate) async fn create_client_inner(
 
   if let Some(worker_config) = worker_config {
     builder = builder.worker_config(worker_config.into());
+  }
+
+  if let Some(change_callbacks) = change_callbacks {
+    builder = builder.unstable_change_callbacks(change_callbacks.into());
   }
 
   let xmtp_client = builder
@@ -438,6 +444,9 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = authCallback)] auth_callback: Option<gateway_auth::AuthCallback>,
   #[wasm_bindgen(js_name = authHandle)] auth_handle: Option<gateway_auth::AuthHandle>,
   #[wasm_bindgen(js_name = clientMode)] client_mode: Option<ClientMode>,
+  #[wasm_bindgen(js_name = changeCallbacks)] change_callbacks: Option<
+    change_callbacks::UnstableChangeCallbacks,
+  >,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
@@ -469,6 +478,7 @@ pub async fn create_client(
     allow_offline,
     app_version,
     nonce.unwrap_or(1),
+    change_callbacks,
   )
   .await
 }
