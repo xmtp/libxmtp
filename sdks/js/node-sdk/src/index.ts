@@ -18,6 +18,7 @@ export type {
   Action,
   Actions,
   ApiStats,
+  AppDataChange,
   ArchiveMetadata,
   ArchiveOptions,
   Attachment,

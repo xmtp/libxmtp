@@ -93,9 +93,19 @@ export class Group<ContentTypes = unknown> extends Conversation<ContentTypes> {
    * Updates the group's app data (max 8192 bytes)
    *
    * @param appData The new app data for the group
+   * @param expectedAppData Optional compare-and-swap guard. When provided, the
+   * update is abandoned — rather than overwriting — if the committed value is
+   * no longer this, including when another member's commit wins the race after
+   * this update was published. Callers reconciling structured state should
+   * pass the value they merged against, so a concurrent write surfaces as an
+   * error instead of silently discarding someone else's change. Omit for
+   * last-writer-wins.
    */
-  async updateAppData(appData: string) {
-    return this.#conversation.updateAppData({ value: appData });
+  async updateAppData(appData: string, expectedAppData?: string) {
+    return this.#conversation.updateAppData({
+      value: appData,
+      expectedValue: expectedAppData,
+    });
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   createClientWithBackend,
   LogLevel,
   SyncWorkerMode,
+  UnstableChangeCallbacks,
   type Backend,
   type Identifier,
   type LogOptions,
@@ -89,6 +90,12 @@ export const createClient = async (
     ? Buffer.from(options.dbEncryptionKey.replace(/^0x/, ""), "hex")
     : options?.dbEncryptionKey;
 
+  // Only build the registry when something is actually registered — an empty
+  // one would make the core snapshot app_data on every processed message.
+  const changeCallbacks = options?.unstableChangeCallbacks?.appData
+    ? new UnstableChangeCallbacks(options.unstableChangeCallbacks.appData)
+    : undefined;
+
   const client = await createClientWithBackend(
     backend,
     {
@@ -105,6 +112,7 @@ export const createClient = async (
     logOptions,
     undefined, // allowOffline
     options?.nonce,
+    changeCallbacks,
   );
 
   return { client, env };
