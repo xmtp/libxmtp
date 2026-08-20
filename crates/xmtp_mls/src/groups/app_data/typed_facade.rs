@@ -1,7 +1,7 @@
 //! Typed read facade over an OpenMLS group's AppData dictionary.
 //!
-//! [`MlsGroupAppData`] borrows an `&OpenMlsGroup` and exposes typed,
-//! per-component reads via [`MlsGroupAppData::get`]. Write paths
+//! [`MlsGroupAppData`] borrows a group's `GroupContext` extensions and
+//! exposes typed, per-component reads via [`MlsGroupAppData::get`]. Write paths
 //! continue to use the existing intent infrastructure (`mls_sync.rs`)
 //! plus `stage_app_data_propose_and_commit`; this facade is for callers
 //! that need a single typed value (e.g. permissions checks, registry
@@ -15,35 +15,35 @@
 //! groups (post-bootstrap) the dict is authoritative. Either way the
 //! caller gets `C::Value` decoded — no manual capability switching.
 
-use openmls::group::MlsGroup as OpenMlsGroup;
+use openmls::extensions::Extensions;
+use openmls::group::GroupContext;
 use xmtp_mls_common::app_data::typed::Component;
 
 use super::component_source::{ComponentSourceError, read_component_bytes};
-use super::is_migrated_group;
+use super::is_migrated_extensions;
 
 /// A typed view over a group's AppData state.
 ///
-/// Holds nothing but the borrow + the migration flag. Cheap to
-/// construct; intended to be created locally inside a
-/// `load_mls_group_with_lock` closure and discarded.
+/// Holds nothing but a borrow of the group's `GroupContext` extensions
+/// plus the migration flag. All AppData lives in those extensions, so
+/// this deliberately does **not** need a full `OpenMlsGroup` (which would
+/// pull the ratchet tree and secrets) — a `StorageProvider::group_context`
+/// read is enough. Cheap to construct; discarded after use.
 pub(crate) struct MlsGroupAppData<'g> {
-    group: &'g OpenMlsGroup,
+    extensions: &'g Extensions<GroupContext>,
     proposals_enabled: bool,
 }
 
 impl<'g> MlsGroupAppData<'g> {
-    /// Wrap an `&OpenMlsGroup` for typed AppData reads.
+    /// Wrap a group's `GroupContext` extensions for typed AppData reads.
     ///
-    /// **Construct under the same `load_mls_group_with_lock` closure
-    /// that consumes the facade.** The cached `proposals_enabled`
-    /// flag is read once at construction, so a facade that outlives
-    /// the lock could observe a stale migration state on a subsequent
-    /// `get` call. In practice every call site lives inside one
-    /// closure and discards the facade at the end.
-    pub(crate) fn new(group: &'g OpenMlsGroup) -> Self {
-        let proposals_enabled = is_migrated_group(group);
+    /// The cached `proposals_enabled` flag is read once at construction
+    /// from the same extensions snapshot, so every `get` observes a
+    /// single consistent view.
+    pub(crate) fn new(extensions: &'g Extensions<GroupContext>) -> Self {
+        let proposals_enabled = is_migrated_extensions(extensions);
         Self {
-            group,
+            extensions,
             proposals_enabled,
         }
     }
@@ -56,7 +56,7 @@ impl<'g> MlsGroupAppData<'g> {
     /// Returns `Err` for transport-level (read) or codec-level
     /// (decode) failures.
     pub(crate) fn get<C: Component>(&self) -> Result<Option<C::Value>, ComponentSourceError> {
-        let bytes = read_component_bytes(C::ID, self.group, self.proposals_enabled)?;
+        let bytes = read_component_bytes(C::ID, self.extensions, self.proposals_enabled)?;
         match bytes {
             Some(b) => Ok(Some(C::decode_value(&b)?)),
             None => Ok(None),

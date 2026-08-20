@@ -329,13 +329,13 @@ pub(crate) fn component_id_to_metadata_field(id: ComponentId) -> Option<Metadata
 /// extensions (translated into the new app-data wire format on the fly).
 pub(crate) fn read_component_bytes(
     id: ComponentId,
-    mls_group: &OpenMlsGroup,
+    extensions: &Extensions<GroupContext>,
     proposals_enabled: bool,
 ) -> Result<Option<Vec<u8>>, ComponentSourceError> {
     if proposals_enabled {
-        Ok(read_from_app_data_dict(id, mls_group))
+        Ok(read_from_app_data_dict_from_extensions(id, extensions))
     } else {
-        read_from_legacy(id, mls_group.extensions())
+        read_from_legacy(id, extensions)
     }
 }
 
@@ -448,11 +448,20 @@ pub(crate) fn read_from_app_data_dict(
     id: ComponentId,
     mls_group: &OpenMlsGroup,
 ) -> Option<Vec<u8>> {
-    let openmls_id: openmls::component::ComponentId = id.as_u16();
-    mls_group
-        .extensions()
+    read_from_app_data_dict_from_extensions(id, mls_group.extensions())
+}
+
+/// Extensions-only counterpart of [`read_from_app_data_dict`] — reads the
+/// component's bytes straight from a group's `GroupContext` extensions, with no
+/// full `OpenMlsGroup`. openmls keys the dictionary by its own `ComponentId`,
+/// which is just a `u16` alias, so `id.as_u16()` unwraps our newtype to the key.
+pub(crate) fn read_from_app_data_dict_from_extensions(
+    id: ComponentId,
+    extensions: &Extensions<GroupContext>,
+) -> Option<Vec<u8>> {
+    extensions
         .app_data_dictionary()
-        .and_then(|ext| ext.dictionary().get(&openmls_id))
+        .and_then(|ext| ext.dictionary().get(&id.as_u16()))
         .map(|bytes| bytes.to_vec())
 }
 
@@ -750,6 +759,24 @@ pub(crate) fn extract_group_mutable_metadata_capability_aware(
         Ok(base)
     } else {
         Ok(GroupMutableMetadata::try_from(mls_group)?)
+    }
+}
+
+/// Same as [`extract_group_mutable_metadata_capability_aware`], but driven from
+/// the group's `GroupContext` extensions alone — no full `OpenMlsGroup::load`.
+/// The mutable metadata lives entirely in the context extensions, so a single
+/// `StorageProvider::group_context` read (one KV round-trip, no ratchet tree)
+/// is all this needs.
+pub(crate) fn extract_group_mutable_metadata_capability_aware_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<GroupMutableMetadata, ComponentSourceError> {
+    if super::is_migrated_extensions(extensions) {
+        let mut base =
+            GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
+        merge_app_data_into_mutable_metadata_from_extensions(&mut base, extensions)?;
+        Ok(base)
+    } else {
+        Ok(GroupMutableMetadata::try_from(extensions)?)
     }
 }
 

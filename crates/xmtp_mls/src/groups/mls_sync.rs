@@ -2376,7 +2376,7 @@ where
     fn read_app_data_slot(mls_group: &OpenMlsGroup) -> Option<Option<String>> {
         use xmtp_mls_common::app_data::components::metadata_attributes::AppDataComponent;
 
-        super::app_data::typed_facade::MlsGroupAppData::new(mls_group)
+        super::app_data::typed_facade::MlsGroupAppData::new(mls_group.extensions())
             .get::<AppDataComponent>()
             .inspect_err(|err| tracing::debug!("could not read the app_data component: {err}"))
             .ok()

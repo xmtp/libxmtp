@@ -2822,69 +2822,59 @@ where
         &self,
         kind: AdminListKind,
     ) -> Result<Vec<String>, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            if self::app_data::is_migrated_group(&mls_group) {
-                let facade = self::app_data::typed_facade::MlsGroupAppData::new(&mls_group);
-                let set = match kind {
-                    AdminListKind::Admin => facade.get::<AdminListComponent>(),
-                    AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
-                }
-                .map_err(|e| {
-                    GroupError::MetadataPermissionsError(
-                        MetadataPermissionsError::ComponentSource(e),
-                    )
-                })?;
-                Ok(set
-                    .map(|s| s.iter().map(|id| id.to_hex()).collect())
-                    .unwrap_or_default())
-            } else {
-                // Unmigrated: return the Vec<String> straight from the
-                // legacy GMM extension so callers keep their pre-
-                // migration insertion order. Propagate decode errors
-                // (e.g. a corrupted legacy GMM extension) via the same
-                // `MetadataPermissionsError::Mutable(...)` shape that
-                // pre-refactor `mutable_metadata()?.admin_list`
-                // produced — a soft `.ok()` here would convert a loud
-                // failure into silent "no admins" data corruption.
-                // `MissingExtension` is the legacy "no extension on
-                // the group" case and remains the soft-skip → empty
-                // Vec contract.
-                let metadata =
-                    match xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
-                        &mls_group,
-                    ) {
-                        Ok(m) => Some(m),
-                        Err(
-                            xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension,
-                        ) => {
-                            // Expected on very old groups created before
-                            // the legacy GMM extension existed; logged at
-                            // debug to give operators visibility without
-                            // spamming warn on a legitimate state. An
-                            // empty list is the contract callers expect
-                            // (admin_list / super_admin_list return
-                            // `Ok(vec![])` here, not `Err`).
-                            tracing::debug!(
-                                group_id = %self.group_id,
-                                kind = ?kind,
-                                "unmigrated group has no legacy GroupMutableMetadata extension; returning empty admin set"
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            return Err(GroupError::MetadataPermissionsError(
-                                MetadataPermissionsError::Mutable(e),
-                            ));
-                        }
-                    };
-                Ok(metadata
-                    .map(|m| match kind {
-                        AdminListKind::Admin => m.admin_list,
-                        AdminListKind::SuperAdmin => m.super_admin_list,
-                    })
-                    .unwrap_or_default())
+        let ctx = self.load_group_context()?;
+        let extensions = ctx.extensions();
+        if self::app_data::is_migrated_extensions(extensions) {
+            let facade = self::app_data::typed_facade::MlsGroupAppData::new(extensions);
+            let set = match kind {
+                AdminListKind::Admin => facade.get::<AdminListComponent>(),
+                AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
             }
-        })
+            .map_err(|e| {
+                GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(e))
+            })?;
+            Ok(set
+                .map(|s| s.iter().map(|id| id.to_hex()).collect())
+                .unwrap_or_default())
+        } else {
+            // Unmigrated: return the Vec<String> straight from the legacy GMM
+            // extension so callers keep their pre-migration insertion order.
+            // Propagate decode errors (e.g. a corrupted legacy GMM extension)
+            // via the same `MetadataPermissionsError::Mutable(...)` shape that
+            // pre-refactor `mutable_metadata()?.admin_list` produced — a soft
+            // `.ok()` here would convert a loud failure into silent "no admins"
+            // data corruption. `MissingExtension` is the legacy "no extension on
+            // the group" case and remains the soft-skip → empty Vec contract.
+            let metadata = match xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata_from_extensions(
+                extensions,
+            ) {
+                Ok(m) => Some(m),
+                Err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension) => {
+                    // Expected on very old groups created before the legacy GMM
+                    // extension existed; logged at debug to give operators
+                    // visibility without spamming warn on a legitimate state. An
+                    // empty list is the contract callers expect (admin_list /
+                    // super_admin_list return `Ok(vec![])` here, not `Err`).
+                    tracing::debug!(
+                        group_id = %self.group_id,
+                        kind = ?kind,
+                        "unmigrated group has no legacy GroupMutableMetadata extension; returning empty admin set"
+                    );
+                    None
+                }
+                Err(e) => {
+                    return Err(GroupError::MetadataPermissionsError(
+                        MetadataPermissionsError::Mutable(e),
+                    ));
+                }
+            };
+            Ok(metadata
+                .map(|m| match kind {
+                    AdminListKind::Admin => m.admin_list,
+                    AdminListKind::SuperAdmin => m.super_admin_list,
+                })
+                .unwrap_or_default())
+        }
     }
 
     /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
@@ -3184,6 +3174,24 @@ where
         .await
     }
 
+    /// Read the group's `GroupContext` from storage — a single KV round-trip,
+    /// no ratchet tree, no secrets, no commit lock. All group metadata lives in
+    /// the context extensions, so metadata reads go through this rather than a
+    /// full `OpenMlsGroup::load`. The context key is written atomically on
+    /// commit, so a single-key read is metadata-consistent.
+    ///
+    /// (The pre-refactor sync `load_mls_group_with_lock` used only an *advisory*
+    /// lock for these reads — a failed `get_lock_sync` was ignored and the read
+    /// proceeded anyway — so dropping it changes nothing for reads.)
+    pub(crate) fn load_group_context(&self) -> Result<openmls::group::GroupContext, GroupError> {
+        use openmls_traits::storage::StorageProvider as _;
+        self.context
+            .mls_storage()
+            .group_context::<_, openmls::group::GroupContext>(&self.group_id.to_openmls())
+            .map_err(GroupError::from)?
+            .ok_or_else(|| GroupError::from(StorageError::from(NotFound::GroupById(self.group_id))))
+    }
+
     /// Get the `GroupMutableMetadata` of the group.
     ///
     /// Post-migration (dict contains `COMPONENT_REGISTRY` — see
@@ -3202,17 +3210,38 @@ where
     /// still authoritative.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         use self::app_data::component_source::ComponentSourceError;
+        let ctx = self.load_group_context()?;
+        self::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(
+            ctx.extensions(),
+        )
+        .map_err(|e| match e {
+            // Inner `GroupMutableMetadataError` originates from the legacy
+            // `TryFrom<&Extensions>` path on unmigrated groups; the
+            // `From<ComponentSourceError>` impl preserves it verbatim so binding
+            // consumers that pattern-match on `MetadataPermissionsError::Mutable`
+            // keep lighting up on `MissingExtension`.
+            ComponentSourceError::GroupMutableMetadata(inner) => {
+                GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
+            }
+            other => GroupError::MetadataPermissionsError(
+                MetadataPermissionsError::ComponentSource(other),
+            ),
+        })
+    }
+
+    /// Pre-L implementation of [`Self::mutable_metadata`]: a full
+    /// `OpenMlsGroup::load`. Retained only as the baseline the
+    /// read-amplification benchmark measures the context-read path against.
+    #[cfg(test)]
+    pub(crate) fn mutable_metadata_via_full_load(
+        &self,
+    ) -> Result<GroupMutableMetadata, GroupError> {
+        use self::app_data::component_source::ComponentSourceError;
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             self::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 &mls_group,
             )
             .map_err(|e| match e {
-                // Inner `GroupMutableMetadataError` originates from the
-                // legacy `TryFrom<&OpenMlsGroup>` path on unmigrated
-                // groups; the `From<ComponentSourceError>` impl
-                // preserves it verbatim so binding consumers that
-                // pattern-match on `MetadataPermissionsError::Mutable`
-                // keep lighting up on `MissingExtension`.
                 ComponentSourceError::GroupMutableMetadata(inner) => {
                     GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
                 }
@@ -3224,18 +3253,22 @@ where
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
-        })
+        let ctx = self.load_group_context()?;
+        let permissions: GroupMutablePermissions = ctx
+            .extensions()
+            .try_into()
+            .map_err(MetadataPermissionsError::from)?;
+        Ok(permissions)
     }
 
     /// Capability-aware single-component read.
     ///
-    /// Acquires the group lock, then uses the
-    /// [`self::app_data::typed_facade::MlsGroupAppData`] facade to read
-    /// exactly one [`Component`](xmtp_mls_common::app_data::typed::Component)
-    /// — avoiding the full `GroupMutableMetadata` composite parse that
-    /// [`Self::mutable_metadata`] runs on every call.
+    /// Reads the group's `GroupContext` (via [`Self::load_group_context`]),
+    /// then uses the [`self::app_data::typed_facade::MlsGroupAppData`] facade to
+    /// read exactly one [`Component`](xmtp_mls_common::app_data::typed::Component)
+    /// out of its extensions — avoiding both the full `OpenMlsGroup::load` and
+    /// the full `GroupMutableMetadata` composite parse that a naive read would
+    /// run on every call.
     ///
     /// Returns `Ok(None)` when the component has no stored value
     /// (legacy GMM attribute missing on unmigrated groups, or dict slot
@@ -3254,16 +3287,15 @@ where
         C: xmtp_mls_common::app_data::typed::Component,
     {
         use self::app_data::component_source::ComponentSourceError;
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            let facade = self::app_data::typed_facade::MlsGroupAppData::new(&mls_group);
-            facade.get::<C>().map_err(|e| match e {
-                ComponentSourceError::GroupMutableMetadata(inner) => {
-                    GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
-                }
-                other => GroupError::MetadataPermissionsError(
-                    MetadataPermissionsError::ComponentSource(other),
-                ),
-            })
+        let ctx = self.load_group_context()?;
+        let facade = self::app_data::typed_facade::MlsGroupAppData::new(ctx.extensions());
+        facade.get::<C>().map_err(|e| match e {
+            ComponentSourceError::GroupMutableMetadata(inner) => {
+                GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
+            }
+            other => GroupError::MetadataPermissionsError(
+                MetadataPermissionsError::ComponentSource(other),
+            ),
         })
     }
 

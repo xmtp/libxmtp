@@ -391,7 +391,15 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) ->
 pub fn extract_legacy_group_mutable_metadata(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    find_mutable_metadata_extension(group.extensions())
+    extract_legacy_group_mutable_metadata_from_extensions(group.extensions())
+}
+
+/// Same as [`extract_legacy_group_mutable_metadata`], but reads directly from a
+/// group's `GroupContext` extensions — no full `OpenMlsGroup` needed.
+pub fn extract_legacy_group_mutable_metadata_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
+    find_mutable_metadata_extension(extensions)
         .ok_or(GroupMutableMetadataError::MissingExtension)?
         .try_into()
 }
