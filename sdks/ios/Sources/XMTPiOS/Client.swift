@@ -145,6 +145,9 @@ public struct ClientOptions {
 	public var forkRecoveryOptions: ForkRecoveryOptions?
 	public var waitForRegistrationVisible: VisibilityConfirmationOptions?
 	public var dbPoolOptions: DbPoolOptions?
+	/// Unstable: notifications for group state changes, for clients that
+	/// reconcile a group's `appData` themselves. See ``UnstableChangeCallbacks``.
+	public var unstableChangeCallbacks: UnstableChangeCallbacks?
 
 	public init(
 		api: Api = Api(),
@@ -156,7 +159,8 @@ public struct ClientOptions {
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
 		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil,
-		dbPoolOptions: DbPoolOptions? = nil
+		dbPoolOptions: DbPoolOptions? = nil,
+		unstableChangeCallbacks: UnstableChangeCallbacks? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -168,6 +172,7 @@ public struct ClientOptions {
 		self.forkRecoveryOptions = forkRecoveryOptions
 		self.waitForRegistrationVisible = waitForRegistrationVisible
 		self.dbPoolOptions = dbPoolOptions
+		self.unstableChangeCallbacks = unstableChangeCallbacks
 	}
 }
 
@@ -461,7 +466,8 @@ public final class Client {
 				deviceSyncMode: deviceSyncMode,
 				allowOffline: buildOffline,
 				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
-				workerConfig: nil
+				workerConfig: nil,
+				changeCallbacks: options.unstableChangeCallbacks?.toFfi()
 			)
 
 			return (ffiClient, Client.inMemoryDbPath)
@@ -527,7 +533,8 @@ public final class Client {
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
 			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
-			workerConfig: nil
+			workerConfig: nil,
+			changeCallbacks: options.unstableChangeCallbacks?.toFfi()
 		)
 
 		return (ffiClient, dbURL)
@@ -720,7 +727,10 @@ public final class Client {
 			deviceSyncMode: nil,
 			allowOffline: false,
 			forkRecoveryOpts: nil,
-			workerConfig: nil
+			workerConfig: nil,
+			// Identity-probe client: never processes messages, so nothing to
+			// notify about.
+			changeCallbacks: nil
 		)
 	}
 

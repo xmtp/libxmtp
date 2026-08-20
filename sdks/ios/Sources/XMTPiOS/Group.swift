@@ -234,9 +234,24 @@ public struct Group: Identifiable, Equatable, Hashable {
 		)
 	}
 
-	public func updateAppData(appData: String) async throws {
+	/// Set the group's opaque `appData`.
+	///
+	/// `expectedAppData` is an optional compare-and-swap guard. When provided,
+	/// the update is abandoned — rather than overwriting — if the committed
+	/// value is no longer that, including when another member's commit wins
+	/// the race after this update was published. Callers reconciling
+	/// structured state should pass the value they merged against, so a
+	/// concurrent write surfaces as an error instead of silently discarding
+	/// someone else's change. Omit it for last-writer-wins.
+	public func updateAppData(
+		appData: String,
+		expectedAppData: String? = nil
+	) async throws {
 		try await ffiGroup.updateAppData(
-			options: FfiUpdateAppDataOptions(value: appData)
+			options: FfiUpdateAppDataOptions(
+				value: appData,
+				expectedValue: expectedAppData
+			)
 		)
 	}
 
