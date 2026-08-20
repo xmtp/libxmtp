@@ -1,6 +1,7 @@
 use crate::ErrorWrapper;
 use crate::client::Client;
 use crate::client::backend::Backend;
+use crate::client::change_callbacks::UnstableChangeCallbacks;
 use crate::client::gateway_auth::{AuthCallback, AuthHandle};
 use crate::client::options::{
   ClientMode, LogLevel, LogOptions, SyncWorkerMode, WorkerConfigOptions,
@@ -225,6 +226,7 @@ async fn create_client_inner(
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
+  change_callbacks: Option<&UnstableChangeCallbacks>,
 ) -> Result<Client> {
   // Install the rustls crypto provider explicitly rather than relying solely on the
   // `#[ctor::ctor(unsafe)]` in `xmtp_cryptography`, whose constructor link section does not run on
@@ -251,6 +253,10 @@ async fn create_client_inner(
 
   if let Some(worker_config) = worker_config {
     builder = builder.worker_config(worker_config.into());
+  }
+
+  if let Some(change_callbacks) = change_callbacks {
+    builder = builder.unstable_change_callbacks(change_callbacks.into());
   }
 
   let xmtp_client = builder
@@ -292,6 +298,7 @@ pub async fn create_client(
   auth_callback: Option<&AuthCallback>,
   auth_handle: Option<&AuthHandle>,
   client_mode: Option<ClientMode>,
+  change_callbacks: Option<&UnstableChangeCallbacks>,
 ) -> Result<Client> {
   let client_mode = client_mode.unwrap_or_default();
   init_logging(log_options.unwrap_or_default())?;
@@ -322,6 +329,7 @@ pub async fn create_client(
     allow_offline,
     app_version,
     nonce,
+    change_callbacks,
   )
   .await
 }
@@ -343,6 +351,7 @@ pub async fn create_client_with_backend(
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   nonce: Option<BigInt>,
+  change_callbacks: Option<&UnstableChangeCallbacks>,
 ) -> Result<Client> {
   init_logging(log_options.unwrap_or_default())?;
 
@@ -366,6 +375,7 @@ pub async fn create_client_with_backend(
     allow_offline,
     Some(backend.app_version()),
     nonce,
+    change_callbacks,
   )
   .await
 }

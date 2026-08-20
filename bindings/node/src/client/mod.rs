@@ -11,6 +11,7 @@ use xmtp_mls::groups::MlsGroup;
 
 pub mod backend;
 mod catch_up;
+pub mod change_callbacks;
 mod consent_state;
 pub mod create_client;
 pub(crate) mod gateway_auth;
