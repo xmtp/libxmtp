@@ -1,0 +1,5 @@
+error: variant wraps a foreign error via `#[from]` under `#[retry(default = true)]`; a forgotten annotation would silently retry a permanent error — state the policy explicitly with `#[retry(true)]`, `#[retry(false)]`, `#[retry(inherit)]`, or `#[retry(when = ...)]`
+  --> tests/ui/retryable/default_true_unannotated_from.rs:10:5
+   |
+10 |     Wrapped(#[from] core::num::ParseIntError),
+   |     ^^^^^^^

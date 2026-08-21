@@ -1,0 +1,5 @@
+error: only `#[retry(default = <bool>)]` is valid on an enum; set per-variant behavior with `#[retry(...)]` on the variants
+ --> tests/ui/retryable/container_true_on_enum.rs:6:1
+  |
+6 | #[retry(true)]
+  | ^
