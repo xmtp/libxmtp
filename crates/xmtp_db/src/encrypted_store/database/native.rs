@@ -1,5 +1,5 @@
 mod pool;
-mod sqlcipher_connection;
+pub(crate) mod sqlcipher_connection;
 
 use crate::StorageError;
 use crate::database::instrumentation::TestInstrumentation;
@@ -39,6 +39,11 @@ trait ConnectionOptions {
     fn options(&self) -> &StorageOption;
     fn is_persistent(&self) -> bool {
         matches!(self.options(), StorageOption::Persistent(_))
+    }
+    /// SQLCipher session-setup pragmas (key + plaintext header + salt) for
+    /// encrypted connections; `None` when the database is unencrypted.
+    fn session_pragmas(&self) -> Option<String> {
+        None
     }
 }
 
@@ -394,6 +399,24 @@ impl XmtpDb for NativeDb {
     fn validate(&self, conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
         self.customizer.validate(conn)?;
         Ok(())
+    }
+
+    fn integrity_check(
+        &self,
+        level: crate::integrity::IntegrityCheckLevel,
+    ) -> Result<crate::integrity::IntegrityCheckResult, ConnectionError> {
+        match self.opts.path() {
+            Some(path) => Ok(crate::integrity::check_database_path(
+                path,
+                self.customizer.session_pragmas().as_deref(),
+                level,
+            )),
+            // Ephemeral: nothing on disk to open by path; run on the
+            // existing connection (documented spec exception).
+            None => self
+                .conn()
+                .raw_query(|conn| Ok(crate::integrity::run_checks(conn, level, false))),
+        }
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
