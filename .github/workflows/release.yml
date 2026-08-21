@@ -64,6 +64,7 @@ jobs:
     outputs:
       release-type: ${{ steps.resolve.outputs.release-type }}
       ref: ${{ steps.resolve.outputs.ref }}
+      branch: ${{ steps.branch.outputs.branch }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
@@ -105,6 +106,16 @@ jobs:
             echo "agent-sdk=$INPUT_AGENT_SDK" >> "$GITHUB_OUTPUT"
             echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
           fi
+      # `ref` can arrive as either `refs/heads/x` or `x` (inputs.ref is free
+      # text, github.ref is always fully qualified). `branch` is the single
+      # normalized form, so anything that keys off branch IDENTITY — the
+      # open-consumer-prs concurrency group, which must agree with the
+      # manifests' pipelineid hash — can't be fooled by the spelling.
+      - name: Normalize ref to a branch name
+        id: branch
+        env:
+          REF: ${{ steps.resolve.outputs.ref }}
+        run: echo "branch=${REF#refs/heads/}" >> "$GITHUB_OUTPUT"
       - name: Validate dev release
         if: steps.resolve.outputs.release-type == 'dev'
         env:
@@ -258,6 +269,85 @@ jobs:
       pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
+
+  # Dev releases only: open (or update) a version-bump PR in each xmtplabs
+  # consumer repo for the SDKs this run published. All logic lives in the
+  # updatecli manifests under dev/updatecli/; this job only mints a token per
+  # consumer and invokes them. A leg whose SDK wasn't selected (empty version)
+  # no-ops. The convos-cli/convos-assistants manifests run `corepack pnpm` in
+  # the consumer clone, relying on the runner image's default Node still
+  # bundling corepack.
+  open-consumer-prs:
+    needs: [validate, release-ios, release-android, release-node-sdk]
+    if: >-
+      !cancelled()
+      && needs.validate.outputs.release-type == 'dev'
+      && needs.validate.outputs.dry-run != 'true'
+      && (needs.release-ios.result == 'success'
+          || needs.release-android.result == 'success'
+          || needs.release-node-sdk.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # One writer at a time per (consumer, source branch): the working branch and
+    # PR are shared by every dev release from that branch, so a slow older run
+    # could otherwise force-push its stale pins over a newer one. The group MUST
+    # include matrix.consumer — legs of one run are separate job instances, and
+    # a consumer-less group would make them cancel each other.
+    # Residual (unfixable here): concurrency only binds once a job is queued, so
+    # an older run whose leg starts after a newer run already finished still
+    # writes last. Re-run the newer release if that ever happens.
+    concurrency:
+      group: open-consumer-prs-${{ matrix.consumer }}-${{ needs.validate.outputs.branch }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - consumer: convos-ios
+            version: ${{ needs.release-ios.outputs.version }}
+          - consumer: convos-client
+            version: ${{ needs.release-android.outputs.version }}
+          - consumer: convos-cli
+            version: ${{ needs.release-node-sdk.outputs.version }}
+            binding-version: ${{ needs.release-node-sdk.outputs.binding-version }}
+          - consumer: convos-assistants
+            version: ${{ needs.release-node-sdk.outputs.version }}
+            binding-version: ${{ needs.release-node-sdk.outputs.binding-version }}
+    steps:
+      # Trust boundary: this job holds a token that can write to the xmtplabs
+      # consumer repos, and the manifests it runs can execute shell. So check the
+      # automation out from main — NEVER from the (caller-supplied) release ref,
+      # which would let a dev release from any branch run that branch's manifests
+      # with the token. The release ref crosses the boundary as data only
+      # (SOURCE_BRANCH below); nothing else here reads the checkout, so main's
+      # copy is sufficient. Corollary: manifest edits only take effect once
+      # merged to main — verify them locally with `updatecli pipeline diff`
+      # (see docs/create-a-release.md).
+      - uses: actions/checkout@v6
+        if: matrix.version != ''
+        with:
+          ref: main
+          persist-credentials: false
+      # The action tag pins the updatecli binary (v3.6.0 -> updatecli v0.120.1); bumping the tag bumps the binary.
+      - uses: updatecli/updatecli-action@v3.6.0
+        if: matrix.version != ''
+      - uses: actions/create-github-app-token@v2
+        if: matrix.version != ''
+        id: app-token
+        with:
+          app-id: ${{ secrets.CONSUMER_PR_APP_ID }}
+          private-key: ${{ secrets.CONSUMER_PR_APP_PRIVATE_KEY }}
+          owner: xmtplabs
+          repositories: ${{ matrix.consumer }}
+      - name: Open consumer PR
+        if: matrix.version != ''
+        env:
+          UPDATECLI_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ matrix.version }}
+          BINDING_VERSION: ${{ matrix.binding-version }}
+          SOURCE_BRANCH: ${{ needs.validate.outputs.ref }}
+        run: updatecli pipeline apply --config dev/updatecli/${{ matrix.consumer }}.yaml
 
   merge-pr:
     # dry-run must not mutate the repo: a final + dry-run would otherwise merge
