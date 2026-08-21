@@ -9,7 +9,7 @@ use diesel::{
 use std::{
     fmt::Display,
     fs::File,
-    io::{BufReader, Read, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -75,10 +75,7 @@ impl EncryptedConnection {
                             db_pathbuf.display(),
                             salt_path.display(),
                         );
-                        let file = BufReader::new(File::open(salt_path)?);
-                        salt = <Salt as hex::FromHex>::from_hex(
-                            file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
-                        )?;
+                        salt = <Salt as hex::FromHex>::from_hex(read_salt_hex(db_path)?)?;
                     }
                     // the db exists and needs to be migrated
                     (false, true) => {
@@ -225,23 +222,9 @@ impl EncryptedConnection {
     }
 
     /// Output the correct order of PRAGMAS to instantiate a connection
-    fn pragmas(&self) -> impl Display {
+    fn pragmas(&self) -> String {
         let Self { key, salt, .. } = self;
-
-        if let Some(s) = salt {
-            format!(
-                "{}\n{}\n{}",
-                pragma_key(hex::encode(key)),
-                pragma_plaintext_header(),
-                pragma_salt(hex::encode(s))
-            )
-        } else {
-            format!(
-                "{}\n{}",
-                pragma_key(hex::encode(key)),
-                pragma_plaintext_header()
-            )
-        }
+        assemble_session_pragmas(key, salt.map(hex::encode).as_deref())
     }
 
     fn check_for_sqlcipher(
@@ -267,6 +250,10 @@ impl EncryptedConnection {
 impl ConnectionOptions for EncryptedConnection {
     fn options(&self) -> &StorageOption {
         &self.options
+    }
+
+    fn session_pragmas(&self) -> Option<String> {
+        Some(self.pragmas().to_string())
     }
 }
 
@@ -314,22 +301,56 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
         if cfg!(any(test, feature = "test-utils")) {
             conn.set_instrumentation(TestInstrumentation);
         }
-        conn.batch_execute(&format!("{}", self.pragmas(),))
+        conn.batch_execute(&self.pragmas())
             .map_err(diesel::r2d2::Error::QueryError)?;
         connection_pragmas(conn)?;
         Ok(())
     }
 }
 
-fn pragma_key(key: impl Display) -> impl Display {
+/// Assemble the SQLCipher session pragmas (key, plaintext header, then salt)
+/// in the order SQLCipher requires. Single source of truth for connection
+/// setup and the by-path integrity checker.
+pub(crate) fn assemble_session_pragmas(key: &EncryptionKey, salt_hex: Option<&str>) -> String {
+    match salt_hex {
+        Some(salt) => format!(
+            "{}\n{}\n{}",
+            pragma_key(hex::encode(key)),
+            pragma_plaintext_header(),
+            pragma_salt(salt)
+        ),
+        None => format!(
+            "{}\n{}",
+            pragma_key(hex::encode(key)),
+            pragma_plaintext_header()
+        ),
+    }
+}
+
+/// Read the hex salt from `<db>.sqlcipher_salt`, validating it is exactly
+/// 32 hex chars (16 bytes). Contents are untrusted input — they get
+/// interpolated into a PRAGMA — so anything malformed is rejected here.
+pub(crate) fn read_salt_hex<P: AsRef<Path>>(db_path: P) -> std::io::Result<String> {
+    let salt_path = EncryptedConnection::salt_file(db_path)?;
+    let salt_hex = std::fs::read_to_string(&salt_path)?.trim().to_string();
+    if salt_hex.len() != 32 || !salt_hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid SQLCipher salt sidecar: expected 32 hexadecimal characters",
+        ));
+    }
+    Ok(salt_hex)
+}
+
+pub(crate) fn pragma_key(key: impl Display) -> impl Display {
     format!(r#"PRAGMA key = "x'{key}'";"#)
 }
 
-fn pragma_salt(salt: impl Display) -> impl Display {
+pub(crate) fn pragma_salt(salt: impl Display) -> impl Display {
     format!(r#"PRAGMA cipher_salt="x'{salt}'";"#)
 }
 
-fn pragma_plaintext_header() -> impl Display {
+pub(crate) fn pragma_plaintext_header() -> impl Display {
     format!(r#"PRAGMA cipher_plaintext_header_size={PLAINTEXT_HEADER_SIZE};"#)
 }
 
@@ -338,6 +359,7 @@ mod tests {
     use crate::{EncryptedMessageStore, NativeDb, XmtpTestDb};
     use diesel_migrations::MigrationHarness;
     use std::fs::File;
+    use std::io::Read;
     use xmtp_common::tmp_path;
 
     use super::*;

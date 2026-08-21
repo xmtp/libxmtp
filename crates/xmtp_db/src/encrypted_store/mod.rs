@@ -23,6 +23,7 @@ pub mod icebox;
 pub mod identity;
 pub mod identity_cache;
 pub mod identity_update;
+pub mod integrity;
 pub mod key_package_history;
 pub mod key_store_entry;
 pub mod local_commit_log;
@@ -332,6 +333,19 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
     /// Validate a connection is as expected
     fn validate(&self, _conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
         Ok(())
+    }
+
+    /// Run a read-only database integrity check. The default implementation
+    /// runs on this database's existing connection (correct for ephemeral,
+    /// wasm, and mock databases); backends with a persistent file override
+    /// this to use a dedicated read-only checker connection so the check
+    /// never contends with the database's own connections.
+    fn integrity_check(
+        &self,
+        level: crate::integrity::IntegrityCheckLevel,
+    ) -> Result<crate::integrity::IntegrityCheckResult, ConnectionError> {
+        self.conn()
+            .raw_query(|conn| Ok(crate::integrity::run_checks(conn, level, false)))
     }
 
     /// Returns the Connection implementation for this Database
