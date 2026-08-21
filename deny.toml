@@ -3,6 +3,7 @@ ignore = [
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
   { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },
+  { id = "RUSTSEC-2026-0258", reason = "h2 empty DATA frames DoS. The production stack (hyper 1.x) is patched to h2 0.4.16; the only residual is h2 0.3.x, pulled solely by the test-only toxiproxy_rust via reqwest 0.11, which has no 0.3.x fix. Not reachable in shipped code." },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests
