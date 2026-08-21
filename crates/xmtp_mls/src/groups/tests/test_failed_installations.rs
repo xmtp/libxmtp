@@ -1,6 +1,7 @@
 //! A key package can become unfetchable between intent-build and publish.
 //! `GroupMembership::failed_installations` must still record it.
 
+use crate::groups::EnableProposalsOptions;
 use crate::groups::GroupError;
 use crate::groups::intents::QueueIntent;
 use crate::groups::validated_commit::extract_group_membership;
@@ -111,6 +112,52 @@ async fn joiner_accepts_welcome_with_publish_time_failed_installation() {
         "caro's welcome must not be rejected as InvalidGroupMembership"
     );
     assert_eq!(caro.find_groups(GroupQueryArgs::default())?.len(), 1);
+
+    set_test_mode_upload_malformed_keypackage(false, None);
+}
+
+/// The same problem on a migrated group. Membership travels as an
+/// `AppDataUpdate(GROUP_MEMBERSHIP)` proposal. The failure reaches the wire
+/// only if the per-inbox `failed_installations` field holds it.
+#[xmtp_common::test(unwrap_try = true)]
+async fn migrated_group_carries_failed_installation_in_app_data() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+
+    // This drops the legacy extension. Membership moves into the AppData dict.
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    tester!(bo2, from: bo);
+    let bo2_installation = bo2.context.installation_id().to_vec();
+
+    publish_update_with_publish_time_failure(&alix_group, &[caro.inbox_id()], &bo2_installation)
+        .await?;
+
+    // On a migrated group, this joins the per-inbox dict entries to rebuild
+    // the group-level list.
+    let membership = alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(extract_group_membership(mls_group.extensions())?)
+        })
+        .await?;
+    assert!(
+        membership.failed_installations.contains(&bo2_installation),
+        "the failure must survive the round trip through the per-inbox AppData entries"
+    );
+
+    let caro_groups = caro.sync_welcomes().await?;
+    assert_eq!(
+        caro_groups.len(),
+        1,
+        "caro's welcome must not be rejected as InvalidGroupMembership"
+    );
 
     set_test_mode_upload_malformed_keypackage(false, None);
 }

@@ -45,10 +45,16 @@ pub enum IdentityUpdateError {
     InvalidSignatureRequest(#[from] SignatureRequestError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InstallationDiff {
     pub added_installations: HashSet<Vec<u8>>,
     pub removed_installations: HashSet<Vec<u8>>,
+    /// Maps `installation_id` to `inbox_id`. An inbox `aa..` that owns
+    /// installations `0x01` and `0x02` gives `{0x01: "aa..", 0x02: "aa.."}`.
+    /// The map holds the full installation list for each added or updated
+    /// inbox at the end sequence id. It does not hold only the delta. An
+    /// earlier commit can therefore still name the owner of a failed id.
+    pub installation_owners: HashMap<Vec<u8>, String>,
 }
 
 #[derive(Debug, Error)]
@@ -235,15 +241,16 @@ where
         .await
     }
 
-    /// Calculate the changes between the `starting_sequence_id` and `ending_sequence_id` for the
-    /// provided `inbox_id`
+    /// Calculate the changes between `starting_sequence_id` and `ending_sequence_id`
+    /// for `inbox_id`. Also return the state at `ending_sequence_id`. This
+    /// function verifies the signatures, so a caller does not repeat that work.
     pub(crate) async fn get_association_state_diff(
         &self,
         conn: &impl DbQuery,
         inbox_id: InboxIdRef<'a>,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
-    ) -> Result<AssociationStateDiff, ClientError> {
+    ) -> Result<(AssociationStateDiff, AssociationState), ClientError> {
         tracing::debug!(
             "Computing diff for {:?} from {:?} to {:?}",
             inbox_id,
@@ -252,10 +259,11 @@ where
         );
         // If no starting sequence ID, get all updates from the beginning of the inbox's history up to the ending sequence ID
         if starting_sequence_id.is_none() {
-            return Ok(self
+            let final_state = self
                 .get_association_state(conn, inbox_id, ending_sequence_id)
-                .await?
-                .as_diff());
+                .await?;
+            let diff = final_state.as_diff();
+            return Ok((diff, final_state));
         }
 
         // Get the initial state to compare against
@@ -302,7 +310,8 @@ where
             )?;
         }
 
-        Ok(initial_state.diff(&final_state))
+        let diff = initial_state.diff(&final_state);
+        Ok((diff, final_state))
     }
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
@@ -518,6 +527,7 @@ where
 
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
         let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
+        let mut installation_owners: HashMap<Vec<u8>, String> = HashMap::new();
 
         let mut futs = FuturesUnordered::new();
         for inbox_id in added_and_updated_members {
@@ -533,7 +543,7 @@ where
                 // `0` through. Every receiver then rejects the commit.
                 // `get_installation_diff_rejects_added_inbox_at_sequence_zero`
                 // guards this.
-                let state_diff = self
+                let (state_diff, ending_state) = self
                     .get_association_state_diff(
                         conn,
                         inbox_id.as_str(),
@@ -542,13 +552,18 @@ where
                     )
                     .await?;
 
-                Ok::<_, InstallationDiffError>(state_diff)
+                Ok::<_, InstallationDiffError>((state_diff, ending_state))
             });
         }
         while let Some(result) = futs.next().await {
-            let diff = result?;
+            let (diff, ending_state) = result?;
             added_installations.extend(diff.new_installations());
             removed_installations.extend(diff.removed_installations());
+            // Record every installation that this inbox owns at that sequence id.
+            let owner = ending_state.inbox_id().to_string();
+            for installation_id in ending_state.installation_ids() {
+                installation_owners.insert(installation_id, owner.clone());
+            }
         }
 
         for inbox_id in membership_diff.removed_inboxes.iter() {
@@ -584,6 +599,7 @@ where
         Ok(InstallationDiff {
             added_installations,
             removed_installations,
+            installation_owners,
         })
     }
 }
