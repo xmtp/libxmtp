@@ -20,9 +20,7 @@ describe("setPackageJsonDependency", () => {
   let packageJsonPath: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "release-tools-set-dep-"),
-    );
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-set-dep-"));
     packageJsonPath = path.join(tmpDir, "package.json");
     fs.writeFileSync(packageJsonPath, SAMPLE_PACKAGE_JSON);
   });
@@ -44,11 +42,7 @@ describe("setPackageJsonDependency", () => {
   });
 
   it("leaves all other fields and formatting intact", () => {
-    setPackageJsonDependency(
-      packageJsonPath,
-      "@xmtp/node-bindings",
-      "1.11.0",
-    );
+    setPackageJsonDependency(packageJsonPath, "@xmtp/node-bindings", "1.11.0");
     const content = fs.readFileSync(packageJsonPath, "utf-8");
     const parsed = JSON.parse(content);
 

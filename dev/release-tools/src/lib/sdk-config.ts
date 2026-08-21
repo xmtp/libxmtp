@@ -67,10 +67,20 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifestPath: "sdks/js/browser-sdk/package.json",
     tagPrefix: "browser-sdk-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("sdks/js/browser-sdk/package.json"),
+    manifest: createPackageJsonManifestProvider(
+      "sdks/js/browser-sdk/package.json",
+    ),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "bindings/wasm/**", "sdks/js/browser-sdk/**"],
-    notesExcludeGlobs: ["bindings/node/**", "bindings/mobile/**", "sdks/js/node-sdk/**"],
+    notesIncludeGlobs: [
+      "crates/**",
+      "bindings/wasm/**",
+      "sdks/js/browser-sdk/**",
+    ],
+    notesExcludeGlobs: [
+      "bindings/node/**",
+      "bindings/mobile/**",
+      "sdks/js/node-sdk/**",
+    ],
     releaseWorkflow: "release-browser-sdk.yml",
     channels: ["nightly", "rc", "final"],
   },
@@ -79,10 +89,16 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifestPath: "sdks/js/node-sdk/package.json",
     tagPrefix: "node-sdk-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("sdks/js/node-sdk/package.json"),
+    manifest: createPackageJsonManifestProvider(
+      "sdks/js/node-sdk/package.json",
+    ),
     versionTrack: "independent",
     notesIncludeGlobs: ["crates/**", "bindings/node/**", "sdks/js/node-sdk/**"],
-    notesExcludeGlobs: ["bindings/wasm/**", "bindings/mobile/**", "sdks/js/browser-sdk/**"],
+    notesExcludeGlobs: [
+      "bindings/wasm/**",
+      "bindings/mobile/**",
+      "sdks/js/browser-sdk/**",
+    ],
     releaseWorkflow: "release-node-sdk.yml",
     channels: ["nightly", "rc", "final"],
   },
@@ -91,7 +107,9 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifestPath: "sdks/js/agent-sdk/package.json",
     tagPrefix: "agent-sdk-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("sdks/js/agent-sdk/package.json"),
+    manifest: createPackageJsonManifestProvider(
+      "sdks/js/agent-sdk/package.json",
+    ),
     versionTrack: "independent",
     notesIncludeGlobs: ["sdks/js/agent-sdk/**"],
     notesExcludeGlobs: [
