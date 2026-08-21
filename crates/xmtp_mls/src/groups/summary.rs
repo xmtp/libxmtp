@@ -30,6 +30,24 @@ impl RetryableError for SyncSummary {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for SyncSummary {
+    /// Scans every error source (incl. per-message `process.errored`, which
+    /// `is_retryable` skips) so a dropped pool wrapped in a summary still surfaces.
+    fn needs_db_reconnect(&self) -> bool {
+        self.publish_errors.iter().any(|e| e.needs_db_reconnect())
+            || self
+                .post_commit_errors
+                .iter()
+                .any(|e| e.needs_db_reconnect())
+            || self.other.as_ref().is_some_and(|e| e.needs_db_reconnect())
+            || self
+                .process
+                .errored
+                .iter()
+                .any(|(_, e)| e.needs_db_reconnect())
+    }
+}
+
 impl SyncSummary {
     /// synced a single message successfully
     pub fn single(msg: MessageIdentifier) -> Self {
