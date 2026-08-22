@@ -350,6 +350,55 @@ class ClientTest : BaseInstrumentedTest() {
     }
 
     @Test
+    fun testDbIntegrityCheck() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val client =
+            runBlocking {
+                Client.create(
+                    account = fakeWallet,
+                    options =
+                        ClientOptions(
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            appContext = context,
+                            dbEncryptionKey = key,
+                        ),
+                )
+            }
+
+        val outcome = runBlocking { client.dbIntegrityCheck() }
+        assertEquals("ok", outcome.outcome)
+        assertEquals(emptyList<String>(), outcome.findings)
+    }
+
+    @Test
+    fun testCheckDatabaseIntegrityStatic() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val client =
+            runBlocking {
+                Client.create(
+                    account = fakeWallet,
+                    options =
+                        ClientOptions(
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            appContext = context,
+                            dbEncryptionKey = key,
+                        ),
+                )
+            }
+
+        // Release the pooled connection so the free function's dedicated
+        // read-only connection isn't opened against a live client.
+        runBlocking { client.dropLocalDatabaseConnection() }
+
+        val outcome = runBlocking { Client.checkDatabaseIntegrity(client.dbPath, key) }
+        assertEquals("ok", outcome.outcome)
+    }
+
+    @Test
     fun testCanGetAnInboxIdFromAddress() {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext

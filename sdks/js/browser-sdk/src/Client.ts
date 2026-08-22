@@ -10,6 +10,8 @@ import {
   type GroupSyncSummary,
   type Identifier,
   type InboxState,
+  type IntegrityCheckLevel,
+  type IntegrityCheckOutcome,
 } from "@xmtp/wasm-bindings";
 import { CodecRegistry } from "@/CodecRegistry";
 import { HistorySyncUrls } from "@/constants";
@@ -1085,5 +1087,17 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   async syncAllDeviceSyncGroups(): Promise<GroupSyncSummary> {
     return this.#worker.action("client.syncAllDeviceSyncGroups");
+  }
+
+  /**
+   * Run a read-only integrity check on this client's database
+   *
+   * @param level - Check depth, defaults to `IntegrityCheckLevel.Quick`
+   * @returns Promise that resolves with the outcome and any findings
+   */
+  async dbIntegrityCheck(
+    level?: IntegrityCheckLevel,
+  ): Promise<IntegrityCheckOutcome> {
+    return this.#worker.action("client.dbIntegrityCheck", { level });
   }
 }

@@ -90,6 +90,7 @@ mod content_types;
 mod dms;
 mod group_management;
 mod identity;
+mod integrity;
 mod lifecycle;
 mod networking;
 mod static_methods;

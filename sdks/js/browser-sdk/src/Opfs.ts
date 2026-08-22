@@ -1,3 +1,4 @@
+import type { IntegrityCheckLevel } from "@xmtp/wasm-bindings";
 import type { OpfsAction } from "@/types/actions/opfs";
 import { WorkerBridge } from "@/utils/WorkerBridge";
 
@@ -59,5 +60,16 @@ export class Opfs {
 
   async clearAll() {
     return this.#worker.action("opfs.clearAll");
+  }
+
+  /**
+   * Run a read-only integrity check on a database file without a client.
+   *
+   * @param path - Path of the database file in OPFS
+   * @param level - Check depth, defaults to `IntegrityCheckLevel.Quick`
+   * @returns Promise that resolves with the outcome and any findings
+   */
+  async checkDatabaseIntegrity(path: string, level?: IntegrityCheckLevel) {
+    return this.#worker.action("opfs.checkDatabaseIntegrity", { path, level });
   }
 }

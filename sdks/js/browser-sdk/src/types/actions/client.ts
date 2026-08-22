@@ -4,6 +4,8 @@ import type {
   AvailableArchiveInfo,
   GroupSyncSummary,
   Identifier,
+  IntegrityCheckLevel,
+  IntegrityCheckOutcome,
   KeyPackageStatus,
 } from "@xmtp/wasm-bindings";
 import type {
@@ -305,4 +307,12 @@ export type ClientAction =
       id: string;
       result: GroupSyncSummary;
       data: undefined;
+    }
+  | {
+      action: "client.dbIntegrityCheck";
+      id: string;
+      result: IntegrityCheckOutcome;
+      data: {
+        level?: IntegrityCheckLevel;
+      };
     };

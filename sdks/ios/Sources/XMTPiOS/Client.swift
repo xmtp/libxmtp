@@ -801,6 +801,27 @@ public final class Client {
 		)
 	}
 
+	/// Read-only integrity check of a database file by path, without a
+	/// client. For encrypted databases pass the same ``Data``
+	/// ``encryptionKey`` used to create the client.
+	public static func checkDatabaseIntegrity(
+		dbPath: String,
+		encryptionKey: Data? = nil,
+		level: IntegrityCheckLevel = .quick
+	) async throws -> IntegrityCheckOutcome {
+		let result: FfiIntegrityCheckOutcome
+		#if canImport(XMTPiOS)
+			result = try await XMTPiOS.checkDatabaseIntegrity(
+				dbPath: dbPath, encryptionKey: encryptionKey, level: level.toFfi()
+			)
+		#else
+			result = try await XMTP.checkDatabaseIntegrity(
+				dbPath: dbPath, encryptionKey: encryptionKey, level: level.toFfi()
+			)
+		#endif
+		return IntegrityCheckOutcome(result)
+	}
+
 	init(
 		ffiClient: FfiXmtpClient, dbPath: String,
 		installationID: String, inboxID: InboxId, environment: XMTPEnvironment,
@@ -979,6 +1000,18 @@ public final class Client {
 	{
 		try await CatchUpSummary(
 			ffiClient.catchUpToLive(opts: FfiCatchUpOptions(timeoutMs: timeoutMs))
+		)
+	}
+
+	/// Read-only integrity check of this client's local database. Persistent
+	/// databases are checked on a dedicated read-only connection without
+	/// blocking this client's DB operations; ephemeral in-memory databases
+	/// use the client's own connection.
+	public func dbIntegrityCheck(level: IntegrityCheckLevel = .quick) async throws
+		-> IntegrityCheckOutcome
+	{
+		try await IntegrityCheckOutcome(
+			ffiClient.dbIntegrityCheck(level: level.toFfi())
 		)
 	}
 

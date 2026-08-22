@@ -1,4 +1,4 @@
-import { IdentifierKind } from "@xmtp/wasm-bindings";
+import { IdentifierKind, IntegrityCheckLevel } from "@xmtp/wasm-bindings";
 import { describe, expect, it } from "vitest";
 import { Client } from "@/Client";
 import { SignerUnavailableError } from "@/utils/errors";
@@ -469,5 +469,18 @@ describe("Client", () => {
     expect(inboxUpdatesCounts.get(client.inboxId!)).toBe(ownInboxUpdatesCount);
     expect(inboxUpdatesCounts.get(client.inboxId!)).toBeTypeOf("number");
     expect(ownInboxUpdatesCount).toBeTypeOf("number");
+  });
+
+  it("should run a database integrity check", async () => {
+    const { signer } = createSigner();
+    const client = await createRegisteredClient(signer);
+
+    const outcome = await client.dbIntegrityCheck();
+    expect(outcome.outcome).toBe("ok");
+    expect(outcome.findings).toEqual([]);
+
+    const fullOutcome = await client.dbIntegrityCheck(IntegrityCheckLevel.Full);
+    expect(fullOutcome.outcome).toBe("ok");
+    expect(fullOutcome.findings).toEqual([]);
   });
 });

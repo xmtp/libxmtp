@@ -392,6 +392,11 @@ self.onmessage = async (
         postMessage({ id, action, result });
         break;
       }
+      case "client.dbIntegrityCheck": {
+        const result = await client.dbIntegrityCheck(data.level);
+        postMessage({ id, action, result });
+        break;
+      }
       /**
        * Debug information actions
        */
