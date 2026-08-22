@@ -66,6 +66,13 @@ where
         self.db.validate(conn)
     }
 
+    fn integrity_check(
+        &self,
+        level: crate::integrity::IntegrityCheckLevel,
+    ) -> Result<crate::integrity::IntegrityCheckResult, ConnectionError> {
+        self.db.integrity_check(level)
+    }
+
     fn opts(&self) -> &StorageOption {
         self.db.opts()
     }

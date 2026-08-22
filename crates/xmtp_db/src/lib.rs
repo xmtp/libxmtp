@@ -53,6 +53,9 @@ pub mod prelude {
     pub use super::identity::QueryIdentity;
     pub use super::identity_cache::QueryIdentityCache;
     pub use super::identity_update::QueryIdentityUpdates;
+    pub use super::integrity::{
+        IntegrityCheckLevel, IntegrityCheckResult, check_database_integrity,
+    };
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;

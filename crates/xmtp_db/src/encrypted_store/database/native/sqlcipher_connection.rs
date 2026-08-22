@@ -268,6 +268,10 @@ impl ConnectionOptions for EncryptedConnection {
     fn options(&self) -> &StorageOption {
         &self.options
     }
+
+    fn session_pragmas(&self) -> Option<String> {
+        Some(self.pragmas().to_string())
+    }
 }
 
 impl super::ValidatedConnection for EncryptedConnection {
@@ -321,15 +325,15 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
     }
 }
 
-fn pragma_key(key: impl Display) -> impl Display {
+pub(crate) fn pragma_key(key: impl Display) -> impl Display {
     format!(r#"PRAGMA key = "x'{key}'";"#)
 }
 
-fn pragma_salt(salt: impl Display) -> impl Display {
+pub(crate) fn pragma_salt(salt: impl Display) -> impl Display {
     format!(r#"PRAGMA cipher_salt="x'{salt}'";"#)
 }
 
-fn pragma_plaintext_header() -> impl Display {
+pub(crate) fn pragma_plaintext_header() -> impl Display {
     format!(r#"PRAGMA cipher_plaintext_header_size={PLAINTEXT_HEADER_SIZE};"#)
 }
 
