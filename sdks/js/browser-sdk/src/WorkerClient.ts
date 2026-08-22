@@ -6,6 +6,8 @@ import {
   type Client,
   type GroupSyncSummary,
   type Identifier,
+  type IntegrityCheckLevel,
+  type IntegrityCheckOutcome,
   type KeyPackageStatus,
   type SignatureRequestHandle,
 } from "@xmtp/wasm-bindings";
@@ -256,5 +258,11 @@ export class WorkerClient {
 
   async syncAllDeviceSyncGroups(): Promise<GroupSyncSummary> {
     return this.#client.device_sync().syncAllDeviceSyncGroups();
+  }
+
+  async dbIntegrityCheck(
+    level?: IntegrityCheckLevel,
+  ): Promise<IntegrityCheckOutcome> {
+    return this.#client.dbIntegrityCheck(level);
   }
 }

@@ -1,3 +1,4 @@
+import { IntegrityCheckLevel } from "@xmtp/wasm-bindings";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Opfs } from "@/Opfs";
 import { uuid } from "@/utils/uuid";
@@ -134,6 +135,27 @@ describe.skip("Opfs", () => {
       const files2 = await opfs.listFiles();
       expect(files2).toHaveLength(0);
       opfs.close();
+    });
+
+    it("should check the integrity of a client database", async () => {
+      const { signer } = createSigner();
+      const dbPath = `./test-${uuid()}.db3`;
+      const client = await createRegisteredClient(signer, {
+        dbPath,
+      });
+      client.close();
+      const opfs = await Opfs.create();
+      const outcome = await opfs.checkDatabaseIntegrity(dbPath);
+      const fullOutcome = await opfs.checkDatabaseIntegrity(
+        dbPath,
+        IntegrityCheckLevel.Full,
+      );
+      await opfs.clearAll();
+      opfs.close();
+      expect(outcome.outcome).toBe("ok");
+      expect(outcome.findings).toEqual([]);
+      expect(fullOutcome.outcome).toBe("ok");
+      expect(fullOutcome.findings).toEqual([]);
     });
   });
 });
