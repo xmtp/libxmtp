@@ -270,7 +270,15 @@ impl super::ValidatedConnection for EncryptedConnection {
         ))
         .map_err(|e| {
             tracing::error!("SQLCipher PRAGMA batch_execute failed: {:?}", e);
-            PlatformStorageError::SqlCipherKeyIncorrect
+            let msg = e.to_string().to_lowercase();
+            if msg.contains("malformed") || msg.contains("corrupt") {
+                PlatformStorageError::DatabaseCorrupt(e.to_string())
+            } else {
+                // Everything else stays a key problem. Under plaintext headers
+                // wrong-key failure shapes are data-dependent, so a wrong key
+                // can still surface as DatabaseCorrupt; both are non-retryable.
+                PlatformStorageError::SqlCipherKeyIncorrect
+            }
         })?;
 
         let CipherProviderVersion {
@@ -447,6 +455,64 @@ mod tests {
                 String::from_utf8(plaintext_header.into()).unwrap()
             );
         }
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    #[tokio::test]
+    async fn corrupt_db_reports_corrupt_not_wrong_key() {
+        use crate::ConnectionExt;
+        use std::io::{Seek, SeekFrom, Write};
+        let db_path = tmp_path();
+        let key = EncryptedMessageStore::<()>::generate_enc_key();
+        {
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key(key)
+                .single_connection()
+                .build()
+                .unwrap();
+            let store = EncryptedMessageStore::new(db).unwrap();
+            // Force all migrated schema/data out of the `-wal` sidecar and
+            // into the main file: a byte-flip against the main file would
+            // otherwise never touch it. `single_connection()` above ensures
+            // there is exactly one connection (no pooled readers holding a
+            // snapshot open), so the TRUNCATE checkpoint always fully
+            // applies deterministically.
+            store
+                .conn()
+                .raw_query(|c| c.batch_execute("PRAGMA wal_checkpoint(TRUNCATE);"))
+                .unwrap();
+        }
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&db_path)
+            .unwrap();
+        let len = f.metadata().unwrap().len();
+        // Truncate to half length (header still declares the original page
+        // count), then flip encrypted page bytes within the remaining data —
+        // both classic corruption shapes.
+        f.set_len(len / 2).unwrap();
+        f.seek(SeekFrom::Start(len / 4)).unwrap();
+        f.write_all(&[0xFF; 512]).unwrap();
+        drop(f);
+
+        let err_msg = match NativeDb::builder()
+            .persistent(db_path.clone())
+            .key(key)
+            .single_connection()
+            .build()
+        {
+            Err(e) => e.to_string(),
+            Ok(db) => EncryptedMessageStore::new(db).unwrap_err().to_string(),
+        };
+        assert!(
+            err_msg.contains("corrupt") || err_msg.contains("malformed"),
+            "expected corruption error, got: {err_msg}"
+        );
+        assert!(
+            !err_msg.contains("PRAGMA key or salt has incorrect value"),
+            "corruption misreported as wrong key: {err_msg}"
+        );
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 }
