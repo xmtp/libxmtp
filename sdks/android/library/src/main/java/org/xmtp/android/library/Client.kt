@@ -14,6 +14,8 @@ import org.xmtp.android.library.libxmtp.ArchiveOptions
 import org.xmtp.android.library.libxmtp.AvailableArchive
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.InboxState
+import org.xmtp.android.library.libxmtp.IntegrityCheckLevel
+import org.xmtp.android.library.libxmtp.IntegrityCheckOutcome
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
@@ -44,6 +46,7 @@ import uniffi.xmtpv3.inboxStateFromInboxIds
 import uniffi.xmtpv3.isConnected
 import uniffi.xmtpv3.revokeInstallations
 import java.io.File
+import uniffi.xmtpv3.checkDatabaseIntegrity as ffiCheckDatabaseIntegrity
 import uniffi.xmtpv3.setNativeLogLevel as ffiSetNativeLogLevel
 
 typealias PreEventCallback = suspend () -> Unit
@@ -256,6 +259,20 @@ class Client(
 
             return deletedCount
         }
+
+        /**
+         * Read-only integrity check of a database file by path, without a
+         * client. For encrypted databases pass the same 32-byte encryption
+         * key used to create the client.
+         */
+        suspend fun checkDatabaseIntegrity(
+            dbPath: String,
+            encryptionKey: ByteArray? = null,
+            level: IntegrityCheckLevel = IntegrityCheckLevel.QUICK,
+        ): IntegrityCheckOutcome =
+            withContext(Dispatchers.IO) {
+                IntegrityCheckOutcome(ffiCheckDatabaseIntegrity(dbPath, encryptionKey, level.toFfi()))
+            }
 
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
             val cacheKey = api.toCacheKey()
@@ -813,6 +830,16 @@ class Client(
         withContext(Dispatchers.IO) {
             if (isInMemory) return@withContext
             ffiClient.dbReconnect()
+        }
+
+    /**
+     * Read-only integrity check of this client's database. Uses a dedicated
+     * read-only connection on a blocking thread, so it blocks neither the
+     * async runtime nor this client's DB operations.
+     */
+    suspend fun dbIntegrityCheck(level: IntegrityCheckLevel = IntegrityCheckLevel.QUICK): IntegrityCheckOutcome =
+        withContext(Dispatchers.IO) {
+            IntegrityCheckOutcome(ffiClient.dbIntegrityCheck(level.toFfi()))
         }
 
     /**
