@@ -4342,47 +4342,62 @@ where
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         self.load_mls_group_with_lock_async(async |mls_group| {
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
-            // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();
             inbox_ids.extend_from_slice(inbox_ids_to_add);
             let conn = self.context.db();
-            // Load any missing updates from the network
+            // Members that leave keep their refresh. `get_installation_diff` must
+            // resolve them to know which leaves the commit removes.
             load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
 
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
 
             // Get a list of all inbox IDs that have increased sequence_id for the group
-            let changed_inbox_ids =
-                inbox_ids
-                    .iter()
-                    .try_fold(HashMap::new(), |mut updates, inbox_id| {
-                        match (
-                            latest_sequence_id_map.get(inbox_id as &str),
-                            existing_group_membership.get(inbox_id),
-                        ) {
-                            // This is an update. We have a new sequence ID and an existing one
-                            (Some(latest_sequence_id), Some(current_sequence_id)) => {
-                                let latest_sequence_id_u64 = *latest_sequence_id as u64;
-                                if latest_sequence_id_u64.gt(current_sequence_id) {
-                                    updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
-                                }
-                            }
-                            // This is for new additions to the group
-                            (Some(latest_sequence_id), None) => {
-                                // This is the case for net new members to the group
-                                updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
-                            }
-                            (_, _) => {
-                                tracing::warn!(
-                                    "Could not find existing sequence ID for inbox {}",
-                                    inbox_id
-                                );
-                                return Err(GroupError::MissingSequenceId);
+            let changed_inbox_ids = inbox_ids
+                .iter()
+                .filter(|inbox_id| !inbox_ids_to_remove.contains(*inbox_id))
+                .try_fold(HashMap::new(), |mut updates, inbox_id| {
+                    match (
+                        latest_sequence_id_map.get(inbox_id as &str),
+                        existing_group_membership.get(inbox_id),
+                    ) {
+                        // This is an update. We have a new sequence ID and an existing one
+                        (Some(latest_sequence_id), Some(current_sequence_id)) => {
+                            let latest_sequence_id_u64 = *latest_sequence_id as u64;
+                            if latest_sequence_id_u64.gt(current_sequence_id) {
+                                updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
                             }
                         }
+                        // This is for new additions to the group
+                        (Some(latest_sequence_id), None) => {
+                            // This is the case for net new members to the group
+                            updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
+                        }
+                        // The group already committed this inbox. The network has no
+                        // identity updates for it. Skip the member. Keep its dictionary
+                        // entry. If we stop here, one member blocks every commit in the
+                        // group. If we drop the entry, the commit makes a membership
+                        // change that the other members reject.
+                        (None, Some(_)) => {
+                            tracing::warn!(
+                                group_id = %self.group_id,
+                                %inbox_id,
+                                "Group member has no identity updates. Skipped the member and kept its entry."
+                            );
+                        }
+                        // The caller wants to add an inbox that has no identity updates.
+                        // The registration may not be visible yet. This error retries.
+                        (None, None) => {
+                            tracing::warn!(
+                                group_id = %self.group_id,
+                                %inbox_id,
+                                "Cannot add an inbox that has no identity updates."
+                            );
+                            return Err(GroupError::MissingSequenceId);
+                        }
+                    }
 
-                        Ok(updates)
-                    })?;
+                    Ok(updates)
+                })?;
             let extensions = mls_group.extensions().clone();
             let old_group_membership = extract_group_membership(&extensions)?;
             let mut new_membership = old_group_membership.clone();
