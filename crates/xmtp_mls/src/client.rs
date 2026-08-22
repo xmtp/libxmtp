@@ -357,6 +357,23 @@ where
         Ok(())
     }
 
+    /// Run a read-only integrity check against this client's database. Uses
+    /// a dedicated short-lived read-only connection for persistent
+    /// databases, so it does not contend with this client's own
+    /// connection(s).
+    pub fn db_integrity_check(
+        &self,
+        level: IntegrityCheckLevel,
+    ) -> Result<IntegrityCheckResult, ClientError> {
+        // Match the closed-client behavior of `reconnect_db`: a closed
+        // client's methods error; post-close file checks belong to the
+        // standalone `check_database_integrity`.
+        if self.context.is_closed() {
+            return Err(ClientError::AlreadyClosed);
+        }
+        Ok(self.context.store().integrity_check(level)?)
+    }
+
     /// Cleanly shut down this client: cancel in-flight workers and streams,
     /// then release the DB connection. Idempotent — a second call is `Ok(())`.
     ///
@@ -1336,6 +1353,26 @@ pub(crate) mod tests {
             VerifierError::MalformedEipUrl,
         ));
         assert!(!non_retryable.is_retryable());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_db_integrity_check_errors_after_close() {
+        use crate::client::ClientError;
+        use xmtp_db::prelude::IntegrityCheckLevel;
+        tester!(alix);
+        alix.close().await?;
+        assert!(matches!(
+            alix.db_integrity_check(IntegrityCheckLevel::Quick),
+            Err(ClientError::AlreadyClosed)
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_db_integrity_check() {
+        use xmtp_db::prelude::{IntegrityCheckLevel, IntegrityCheckResult};
+        tester!(alix);
+        let result = alix.db_integrity_check(IntegrityCheckLevel::Full)?;
+        assert_eq!(result, IntegrityCheckResult::Ok);
     }
 
     #[xmtp_common::test]
