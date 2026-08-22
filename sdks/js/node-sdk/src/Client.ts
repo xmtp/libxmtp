@@ -17,6 +17,8 @@ import {
   type Identifier,
   type InboxState,
   type Client as NodeClient,
+  type IntegrityCheckLevel,
+  type IntegrityCheckOutcome,
   type SignatureRequestHandle,
 } from "@xmtp/node-bindings";
 import { CodecRegistry } from "@/CodecRegistry";
@@ -318,6 +320,25 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       throw new ClientNotInitializedError();
     }
     return this.#client.close();
+  }
+
+  /**
+   * Read-only integrity check of this client's local database. Persistent
+   * databases are checked on a dedicated read-only connection without
+   * blocking client operations; ephemeral in-memory databases are checked
+   * on the client's own connection.
+   *
+   * @param level - The integrity check level (Quick or Full). Defaults to Quick.
+   * @throws {ClientNotInitializedError} if the client is not initialized
+   * @returns Promise that resolves to the integrity check outcome
+   */
+  async dbIntegrityCheck(
+    level?: IntegrityCheckLevel
+  ): Promise<IntegrityCheckOutcome> {
+    if (!this.#client) {
+      throw new ClientNotInitializedError();
+    }
+    return this.#client.dbIntegrityCheck(level);
   }
 
   /**
