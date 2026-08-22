@@ -1,0 +1,134 @@
+# Opens/updates the libxmtp dev-release bump PR in xmtplabs/convos-ios.
+# Invoked by the open-consumer-prs job in .github/workflows/release.yml with
+# VERSION, SOURCE_BRANCH, UPDATECLI_GITHUB_TOKEN in env.
+name: 'convos-ios: bump libxmtp to {{ requiredEnv "VERSION" }}'
+
+# One PR per libxmtp source branch: hash of the real branch name keys the
+# working branch, so feature/foo and feature-foo never collide and both ref
+# forms (refs/heads/x and x) key identically.
+pipelineid: '{{ requiredEnv "SOURCE_BRANCH" | trimPrefix "refs/heads/" | sha256sum | trunc 8 }}'
+
+scms:
+  consumer:
+    kind: github
+    spec:
+      owner: xmtplabs
+      repository: convos-ios
+      branch: dev
+      username: x-access-token
+      token: '{{ requiredEnv "UPDATECLI_GITHUB_TOKEN" }}'
+      user: 'xmtp-dev-release[bot]'
+      email: '319876561+xmtp-dev-release[bot]@users.noreply.github.com'
+      workingbranchprefix: libxmtp-dev
+      force: true
+
+sources:
+  ios-tag-sha:
+    name: 'peeled commit sha of tag ios-{{ requiredEnv "VERSION" }}'
+    kind: shell
+    spec:
+      # The glob is only a server-side prefilter; awk matches the ref name
+      # EXACTLY, so ios-4.10.0 can never pick up ios-4.10.0-dev.x's sha.
+      # grep asserts the shape so a malformed/empty result fails loudly.
+      command: >-
+        git ls-remote --tags https://github.com/xmtp/libxmtp.git
+        'refs/tags/ios-{{ requiredEnv "VERSION" }}*'
+        | awk -v t='refs/tags/ios-{{ requiredEnv "VERSION" }}'
+        '$2 == t "^{}" {peeled=$1} $2 == t {plain=$1}
+        END {if (peeled) print peeled; else if (plain) print plain; else exit 1}'
+        | grep -E '^[0-9a-f]{40}$'
+      environments:
+        - name: PATH
+        - name: HOME
+
+actions:
+  pr:
+    kind: github/pullrequest
+    scmid: consumer
+    spec:
+      title: 'chore(deps): bump libxmtp to {{ requiredEnv "VERSION" }}'
+      labels:
+        - dependencies
+      description: |
+        Automated dev-release bump from [xmtp/libxmtp](https://github.com/xmtp/libxmtp) branch `{{ requiredEnv "SOURCE_BRANCH" | trimPrefix "refs/heads/" }}`.
+
+        | Package | Version |
+        | --- | --- |
+        | `xmtp/libxmtp` (iOS SDK) | `ios-{{ requiredEnv "VERSION" }}` |
+
+        Release run: {{ env "GITHUB_SERVER_URL" }}/{{ env "GITHUB_REPOSITORY" }}/actions/runs/{{ env "GITHUB_RUN_ID" }}
+
+        Re-running a dev release from the same branch updates this PR in place; close it if the branch is abandoned.
+
+targets:
+  # The targets below hardcode their file lists. If a NEW package ever gains a
+  # libxmtp pin it would be silently left un-bumped, so fail the pipeline
+  # instead: every file mentioning the dep must be one we already rewrite.
+  # This is a shell TARGET, not a condition, because a failed condition skips
+  # with a green check — a coverage violation would silently suppress the PR.
+  # As a target, a violation fails the leg loudly. Semantics (probe-verified):
+  # success with empty stdout = "No change detected", so no spurious commit;
+  # dependson on an unchanged dependency still runs its dependents; failure =
+  # exit 1, dependents skipped, nothing pushed.
+  pin-coverage:
+    name: every libxmtp SPM pin is covered by this manifest's target file lists
+    kind: shell
+    scmid: consumer
+    disablesourceinput: true
+    spec:
+      command: >-
+        uncovered=$(grep -rl --include=Package.swift --include=Package.resolved
+        xmtp/libxmtp .
+        | grep -vxF -e ./ConvosCore/Package.swift
+        -e ./ConvosInvites/Package.swift
+        -e ./ConvosCore/Package.resolved
+        -e ./ConvosInvites/Package.resolved
+        -e ./Convos.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved);
+        [ -z "$uncovered" ] || { echo "uncovered libxmtp pins: $uncovered" >&2; exit 1; }
+      environments:
+        - name: PATH
+        - name: HOME
+  package-swift:
+    name: 'pin libxmtp revision ios-{{ requiredEnv "VERSION" }} in Package.swift'
+    kind: file
+    scmid: consumer
+    disablesourceinput: true
+    dependson:
+      - pin-coverage
+    spec:
+      files:
+        - ConvosCore/Package.swift
+        - ConvosInvites/Package.swift
+      # [^)]*? bounds the span to this .package(...) call — format drift fails
+      # loudly instead of rewriting a neighboring dependency's pin.
+      matchpattern: '(url:\s*"https://github\.com/xmtp/libxmtp\.git",?[^)]*?revision:\s*")ios-[^"]+(")'
+      replacepattern: '${1}ios-{{ requiredEnv "VERSION" }}${2}'
+  resolved-branch:
+    name: 'pin libxmtp branch field in Package.resolved'
+    kind: file
+    scmid: consumer
+    disablesourceinput: true
+    dependson:
+      - pin-coverage
+    spec:
+      files:
+        - ConvosCore/Package.resolved
+        - ConvosInvites/Package.resolved
+        - Convos.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+      # [^}]*? bounds the span to the libxmtp pin object.
+      matchpattern: '("identity"\s*:\s*"libxmtp"[^}]*?"branch"\s*:\s*")ios-[^"]+(")'
+      replacepattern: '${1}ios-{{ requiredEnv "VERSION" }}${2}'
+  resolved-revision:
+    name: pin libxmtp revision field in Package.resolved
+    kind: file
+    scmid: consumer
+    disablesourceinput: true
+    dependson:
+      - resolved-branch
+    spec:
+      files:
+        - ConvosCore/Package.resolved
+        - ConvosInvites/Package.resolved
+        - Convos.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+      matchpattern: '("identity"\s*:\s*"libxmtp"[^}]*?"revision"\s*:\s*")[a-f0-9]{40}(")'
+      replacepattern: '${1}{{ source "ios-tag-sha" }}${2}'
