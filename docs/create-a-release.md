@@ -31,6 +31,20 @@ A Slack notification is sent to `#notify-dev-releases` when complete.
 
 Dev releases are always drafts, and any pushed changes in the dev release (for example, updating manifests to match the release version) happen in a detached HEAD.
 
+### Consumer bump PRs
+
+A dev release also opens (or updates) a version-bump PR in the `xmtplabs` consumer repos — `convos-ios`, `convos-client`, `convos-cli`, and `convos-assistants` — from the `open-consumer-prs` job, driven by the updatecli manifests in `dev/updatecli/`.
+
+- Each consumer is its own matrix leg, so a red leg never blocks or rolls back the SDK publishes — they already happened. It does turn the run red on purpose: that is the only signal that a bump was not applied. It usually means that consumer's pin format drifted; fix the matching `dev/updatecli/<consumer>.yaml`.
+- One PR per libxmtp source branch. Re-releasing from the same branch updates that PR in place, and overlapping runs from the same branch are serialized by the job's concurrency group so the newest release wins.
+- Auth comes from the `xmtp-dev-release` GitHub App via the `CONSUMER_PR_APP_ID` and `CONSUMER_PR_APP_PRIVATE_KEY` secrets.
+- The job checks the manifests out from `main`, not from the branch being released, because it runs them with a token that can write to the consumer repos. **Manifest changes therefore only take effect once merged to `main`** — releasing from a branch runs `main`'s manifests against that branch's version. Verify manifest edits with the local dry-run below.
+- To dry-run a manifest locally (read-only, opens nothing):
+
+  ```bash
+  UPDATECLI_GITHUB_TOKEN=$(gh auth token) VERSION=<v> BINDING_VERSION=<v> SOURCE_BRANCH=<branch> updatecli pipeline diff --config dev/updatecli/<consumer>.yaml
+  ```
+
 ---
 
 ## Final Releases
