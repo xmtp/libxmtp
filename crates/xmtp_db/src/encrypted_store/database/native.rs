@@ -188,6 +188,12 @@ pub enum PlatformStorageError {
     /// PRAGMA key or salt has wrong value. Not retryable.
     #[error("PRAGMA key or salt has incorrect value")]
     SqlCipherKeyIncorrect,
+    /// Database corrupt.
+    ///
+    /// The database file failed SQLCipher/SQLite validation with a
+    /// corruption-shaped error (not a key mismatch). Not retryable.
+    #[error("Database file is corrupt: {0}")]
+    DatabaseCorrupt(String),
     /// Database locked.
     ///
     /// Database file is locked by another process. Retryable.
@@ -236,6 +242,7 @@ impl RetryableError for PlatformStorageError {
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,
+            Self::DatabaseCorrupt(_) => false,
             Self::DatabaseLocked => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Io(_) => true,
@@ -991,5 +998,11 @@ mod tests {
             );
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    #[tokio::test]
+    async fn database_corrupt_is_not_retryable() {
+        use xmtp_common::RetryableError;
+        assert!(!PlatformStorageError::DatabaseCorrupt("x".into()).is_retryable());
     }
 }
