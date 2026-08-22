@@ -204,6 +204,10 @@ where
 
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
+    /// The database backing this context, at the [`XmtpDb`] level (for
+    /// database-lifecycle operations like integrity checks; use [`Self::db`]
+    /// for queries).
+    fn store(&self) -> &Self::Db;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
@@ -290,6 +294,10 @@ where
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         self.store.db()
+    }
+
+    fn store(&self) -> &Self::Db {
+        &self.store
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
@@ -389,6 +397,10 @@ where
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         <T as XmtpSharedContext>::db(self)
+    }
+
+    fn store(&self) -> &Self::Db {
+        <T as XmtpSharedContext>::store(self)
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
