@@ -117,6 +117,10 @@ impl XmtpSharedContext for NewMockContext {
         self.store.db()
     }
 
+    fn store(&self) -> &Self::Db {
+        &self.store
+    }
+
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.api_client
     }
