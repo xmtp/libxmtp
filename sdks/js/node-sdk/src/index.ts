@@ -44,6 +44,7 @@ export type {
   InboxState,
   Installation,
   Intent,
+  IntegrityCheckOutcome,
   KeyPackageStatus,
   LeaveRequest,
   Lifetime,
@@ -75,6 +76,7 @@ export type {
 export {
   ActionStyle,
   BackupElementSelectionOption,
+  checkDatabaseIntegrity,
   ConsentEntityType,
   ConsentState,
   ContentType,
@@ -113,6 +115,7 @@ export {
   GroupPermissionsOptions,
   IdentifierKind,
   initLogging,
+  IntegrityCheckLevel,
   ListConversationsOrderBy,
   LogLevel,
   MessageSortBy,
