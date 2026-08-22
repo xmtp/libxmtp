@@ -151,3 +151,32 @@ pub fn maybe_mock_package_lifetime() -> Lifetime {
         Lifetime::default()
     }
 }
+
+/* ---------- own-reaction follow-up storage fault ---------- */
+
+const OWN_REACTION_RETRYABLE_ERROR: EnvFlag = EnvFlag("TEST_MODE_OWN_REACTION_RETRYABLE_ERROR");
+
+/// Toggle injection of a retryable storage error into the self-publish
+/// follow-up reaction handlers (`process_own_leave_request_message` and
+/// `process_own_delete_message`). Used to prove those handlers surface a
+/// transient failure instead of silently swallowing it.
+#[inline]
+pub fn set_test_mode_own_reaction_retryable_error(enable: bool) {
+    OWN_REACTION_RETRYABLE_ERROR.set(enable);
+}
+
+#[inline]
+pub fn is_test_mode_own_reaction_retryable_error() -> bool {
+    OWN_REACTION_RETRYABLE_ERROR.get()
+}
+
+/// If the flag is set, fail with a *retryable* storage error, standing in for a
+/// transient DB read failure inside the own-reaction follow-up handlers.
+pub fn maybe_mock_own_reaction_retryable_error() -> Result<(), GroupMessageProcessingError> {
+    if is_test_mode_own_reaction_retryable_error() {
+        return Err(GroupMessageProcessingError::Db(
+            xmtp_db::ConnectionError::ReconnectInTransaction,
+        ));
+    }
+    Ok(())
+}
