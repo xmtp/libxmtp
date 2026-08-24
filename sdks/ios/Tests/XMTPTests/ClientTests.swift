@@ -173,6 +173,34 @@ class ClientTests: XCTestCase {
 		try boClient.deleteLocalDatabase()
 	}
 
+	func testDbIntegrityCheck() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let bo = try PrivateKey.generate()
+		let boClient = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				dbEncryptionKey: key
+			)
+		)
+
+		let outcome = try await boClient.dbIntegrityCheck()
+		XCTAssertEqual(outcome.outcome, "ok")
+		XCTAssertEqual(outcome.findings, [])
+
+		// Release the pooled connection so the static function's dedicated
+		// read-only connection isn't opened against a live client.
+		try boClient.dropLocalDatabaseConnection()
+
+		let staticOutcome = try await Client.checkDatabaseIntegrity(
+			dbPath: boClient.dbPath, encryptionKey: key
+		)
+		XCTAssertEqual(staticOutcome.outcome, "ok")
+
+		try await boClient.reconnectLocalDatabase()
+		try boClient.deleteLocalDatabase()
+	}
+
 	func testCanMessage() async throws {
 		let fixtures = try await fixtures()
 		let notOnNetwork = try PrivateKey.generate()
