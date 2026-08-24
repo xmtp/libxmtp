@@ -49,7 +49,7 @@ export function createRemoteAttachment(
     filename: encryptedAttachment.filename,
     nonce: encryptedAttachment.nonce,
     salt: encryptedAttachment.salt,
-    scheme: url.protocol,
+    scheme: url.protocol.replace(/:$/, ""),
     secret: encryptedAttachment.secret,
     url: url.toString(),
   };
