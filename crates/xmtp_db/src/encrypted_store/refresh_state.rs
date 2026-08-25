@@ -835,7 +835,7 @@ pub(crate) mod tests {
                 sequence_id: 123,
                 originator_id: Originators::MLS_COMMITS as i32,
             };
-            entry.store_or_ignore(conn).unwrap();
+            entry.store_or_ignore(conn).await.unwrap();
             assert_eq!(
                 conn.get_last_cursor_for_originator(&id, entity_kind, Originators::MLS_COMMITS)
                     .await
@@ -857,7 +857,7 @@ pub(crate) mod tests {
                 sequence_id: 123,
                 originator_id: 10,
             };
-            entry.store_or_ignore(conn).unwrap();
+            entry.store_or_ignore(conn).await.unwrap();
             assert!(
                 conn.update_cursor(
                     &id,
@@ -888,7 +888,7 @@ pub(crate) mod tests {
                 sequence_id: 123,
                 originator_id: 10,
             };
-            entry.store_or_ignore(conn).unwrap();
+            entry.store_or_ignore(conn).await.unwrap();
             assert!(
                 !conn
                     .update_cursor(
@@ -918,7 +918,7 @@ pub(crate) mod tests {
                 sequence_id: 123,
                 originator_id: Originators::MLS_COMMITS as i32,
             };
-            welcome_state.store_or_ignore(conn).unwrap();
+            welcome_state.store_or_ignore(conn).await.unwrap();
 
             let group_state = RefreshState {
                 entity_id: entity_id.clone(),
@@ -926,7 +926,7 @@ pub(crate) mod tests {
                 sequence_id: 456,
                 originator_id: Originators::MLS_COMMITS as i32,
             };
-            group_state.store_or_ignore(conn).unwrap();
+            group_state.store_or_ignore(conn).await.unwrap();
 
             let welcome_state_retrieved = conn
                 .get_refresh_state(&entity_id, EntityKind::Welcome, Originators::MLS_COMMITS)
@@ -964,7 +964,7 @@ pub(crate) mod tests {
             originator_id,
         }
         .store_or_ignore(conn)
-        .unwrap();
+        .await.unwrap();
     }
 
     #[rstest]

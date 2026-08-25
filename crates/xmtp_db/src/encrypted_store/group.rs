@@ -1454,7 +1454,7 @@ pub(crate) mod tests {
     use super::*;
 
     use crate::{
-        Fetch, Store,
+        Store,
         consent_record::{ConsentType, StoredConsentRecord},
         readd_status::ReaddStatus,
         schema::groups::dsl::groups,
@@ -1523,7 +1523,7 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             let test_group = generate_group(None);
 
-            test_group.store(conn).unwrap();
+            test_group.store(conn).await.unwrap();
             assert_eq!(
                 conn.raw_query(|raw_conn| groups.first::<StoredGroup>(raw_conn))
                     .unwrap(),
@@ -1545,7 +1545,7 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
+            let fetched_group: Option<StoredGroup> = crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id).await.unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
         .await
@@ -1556,12 +1556,12 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
-            test_group.store(conn).unwrap();
+            test_group.store(conn).await.unwrap();
             conn.update_group_membership(&test_group.id, GroupMembershipState::Rejected)
                 .await
                 .unwrap();
 
-            let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            let updated_group: StoredGroup = crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id).await.ok().flatten().unwrap();
             assert_eq!(
                 updated_group,
                 StoredGroup {
@@ -1586,13 +1586,13 @@ pub(crate) mod tests {
         };
         with_connection_async(|conn| async move {
             let test_group_1 = generate_group(Some(GroupMembershipState::Pending));
-            test_group_1.store(&conn).unwrap();
+            test_group_1.store(&conn).await.unwrap();
             wait_in_wasm().await;
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
-            test_group_2.store(&conn).unwrap();
+            test_group_2.store(&conn).await.unwrap();
             wait_in_wasm().await;
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
-            test_group_3.store(&conn).unwrap();
+            test_group_3.store(&conn).await.unwrap();
 
             let other_inbox_id = test_group_3
                 .dm_id
@@ -1677,7 +1677,7 @@ pub(crate) mod tests {
     async fn test_installations_last_checked_is_updated() {
         with_connection_async(|conn| async move {
             let test_group = generate_group(None);
-            test_group.store(&conn).unwrap();
+            test_group.store(&conn).await.unwrap();
 
             // Check that the installations update has not been performed, yet
             assert_eq!(test_group.installations_last_checked, 0);
@@ -1693,7 +1693,7 @@ pub(crate) mod tests {
             assert_ok!(result.await);
 
             // Check that the latest installation list timestamp has been updated
-            let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            let fetched_group: StoredGroup = crate::Fetch::<StoredGroup>::fetch(&conn, &test_group.id).await.ok().flatten().unwrap();
             assert_ne!(fetched_group.installations_last_checked, 0);
             assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
         })
@@ -1712,7 +1712,7 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
+            let fetched_group: Option<StoredGroup> = crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id).await.unwrap();
             assert_eq!(fetched_group, Some(test_group));
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
@@ -1724,32 +1724,32 @@ pub(crate) mod tests {
     async fn test_find_groups_by_consent_state() {
         with_connection(async |conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
-            test_group_1.store(conn).unwrap();
+            test_group_1.store(conn).await.unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
-            test_group_2.store(conn).unwrap();
+            test_group_2.store(conn).await.unwrap();
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
-            test_group_3.store(conn).unwrap();
+            test_group_3.store(conn).await.unwrap();
             let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
-            test_group_4.store(conn).unwrap();
+            test_group_4.store(conn).await.unwrap();
 
             let test_group_1_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
                 hex::encode(test_group_1.id),
             );
-            test_group_1_consent.store(conn).unwrap();
+            test_group_1_consent.store(conn).await.unwrap();
             let test_group_2_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
                 hex::encode(test_group_2.id),
             );
-            test_group_2_consent.store(conn).unwrap();
+            test_group_2_consent.store(conn).await.unwrap();
             let test_group_3_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
                 hex::encode(test_group_3.id),
             );
-            test_group_3_consent.store(conn).unwrap();
+            test_group_3_consent.store(conn).await.unwrap();
 
             let all_results = conn
                 .find_groups(&GroupQueryArgs {
@@ -1827,7 +1827,7 @@ pub(crate) mod tests {
                 generate_group_with_welcome(None, Some(10)),
             ];
             for g in mls_groups.iter() {
-                g.store(conn).unwrap();
+                g.store(conn).await.unwrap();
             }
             assert_eq!(
                 vec![30, 10],
@@ -1859,7 +1859,7 @@ pub(crate) mod tests {
             let group = generate_group(None);
             assert!(group.sequence_id.is_none());
             assert!(group.originator_id.is_none());
-            group.store(conn).unwrap();
+            group.store(conn).await.unwrap();
 
             // 2. A welcome for the same group arrives carrying a real v3 welcome
             //    cursor (seq set, originator = WELCOME_MESSAGES = 11).
@@ -1871,7 +1871,7 @@ pub(crate) mod tests {
             conn.insert_or_replace_group(incoming).await.unwrap();
 
             // 3. The stored row must keep the invariant: seq set => originator set.
-            let stored: StoredGroup = conn.fetch(&group.id).ok().flatten().unwrap();
+            let stored: StoredGroup = crate::Fetch::<StoredGroup>::fetch(conn, &group.id).await.ok().flatten().unwrap();
             assert_eq!(stored.sequence_id, Some(5));
             assert_eq!(
                 stored.originator_id,
@@ -1897,13 +1897,13 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             // A healthy cursor'd group.
             let good = generate_group_with_welcome(None, Some(30));
-            good.store(conn).unwrap();
+            good.store(conn).await.unwrap();
 
             // A cursorless group, then force the invalid state directly via a raw
             // UPDATE that sets sequence_id only (mimicking the pre-fix write path and
             // legacy data). Deliberately bypasses the builder invariant.
             let bad = generate_group(None);
-            bad.store(conn).unwrap();
+            bad.store(conn).await.unwrap();
             conn.raw_query(|c| {
                 diesel::update(dsl::groups.find(&bad.id))
                     .set(dsl::sequence_id.eq(Some(7i64)))
@@ -1925,13 +1925,13 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             // Create three groups: one allowed, one denied, one unknown (no consent)
             let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
-            allowed_group.store(conn).unwrap();
+            allowed_group.store(conn).await.unwrap();
 
             let denied_group = generate_group(Some(GroupMembershipState::Allowed));
-            denied_group.store(conn).unwrap();
+            denied_group.store(conn).await.unwrap();
 
             let unknown_group = generate_group(Some(GroupMembershipState::Allowed));
-            unknown_group.store(conn).unwrap();
+            unknown_group.store(conn).await.unwrap();
 
             // Create consent records for allowed and denied; leave unknown_group without one
             let allowed_consent = generate_consent_record(
@@ -1939,14 +1939,14 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(allowed_group.id),
             );
-            allowed_consent.store(conn).unwrap();
+            allowed_consent.store(conn).await.unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
                 hex::encode(denied_group.id),
             );
-            denied_consent.store(conn).unwrap();
+            denied_consent.store(conn).await.unwrap();
 
             // Query using default args (no consent_states specified)
             let default_results = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
@@ -1975,7 +1975,7 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(group1.id),
             )
-            .store(conn)?;
+            .store(conn).await?;
             group2.should_publish_commit_log = true;
             group2.commit_log_public_key = Some(rand_vec::<32>());
 
@@ -1986,12 +1986,12 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(group3.id),
             )
-            .store(conn)?;
+            .store(conn).await?;
             group4.should_publish_commit_log = false;
-            group1.store(conn)?;
-            group2.store(conn)?;
-            group3.store(conn)?;
-            group4.store(conn)?;
+            group1.store(conn).await?;
+            group2.store(conn).await?;
+            group3.store(conn).await?;
+            group4.store(conn).await?;
 
             let commit_log_keys = conn
                 .get_conversation_ids_for_remote_log_publish()
@@ -2015,15 +2015,15 @@ pub(crate) mod tests {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let mut allowed_group = generate_group(None);
             allowed_group.should_publish_commit_log = true;
-            allowed_group.store(conn).unwrap();
+            allowed_group.store(conn).await.unwrap();
 
             let mut denied_group = generate_group(None);
             denied_group.should_publish_commit_log = true;
-            denied_group.store(conn).unwrap();
+            denied_group.store(conn).await.unwrap();
 
             let mut no_consent_group = generate_group(None);
             no_consent_group.should_publish_commit_log = true;
-            no_consent_group.store(conn).unwrap();
+            no_consent_group.store(conn).await.unwrap();
 
             // Create consent records
             let allowed_consent = generate_consent_record(
@@ -2031,14 +2031,14 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(allowed_group.id),
             );
-            allowed_consent.store(conn).unwrap();
+            allowed_consent.store(conn).await.unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
                 hex::encode(denied_group.id),
             );
-            denied_consent.store(conn).unwrap();
+            denied_consent.store(conn).await.unwrap();
 
             // Function should only return groups with Allowed consent state
             let commit_log_keys = conn
@@ -2056,24 +2056,24 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             // Create groups: one with Allowed consent, one with Denied consent, one with no consent
             let allowed_group = generate_group(None);
-            allowed_group.store(conn).unwrap();
+            allowed_group.store(conn).await.unwrap();
 
             let denied_group = generate_group(None);
-            denied_group.store(conn).unwrap();
+            denied_group.store(conn).await.unwrap();
 
             let no_consent_group = generate_group(None);
-            no_consent_group.store(conn).unwrap();
+            no_consent_group.store(conn).await.unwrap();
 
             // Create a sync group (should be excluded regardless of consent)
             let mut sync_group = generate_group(None);
             sync_group.conversation_type = ConversationType::Sync;
-            sync_group.store(conn).unwrap();
+            sync_group.store(conn).await.unwrap();
             let sync_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
                 hex::encode(sync_group.id),
             );
-            sync_consent.store(conn).unwrap();
+            sync_consent.store(conn).await.unwrap();
 
             // Create consent records
             let allowed_consent = generate_consent_record(
@@ -2081,14 +2081,14 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(allowed_group.id),
             );
-            allowed_consent.store(conn).unwrap();
+            allowed_consent.store(conn).await.unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
                 hex::encode(denied_group.id),
             );
-            denied_consent.store(conn).unwrap();
+            denied_consent.store(conn).await.unwrap();
 
             // Function should only return groups with Allowed consent state, excluding sync groups
             let conversation_ids = conn
@@ -2116,7 +2116,7 @@ pub(crate) mod tests {
                 .added_by_inbox_id("placeholder_address")
                 .build()
                 .unwrap();
-            group1.store(conn).unwrap();
+            group1.store(conn).await.unwrap();
 
             let group2 = StoredGroup::builder()
                 .id(group_id_2)
@@ -2125,7 +2125,7 @@ pub(crate) mod tests {
                 .added_by_inbox_id("placeholder_address")
                 .build()
                 .unwrap();
-            group2.store(conn).unwrap();
+            group2.store(conn).await.unwrap();
 
             let group3 = StoredGroup::builder()
                 .id(group_id_3)
@@ -2134,7 +2134,7 @@ pub(crate) mod tests {
                 .added_by_inbox_id("placeholder_address")
                 .build()
                 .unwrap();
-            group3.store(conn).unwrap();
+            group3.store(conn).await.unwrap();
 
             // Create readd status entries with various test cases
             let test_cases = vec![
@@ -2177,7 +2177,7 @@ pub(crate) mod tests {
 
             // Store all test cases
             for status in test_cases {
-                status.store(conn).unwrap();
+                status.store(conn).await.unwrap();
             }
 
             // Call the method under test

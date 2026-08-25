@@ -594,7 +594,7 @@ impl MigrationHarnessExt for SqliteConnection {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
+    use crate::{Store, XmtpTestDb, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
 
     #[xmtp_common::test]
@@ -605,9 +605,9 @@ pub(crate) mod tests {
         let inbox_id = "inbox_id";
         StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(&conn)
-            .unwrap();
+            .await.unwrap();
 
-        let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+        let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
@@ -621,9 +621,9 @@ pub(crate) mod tests {
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
 
-            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &()).await.unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -638,11 +638,11 @@ pub(crate) mod tests {
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn1)
-                .unwrap();
+                .await.unwrap();
 
             let conn2 = &store.conn();
             tracing::info!("Getting conn 2");
-            let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
+            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn2, &()).await.unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -659,12 +659,12 @@ pub(crate) mod tests {
             let conn = store.conn();
 
             // Healthy pool: a query succeeds.
-            let ok: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let ok: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             assert!(ok.is_ok());
 
             // Drop the pool, then run a real query against it.
             conn.disconnect().unwrap();
-            let res: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let res: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             let err = res.expect_err("query against a disconnected pool should fail");
 
             assert!(

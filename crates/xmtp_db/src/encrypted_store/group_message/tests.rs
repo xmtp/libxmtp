@@ -46,7 +46,7 @@ async fn it_does_not_error_on_empty_messages() {
 async fn test_exclude_content_types_filter() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create messages with different content types
         let messages = vec![
@@ -91,7 +91,7 @@ async fn test_exclude_content_types_filter() {
                 None,
             ),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test excluding reactions and read receipts
         let exclude_args = MsgQueryArgs {
@@ -125,10 +125,10 @@ async fn it_gets_messages() {
     with_connection(async |conn| {
         let group = generate_group(None);
         let message = generate_message(None, Some(&group.id), None, None, None, None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
         let id = message.id.clone();
 
-        message.store(conn).unwrap();
+        message.store(conn).await.unwrap();
 
         let stored_message = conn.get_group_message(&id).await.unwrap().unwrap();
         assert_eq!(
@@ -146,7 +146,7 @@ async fn it_cannot_insert_message_without_group() {
         let message = generate_message(None, None, None, None, None, None);
         let result = message.store(&conn);
         assert_err!(
-            result,
+            result.await,
             crate::StorageError::Connection(crate::ConnectionError::Database(
                 diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
             ))
@@ -161,11 +161,11 @@ async fn it_gets_many_messages() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         for idx in 0..50 {
             let msg = generate_message(None, Some(&group.id), Some(idx), None, None, None);
-            assert_ok!(msg.store(conn));
+            assert_ok!(msg.store(conn).await);
         }
 
         let count: i64 = conn
@@ -195,7 +195,7 @@ async fn it_gets_many_messages() {
 async fn it_gets_messages_by_time() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let messages = vec![
             generate_message(None, Some(&group.id), Some(1_000), None, None, None),
@@ -203,7 +203,7 @@ async fn it_gets_messages_by_time() {
             generate_message(None, Some(&group.id), Some(10_000), None, None, None),
             generate_message(None, Some(&group.id), Some(1_000_000), None, None, None),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
         let message = conn
             .get_group_messages(
                 &group.id,
@@ -255,7 +255,7 @@ async fn it_deletes_middle_message_by_expiration_time() {
         group.message_disappear_from_ns = disappear_from_ns;
         group.message_disappear_in_ns = disappear_in_ns;
 
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let messages = vec![
             generate_message(None, Some(&group.id), Some(1_000_000_000), None, None, None),
@@ -276,7 +276,7 @@ async fn it_deletes_middle_message_by_expiration_time() {
                 None,
             ),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         let deleted_messages = conn.delete_expired_messages().await.unwrap();
         assert_eq!(deleted_messages.len(), 1); // Ensure exactly 1 message is deleted
@@ -312,7 +312,7 @@ async fn it_deletes_middle_message_by_expiration_time() {
 async fn it_gets_messages_by_kind() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // just a bunch of random messages so we have something to filter through
         for i in 0..30 {
@@ -326,7 +326,7 @@ async fn it_gets_messages_by_kind() {
                         None,
                         None,
                     );
-                    msg.store(conn).unwrap();
+                    msg.store(conn).await.unwrap();
                 }
                 _ => {
                     let msg = generate_message(
@@ -337,7 +337,7 @@ async fn it_gets_messages_by_kind() {
                         None,
                         None,
                     );
-                    msg.store(conn).unwrap();
+                    msg.store(conn).await.unwrap();
                 }
             }
         }
@@ -373,7 +373,7 @@ async fn it_gets_messages_by_kind() {
 async fn it_orders_messages_by_sent() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         assert_eq!(group.last_message_ns, None);
 
@@ -384,7 +384,7 @@ async fn it_orders_messages_by_sent() {
             generate_message(None, Some(&group.id), Some(1_000_000), None, None, None),
         ];
 
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         let group = conn.find_group(&group.id).await.unwrap().unwrap();
         assert_eq!(group.last_message_ns.unwrap(), 1_000_000);
@@ -428,7 +428,7 @@ async fn it_orders_messages_by_sent() {
 async fn it_gets_messages_by_content_type() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let messages = vec![
             generate_message(
@@ -456,7 +456,7 @@ async fn it_gets_messages_by_content_type() {
                 None,
             ),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Query for text messages
         let text_messages = conn
@@ -516,7 +516,7 @@ async fn it_dedupes_group_updated_messages_from_dm_by_default() {
         // Create a DM group
         let mut group = generate_group(None);
         group.conversation_type = ConversationType::Dm;
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Insert one GroupUpdated message and two normal messages
         let group_updated_msg = generate_message(
@@ -562,7 +562,7 @@ async fn it_dedupes_group_updated_messages_from_dm_by_default() {
                 earlier_msg.clone(),
                 later_msg.clone()
             ]
-            .store(conn)
+            .store(conn).await
         );
 
         // Default query: GroupUpdated messages are deduplicated for DMs
@@ -603,7 +603,7 @@ async fn it_dedupes_group_updated_messages_from_dm_by_default() {
     .await
 }
 
-pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
+pub(crate) async fn generate_message_with_reference<C: ConnectionExt>(
     conn: &DbConnection<C>,
     group_id: &GroupId,
     sent_at_ns: i64,
@@ -631,7 +631,7 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
         should_push: true,
         idempotency_key: sent_at_ns.to_string(),
     };
-    message.store(conn).unwrap();
+    message.store(conn).await.unwrap();
     message
 }
 
@@ -639,12 +639,12 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
 async fn test_inbound_relations_with_results() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create main messages
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
-        let msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None);
-        let msg3 = generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None);
+        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
+        let msg3 = generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None).await;
 
         // Create reactions referencing the main messages
         let _reaction1 = generate_message_with_reference(
@@ -653,21 +653,21 @@ async fn test_inbound_relations_with_results() {
             4000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        );
+        ).await;
         let _reaction2 = generate_message_with_reference(
             conn,
             &group.id,
             5000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        );
+        ).await;
         let _reaction3 = generate_message_with_reference(
             conn,
             &group.id,
             6000,
             ContentType::Reaction,
             Some(msg2.id.clone()),
-        );
+        ).await;
 
         // Get the main messages (exclude reactions)
         let messages = conn
@@ -717,11 +717,11 @@ async fn test_inbound_relations_with_results() {
 async fn test_relations_when_no_references_exist() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create messages without any references
-        let _msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
-        let _msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None);
+        let _msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let _msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
 
         // Get the messages
         let messages = conn
@@ -776,7 +776,7 @@ async fn test_relations_when_no_references_exist() {
 async fn test_inbound_relations_no_main_query_results() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Ensure we get an empty map when no IDs are passed
         let empty_ids: Vec<&[u8]> = vec![];
@@ -801,10 +801,10 @@ async fn test_inbound_relations_no_main_query_results() {
 async fn test_inbound_relations_with_limit() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create a main message
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
+        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
 
         // Create many reactions to it
         for i in 0..10 {
@@ -814,7 +814,7 @@ async fn test_inbound_relations_with_limit() {
                 2000 + i * 100,
                 ContentType::Reaction,
                 Some(msg1.id.clone()),
-            );
+            ).await;
         }
 
         // Get the main message (exclude reactions)
@@ -855,13 +855,13 @@ async fn test_inbound_relations_with_limit() {
 async fn test_relations_with_content_type_filters() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create main messages
         let text_msg =
-            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
         let attachment_msg =
-            generate_message_with_reference(conn, &group.id, 2000, ContentType::Attachment, None);
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Attachment, None).await;
 
         // Create various types of references to text_msg
         let _reaction = generate_message_with_reference(
@@ -870,21 +870,21 @@ async fn test_relations_with_content_type_filters() {
             3000,
             ContentType::Reaction,
             Some(text_msg.id.clone()),
-        );
+        ).await;
         let _reply_to_text = generate_message_with_reference(
             conn,
             &group.id,
             4000,
             ContentType::Reply,
             Some(text_msg.id.clone()),
-        );
+        ).await;
         let _read_receipt = generate_message_with_reference(
             conn,
             &group.id,
             5000,
             ContentType::ReadReceipt,
             Some(text_msg.id.clone()),
-        );
+        ).await;
 
         // Create a reply to attachment_msg
         let _reply_to_attachment = generate_message_with_reference(
@@ -893,7 +893,7 @@ async fn test_relations_with_content_type_filters() {
             6000,
             ContentType::Reply,
             Some(attachment_msg.id.clone()),
-        );
+        ).await;
 
         // Test inbound filter: only reactions
         let msg_ids: Vec<&[u8]> = vec![text_msg.id.as_ref(), attachment_msg.id.as_ref()];
@@ -964,13 +964,13 @@ async fn test_relations_with_content_type_filters() {
 async fn test_outbound_relations_with_results() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create messages that will be referenced
         let original_msg1 =
-            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
         let original_msg2 =
-            generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None);
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
 
         // Create messages that reference the original messages
         let _reply1 = generate_message_with_reference(
@@ -979,16 +979,16 @@ async fn test_outbound_relations_with_results() {
             3000,
             ContentType::Reply,
             Some(original_msg1.id.clone()),
-        );
+        ).await;
         let _reply2 = generate_message_with_reference(
             conn,
             &group.id,
             4000,
             ContentType::Reply,
             Some(original_msg2.id.clone()),
-        );
+        ).await;
         let _standalone =
-            generate_message_with_reference(conn, &group.id, 5000, ContentType::Text, None);
+            generate_message_with_reference(conn, &group.id, 5000, ContentType::Text, None).await;
 
         // Query for replies
         let replies = conn
@@ -1029,11 +1029,11 @@ async fn test_outbound_relations_with_results() {
 async fn test_outbound_relations_no_main_query_results() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create an original message
         let original =
-            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
 
         // Create a reply to it
         let _reply = generate_message_with_reference(
@@ -1042,7 +1042,7 @@ async fn test_outbound_relations_no_main_query_results() {
             2000,
             ContentType::Reply,
             Some(original.id.clone()),
-        );
+        ).await;
 
         // Query with time filter that excludes all messages
         let messages = conn
@@ -1078,7 +1078,7 @@ async fn test_outbound_relations_no_main_query_results() {
 async fn test_outbound_relations_with_limit() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create multiple original messages
         let mut original_ids = Vec::new();
@@ -1089,7 +1089,7 @@ async fn test_outbound_relations_with_limit() {
                 1000 + i * 100,
                 ContentType::Text,
                 None,
-            );
+            ).await;
             original_ids.push(original.id.clone());
         }
 
@@ -1101,7 +1101,7 @@ async fn test_outbound_relations_with_limit() {
                 2000 + i as i64 * 100,
                 ContentType::Reply,
                 Some(original_id.clone()),
-            );
+            ).await;
         }
 
         // Query for replies
@@ -1139,11 +1139,11 @@ async fn test_outbound_relations_with_limit() {
 async fn test_both_inbound_and_outbound_relations() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create an original message
         let original =
-            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
 
         // Create a reply that references the original
         let reply = generate_message_with_reference(
@@ -1152,7 +1152,7 @@ async fn test_both_inbound_and_outbound_relations() {
             2000,
             ContentType::Reply,
             Some(original.id.clone()),
-        );
+        ).await;
 
         // Create reactions to the reply
         let _reaction1 = generate_message_with_reference(
@@ -1161,14 +1161,14 @@ async fn test_both_inbound_and_outbound_relations() {
             3000,
             ContentType::Reaction,
             Some(reply.id.clone()),
-        );
+        ).await;
         let _reaction2 = generate_message_with_reference(
             conn,
             &group.id,
             4000,
             ContentType::Reaction,
             Some(reply.id.clone()),
-        );
+        ).await;
 
         // Query for the reply
         let messages = conn
@@ -1225,11 +1225,11 @@ async fn test_both_inbound_and_outbound_relations() {
 async fn test_relation_filters_none_behavior() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create a complex message graph
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
-        let _msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None);
+        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let _msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
 
         // Create a reply to msg1
         let reply = generate_message_with_reference(
@@ -1238,7 +1238,7 @@ async fn test_relation_filters_none_behavior() {
             3000,
             ContentType::Reply,
             Some(msg1.id.clone()),
-        );
+        ).await;
 
         // Create reactions
         let _reaction1 = generate_message_with_reference(
@@ -1247,14 +1247,14 @@ async fn test_relation_filters_none_behavior() {
             4000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        );
+        ).await;
         let _reaction2 = generate_message_with_reference(
             conn,
             &group.id,
             5000,
             ContentType::Reaction,
             Some(reply.id.clone()),
-        );
+        ).await;
 
         // Test 1: Get messages without fetching any relations (exclude reactions)
         let messages = conn
@@ -1330,10 +1330,10 @@ async fn test_relation_filters_none_behavior() {
 async fn test_complex_relation_chain() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create a chain of messages referencing each other
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
+        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
 
         let reply_to_msg1 = generate_message_with_reference(
             conn,
@@ -1341,7 +1341,7 @@ async fn test_complex_relation_chain() {
             2000,
             ContentType::Reply,
             Some(msg1.id.clone()),
-        );
+        ).await;
 
         let _reaction_to_msg1 = generate_message_with_reference(
             conn,
@@ -1349,7 +1349,7 @@ async fn test_complex_relation_chain() {
             3000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        );
+        ).await;
 
         let _reaction_to_reply = generate_message_with_reference(
             conn,
@@ -1357,7 +1357,7 @@ async fn test_complex_relation_chain() {
             4000,
             ContentType::Reaction,
             Some(reply_to_msg1.id.clone()),
-        );
+        ).await;
 
         // Query for the original message
         let messages = conn
@@ -1405,12 +1405,12 @@ async fn test_complex_relation_chain() {
 async fn test_inbound_relation_counts() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create main messages
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None);
-        let msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None);
-        let msg3 = generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None);
+        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
+        let msg3 = generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None).await;
 
         // Create multiple reactions to msg1
         for i in 0..5 {
@@ -1420,7 +1420,7 @@ async fn test_inbound_relation_counts() {
                 4000 + i * 100,
                 ContentType::Reaction,
                 Some(msg1.id.clone()),
-            );
+            ).await;
         }
 
         // Create replies to msg2
@@ -1431,7 +1431,7 @@ async fn test_inbound_relation_counts() {
                 5000 + i * 100,
                 ContentType::Reply,
                 Some(msg2.id.clone()),
-            );
+            ).await;
         }
 
         // Create one reaction to msg2
@@ -1441,7 +1441,7 @@ async fn test_inbound_relation_counts() {
             6000,
             ContentType::Reaction,
             Some(msg2.id.clone()),
-        );
+        ).await;
 
         // Test getting all relation counts
         let message_ids: Vec<&[u8]> = vec![msg1.id.as_ref(), msg2.id.as_ref(), msg3.id.as_ref()];
@@ -1499,7 +1499,7 @@ async fn test_inbound_relation_counts() {
 async fn test_get_latest_message_times_by_sender_single_sender() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create messages from a single sender with different timestamps
         let sender_id = "0x123".to_string();
@@ -1530,7 +1530,7 @@ async fn test_get_latest_message_times_by_sender_single_sender() {
             ),
         ];
 
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test getting latest message times
         let latest_times = conn
@@ -1548,7 +1548,7 @@ async fn test_get_latest_message_times_by_sender_single_sender() {
 async fn test_get_latest_message_times_by_sender_multiple_senders() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let sender1_id = "0x111".to_string();
         let sender2_id = "0x222".to_string();
@@ -1601,7 +1601,7 @@ async fn test_get_latest_message_times_by_sender_multiple_senders() {
             ),
         ];
 
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test getting latest message times
         let latest_times = conn
@@ -1621,7 +1621,7 @@ async fn test_get_latest_message_times_by_sender_multiple_senders() {
 async fn test_get_latest_message_times_by_sender_empty_results() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Test with no messages
         let latest_times = conn
@@ -1642,7 +1642,7 @@ async fn test_get_latest_message_times_by_sender_empty_results() {
             Some(sender_id),
         );
 
-        assert_ok!(message.store(conn));
+        assert_ok!(message.store(conn).await);
 
         // Filter by content type that doesn't match
         let latest_times = conn
@@ -1664,17 +1664,17 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
         let mut group1 = generate_group(None);
         group1.conversation_type = ConversationType::Dm;
         group1.dm_id = Some(shared_dm_id.clone());
-        group1.store(conn).unwrap();
+        group1.store(conn).await.unwrap();
 
         let mut group2 = generate_group(None);
         group2.conversation_type = ConversationType::Dm;
         group2.dm_id = Some(shared_dm_id.clone());
-        group2.store(conn).unwrap();
+        group2.store(conn).await.unwrap();
 
         let mut group3 = generate_group(None);
         group3.conversation_type = ConversationType::Dm;
         group3.dm_id = Some(shared_dm_id.clone());
-        group3.store(conn).unwrap();
+        group3.store(conn).await.unwrap();
 
         let sender_id = "0x123".to_string();
 
@@ -1733,7 +1733,7 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
             ),
         ];
 
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test getting latest message times for any of the groups with the shared dm_id
         // The query should find messages from all groups that share the same dm_id
@@ -1772,7 +1772,7 @@ async fn test_get_latest_message_times_by_sender_dm_group() {
 async fn test_count_group_messages() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Setup test data with various message types
         let messages = vec![
@@ -1864,7 +1864,7 @@ async fn test_count_group_messages() {
         msg_failed.delivery_status = DeliveryStatus::Failed;
 
         let all_messages = [messages, vec![msg_published, msg_unpublished, msg_failed]].concat();
-        assert_ok!(all_messages.store(conn));
+        assert_ok!(all_messages.store(conn).await);
 
         // Test basic counts
         assert_eq!(
@@ -2018,11 +2018,11 @@ async fn test_count_group_messages_dm_vs_regular_groups() {
         // Test DM group behavior
         let mut dm_group = generate_group(None);
         dm_group.conversation_type = ConversationType::Dm;
-        dm_group.store(conn).unwrap();
+        dm_group.store(conn).await.unwrap();
 
         // Test regular group behavior
         let regular_group = generate_group(None);
-        regular_group.store(conn).unwrap();
+        regular_group.store(conn).await.unwrap();
 
         // Create identical message sets for both groups
         let create_messages = |group_id: &GroupId| {
@@ -2073,8 +2073,8 @@ async fn test_count_group_messages_dm_vs_regular_groups() {
         let dm_messages = create_messages(&dm_group.id);
         let regular_messages = create_messages(&regular_group.id);
 
-        assert_ok!(dm_messages.store(conn));
-        assert_ok!(regular_messages.store(conn));
+        assert_ok!(dm_messages.store(conn).await);
+        assert_ok!(regular_messages.store(conn).await);
 
         // DM groups exclude GroupUpdated messages by default (should get 2 Text messages)
         assert_eq!(
@@ -2135,7 +2135,7 @@ async fn test_count_group_messages_dm_vs_regular_groups() {
 async fn test_count_group_messages_empty_groups() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Test count with no messages
         assert_eq!(
@@ -2179,7 +2179,7 @@ async fn test_count_group_messages_empty_groups() {
 async fn test_get_latest_message_times_by_sender_mixed_content_types() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let sender1_id = "0x111".to_string();
         let sender2_id = "0x222".to_string();
@@ -2239,7 +2239,7 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
             ),
         ];
 
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test filtering by text only - should get both senders
         let latest_times_text = conn
@@ -2280,11 +2280,11 @@ async fn test_get_latest_message_times_by_sender_mixed_content_types() {
 async fn it_deletes_message_by_id() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        assert_ok!(group.store(conn));
+        assert_ok!(group.store(conn).await);
 
         // Create a message
         let message = generate_message(None, Some(&group.id), None, None, None, None);
-        assert_ok!(message.store(conn));
+        assert_ok!(message.store(conn).await);
 
         // Verify the message exists
         let retrieved_message = conn.get_group_message(&message.id).await.unwrap();
@@ -2316,7 +2316,7 @@ async fn it_deletes_message_by_id() {
 async fn test_exclude_sender_inbox_ids_filter() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let sender1 = "inbox_id_1".to_string();
         let sender2 = "inbox_id_2".to_string();
@@ -2365,7 +2365,7 @@ async fn test_exclude_sender_inbox_ids_filter() {
                 Some(sender2.clone()),
             ),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test excluding sender1
         let exclude_sender1_args = MsgQueryArgs {
@@ -2464,7 +2464,7 @@ async fn test_exclude_sender_inbox_ids_filter() {
 async fn test_sort_by_sent_at() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Insert messages with different sent_at_ns in non-chronological order
         let messages = vec![
@@ -2472,7 +2472,7 @@ async fn test_sort_by_sent_at() {
             generate_message(None, Some(&group.id), Some(1000), None, None, None),
             generate_message(None, Some(&group.id), Some(2000), None, None, None),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Test ascending by sent_at (default)
         let asc_args = MsgQueryArgs {
@@ -2509,21 +2509,21 @@ async fn test_sort_by_sent_at() {
 async fn test_sort_by_inserted_at() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Insert messages one at a time with small delays
         // SQLite evaluates strftime at insert time, but rapid inserts can get same microsecond timestamp
         // Insert with sent_at_ns that differ from insertion order
         let msg1 = generate_message(None, Some(&group.id), Some(3000), None, None, None);
-        msg1.store(conn).unwrap();
+        msg1.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg2 = generate_message(None, Some(&group.id), Some(1000), None, None, None);
-        msg2.store(conn).unwrap();
+        msg2.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg3 = generate_message(None, Some(&group.id), Some(2000), None, None, None);
-        msg3.store(conn).unwrap();
+        msg3.store(conn).await.unwrap();
 
         // Test ascending by inserted_at (insertion order)
         let asc_args = MsgQueryArgs {
@@ -2553,28 +2553,28 @@ async fn test_sort_by_inserted_at() {
 async fn test_inserted_after_filter() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Insert messages one at a time with small delays
         // SQLite evaluates strftime at insert time, but rapid inserts can get same microsecond timestamp
         let msg1 = generate_message(None, Some(&group.id), Some(1000), None, None, None);
-        msg1.store(conn).unwrap();
+        msg1.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg2 = generate_message(None, Some(&group.id), Some(2000), None, None, None);
-        msg2.store(conn).unwrap();
+        msg2.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg3 = generate_message(None, Some(&group.id), Some(3000), None, None, None);
-        msg3.store(conn).unwrap();
+        msg3.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg4 = generate_message(None, Some(&group.id), Some(4000), None, None, None);
-        msg4.store(conn).unwrap();
+        msg4.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg5 = generate_message(None, Some(&group.id), Some(5000), None, None, None);
-        msg5.store(conn).unwrap();
+        msg5.store(conn).await.unwrap();
 
         // Get all messages to get their inserted_at_ns
         let all_messages = conn
@@ -2620,28 +2620,28 @@ async fn test_inserted_after_filter() {
 async fn test_inserted_before_filter() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Insert messages one at a time with small delays
         // SQLite evaluates strftime at insert time, but rapid inserts can get same microsecond timestamp
         let msg1 = generate_message(None, Some(&group.id), Some(1000), None, None, None);
-        msg1.store(conn).unwrap();
+        msg1.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg2 = generate_message(None, Some(&group.id), Some(2000), None, None, None);
-        msg2.store(conn).unwrap();
+        msg2.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg3 = generate_message(None, Some(&group.id), Some(3000), None, None, None);
-        msg3.store(conn).unwrap();
+        msg3.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg4 = generate_message(None, Some(&group.id), Some(4000), None, None, None);
-        msg4.store(conn).unwrap();
+        msg4.store(conn).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         let msg5 = generate_message(None, Some(&group.id), Some(5000), None, None, None);
-        msg5.store(conn).unwrap();
+        msg5.store(conn).await.unwrap();
 
         // Get all messages to get their inserted_at_ns
         let all_messages = conn
@@ -2675,13 +2675,13 @@ async fn test_inserted_before_filter() {
 async fn test_inserted_at_based_pagination() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Insert 10 messages one at a time with small delays
         // SQLite evaluates strftime at insert time, but rapid inserts can get same microsecond timestamp
         for i in 1..=10 {
             let msg = generate_message(None, Some(&group.id), Some(i * 1000), None, None, None);
-            msg.store(conn).unwrap();
+            msg.store(conn).await.unwrap();
             if i < 10 {
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
@@ -2746,10 +2746,10 @@ async fn test_inserted_at_based_pagination() {
 async fn test_inserted_at_populated_in_all_queries() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let msg = generate_message(None, Some(&group.id), Some(1000), None, None, None);
-        msg.store(conn).unwrap();
+        msg.store(conn).await.unwrap();
 
         // Test get_group_message
         let fetched = conn.get_group_message(&msg.id).await.unwrap().unwrap();
@@ -2778,7 +2778,7 @@ async fn test_inserted_at_populated_in_all_queries() {
 async fn test_expired_messages_excluded_from_queries() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let now = xmtp_common::time::now_ns();
         let past = now - 1_000_000_000; // 1 second ago
@@ -2814,7 +2814,7 @@ async fn test_expired_messages_excluded_from_queries() {
                 None,
             ),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Query should only return non-expired messages
         let results = conn
@@ -2886,7 +2886,7 @@ fn test_group_message_kind_is_deletable() {
 async fn test_min_expire_at_ns() {
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn)?;
+        group.store(conn).await?;
 
         // No disappearing messages yet -> None
         assert_eq!(conn.min_expire_at_ns().await?, None);
@@ -2901,7 +2901,7 @@ async fn test_min_expire_at_ns() {
             Some(5_000),
             None,
         )
-        .store(conn)?;
+        .store(conn).await?;
         generate_message(
             None,
             Some(&group.id),
@@ -2910,7 +2910,7 @@ async fn test_min_expire_at_ns() {
             Some(3_000),
             None,
         )
-        .store(conn)?;
+        .store(conn).await?;
         generate_message(
             None,
             Some(&group.id),
@@ -2919,7 +2919,7 @@ async fn test_min_expire_at_ns() {
             None,
             None,
         )
-        .store(conn)?;
+        .store(conn).await?;
 
         // Soonest expiry wins; the NULL-expiry row is excluded.
         assert_eq!(conn.min_expire_at_ns().await?, Some(3_000));

@@ -353,7 +353,7 @@ mod tests {
             };
 
             // Store the status
-            status.store(conn).unwrap();
+            status.store(conn).await.unwrap();
 
             // Retrieve it
             let retrieved = conn
@@ -406,7 +406,7 @@ mod tests {
                 requested_at_sequence_id: Some(50),
                 responded_at_sequence_id: Some(25),
             };
-            initial_status.store(conn).unwrap();
+            initial_status.store(conn).await.unwrap();
 
             // Update with higher sequence_id
             conn.update_requested_at_sequence_id(&group_id, &installation_id, 100)
@@ -439,7 +439,7 @@ mod tests {
                 requested_at_sequence_id: Some(100),
                 responded_at_sequence_id: Some(50),
             };
-            initial_status.store(conn).unwrap();
+            initial_status.store(conn).await.unwrap();
 
             // Try to update with lower sequence_id - this should be ignored
             conn.update_requested_at_sequence_id(&group_id, &installation_id, 75)
@@ -472,7 +472,7 @@ mod tests {
                 requested_at_sequence_id: None,
                 responded_at_sequence_id: Some(25),
             };
-            initial_status.store(conn).unwrap();
+            initial_status.store(conn).await.unwrap();
 
             // Update with any sequence_id (should work since current is null)
             conn.update_requested_at_sequence_id(&group_id, &installation_id, 50)
@@ -530,7 +530,7 @@ mod tests {
                 requested_at_sequence_id: Some(50),
                 responded_at_sequence_id: Some(100),
             };
-            initial_status.store(conn).unwrap();
+            initial_status.store(conn).await.unwrap();
 
             // Try to update with lower sequence_id - this should be ignored
             conn.update_responded_at_sequence_id(&group_id, &installation_id, 75)
@@ -595,7 +595,7 @@ mod tests {
                 responded_at_sequence_id: Some(5),
             }
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // Should return false when no request has been made
             let result = conn
@@ -621,7 +621,7 @@ mod tests {
                 responded_at_sequence_id: Some(5),
             }
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // Should return true when request is pending
             let result = conn
@@ -647,7 +647,7 @@ mod tests {
                 responded_at_sequence_id: Some(10),
             }
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // Should return false when request has been fulfilled
             let result = conn
@@ -673,7 +673,7 @@ mod tests {
                 responded_at_sequence_id: Some(10),
             }
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // Should return true when sequence IDs are equal.
             // The response to a readd request will always add a commit, which increases the sequence ID.
@@ -701,7 +701,7 @@ mod tests {
                 responded_at_sequence_id: None,
             }
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // Should return true when requested_at > 0 (default responded_at)
             let result = conn
@@ -728,7 +728,7 @@ mod tests {
                 requested_at_sequence_id: Some(10),
                 responded_at_sequence_id: Some(5),
             };
-            status_to_keep.store(conn).unwrap();
+            status_to_keep.store(conn).await.unwrap();
 
             let status_to_delete_1 = ReaddStatus {
                 group_id,
@@ -736,7 +736,7 @@ mod tests {
                 requested_at_sequence_id: Some(15),
                 responded_at_sequence_id: Some(8),
             };
-            status_to_delete_1.store(conn).unwrap();
+            status_to_delete_1.store(conn).await.unwrap();
 
             let status_to_delete_2 = ReaddStatus {
                 group_id,
@@ -744,7 +744,7 @@ mod tests {
                 requested_at_sequence_id: Some(20),
                 responded_at_sequence_id: None,
             };
-            status_to_delete_2.store(conn).unwrap();
+            status_to_delete_2.store(conn).await.unwrap();
 
             // Create a status for a different group (should not be affected)
             let different_group_status = ReaddStatus {
@@ -753,7 +753,7 @@ mod tests {
                 requested_at_sequence_id: Some(25),
                 responded_at_sequence_id: Some(12),
             };
-            different_group_status.store(conn).unwrap();
+            different_group_status.store(conn).await.unwrap();
 
             // Delete other readd statuses for the group
             conn.delete_other_readd_statuses(&group_id, &keep_installation_id)
@@ -807,7 +807,7 @@ mod tests {
                 requested_at_sequence_id: Some(10),
                 responded_at_sequence_id: Some(5),
             };
-            pending_status_1.store(conn).unwrap();
+            pending_status_1.store(conn).await.unwrap();
 
             // Case 2: Pending readd from other installation with null responded_at (should be included)
             let pending_status_2 = ReaddStatus {
@@ -816,7 +816,7 @@ mod tests {
                 requested_at_sequence_id: Some(15),
                 responded_at_sequence_id: None,
             };
-            pending_status_2.store(conn).unwrap();
+            pending_status_2.store(conn).await.unwrap();
 
             // Case 3: Not pending readd from other installation (should be excluded)
             let fulfilled_status = ReaddStatus {
@@ -825,7 +825,7 @@ mod tests {
                 requested_at_sequence_id: Some(8),
                 responded_at_sequence_id: Some(12),
             };
-            fulfilled_status.store(conn).unwrap();
+            fulfilled_status.store(conn).await.unwrap();
 
             // Case 4: Pending readd from self installation (should be excluded)
             let self_status = ReaddStatus {
@@ -834,7 +834,7 @@ mod tests {
                 requested_at_sequence_id: Some(20),
                 responded_at_sequence_id: Some(10),
             };
-            self_status.store(conn).unwrap();
+            self_status.store(conn).await.unwrap();
 
             // Case 5: No requested_at_sequence_id (should be excluded)
             let no_request_status = ReaddStatus {
@@ -843,7 +843,7 @@ mod tests {
                 requested_at_sequence_id: None,
                 responded_at_sequence_id: Some(5),
             };
-            no_request_status.store(conn).unwrap();
+            no_request_status.store(conn).await.unwrap();
 
             // Case 6: Different group (should be excluded)
             let different_group_status = ReaddStatus {
@@ -852,7 +852,7 @@ mod tests {
                 requested_at_sequence_id: Some(25),
                 responded_at_sequence_id: Some(15),
             };
-            different_group_status.store(conn).unwrap();
+            different_group_status.store(conn).await.unwrap();
 
             // Call the method under test
             let result = conn

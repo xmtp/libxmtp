@@ -205,7 +205,7 @@ async fn down_identity_updates() {
         originator_id: 1,
     }
     .store(&db.conn())
-    .unwrap();
+    .await.unwrap();
 
     db.conn()
         .raw_query(|conn| {

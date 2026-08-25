@@ -347,7 +347,7 @@ mod tests {
                         .await
                         .map(Continue)
                 })
-                .unwrap();
+                .await.unwrap();
             self.long_async_call().await;
         }
     }

@@ -367,22 +367,22 @@ mod tests {
         with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
+            group.store(conn).await?;
 
             let mut group2 = generate_group(None);
             group2.conversation_type = ConversationType::Sync;
-            group2.store(conn)?;
+            group2.store(conn).await?;
 
             let message1 = generate_message(None, Some(&group.id), None, None, None, None);
-            message1.store(conn)?;
+            message1.store(conn).await?;
             let message2 = generate_message(None, Some(&group2.id), None, None, None, None);
-            message2.store(conn)?;
+            message2.store(conn).await?;
 
             let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 2);
 
             // Storing with Pending state still counts as unprocessed
-            StoredProcessedDeviceSyncMessages::new(message2.id.clone()).store(conn)?;
+            StoredProcessedDeviceSyncMessages::new(message2.id.clone()).store(conn).await?;
             let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 2);
 
@@ -400,16 +400,16 @@ mod tests {
         with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
+            group.store(conn).await?;
 
             let message = generate_message(None, Some(&group.id), None, None, None, None);
-            message.store(conn)?;
+            message.store(conn).await?;
 
             // Store with default values (Pending state)
             let stored = StoredProcessedDeviceSyncMessages::new(message.id.clone());
             assert_eq!(stored.attempts, 0);
             assert_eq!(stored.state, DeviceSyncProcessingState::Pending);
-            stored.store(conn)?;
+            stored.store(conn).await?;
 
             // Pending state is still considered unprocessed
             let unprocessed = conn.unprocessed_sync_group_messages().await?;
@@ -430,13 +430,13 @@ mod tests {
         with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
+            group.store(conn).await?;
 
             let message = generate_message(None, Some(&group.id), None, None, None, None);
-            message.store(conn)?;
+            message.store(conn).await?;
 
             // Store with Pending state
-            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
+            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn).await?;
 
             // Increment attempts a couple times
             conn.increment_device_sync_msg_attempt(&message.id, 3)
@@ -464,13 +464,13 @@ mod tests {
         with_connection(async |conn| {
             let mut group = generate_group(None);
             group.conversation_type = ConversationType::Sync;
-            group.store(conn)?;
+            group.store(conn).await?;
 
             let message = generate_message(None, Some(&group.id), None, None, None, None);
-            message.store(conn)?;
+            message.store(conn).await?;
 
             // Store with default values (attempts = 0)
-            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
+            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn).await?;
 
             // Increment attempt 1
             let attempts = conn
@@ -507,12 +507,12 @@ mod tests {
         with_connection(async |conn| {
             let mut sync_group = generate_group(None);
             sync_group.conversation_type = ConversationType::Sync;
-            sync_group.store(conn)?;
+            sync_group.store(conn).await?;
 
             // Create a non-sync group to verify filtering works
             let mut dm_group = generate_group(None);
             dm_group.conversation_type = ConversationType::Dm;
-            dm_group.store(conn)?;
+            dm_group.store(conn).await?;
 
             // Create 5 messages in the sync group with specific sent_at_ns values
             // Messages are ordered by sent_at_ns DESC, so we store IDs in reverse order
@@ -526,13 +526,13 @@ mod tests {
                     None,
                     None,
                 );
-                message.store(conn)?;
+                message.store(conn).await?;
                 sync_message_ids.push(message.id);
             }
 
             // Create a message in the non-sync group (should be filtered out)
             let dm_message = generate_message(None, Some(&dm_group.id), None, None, None, None);
-            dm_message.store(conn)?;
+            dm_message.store(conn).await?;
 
             // Test pagination: get first 2 messages
             let page1 = conn.sync_group_messages_paged(0, 2).await?;

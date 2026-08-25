@@ -333,7 +333,7 @@ mod tests {
     };
     use crate::{Store, with_connection};
 
-    fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: GroupId) {
+    async fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: GroupId) {
         StoredGroup {
             id: group_id,
             created_at_ns: 0,
@@ -357,10 +357,10 @@ mod tests {
             has_pending_leave_request: None,
         }
         .store(conn)
-        .unwrap();
+        .await.unwrap();
     }
 
-    fn create_test_message(
+    async fn create_test_message(
         conn: &DbConnection<impl ConnectionExt>,
         id: Vec<u8>,
         group_id: GroupId,
@@ -387,7 +387,7 @@ mod tests {
             idempotency_key: 1000.to_string(),
         }
         .store(conn)
-        .unwrap();
+        .await.unwrap();
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -397,9 +397,9 @@ mod tests {
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
 
-            create_test_group(conn, group_id);
-            create_test_message(conn, message_id.clone(), group_id);
-            create_test_message(conn, delete_message_id.clone(), group_id);
+            create_test_group(conn, group_id).await;
+            create_test_message(conn, message_id.clone(), group_id).await;
+            create_test_message(conn, delete_message_id.clone(), group_id).await;
 
             let deletion = StoredMessageDeletion {
                 id: delete_message_id.clone(),
@@ -410,7 +410,7 @@ mod tests {
                 deleted_at_ns: 2000,
             };
 
-            deletion.store(conn)?;
+            deletion.store(conn).await?;
 
             // Test get by ID
             let retrieved = conn.get_message_deletion(&delete_message_id).await?;
@@ -432,9 +432,9 @@ mod tests {
             let message_id = vec![4, 5, 6];
             let delete_message_id = vec![7, 8, 9];
 
-            create_test_group(conn, group_id);
-            create_test_message(conn, message_id.clone(), group_id);
-            create_test_message(conn, delete_message_id.clone(), group_id);
+            create_test_group(conn, group_id).await;
+            create_test_message(conn, message_id.clone(), group_id).await;
+            create_test_message(conn, delete_message_id.clone(), group_id).await;
 
             // Initially not deleted
             assert!(!conn.is_message_deleted(&message_id).await?);
@@ -448,7 +448,7 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 2000,
             }
-            .store(conn)?;
+            .store(conn).await?;
 
             // Now it's deleted
             assert!(conn.is_message_deleted(&message_id).await?);
@@ -466,12 +466,12 @@ mod tests {
             let del1 = vec![13, 14, 15];
             let del2 = vec![16, 17, 18];
 
-            create_test_group(conn, group_id);
-            create_test_message(conn, msg1.clone(), group_id);
-            create_test_message(conn, msg2.clone(), group_id);
-            create_test_message(conn, msg3.clone(), group_id);
-            create_test_message(conn, del1.clone(), group_id);
-            create_test_message(conn, del2.clone(), group_id);
+            create_test_group(conn, group_id).await;
+            create_test_message(conn, msg1.clone(), group_id).await;
+            create_test_message(conn, msg2.clone(), group_id).await;
+            create_test_message(conn, msg3.clone(), group_id).await;
+            create_test_message(conn, del1.clone(), group_id).await;
+            create_test_message(conn, del2.clone(), group_id).await;
 
             // Delete msg1 and msg2
             StoredMessageDeletion {
@@ -482,7 +482,7 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 2000,
             }
-            .store(conn)?;
+            .store(conn).await?;
 
             StoredMessageDeletion {
                 id: del2.clone(),
@@ -492,7 +492,7 @@ mod tests {
                 is_super_admin_deletion: true,
                 deleted_at_ns: 3000,
             }
-            .store(conn)?;
+            .store(conn).await?;
 
             // Query for all three messages
             let deletions = conn
@@ -516,12 +516,12 @@ mod tests {
             let del1 = vec![13, 14, 15];
             let del2 = vec![16, 17, 18];
 
-            create_test_group(conn, group1);
-            create_test_group(conn, group2);
-            create_test_message(conn, msg1.clone(), group1);
-            create_test_message(conn, msg2.clone(), group2);
-            create_test_message(conn, del1.clone(), group1);
-            create_test_message(conn, del2.clone(), group2);
+            create_test_group(conn, group1).await;
+            create_test_group(conn, group2).await;
+            create_test_message(conn, msg1.clone(), group1).await;
+            create_test_message(conn, msg2.clone(), group2).await;
+            create_test_message(conn, del1.clone(), group1).await;
+            create_test_message(conn, del2.clone(), group2).await;
 
             StoredMessageDeletion {
                 id: del1.clone(),
@@ -531,7 +531,7 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 2000,
             }
-            .store(conn)?;
+            .store(conn).await?;
 
             StoredMessageDeletion {
                 id: del2.clone(),
@@ -541,7 +541,7 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 3000,
             }
-            .store(conn)?;
+            .store(conn).await?;
 
             // Get deletions for group1
             let group1_deletions = conn.get_group_deletions(&group1).await?;

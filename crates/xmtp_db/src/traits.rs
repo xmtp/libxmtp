@@ -171,7 +171,10 @@ pub trait DbQuery:
 // implementation on BOTH: you cannot implement it for SQLite (`DbConnection`)
 // and forget Postgres (`PgDb`), or the reverse — either omission fails to
 // compile here (sync) or in `pg.rs` (async), not in some distant consumer.
+// The bodies are type-checked (enforcing `DbConnection<C>: DbQuery`) even though
+// nothing calls them — that IS the guard; silence the resulting dead-code lint.
 #[cfg(feature = "sync")]
+#[allow(dead_code)]
 const _: fn() = || {
     fn assert_db_query<T: DbQuery>() {}
     fn assert_sqlite_backend<C: crate::ConnectionExt>() {

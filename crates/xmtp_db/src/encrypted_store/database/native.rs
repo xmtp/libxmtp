@@ -693,7 +693,7 @@ mod tests {
     use crate::{EncryptedMessageStore, XmtpTestDb};
 
     use super::*;
-    use crate::{Fetch, Store, identity::StoredIdentity};
+    use crate::{Store, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
 
     #[tokio::test]
@@ -706,9 +706,9 @@ mod tests {
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
 
-            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &()).await.unwrap().unwrap();
 
             assert_eq!(fetched_identity.inbox_id, inbox_id);
 
@@ -719,7 +719,7 @@ mod tests {
                 panic!("conn expected")
             }
             store.reconnect().unwrap();
-            let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            let fetched_identity2: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &()).await.unwrap().unwrap();
 
             assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
@@ -747,7 +747,7 @@ mod tests {
                 rand_vec::<24>(),
             )
             .store(&db.conn())
-            .unwrap();
+            .await.unwrap();
         } // Drop it
         enc_key[3] = 145; // Alter the enc_key
         let err = NativeDb::builder()
@@ -769,7 +769,7 @@ mod tests {
 
     #[tokio::test]
     async fn single_connection_roundtrip_and_reconnect() {
-        use crate::{Fetch, Store, identity::StoredIdentity};
+        use crate::{Store, identity::StoredIdentity};
 
         let db_path = tmp_path();
         {
@@ -790,13 +790,13 @@ mod tests {
             let inbox_id = "single_conn_inbox";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(&conn)
-                .unwrap();
+                .await.unwrap();
 
-            let fetched: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            let fetched: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
             assert_eq!(fetched.inbox_id, inbox_id);
 
             conn.reconnect().unwrap();
-            let fetched2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            let fetched2: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
             assert_eq!(fetched2.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -809,7 +809,7 @@ mod tests {
     /// reconnect restores service.
     #[tokio::test]
     async fn single_connection_disconnect_releases_then_reconnect() {
-        use crate::{Fetch, Store, identity::StoredIdentity};
+        use crate::{Store, identity::StoredIdentity};
 
         let db_path = tmp_path();
         {
@@ -825,10 +825,10 @@ mod tests {
             let inbox_id = "fd_release_inbox";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(&conn)
-                .unwrap();
+                .await.unwrap();
 
             // Healthy connection: query succeeds.
-            let ok: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let ok: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             assert!(ok.is_ok());
 
             // Disconnect drops the connection (releases the fd).
@@ -844,7 +844,7 @@ mod tests {
 
             // A query against the released connection reports needs-connection,
             // matching the pooled path's contract.
-            let res: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let res: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             let err = res.expect_err("query against a disconnected single connection should fail");
             assert!(
                 err.db_needs_connection(),
@@ -853,7 +853,7 @@ mod tests {
 
             // Reconnect restores service; data persisted on disk.
             conn.reconnect().unwrap();
-            let fetched: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+            let fetched: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
             assert_eq!(fetched.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -874,7 +874,7 @@ mod tests {
             db.init().unwrap();
             StoredIdentity::new("addr".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(&db.conn())
-                .unwrap();
+                .await.unwrap();
         }
         let mut bad = [1u8; 32];
         bad[3] = 200;
@@ -940,7 +940,7 @@ mod tests {
                         rand_vec::<24>(),
                         rand_vec::<24>(),
                     )
-                    .store(&storage.db())?;
+                    .store(&storage.db()).await?;
 
                     // Nested write inside a SQLite savepoint, re-deriving the
                     // key store from the savepoint's `&mut SqliteConnection`.
@@ -952,12 +952,12 @@ mod tests {
                             sequence_id: 1,
                             originator_id: 0,
                         }
-                        .store_or_ignore(&inner.db())?;
+                        .store_or_ignore(&inner.db()).await?;
                         Ok::<_, StorageError>(Continue(()))
-                    })?;
+                    }).await?;
                     Ok::<_, StorageError>(Continue(()))
                 })
-                .unwrap();
+                .await.unwrap();
 
             // Reaching here means no deadlock. Confirm BOTH writes persisted:
             // the outer transaction's `identity` row and the nested savepoint's

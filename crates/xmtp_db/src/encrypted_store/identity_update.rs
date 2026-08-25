@@ -413,8 +413,8 @@ pub(crate) mod tests {
             let update_2 = build_update(inbox_id, 2);
             let update_2_payload = update_2.payload.clone();
 
-            update_1.store(conn).expect("should store without error");
-            update_2.store(conn).expect("should store without error");
+            update_1.store(conn).await.expect("should store without error");
+            update_2.store(conn).await.expect("should store without error");
 
             let all_updates = conn
                 .get_identity_updates(inbox_id, None, None)
@@ -512,8 +512,8 @@ pub(crate) mod tests {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
             let update_2 = build_update(inbox_id, 2);
-            update.store(conn).expect("should store without error");
-            update_2.store(conn).expect("should store without error");
+            update.store(conn).await.expect("should store without error");
+            update_2.store(conn).await.expect("should store without error");
 
             let sequence_id = conn
                 .get_latest_sequence_id_for_inbox(inbox_id)

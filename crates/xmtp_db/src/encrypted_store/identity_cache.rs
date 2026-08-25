@@ -282,10 +282,10 @@ pub(crate) mod tests {
                 identity: "wallet_dup".to_string(),
                 identity_kind: StoredIdentityKind::Ethereum,
             };
-            entry1.store(conn).expect("Failed to store wallet");
+            entry1.store(conn).await.expect("Failed to store wallet");
             let result = entry2.store(conn);
             assert!(
-                result.is_err(),
+                result.await.is_err(),
                 "Duplicated wallet stored without error, expected failure"
             );
         })

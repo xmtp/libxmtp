@@ -1395,7 +1395,7 @@ pub(crate) mod tests {
                 )?;
                 Ok::<_, StorageError>(Continue(()))
             })
-            .unwrap();
+            .await.unwrap();
         assert!(matches!(outcome, Continue(())));
         assert!(is_present(&committed_key), "commit must persist");
 
@@ -1409,13 +1409,13 @@ pub(crate) mod tests {
                 )?;
                 Ok::<TransactionOutcome<()>, StorageError>(Rollback)
             })
-            .unwrap();
+            .await.unwrap();
         assert!(matches!(outcome, Rollback));
         assert!(!is_present(&rolled_back_key), "rollback must not persist");
 
         // Real error: a closure returning Err propagates as Err (and rolls back).
         let result: Result<TransactionOutcome<()>, StorageError> =
-            key_store.transaction(async |_conn| Err(StorageError::DbSerialize));
+            key_store.transaction(async |_conn| Err(StorageError::DbSerialize)).await;
         assert!(matches!(result, Err(StorageError::DbSerialize)));
     }
 

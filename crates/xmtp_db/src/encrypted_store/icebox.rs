@@ -674,7 +674,7 @@ mod tests {
 
     use super::*;
 
-    fn create_test_group(conn: &impl crate::DbQuery) -> GroupId {
+    async fn create_test_group(conn: &impl crate::DbQuery) -> GroupId {
         let group_id = GroupId::generate();
         let group = StoredGroup {
             id: group_id,
@@ -698,7 +698,7 @@ mod tests {
             is_commit_log_forked: None,
             has_pending_leave_request: None,
         };
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
         group_id
     }
 
@@ -731,7 +731,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn icebox_dependency_chain() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             let orphans = iced(group_id);
 
             // Store envelopes and dependencies
@@ -761,7 +761,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_wrong_originator() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             // Break the chain by changing the originator
             let mut orphans = iced(group_id);
             // Change envelope (39, 2) to (39, 1), breaking the chain
@@ -795,7 +795,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_wrong_sequence() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             // Break the chain by changing the sequence_id to a non-conflicting value
             let mut orphans = iced(group_id);
             // Change envelope (39, 2) to (100, 2), breaking the chain
@@ -830,7 +830,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_multiple_dependencies() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             // Test that two envelopes can depend on the same envelope
             let orphans = vec![
                 OrphanedEnvelope::builder()
@@ -872,7 +872,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_chain() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             // Test a chain where envelope 3 depends on 2, and both 1 and 2 depend on 3
             let orphans = vec![
                 OrphanedEnvelope::builder()
@@ -918,7 +918,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_future_dependents_multiple_cursors() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             let orphans = iced(group_id);
 
             // Store envelopes and dependencies
@@ -960,7 +960,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_querying_dependencies_in_middle_works() {
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
             let orphans = iced(group_id);
 
             conn.ice(orphans.clone()).await?;
@@ -987,7 +987,7 @@ mod tests {
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
 
             let orphans = vec![
                 OrphanedEnvelope::builder()
@@ -1027,7 +1027,7 @@ mod tests {
                 sequence_id: 20,
                 originator_id: 1,
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(
@@ -1055,7 +1055,7 @@ mod tests {
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
 
             let orphans = vec![
                 OrphanedEnvelope::builder()
@@ -1081,7 +1081,7 @@ mod tests {
                 sequence_id: 40,
                 originator_id: 1,
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete any entries");
@@ -1099,7 +1099,7 @@ mod tests {
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
 
             let orphans = vec![
                 OrphanedEnvelope::builder()
@@ -1118,7 +1118,7 @@ mod tests {
                 sequence_id: 100,
                 originator_id: 1,
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
@@ -1136,7 +1136,7 @@ mod tests {
         use crate::encrypted_store::refresh_state::{EntityKind, RefreshState};
 
         with_connection(async |conn| {
-            let group_id = create_test_group(conn);
+            let group_id = create_test_group(conn).await;
 
             let orphans = vec![
                 OrphanedEnvelope::builder()
@@ -1164,7 +1164,7 @@ mod tests {
                 sequence_id: 10,
                 originator_id: 1,
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 1, "Should delete the icebox entry");

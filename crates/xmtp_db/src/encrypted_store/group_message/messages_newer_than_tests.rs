@@ -40,7 +40,7 @@ async fn test_messages_newer_than_basic() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create messages with different originator_ids and sequence_ids
         let messages = vec![
@@ -49,7 +49,7 @@ async fn test_messages_newer_than_basic() {
             generate_message_with_cursor(&group.id, 2, 15, 3000),
             generate_message_with_cursor(&group.id, 2, 25, 4000),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Set cursor to originator 1: seq 10, originator 2: seq 15
         let mut cursor = GlobalCursor::default();
@@ -84,7 +84,7 @@ async fn test_messages_newer_than_new_originator() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Create messages from originator 1 and 2
         let messages = vec![
@@ -92,7 +92,7 @@ async fn test_messages_newer_than_new_originator() {
             generate_message_with_cursor(&group.id, 2, 5, 2000),
             generate_message_with_cursor(&group.id, 2, 10, 3000),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Cursor only knows about originator 1
         let mut cursor = GlobalCursor::default();
@@ -127,8 +127,8 @@ async fn test_messages_newer_than_multiple_groups() {
     with_connection(async |conn| {
         let group1 = generate_group(None);
         let group2 = generate_group(None);
-        group1.store(conn).unwrap();
-        group2.store(conn).unwrap();
+        group1.store(conn).await.unwrap();
+        group2.store(conn).await.unwrap();
 
         // Create messages in both groups
         let messages = vec![
@@ -137,7 +137,7 @@ async fn test_messages_newer_than_multiple_groups() {
             generate_message_with_cursor(&group2.id, 1, 5, 3000),
             generate_message_with_cursor(&group2.id, 1, 15, 4000),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Set different cursors for each group
         let mut cursor1 = GlobalCursor::default();
@@ -178,7 +178,7 @@ async fn test_messages_newer_than_batching() {
         let mut groups = Vec::new();
         for _ in 0..150 {
             let group = generate_group(None);
-            group.store(conn).unwrap();
+            group.store(conn).await.unwrap();
             groups.push(group);
         }
 
@@ -188,7 +188,7 @@ async fn test_messages_newer_than_batching() {
             let msg = generate_message_with_cursor(&group.id, 1, (i + 1) as i64, 1000 + i as i64);
             messages.push(msg);
         }
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Set cursor to 0 for all groups (all messages are newer)
         let mut cursors_by_group = HashMap::new();
@@ -212,14 +212,14 @@ async fn test_messages_newer_than_empty_cursor() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let messages = vec![
             generate_message_with_cursor(&group.id, 1, 10, 1000),
             generate_message_with_cursor(&group.id, 2, 5, 2000),
             generate_message_with_cursor(&group.id, 3, 8, 3000),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Empty cursor - all messages should be newer
         let cursor = GlobalCursor::default();
@@ -240,13 +240,13 @@ async fn test_messages_newer_than_no_new_messages() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         let messages = vec![
             generate_message_with_cursor(&group.id, 1, 10, 1000),
             generate_message_with_cursor(&group.id, 2, 15, 2000),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Cursor is already at or past all messages
         let mut cursor = GlobalCursor::default();
@@ -270,7 +270,7 @@ async fn test_messages_newer_than_mixed_originators() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // Messages from 3 originators
         let messages = vec![
@@ -281,7 +281,7 @@ async fn test_messages_newer_than_mixed_originators() {
             generate_message_with_cursor(&group.id, 3, 2, 5000),
             generate_message_with_cursor(&group.id, 3, 4, 6000),
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Cursor knows about originator 1 (seq 5) and originator 2 (seq 3)
         // Does not know about originator 3
@@ -329,7 +329,7 @@ async fn test_messages_newer_than_empty_groups() {
 
     with_connection(async |conn| {
         let group = generate_group(None);
-        group.store(conn).unwrap();
+        group.store(conn).await.unwrap();
 
         // No messages in group
         let cursor = GlobalCursor::default();
@@ -351,8 +351,8 @@ async fn test_messages_newer_than_per_group_cursors() {
     with_connection(async |conn| {
         let group1 = generate_group(None);
         let group2 = generate_group(None);
-        group1.store(conn).unwrap();
-        group2.store(conn).unwrap();
+        group1.store(conn).await.unwrap();
+        group2.store(conn).await.unwrap();
 
         // Create messages in both groups from the same originator
         let messages = vec![
@@ -363,7 +363,7 @@ async fn test_messages_newer_than_per_group_cursors() {
             generate_message_with_cursor(&group2.id, 1, 200, 3000), // older than cursor (300)
             generate_message_with_cursor(&group2.id, 1, 400, 4000), // newer than cursor (300)
         ];
-        assert_ok!(messages.store(conn));
+        assert_ok!(messages.store(conn).await);
 
         // Group 1 has cursor {originator_1: 100}
         let mut cursor1 = GlobalCursor::default();

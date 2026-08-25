@@ -438,7 +438,7 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             // Create a group
             let group = generate_group(None);
-            group.store(conn).unwrap();
+            group.store(conn).await.unwrap();
 
             // Insert multiple messages into the group
             for i in 1..5 {
@@ -451,7 +451,7 @@ pub(crate) mod tests {
                     None,
                 );
 
-                message.store(conn).unwrap();
+                message.store(conn).await.unwrap();
             }
 
             // Fetch the conversation list
@@ -481,9 +481,9 @@ pub(crate) mod tests {
             let group_b = generate_group_with_created_at(None, 2000); // Created before last message
             let group_c = generate_group_with_created_at(None, 1000); // Created before last message with no messages
 
-            group_a.store(conn).unwrap();
-            group_b.store(conn).unwrap();
-            group_c.store(conn).unwrap();
+            group_a.store(conn).await.unwrap();
+            group_b.store(conn).await.unwrap();
+            group_c.store(conn).await.unwrap();
             // Add a message to group_b
             let message = crate::encrypted_store::group_message::tests::generate_message(
                 None,
@@ -493,7 +493,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            message.store(conn).unwrap();
+            message.store(conn).await.unwrap();
 
             // Fetch the conversation list
             let conversation_list = conn
@@ -523,7 +523,7 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             // Create a group
             let group = generate_group(None);
-            group.store(conn).unwrap();
+            group.store(conn).await.unwrap();
 
             // Add an initial message
             let first_message = crate::encrypted_store::group_message::tests::generate_message(
@@ -534,7 +534,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            first_message.store(conn).unwrap();
+            first_message.store(conn).await.unwrap();
 
             // Fetch the conversation list and check last message
             let mut conversation_list = conn
@@ -557,7 +557,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            second_message.store(conn).unwrap();
+            second_message.store(conn).await.unwrap();
 
             // Fetch the conversation list again and validate the last message is updated
             conversation_list = conn
@@ -577,32 +577,32 @@ pub(crate) mod tests {
     async fn test_find_conversations_by_consent_state() {
         with_connection(async |conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
-            test_group_1.store(conn).unwrap();
+            test_group_1.store(conn).await.unwrap();
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
-            test_group_2.store(conn).unwrap();
+            test_group_2.store(conn).await.unwrap();
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
-            test_group_3.store(conn).unwrap();
+            test_group_3.store(conn).await.unwrap();
             let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
-            test_group_4.store(conn).unwrap();
+            test_group_4.store(conn).await.unwrap();
 
             let test_group_1_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
                 hex::encode(test_group_1.id),
             );
-            test_group_1_consent.store(conn).unwrap();
+            test_group_1_consent.store(conn).await.unwrap();
             let test_group_2_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
                 hex::encode(test_group_2.id),
             );
-            test_group_2_consent.store(conn).unwrap();
+            test_group_2_consent.store(conn).await.unwrap();
             let test_group_3_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
                 hex::encode(test_group_3.id),
             );
-            test_group_3_consent.store(conn).unwrap();
+            test_group_3_consent.store(conn).await.unwrap();
 
             let all_results = conn
                 .fetch_conversation_list(&GroupQueryArgs {
@@ -678,13 +678,13 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             // Create three groups: one allowed, one denied, one unknown (no consent)
             let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
-            allowed_group.store(conn).unwrap();
+            allowed_group.store(conn).await.unwrap();
 
             let denied_group = generate_group(Some(GroupMembershipState::Allowed));
-            denied_group.store(conn).unwrap();
+            denied_group.store(conn).await.unwrap();
 
             let unknown_group = generate_group(Some(GroupMembershipState::Allowed));
-            unknown_group.store(conn).unwrap();
+            unknown_group.store(conn).await.unwrap();
 
             // Create consent records for allowed and denied; leave unknown_group without one
             let allowed_consent = generate_consent_record(
@@ -692,14 +692,14 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(allowed_group.id),
             );
-            allowed_consent.store(conn).unwrap();
+            allowed_consent.store(conn).await.unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
                 hex::encode(denied_group.id),
             );
-            denied_consent.store(conn).unwrap();
+            denied_consent.store(conn).await.unwrap();
 
             // Query using default args (no consent_states specified)
             let default_results = conn
@@ -721,7 +721,7 @@ pub(crate) mod tests {
     async fn test_unknown_content_type_is_present() {
         with_connection(async |conn| {
             let dm = generate_dm(None);
-            dm.store(conn)?;
+            dm.store(conn).await?;
 
             let m = generate_message(
                 None,
@@ -731,7 +731,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            m.store(conn)?;
+            m.store(conn).await?;
 
             let conv = conn
                 .fetch_conversation_list(&GroupQueryArgs {
@@ -753,9 +753,9 @@ pub(crate) mod tests {
             let group2 = generate_group_with_created_at(None, 2000);
             let group3 = generate_group_with_created_at(None, 3000);
 
-            group1.store(conn).unwrap();
-            group2.store(conn).unwrap();
-            group3.store(conn).unwrap();
+            group1.store(conn).await.unwrap();
+            group2.store(conn).await.unwrap();
+            group3.store(conn).await.unwrap();
 
             // Add a message to group1 at timestamp 5000
             let message1 = crate::encrypted_store::group_message::tests::generate_message(
@@ -766,7 +766,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            message1.store(conn).unwrap();
+            message1.store(conn).await.unwrap();
 
             // Add a message to group2 at timestamp 4000
             let message2 = crate::encrypted_store::group_message::tests::generate_message(
@@ -777,7 +777,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            message2.store(conn).unwrap();
+            message2.store(conn).await.unwrap();
 
             // group3 has no messages, so its activity time is its created_at_ns (3000)
 
@@ -841,9 +841,9 @@ pub(crate) mod tests {
             let group2 = generate_group_with_created_at(None, 2000);
             let group3 = generate_group_with_created_at(None, 3000);
 
-            group1.store(conn).unwrap();
-            group2.store(conn).unwrap();
-            group3.store(conn).unwrap();
+            group1.store(conn).await.unwrap();
+            group2.store(conn).await.unwrap();
+            group3.store(conn).await.unwrap();
 
             // Add a message to group1 at timestamp 5000
             let message1 = crate::encrypted_store::group_message::tests::generate_message(
@@ -854,7 +854,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            message1.store(conn).unwrap();
+            message1.store(conn).await.unwrap();
 
             // Add a message to group2 at timestamp 4000
             let message2 = crate::encrypted_store::group_message::tests::generate_message(
@@ -865,7 +865,7 @@ pub(crate) mod tests {
                 None,
                 None,
             );
-            message2.store(conn).unwrap();
+            message2.store(conn).await.unwrap();
 
             // group3 has no messages, so its activity time is its created_at_ns (3000)
 
@@ -928,7 +928,7 @@ pub(crate) mod tests {
             let mut groups = Vec::new();
             for i in 0..5 {
                 let group = generate_group_with_created_at(None, (i + 1) * 1000);
-                group.store(conn).unwrap();
+                group.store(conn).await.unwrap();
 
                 // Add a message to each group at different times
                 let message = crate::encrypted_store::group_message::tests::generate_message(
@@ -939,7 +939,7 @@ pub(crate) mod tests {
                     None,
                     None,
                 );
-                message.store(conn).unwrap();
+                message.store(conn).await.unwrap();
                 groups.push(group);
             }
 

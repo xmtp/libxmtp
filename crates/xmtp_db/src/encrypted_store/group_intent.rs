@@ -765,13 +765,13 @@ crate::impl_sql_int_enum!(IntentState {
 pub(crate) mod tests {
     use super::*;
     use crate::{
-        Fetch, Store,
+        Store,
         group::{GroupMembershipState, StoredGroup},
         test_utils::with_connection,
     };
     use xmtp_common::{Generate, rand_vec};
 
-    fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: GroupId) {
+    async fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: GroupId) {
         StoredGroup::builder()
             .id(group_id)
             .created_at_ns(100)
@@ -780,7 +780,7 @@ pub(crate) mod tests {
             .build()
             .unwrap()
             .store(conn)
-            .unwrap();
+            .await.unwrap();
     }
 
     impl NewGroupIntent {
@@ -843,7 +843,7 @@ pub(crate) mod tests {
         let group_id = GroupId::generate();
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
             // A known-kind intent this build must keep seeing.
             NewGroupIntent::new_test(
@@ -853,7 +853,7 @@ pub(crate) mod tests {
                 IntentState::ToPublish,
             )
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // A future-kind row (discriminant beyond every known
             // variant), inserted raw — exactly what a newer build
@@ -909,9 +909,9 @@ pub(crate) mod tests {
 
         with_connection(async |conn| {
             // Group needs to exist or FK constraint will fail
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
-            to_insert.store(conn).unwrap();
+            to_insert.store(conn).await.unwrap();
 
             let results = conn
                 .find_group_intents(&group_id, Some(vec![IntentState::ToPublish]), None)
@@ -925,7 +925,7 @@ pub(crate) mod tests {
 
             let id = results[0].id;
 
-            let fetched: StoredGroupIntent = conn.fetch(&id).unwrap().unwrap();
+            let fetched: StoredGroupIntent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &id).await.unwrap().unwrap();
 
             assert_eq!(fetched.id, id);
         })
@@ -959,10 +959,10 @@ pub(crate) mod tests {
 
         with_connection(async |conn| {
             // Group needs to exist or FK constraint will fail
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
             for case in test_intents {
-                case.store(conn).unwrap();
+                case.store(conn).await.unwrap();
             }
 
             // Can query for multiple states
@@ -1023,7 +1023,7 @@ pub(crate) mod tests {
         let group_id = GroupId::generate();
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
             // Store the intent
             NewGroupIntent::new(
@@ -1033,7 +1033,7 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             // Find the intent with the ID populated
             let intent = find_first_intent(conn, group_id);
@@ -1068,7 +1068,7 @@ pub(crate) mod tests {
         let group_id = GroupId::generate();
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
             // Store the intent
             NewGroupIntent::new(
@@ -1078,7 +1078,7 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             let mut intent = find_first_intent(conn, group_id);
 
@@ -1095,7 +1095,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-            intent = conn.fetch(&intent.id).unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
@@ -1104,7 +1104,7 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
             // Refresh from the DB
-            intent = conn.fetch(&intent.id).unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Committed);
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
@@ -1117,7 +1117,7 @@ pub(crate) mod tests {
         let group_id = GroupId::generate();
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
             // Store the intent
             NewGroupIntent::new(
@@ -1127,7 +1127,7 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             let mut intent = find_first_intent(conn, group_id);
 
@@ -1144,13 +1144,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-            intent = conn.fetch(&intent.id).unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
 
             // Now revert back to ToPublish
             conn.set_group_intent_to_publish(intent.id).await.unwrap();
-            intent = conn.fetch(&intent.id).unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
@@ -1163,7 +1163,7 @@ pub(crate) mod tests {
         let group_id = GroupId::generate();
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
 
             // Store the intent
             NewGroupIntent::new(
@@ -1173,7 +1173,7 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             let intent = find_first_intent(conn, group_id);
 
@@ -1200,7 +1200,7 @@ pub(crate) mod tests {
     async fn test_increment_publish_attempts() {
         let group_id = GroupId::generate();
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 group_id,
@@ -1208,7 +1208,7 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
             let mut intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 0);
@@ -1234,10 +1234,10 @@ pub(crate) mod tests {
         let payload_hash2 = rand_vec::<24>();
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
+            insert_group(conn, group_id).await;
             NewGroupIntent::new(IntentKind::SendMessage, group_id, rand_vec::<24>(), false)
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
 
             let intent1 = find_first_intent(conn, group_id);
             conn.set_group_intent_published(intent1.id, &payload_hash1, None, None, 1)
@@ -1246,7 +1246,7 @@ pub(crate) mod tests {
 
             NewGroupIntent::new(IntentKind::KeyUpdate, group_id, rand_vec::<24>(), false)
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
             let intents = conn
                 .find_group_intents(&group_id, None, None)
                 .await
@@ -1299,8 +1299,8 @@ pub(crate) mod tests {
             NewGroupIntent::new_test(kind, group_id, data.clone(), IntentState::ToPublish);
 
         with_connection(async |conn| {
-            insert_group(conn, group_id);
-            to_insert.store(conn).unwrap();
+            insert_group(conn, group_id).await;
+            to_insert.store(conn).await.unwrap();
 
             let results = conn
                 .find_group_intents(&group_id, Some(vec![IntentState::ToPublish]), None)

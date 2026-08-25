@@ -652,14 +652,14 @@ mod tests {
         with_connection(async |conn| {
             let mut g = generate_group(None);
             g.dm_id = Some("dm:alpha:beta".to_string());
-            g.store(conn)?;
+            g.store(conn).await?;
 
             let cr = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
                 hex::encode(g.id),
             );
-            cr.store(conn)?;
+            cr.store(conn).await?;
 
             let mut records = conn.find_consent_by_dm_id("dm:alpha:beta").await?;
 

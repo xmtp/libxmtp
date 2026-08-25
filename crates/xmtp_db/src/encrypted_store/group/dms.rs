@@ -151,7 +151,7 @@ pub(super) mod tests {
                 .build()
                 .unwrap()
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
 
             StoredGroup::builder()
                 .id(GroupId::generate())
@@ -162,7 +162,7 @@ pub(super) mod tests {
                 .build()
                 .unwrap()
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
             let all_groups = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
 
             assert_eq!(all_groups.len(), 1);
@@ -189,7 +189,7 @@ pub(super) mod tests {
                 .dm_id(Some(dm_id.to_string()))
                 .build()
                 .unwrap();
-            oldest_dm.store(conn).unwrap();
+            oldest_dm.store(conn).await.unwrap();
 
             // Middle DM (should be filtered out)
             let middle_dm = StoredGroup::builder()
@@ -201,7 +201,7 @@ pub(super) mod tests {
                 .dm_id(Some(dm_id.to_string()))
                 .build()
                 .unwrap();
-            middle_dm.store(conn).unwrap();
+            middle_dm.store(conn).await.unwrap();
 
             // Latest DM (should be kept)
             let latest_dm = StoredGroup::builder()
@@ -213,7 +213,7 @@ pub(super) mod tests {
                 .dm_id(Some(dm_id.to_string()))
                 .build()
                 .unwrap();
-            latest_dm.store(conn).unwrap();
+            latest_dm.store(conn).await.unwrap();
 
             // Create another DM with different dm_id (should always be kept)
             let different_dm = StoredGroup::builder()
@@ -225,7 +225,7 @@ pub(super) mod tests {
                 .dm_id(Some("dm:charlie:dave".to_string()))
                 .build()
                 .unwrap();
-            different_dm.store(conn).unwrap();
+            different_dm.store(conn).await.unwrap();
 
             // Create a regular group (non-DM, should always be kept)
             let regular_group = StoredGroup::builder()
@@ -237,7 +237,7 @@ pub(super) mod tests {
                 .dm_id(None) // No dm_id = regular group
                 .build()
                 .unwrap();
-            regular_group.store(conn).unwrap();
+            regular_group.store(conn).await.unwrap();
 
             // Test with include_duplicate_dms = false (default deduplication)
             let deduplicated_groups = conn

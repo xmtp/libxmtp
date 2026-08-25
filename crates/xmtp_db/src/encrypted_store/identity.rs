@@ -504,7 +504,7 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
             let seed = test_rotation_seed();
             let hash = crate::tasks::TaskDataHash::try_from(seed.data_hash.as_slice()).unwrap();
             conn.queue_key_rotation_with_nudge(&hash, seed)
@@ -528,7 +528,7 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .unwrap();
+                .await.unwrap();
 
             // Migrated DBs have NULL here; queueing must initialize it (5s
             // debounce) rather than skip the row.
@@ -558,10 +558,11 @@ pub(crate) mod tests {
 
         StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(conn)
-            .unwrap();
+            .await.unwrap();
 
-        let duplicate_insertion =
-            StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>()).store(conn);
+        let duplicate_insertion = StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
+            .store(conn)
+            .await;
         assert!(duplicate_insertion.is_err());
     }
 }

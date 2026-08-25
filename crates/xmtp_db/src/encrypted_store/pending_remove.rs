@@ -248,7 +248,7 @@ mod tests {
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
             let users = conn.get_pending_remove_users(&GroupId::ONE).await.unwrap();
             assert_eq!(users.len(), 1);
             let users = conn.get_pending_remove_users(&GroupId::TWO).await.unwrap();
@@ -266,19 +266,19 @@ mod tests {
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
             PendingRemove {
                 inbox_id: "2".to_string(),
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
             PendingRemove {
                 inbox_id: "3".to_string(),
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn)?;
+            .store_or_ignore(conn).await?;
             let group_id = GroupId::ONE;
             let users = conn.get_pending_remove_users(&group_id).await.unwrap();
             assert_eq!(users.len(), 3);
