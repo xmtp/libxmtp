@@ -15,6 +15,10 @@ on:
         required: true
         type: string
         description: "Git ref to build from"
+      timestamp:
+        required: false
+        type: string
+        description: "Shared UTC YYYYMMDDHHMMSS stamp minted once per Release run"
       pending-version:
         required: false
         type: string
@@ -47,13 +51,34 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-release-tools
 
+      # Same hazard as release-browser-sdk.yml, and the one the consumer bump
+      # PRs actually assert on: this workflow versions the node-sdk here and
+      # `@xmtp/node-bindings` in the nested release-node.yml, in separate jobs.
+      # An empty timestamp makes each mint its own `now` fallback, so the two
+      # would ship different `pre.<ts>.…` suffixes and the convos-cli /
+      # convos-assistants manifests — which require the whole suffix to
+      # match — would reject the pair. Fail before `bindings` (which needs this
+      # job) starts. rc/final carry no stamp and are unaffected.
+      - name: Require the run-wide timestamp
+        if: inputs.release-type == 'dev' || inputs.release-type == 'nightly'
+        env:
+          TIMESTAMP: ${{ inputs.timestamp }}
+        run: |
+          if [ -z "$TIMESTAMP" ]; then
+            echo "::error::${{ inputs.release-type }} releases require the run-wide timestamp minted by release.yml; refusing to publish node-sdk and node-bindings with independently minted stamps"
+            exit 1
+          fi
+
       - name: Compute version
         id: version
+        env:
+          REF: ${{ inputs.ref }}
+          TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "${{ inputs.release-type }}" = "rc" ]; then
             VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type dev)
+            VERSION=$(xmtp-release compute-version --sdk node-sdk --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
           elif [ "${{ inputs.release-type }}" = "nightly" ]; then
             if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
               echo "::error::nightly resolve called with empty pending version/kind"
@@ -61,6 +86,7 @@ jobs:
             fi
             VERSION=$(xmtp-release resolve-sdk-version \
               --sdk node-sdk --release-type nightly \
+              --timestamp "$TIMESTAMP" \
               --pending-version "${{ inputs.pending-version }}" \
               --pending-kind "${{ inputs.pending-kind }}")
           else
@@ -76,6 +102,7 @@ jobs:
       release-type: ${{ inputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ inputs.ref }}
+      timestamp: ${{ inputs.timestamp }}
       pending-version: ${{ inputs.pending-version }}
       pending-kind: ${{ inputs.pending-kind }}
       dry-run: ${{ inputs.dry-run }}

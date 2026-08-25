@@ -50,7 +50,7 @@ targets:
     disablesourceinput: true
     spec:
       file: package.json
-      matchpattern: '("@xmtp/node-sdk"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly)\.[^"]+(")'
+      matchpattern: '("@xmtp/node-sdk"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly|pre)\.[^"]+(")'
       replacepattern: '${1}{{ requiredEnv "VERSION" }}${2}'
   node-bindings-pin:
     name: 'pin @xmtp/node-bindings {{ requiredEnv "BINDING_VERSION" }}'
@@ -59,7 +59,7 @@ targets:
     disablesourceinput: true
     spec:
       file: package.json
-      matchpattern: '("@xmtp/node-bindings"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly)\.[^"]+(")'
+      matchpattern: '("@xmtp/node-bindings"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly|pre)\.[^"]+(")'
       replacepattern: '${1}{{ requiredEnv "BINDING_VERSION" }}${2}'
   pnpm-lockfile:
     name: refresh pnpm-lock.yaml

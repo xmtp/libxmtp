@@ -60,7 +60,8 @@ export interface ResolveSdkVersionArgs {
   pending: PendingRelease;
   releaseType: ReleaseType;
   rcNumber?: number;
-  nightlyDate?: string;
+  /** UTC YYYYMMDDHHMMSS stamp for the unified pre.* timeline (main-cut builds). */
+  timestamp?: string;
   shortSha?: string;
 }
 
@@ -90,7 +91,7 @@ export function resolveSdkVersion(args: ResolveSdkVersionArgs): string {
 
   return computeVersion(target, args.releaseType, {
     rcNumber: args.rcNumber,
-    nightlyDate: args.nightlyDate,
+    timestamp: args.timestamp,
     shortSha: args.shortSha,
   });
 }

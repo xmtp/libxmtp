@@ -15,6 +15,10 @@ on:
         required: true
         type: string
         description: "Git ref to build from"
+      timestamp:
+        required: false
+        type: string
+        description: "Shared UTC YYYYMMDDHHMMSS stamp minted once per Release run"
       pending-version:
         required: false
         type: string
@@ -47,13 +51,38 @@ jobs:
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-release-tools
 
+      # This workflow versions TWO packages that pin each other: the browser-sdk
+      # here and `@xmtp/wasm-bindings` in the nested release-wasm.yml below. Each
+      # calls the version tools in its own job, and an EMPTY timestamp is not
+      # inert — it makes each job mint its own `now` fallback, so the published
+      # browser-sdk would pin a wasm-bindings whose `pre.<ts>.…` suffix differs
+      # from its own and from every other package in the run, breaking the
+      # whole-suffix lockstep the consumer bump PRs assert. release.yml mints one
+      # stamp per run and threads it in; empty on a stamped release type means
+      # that plumbing is broken, so fail here — `bindings` needs this job, so
+      # nothing has published yet. (rc/final carry no stamp and are unaffected;
+      # branch-cut devs ignore the stamp, but every caller mints one, so the
+      # guard stays on release-type alone rather than re-deriving `fromMain`.)
+      - name: Require the run-wide timestamp
+        if: inputs.release-type == 'dev' || inputs.release-type == 'nightly'
+        env:
+          TIMESTAMP: ${{ inputs.timestamp }}
+        run: |
+          if [ -z "$TIMESTAMP" ]; then
+            echo "::error::${{ inputs.release-type }} releases require the run-wide timestamp minted by release.yml; refusing to publish browser-sdk and wasm-bindings with independently minted stamps"
+            exit 1
+          fi
+
       - name: Compute version
         id: version
+        env:
+          REF: ${{ inputs.ref }}
+          TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "${{ inputs.release-type }}" = "rc" ]; then
             VERSION=$(xmtp-release compute-version --sdk browser-sdk --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk browser-sdk --release-type dev)
+            VERSION=$(xmtp-release compute-version --sdk browser-sdk --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
           elif [ "${{ inputs.release-type }}" = "nightly" ]; then
             if [ -z "${{ inputs.pending-version }}" ] || [ -z "${{ inputs.pending-kind }}" ]; then
               echo "::error::nightly resolve called with empty pending version/kind"
@@ -61,6 +90,7 @@ jobs:
             fi
             VERSION=$(xmtp-release resolve-sdk-version \
               --sdk browser-sdk --release-type nightly \
+              --timestamp "$TIMESTAMP" \
               --pending-version "${{ inputs.pending-version }}" \
               --pending-kind "${{ inputs.pending-kind }}")
           else
@@ -76,6 +106,7 @@ jobs:
       release-type: ${{ inputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ inputs.ref }}
+      timestamp: ${{ inputs.timestamp }}
       pending-version: ${{ inputs.pending-version }}
       pending-kind: ${{ inputs.pending-kind }}
       dry-run: ${{ inputs.dry-run }}

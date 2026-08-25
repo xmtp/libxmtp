@@ -37,6 +37,10 @@ on:
         required: false
         type: string
         description: "Git ref to build from"
+      timestamp:
+        required: false
+        type: string
+        description: "Shared UTC YYYYMMDDHHMMSS stamp minted once per Release run"
       node-sdk-version:
         required: false
         type: string
@@ -81,11 +85,13 @@ jobs:
           RC_NUMBER: ${{ inputs.rc-number }}
           PENDING_VERSION: ${{ inputs.pending-version }}
           PENDING_KIND: ${{ inputs.pending-kind }}
+          REF: ${{ inputs.ref || github.ref }}
+          TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "$RELEASE_TYPE" = "rc" ]; then
             VERSION=$(xmtp-release compute-version --sdk agent-sdk --release-type rc --rc-number "$RC_NUMBER")
           elif [ "$RELEASE_TYPE" = "dev" ]; then
-            VERSION=$(xmtp-release compute-version --sdk agent-sdk --release-type dev)
+            VERSION=$(xmtp-release compute-version --sdk agent-sdk --release-type dev --source-ref "$REF" --timestamp "$TIMESTAMP")
           elif [ "$RELEASE_TYPE" = "nightly" ]; then
             if [ -z "$PENDING_VERSION" ] || [ -z "$PENDING_KIND" ]; then
               echo "::error::nightly resolve called with empty pending version/kind"
@@ -93,6 +99,7 @@ jobs:
             fi
             VERSION=$(xmtp-release resolve-sdk-version \
               --sdk agent-sdk --release-type nightly \
+              --timestamp "$TIMESTAMP" \
               --pending-version "$PENDING_VERSION" \
               --pending-kind "$PENDING_KIND")
           else

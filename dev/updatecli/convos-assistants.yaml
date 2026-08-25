@@ -59,7 +59,7 @@ targets:
     disablesourceinput: true
     spec:
       file: package.json
-      matchpattern: '("@xmtp/node-bindings"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly)\.[^"]+(")'
+      matchpattern: '("@xmtp/node-bindings"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly|pre)\.[^"]+(")'
       replacepattern: '${1}{{ requiredEnv "BINDING_VERSION" }}${2}'
   pnpm-lockfile:
     name: refresh pnpm-lock.yaml
