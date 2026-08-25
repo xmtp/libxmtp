@@ -21,7 +21,7 @@ impl HealthOp for LeaveGroup {
         "LeaveGroup"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "LeaveGroup"))]
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(operation = "LeaveGroup"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(gid) = ctx.new_groups.first().cloned() else {
             return vec![OpResult::fail(

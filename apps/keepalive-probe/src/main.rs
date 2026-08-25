@@ -329,7 +329,7 @@ async fn subscribe_once(
                     };
                     tracing::info!(
                         id,
-                        msg_id = mid,
+                        message_id = mid,
                         total = received,
                         "payload received (dropped)"
                     );

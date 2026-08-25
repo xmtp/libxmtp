@@ -505,7 +505,7 @@ impl HealthContext {
             if let Err(e) = c.sync_welcomes().await {
                 tracing::warn!(
                     target: "healthcheck",
-                    inbox = c.inbox_id(),
+                    inbox_id = c.inbox_id(),
                     error = %e,
                     label,
                     "sync_welcomes fanout failed",
@@ -529,7 +529,7 @@ impl HealthContext {
             if let Err(e) = c.sync_welcomes().await {
                 tracing::warn!(
                     target: "healthcheck",
-                    inbox = c.inbox_id(),
+                    inbox_id = c.inbox_id(),
                     error = %e,
                     label,
                     "sync_welcomes fanout failed",

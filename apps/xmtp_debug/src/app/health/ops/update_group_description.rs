@@ -16,7 +16,7 @@ impl HealthOp for UpdateGroupDescription {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "UpdateGroupDescription")
+        fields(operation = "UpdateGroupDescription")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {

@@ -17,7 +17,7 @@ impl HealthOp for UpdatePermissionPolicy {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "UpdatePermissionPolicy")
+        fields(operation = "UpdatePermissionPolicy")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {

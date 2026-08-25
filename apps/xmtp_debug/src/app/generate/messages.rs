@@ -208,7 +208,7 @@ impl GenerateMessages {
         owner_group
             .add_members(&[hex::encode(not_in_group)])
             .await
-            .inspect_err(|e| error!(%group, "{}", e))?;
+            .inspect_err(|e| error!(group_id = %group, "{}", e))?;
         // make sure to update the group metadata
         let mut new_group = group.clone();
         new_group.members.push(*not_in_group);
@@ -249,7 +249,7 @@ impl GenerateMessages {
             mls_group
                 .update_group_description(words)
                 .await
-                .inspect_err(|e| error!(%group, "{}", e))?;
+                .inspect_err(|e| error!(group_id = %group, "{}", e))?;
             Ok(())
         } else {
             Err(MessageSendError::NoGroup.into())
@@ -334,7 +334,7 @@ impl GenerateMessages {
         let stored_group = group_store
             .random(rng)?
             .ok_or(eyre!("no group in local store"))?;
-        info!(time = ?Instant::now(), group = %stored_group.id(), "sending message");
+        info!(time = ?Instant::now(), group_id = %stored_group.id(), "sending message");
         let Some(sender_inbox_id) = stored_group.members.choose(rng).copied() else {
             return Err(MessageSendError::NoGroup);
         };

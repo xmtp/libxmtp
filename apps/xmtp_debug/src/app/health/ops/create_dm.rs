@@ -17,7 +17,7 @@ impl HealthOp for CreateDm {
         "CreateDm"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateDm"))]
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(operation = "CreateDm"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_existing_client(|ctx, peer_hc| {
             async move {

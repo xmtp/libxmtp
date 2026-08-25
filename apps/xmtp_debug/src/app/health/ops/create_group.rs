@@ -19,7 +19,7 @@ impl HealthOp for CreateGroup {
         "CreateGroup"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateGroup"))]
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(operation = "CreateGroup"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
         let outcome: color_eyre::eyre::Result<(GroupId, InboxId)> = (|| {

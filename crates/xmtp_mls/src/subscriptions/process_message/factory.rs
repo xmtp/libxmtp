@@ -156,7 +156,7 @@ where
                 tracing::warn!(
                     inbox_id = self.0.inbox_id(),
                     group_id = %msg.group_id,
-                    cursor_id = %msg.cursor,
+                    cursor = %msg.cursor,
                     "recovery sync triggered by streamed message failed",
                 );
                 tracing::warn!("{summary}");
@@ -305,8 +305,8 @@ where
                 // But still exists defensively
                 tracing::error!(
                     group_id = %msg.group_id,
-                    cursor_id = %msg.cursor,
-                    err = e.to_string(),
+                    cursor = %msg.cursor,
+                    error = e.to_string(),
                     "process stream entry {:?}",
                     e
                 );
@@ -314,7 +314,7 @@ where
             }
             Ok(processed_msg) => {
                 tracing::trace!(
-                    cursor_id = %msg.cursor,
+                    cursor = %msg.cursor,
                     group_id = %msg.group_id,
                     "message process in stream success, synced single msg @cursor={},group_id={}",
                     processed_msg.cursor,

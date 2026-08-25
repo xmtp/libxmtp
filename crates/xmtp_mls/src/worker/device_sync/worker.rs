@@ -324,7 +324,7 @@ where
                 self.context.installation_id(),
                 msg_type,
                 external = is_external,
-                msg_id = #msg.id,
+                message_id = #msg.id,
                 group_id = msg.group_id
             );
 
@@ -337,8 +337,8 @@ where
                 log_event!(
                     Event::DeviceSyncMessageProcessingError,
                     self.context.installation_id(),
-                    err = %err,
-                    msg_id = #msg.id
+                    error = %err,
+                    message_id = #msg.id
                 );
                 self.context
                     .db()
@@ -406,7 +406,7 @@ where
 
                 if self.is_reply_requested_by_installation(&reply).await? {
                     self.process_archive(msg, reply).await.inspect_err(
-                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
+                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), error = %err),
                                     )?;
                 } else {
                     log_event!(
@@ -666,7 +666,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveProcessingStart,
             self.context.installation_id(),
-            msg_id = #msg.id,
+            message_id = #msg.id,
             group_id = msg.group_id
         );
         if reply.kind() != BackupElementSelectionProto::Unspecified {
@@ -688,7 +688,7 @@ where
                 Event::DeviceSyncPayloadDownloadFailure,
                 self.context.installation_id(),
                 status = %response.status(),
-                err = %err
+                error = %err
             );
             return Err(DeviceSyncError::Reqwest(err));
         }

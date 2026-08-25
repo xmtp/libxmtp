@@ -532,7 +532,7 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, fields(who = %self.context.inbox_id(), operation = "sync_with_conn")))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, fields(inbox_id = %self.context.inbox_id(), operation = "sync_with_conn")))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         // App-data changes observed while processing are collected here and
@@ -609,7 +609,7 @@ where
         }
     }
 
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip_all))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         // Filter to kinds this build understands: after a downgrade,
@@ -635,7 +635,7 @@ where
      *
      * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(who = %self.context.inbox_id(), operation = "intent"), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(inbox_id = %self.context.inbox_id(), operation = "intent"), skip(self)))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_intent_resolved(
         &self,
@@ -666,7 +666,7 @@ where
         result
     }
 
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
@@ -883,8 +883,8 @@ where
                             installation_id = %self.context.installation_id(),
                             group_id = %self.group_id,
                             cursor = %cursor,
-                            intent.id,
-                            intent.kind = %intent.kind,
+                            intent_id = intent.id,
+                            intent_kind = %intent.kind,
                             "Intent for msg = [{cursor}] was published in epoch {} with local save intent epoch of {} but group is currently in epoch {}",
                             message_epoch,
                             published_in_epoch,
@@ -925,7 +925,7 @@ where
                                 group_id = %self.group_id,
                                 cursor = %cursor,
                                 intent_id = intent.id,
-                                intent.kind = %intent.kind,
+                                intent_kind = %intent.kind,
                                 "Error decoding staged commit for intent, now may be forked: {err:?}",
                             );
                             IntentResolutionError {
@@ -960,8 +960,8 @@ where
                                 installation_id = %self.context.installation_id(),
                                 group_id = %self.group_id,
                                 cursor = %cursor,
-                                intent.id,
-                                intent.kind = %intent.kind,
+                                intent_id = intent.id,
+                                intent_kind = %intent.kind,
                                 "Error validating commit for own message. Intent ID [{}]: {err:?}",
                                 intent.id,
                             );
@@ -1057,8 +1057,8 @@ where
             installation_id = %self.context.installation_id(),
             group_id = %self.group_id,
             cursor = %cursor,
-            intent.id,
-            intent.kind = %intent.kind,
+            intent_id = intent.id,
+            intent_kind = %intent.kind,
             "[{}]-[{}] processing own message for intent {} / {}, message_epoch: {}",
             self.context.inbox_id(),
             hex::encode(self.group_id),
@@ -1138,7 +1138,7 @@ where
                     left_inboxes = $payload.left_inboxes,
                     metadata_changes = $payload.metadata_field_changes,
                     cursor = cursor.sequence_id,
-                    originator = cursor.originator_id
+                    originator_id = cursor.originator_id
                 );
             }
 
@@ -1253,8 +1253,8 @@ where
             installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
             group_id = %self.group_id,
-            current_epoch = mls_group.epoch().as_u64(),
-            msg_epoch = processed_message.epoch().as_u64(),
+            group_epoch = mls_group.epoch().as_u64(),
+            message_epoch = processed_message.epoch().as_u64(),
             msg_group_id = hex::encode(processed_message.group_id().as_slice()),
             cursor = %cursor,
             "[{}] extracted sender inbox id: {}",
@@ -1460,8 +1460,8 @@ where
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
                 group_id = %self.group_id,
-                current_epoch = mls_group.epoch().as_u64(),
-                msg_epoch = processed_message.epoch().as_u64(),
+                group_epoch = mls_group.epoch().as_u64(),
+                message_epoch = processed_message.epoch().as_u64(),
                 cursor = ?cursor,
                 "[{}] processing message in transaction epoch = {}, cursor = {:?}",
                 self.context.inbox_id(),
@@ -1548,7 +1548,7 @@ where
                     sender_installation_id,
                     group_id = self.group_id,
                     epoch = mls_group.epoch().as_u64(),
-                    msg_epoch,
+                    message_epoch = msg_epoch,
                     msg_group_id,
                     cursor = %cursor,
                 );
@@ -1704,7 +1704,7 @@ where
                     sender_installation_id,
                     group_id = self.group_id,
                     epoch = mls_group.epoch().as_u64(),
-                    msg_epoch,
+                    message_epoch = msg_epoch,
                     msg_group_id,
                     cursor = %cursor,
                     hash = #message_envelope.payload_hash
@@ -1760,7 +1760,7 @@ where
                         left_inboxes = $payload.left_inboxes,
                         metadata_changes = $payload.metadata_field_changes,
                         cursor = cursor.sequence_id,
-                        originator = cursor.originator_id
+                        originator_id = cursor.originator_id
                     );
                 }
 
@@ -2464,7 +2464,7 @@ where
                     group_id = %self.group_id,
                     cursor = %envelope.cursor,
                     intent_id,
-                    intent.kind = %intent.kind,
+                    intent_kind = %intent.kind,
                     "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
                     self.context.inbox_id(),
                     envelope.cursor,
@@ -2799,7 +2799,7 @@ where
 
     #[cfg_attr(
         any(test, feature = "test-utils"),
-        tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id()))
+        tracing::instrument(level = "info", skip_all, fields(inbox_id = %self.context.inbox_id()))
     )]
     // Returns a bare ProcessSummary, so the canonical `#[mls_span]` (which
     // records `err`) cannot apply; keep the same span shape by hand.
@@ -2892,7 +2892,7 @@ where
                 self.context.installation_id(),
                 group_id = message.group_id.as_slice(),
                 cursor = message.cursor.sequence_id,
-                originator = message.cursor.originator_id
+                originator_id = message.cursor.originator_id
             );
         } else {
             tracing::debug!("no cursor update required");
@@ -3094,8 +3094,8 @@ where
                         tracing::error!(error = %err, "error getting publish intent data {:?}", err);
                         if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
                             tracing::error!(
-                                intent.id,
-                                intent.kind = %intent.kind,
+                                intent_id = intent.id,
+                                intent_kind = %intent.kind,
                                 inbox_id = self.context.inbox_id(),
                                 installation_id = %self.context.installation_id(),group_id = %self.group_id,
                                 "intent {} has reached max publish attempts", intent.id);
@@ -3141,8 +3141,8 @@ where
                         tracing::debug!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
-                            intent.id,
-                            intent.kind = %intent.kind,
+                            intent_id = intent.id,
+                            intent_kind = %intent.kind,
                             group_id = %self.group_id,
                             "[{}] set stored intent [{}] with hash [{}] to state `published`",
                             self.context.inbox_id(),
@@ -3177,7 +3177,7 @@ where
                                     group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
-                                    err = ?err
+                                    error = ?err
                                 );
 
                                 handle_published_intent_send_failure(&db, &intent)?;
@@ -3316,7 +3316,7 @@ where
                     {
                         tracing::info!(
                             group_id = %self.group_id,
-                            intent.id,
+                            intent_id = intent.id,
                             field = %metadata_intent.field_name,
                             "abandoning guarded metadata update: committed value no longer matches"
                         );
@@ -4249,8 +4249,8 @@ where
                 tracing::debug!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    intent.id,
-                    intent.kind = %intent.kind, "taking post commit action"
+                    intent_id = intent.id,
+                    intent_kind = %intent.kind, "taking post commit action"
                 );
 
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
@@ -4300,7 +4300,7 @@ where
      * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
      * and the group has not been updated to include it.
      */
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip_all))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip_all))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
@@ -4429,7 +4429,7 @@ where
      *
      * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
      */
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = %self.context.inbox_id())))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(inbox_id = %self.context.inbox_id())))]
     #[cfg_attr(not(any(test, feature = "test-utils")), tracing::instrument(skip_all))]
     pub(super) async fn send_welcomes(
         &self,
@@ -4973,8 +4973,8 @@ fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
 ) -> Result<(), GroupError> {
     if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
         tracing::error!(
-            intent.id,
-            intent.kind = %intent.kind,
+            intent_id = intent.id,
+            intent_kind = %intent.kind,
             "intent {} has reached max publish attempts",
             intent.id
         );

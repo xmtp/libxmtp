@@ -810,7 +810,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
         if groups.len() > 1 {
             tracing::warn!(
-                cursor.sequence_id,
+                welcome_id = cursor.sequence_id,
                 "More than one group found for welcome_id {}",
                 cursor.sequence_id
             );

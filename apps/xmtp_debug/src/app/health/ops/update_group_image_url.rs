@@ -16,7 +16,7 @@ impl HealthOp for UpdateGroupImageUrlSquare {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "UpdateGroupImageUrlSquare")
+        fields(operation = "UpdateGroupImageUrlSquare")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {

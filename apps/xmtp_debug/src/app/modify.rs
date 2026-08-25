@@ -199,7 +199,7 @@ async fn add_members_from_redb(
             {
                 tracing::warn!(
                     target: "xdbg.modify",
-                    inbox = %inbox,
+                    inbox_id = %inbox,
                     error = %e,
                     "failed to promote inbox to super-admin"
                 );
@@ -211,7 +211,7 @@ async fn add_members_from_redb(
         target: "xdbg.modify",
         added = inbox_ids.len(),
         promoted = promote_super_admin,
-        group = %hex::encode(local_group.id()),
+        group_id = %hex::encode(local_group.id()),
         "add-from-redb completed"
     );
 

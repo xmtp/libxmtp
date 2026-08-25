@@ -35,7 +35,11 @@ impl HealthOp for CreateIdentity {
         "CreateIdentity"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateIdentity"))]
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(operation = "CreateIdentity")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
         let outcome: Result<Identity> = async {

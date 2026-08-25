@@ -22,7 +22,11 @@ impl HealthOp for RemoveMember {
         "RemoveMember"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "RemoveMember"))]
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(operation = "RemoveMember")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(gid) = ctx.new_groups.first().cloned() else {
             return vec![OpResult::fail(

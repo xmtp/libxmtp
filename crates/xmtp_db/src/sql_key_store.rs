@@ -1234,7 +1234,7 @@ where
                             label = %String::from_utf8_lossy(label),
                             type_name = std::any::type_name::<T>(),
                             bytes_len = bytes.len(),
-                            err = %_orig_err,
+                            error = %_orig_err,
                             "bincode deserialize failed (no path captured)",
                         );
                     }
@@ -1247,7 +1247,7 @@ where
                             path = %path,
                             type_name = std::any::type_name::<T>(),
                             bytes_len = bytes.len(),
-                            err = %inner,
+                            error = %inner,
                             "bincode deserialize failed",
                         );
                     }

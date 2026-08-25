@@ -38,7 +38,7 @@ pub(crate) fn inbox_ids_from_new_key_packages(
             let credential = match BasicCredential::try_from(kp.leaf_node().credential().clone()) {
                 Ok(credential) => credential,
                 Err(e) => {
-                    tracing::warn!(?e, "failed to decode key package leaf credential");
+                    tracing::warn!(error = ?e, "failed to decode key package leaf credential");
                     return None;
                 }
             };
@@ -46,7 +46,7 @@ pub(crate) fn inbox_ids_from_new_key_packages(
                 Ok(inbox_id) => Some(inbox_id),
                 Err(e) => {
                     tracing::warn!(
-                        ?e,
+                        error = ?e,
                         "failed to parse inbox id from key package credential; \
                          skipping inbox for phantom-member verification"
                     );

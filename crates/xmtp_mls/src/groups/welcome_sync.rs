@@ -128,7 +128,7 @@ where
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(
-                        welcome_cursor = %welcome.cursor,
+                        welcome_id = %welcome.cursor,
                         "Welcome ID already stored: {}",
                         err
                     );
@@ -143,7 +143,7 @@ where
                     // welcome skipped), so log at warn rather than error to avoid
                     // marking the span as status:error and inflating the error rate.
                     tracing::warn!(
-                        welcome_cursor = %welcome.cursor,
+                        welcome_id = %welcome.cursor,
                         "welcome already processed, skipping: {}",
                         err
                     );
@@ -190,14 +190,14 @@ where
                 Ok(None) => {}
                 Err(err) if err.is_retryable() => {
                     tracing::warn!(
-                        welcome_cursor = %welcome_cursor,
+                        welcome_id = %welcome_cursor,
                         "stopping welcome sync after retryable failure: {err}"
                     );
                     break;
                 }
                 Err(err) => {
                     tracing::warn!(
-                        welcome_cursor = %welcome_cursor,
+                        welcome_id = %welcome_cursor,
                         "skipping welcome after non-retryable failure: {err}"
                     );
                 }
@@ -409,11 +409,11 @@ where
         // group re-evaluation in `handle_group_paused` wouldn't fire
         // for a quiet paused group).
         if let Err(err) = self.unstick_paused_groups().await {
-            tracing::debug!(?err, "unstick_paused_groups failed, continuing with sync");
+            tracing::debug!(error = ?err, "unstick_paused_groups failed, continuing with sync");
         }
 
         if let Err(err) = self.sync_welcomes().await {
-            tracing::debug!(?err, "sync_welcomes failed, continuing with group sync");
+            tracing::debug!(error = ?err, "sync_welcomes failed, continuing with group sync");
         }
         let query_args = GroupQueryArgs {
             consent_states,
@@ -474,13 +474,13 @@ where
                     match is_active_res {
                         Ok(is_active) if is_active => {
                             if let Err(err) = group.sync_with_conn().await {
-                                tracing::warn!(?err, "sync_with_conn failed");
+                                tracing::warn!(error = ?err, "sync_with_conn failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
 
                             if let Err(err) = group.maybe_update_installations(None).await {
-                                tracing::warn!(?err, "maybe_update_installations failed");
+                                tracing::warn!(error = ?err, "maybe_update_installations failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
@@ -489,7 +489,7 @@ where
                         }
                         Ok(_) => { /* group inactive, skip */ }
                         Err(err) => {
-                            tracing::warn!(?err, "load_mls_group_with_lock_async failed");
+                            tracing::warn!(error = ?err, "load_mls_group_with_lock_async failed");
                             failed_group_count.fetch_add(1, Ordering::SeqCst);
                         }
                     }

@@ -13,7 +13,11 @@ impl HealthOp for UpdateAppData {
         "UpdateAppData"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UpdateAppData"))]
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(operation = "UpdateAppData")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary

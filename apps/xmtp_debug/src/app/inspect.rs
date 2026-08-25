@@ -72,7 +72,11 @@ impl Inspect {
                     })
                     .collect::<Vec<PrintableGroup>>();
                 for group in groups.iter() {
-                    info!(group.group_id, group.created_at_ns, "group");
+                    info!(
+                        group_id = group.group_id,
+                        created_at_ns = group.created_at_ns,
+                        "group"
+                    );
                 }
             }
         }

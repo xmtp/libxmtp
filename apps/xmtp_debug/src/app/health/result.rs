@@ -162,7 +162,7 @@ impl OpResult {
         match self.status {
             Status::Pass => tracing::info!(
                 target: "healthcheck",
-                op = self.op_name,
+                operation = self.op_name,
                 status = "pass",
                 target = %self.target.as_deref().unwrap_or(""),
                 duration_ms,
@@ -170,7 +170,7 @@ impl OpResult {
             ),
             Status::Fail => tracing::error!(
                 target: "healthcheck",
-                op = self.op_name,
+                operation = self.op_name,
                 status = "fail",
                 target = %self.target.as_deref().unwrap_or(""),
                 duration_ms,
@@ -179,7 +179,7 @@ impl OpResult {
             ),
             Status::Skipped(missing) => tracing::info!(
                 target: "healthcheck",
-                op = self.op_name,
+                operation = self.op_name,
                 status = "skipped",
                 target = %self.target.as_deref().unwrap_or(""),
                 missing = ?missing,
