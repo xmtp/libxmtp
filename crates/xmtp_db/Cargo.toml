@@ -23,6 +23,10 @@ ascii_table = { version = "5", optional = true, features = [
   "auto_table_width",
 ] }
 bincode.workspace = true
+# CBOR is the OpenMLS serialization on the async/Postgres track (self-describing,
+# unlike bincode, which some OpenMLS entities' serde shapes need). Async-only;
+# the sync/SQLite track stays on bincode until a dedicated migration moves it.
+ciborium = { version = "0.2", optional = true }
 bon.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
@@ -144,7 +148,21 @@ sync = [
   "dep:libsqlite3-sys",
   "xmtp_proto/diesel",
 ]
-async = ["dep:sqlx", "dep:tokio", "dep:openmls_pg_storage", "xmtp_proto/sqlx"]
+# `openmls/0-8-1-storage-format` switches OpenMLS' storage enums (CredentialType,
+# ExtensionType, ProposalType) to STANDARD serde derive, which is self-consistent
+# under any single format. Their default custom derive (integer `storage_tag`s)
+# assumes non-self-describing formats encode enum variants by index (true for
+# bincode, the sync track) — but CBOR encodes them by NAME, so ser writes a name
+# string while de expects the tag integer. Async/CBOR only; the sync/SQLite
+# (bincode) track keeps the custom format, so its on-disk data is unchanged.
+async = [
+  "dep:sqlx",
+  "dep:tokio",
+  "dep:ciborium",
+  "dep:openmls_pg_storage",
+  "xmtp_proto/sqlx",
+  "openmls/0-8-1-storage-format",
+]
 update-schema = ["dep:toml"]
 # Enables the latency-injecting SQLite VFS used by the disk-latency benchmarks.
 bench = []

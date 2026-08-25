@@ -925,7 +925,7 @@ impl XmtpKeyPackageBuilder {
             },
         ))?;
 
-        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
+        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair).await?;
         Ok(NewKeyPackageResult {
             key_package: kp.key_package().clone(),
             pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
@@ -1024,7 +1024,7 @@ pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQua
 // This is needed to get to the private key when decrypting welcome messages.
 // Both the Curve25519 and the Post Quantum keys hold a hash reference to the key package.
 // If a post quantum key is present, we also have a pointer from the key package hash ref -> the post quantum private key.
-pub(crate) fn store_key_package_references(
+pub(crate) async fn store_key_package_references(
     provider: &impl MlsProviderExt,
     kp: &KeyPackage,
     // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption
@@ -1037,7 +1037,9 @@ pub(crate) fn store_key_package_references(
     let hash_ref = serialize_key_package_hash_ref(kp, provider)?;
     let storage = provider.key_store();
     // Write the normal init key to the key package references
-    storage.write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref)?;
+    storage
+        .write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref)
+        .await?;
 
     if let Some(post_quantum_keypair) = post_quantum_keypair {
         let post_quantum_public_key = pq_key_package_references_key(&post_quantum_keypair.public)?;
@@ -1047,13 +1049,17 @@ pub(crate) fn store_key_package_references(
             .map_err(|_| IdentityError::Bincode)?;
 
         // Write the post quantum wrapper encryption public key to the key package references
-        storage.write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)?;
+        storage
+            .write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)
+            .await?;
 
-        storage.write(
-            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-            &hash_ref,
-            &post_quantum_private_key,
-        )?;
+        storage
+            .write(
+                KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+                &hash_ref,
+                &post_quantum_private_key,
+            )
+            .await?;
     }
 
     Ok(())
@@ -1114,17 +1120,19 @@ mod tests {
     }
 
     /// Look up the key package hash ref by public init key
-    fn get_hash_ref(provider: &impl MlsProviderExt, pub_key: &[u8]) -> Option<KeyPackageRef> {
+    async fn get_hash_ref(provider: &impl MlsProviderExt, pub_key: &[u8]) -> Option<KeyPackageRef> {
         provider
             .key_store()
             .read(KEY_PACKAGE_REFERENCES, pub_key)
+            .await
             .unwrap()
     }
 
-    fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
+    async fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
         let val: Option<Vec<u8>> = provider
             .key_store()
             .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)
+            .await
             .unwrap();
 
         val
@@ -1153,7 +1161,7 @@ mod tests {
             .unwrap();
 
         // Make sure we can find the init key
-        let init_key_hash_ref = get_hash_ref(&provider, &starting_init_key);
+        let init_key_hash_ref = get_hash_ref(&provider, &starting_init_key).await;
         assert!(init_key_hash_ref.is_some());
 
         // Make sure we can find the post quantum public key
@@ -1164,7 +1172,8 @@ mod tests {
         let pq_hash_ref = get_hash_ref(
             &provider,
             &pq_key_package_references_key(&pq_public_key_bytes).unwrap(),
-        );
+        )
+        .await;
         assert!(pq_hash_ref.is_some());
         let pq_hash_ref_inner = pq_hash_ref.unwrap();
 
@@ -1177,7 +1186,7 @@ mod tests {
 
         // Make sure we can find the private key based on the init key
         let serialized_hash_ref = bincode::serialize(&init_key_hash_ref.unwrap()).unwrap();
-        let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref);
+        let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref).await;
         assert!(pq_private_key.is_some());
 
         // Now rotate the key package
@@ -1198,10 +1207,11 @@ mod tests {
         let pq_hash_ref = get_hash_ref(
             &provider,
             &pq_key_package_references_key(&pq_public_key_bytes).unwrap(),
-        );
+        )
+        .await;
         assert!(pq_hash_ref.is_none());
 
-        let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref);
+        let pq_private_key = get_pq_private_key(&provider, &serialized_hash_ref).await;
         assert!(pq_private_key.is_none());
 
         let key_package_from_db: Option<KeyPackageBundle> =

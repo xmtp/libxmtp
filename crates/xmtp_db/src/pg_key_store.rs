@@ -22,22 +22,35 @@ use crate::pg::PgDb;
 use crate::xmtp_openmls_provider::{TransactionOutcome, TxFn};
 use crate::{SqlKeyStoreError, TransactionalKeyStore, XmtpMlsStorageProvider};
 
-/// The `bincode` codec used to (de)serialize every stored OpenMLS value.
+/// The CBOR codec used to (de)serialize every stored OpenMLS value on the
+/// async/Postgres track.
 ///
-/// The sync track also serializes with `bincode`, so both storage backends
-/// agree on the byte encoding of entities.
+/// CBOR is self-describing, so it round-trips OpenMLS entities whose serde
+/// shapes bincode cannot (bincode is not self-describing and rejects e.g.
+/// `deserialize_any`/untagged forms). The sync/SQLite track still serializes
+/// with bincode; moving it to CBOR needs a data migration and is deferred.
 #[derive(Default)]
-pub struct BincodeCodec;
+pub struct CborCodec;
 
-impl Codec for BincodeCodec {
-    type Error = bincode::Error;
+/// ciborium's serialize and deserialize errors are distinct types; unify them
+/// into one concrete error so it satisfies the `Codec::Error` bounds
+/// (Error + Debug + Send + Sync + 'static).
+#[derive(Debug, thiserror::Error)]
+#[error("cbor codec: {0}")]
+pub struct CborCodecError(String);
+
+impl Codec for CborCodec {
+    type Error = CborCodecError;
 
     fn to_vec<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Self::Error> {
-        bincode::serialize(value)
+        let mut buf = Vec::new();
+        ciborium::into_writer(value, &mut buf).map_err(|e| CborCodecError(e.to_string()))?;
+        Ok(buf)
     }
 
     fn from_slice<T: DeserializeOwned>(slice: &[u8]) -> Result<T, Self::Error> {
-        bincode::deserialize(slice)
+        ciborium::from_reader(slice)
+            .map_err(|e| CborCodecError(format!("{e} (decoding {})", std::any::type_name::<T>())))
     }
 }
 
@@ -52,6 +65,37 @@ impl PgKeyStore {
     pub fn new(db: PgDb) -> Self {
         Self { db }
     }
+
+    /// Shared SELECT for the generic KV `read`/`read_list`: the raw
+    /// `value_bytes` stored under `label || key || version_be`, if present.
+    async fn kv_select(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, SqlKeyStoreError> {
+        let storage_key = build_kv_key(label, key);
+        let mut c = self.db.conn().await?;
+        let row: Option<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = $1 AND version = $2",
+        )
+        .bind(storage_key)
+        .bind(CURRENT_VERSION as i32)
+        .fetch_optional(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+        Ok(row.map(|(v,)| v))
+    }
+}
+
+/// The generic-KV storage key: `label || key || version_be`. Byte-identical to
+/// the sync track's `build_key_from_vec::<CURRENT_VERSION>`, so a database ever
+/// shared between the two backends would agree on the layout.
+fn build_kv_key(label: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(label.len() + key.len() + 2);
+    out.extend_from_slice(label);
+    out.extend_from_slice(key);
+    out.extend_from_slice(&u16::to_be_bytes(CURRENT_VERSION));
+    out
 }
 
 
@@ -67,7 +111,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         config: &MlsGroupJoinConfig,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_mls_join_config::<GroupId, MlsGroupJoinConfig>(group_id, config)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -82,7 +126,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         leaf_node: &LeafNode,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .append_own_leaf_node::<GroupId, LeafNode>(group_id, leaf_node)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -99,7 +143,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         proposal: &QueuedProposal,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .queue_proposal::<GroupId, ProposalRef, QueuedProposal>(group_id, proposal_ref, proposal)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -114,7 +158,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         tree: &TreeSync,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_tree::<GroupId, TreeSync>(group_id, tree)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -129,7 +173,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         interim_transcript_hash: &InterimTranscriptHash,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_interim_transcript_hash::<GroupId, InterimTranscriptHash>(group_id, interim_transcript_hash)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -144,7 +188,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_context: &GroupContext,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_context::<GroupId, GroupContext>(group_id, group_context)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -159,7 +203,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         confirmation_tag: &ConfirmationTag,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_confirmation_tag::<GroupId, ConfirmationTag>(group_id, confirmation_tag)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -174,7 +218,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_state: &GroupState,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_group_state::<GroupState, GroupId>(group_id, group_state)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -189,7 +233,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         message_secrets: &MessageSecrets,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_message_secrets::<GroupId, MessageSecrets>(group_id, message_secrets)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -204,7 +248,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         resumption_psk_store: &ResumptionPskStore,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_resumption_psk_store::<GroupId, ResumptionPskStore>(group_id, resumption_psk_store)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -219,7 +263,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         own_leaf_index: &LeafNodeIndex,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_own_leaf_index::<GroupId, LeafNodeIndex>(group_id, own_leaf_index)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -234,7 +278,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_epoch_secrets: &GroupEpochSecrets,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_group_epoch_secrets::<GroupId, GroupEpochSecrets>(group_id, group_epoch_secrets)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -249,7 +293,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         signature_key_pair: &SignatureKeyPair,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_signature_key_pair::<SignaturePublicKey, SignatureKeyPair>(public_key, signature_key_pair)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -264,7 +308,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         key_pair: &HpkeKeyPair,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_encryption_key_pair::<EncryptionKey, HpkeKeyPair>(public_key, key_pair)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -282,7 +326,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         key_pairs: &[HpkeKeyPair],
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_encryption_epoch_key_pairs::<GroupId, EpochKey, HpkeKeyPair>(group_id, epoch, leaf_index, key_pairs)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -297,7 +341,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         key_package: &KeyPackage,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_key_package::<HashReference, KeyPackage>(hash_ref, key_package)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -312,7 +356,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         psk: &PskBundle,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_psk::<PskId, PskBundle>(psk_id, psk)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -326,7 +370,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MlsGroupJoinConfig>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .mls_group_join_config::<GroupId, MlsGroupJoinConfig>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -340,7 +384,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .own_leaf_nodes::<GroupId, LeafNode>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -354,7 +398,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<ProposalRef>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .queued_proposal_refs::<GroupId, ProposalRef>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -369,7 +413,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<(ProposalRef, QueuedProposal)>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .queued_proposals::<GroupId, ProposalRef, QueuedProposal>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -383,7 +427,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<TreeSync>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .tree::<GroupId, TreeSync>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -397,7 +441,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<GroupContext>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .group_context::<GroupId, GroupContext>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -411,7 +455,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<InterimTranscriptHash>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .interim_transcript_hash::<GroupId, InterimTranscriptHash>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -425,7 +469,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<ConfirmationTag>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .confirmation_tag::<GroupId, ConfirmationTag>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -439,7 +483,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<GroupState>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .group_state::<GroupState, GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -453,7 +497,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MessageSecrets>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .message_secrets::<GroupId, MessageSecrets>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -467,7 +511,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .resumption_psk_store::<GroupId, ResumptionPskStore>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -481,7 +525,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<LeafNodeIndex>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .own_leaf_index::<GroupId, LeafNodeIndex>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -495,7 +539,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<GroupEpochSecrets>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .group_epoch_secrets::<GroupId, GroupEpochSecrets>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -509,7 +553,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         public_key: &SignaturePublicKey,
     ) -> Result<Option<SignatureKeyPair>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .signature_key_pair::<SignaturePublicKey, SignatureKeyPair>(public_key)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -523,7 +567,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         public_key: &EncryptionKey,
     ) -> Result<Option<HpkeKeyPair>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .encryption_key_pair::<HpkeKeyPair, EncryptionKey>(public_key)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -540,7 +584,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         leaf_index: u32,
     ) -> Result<Vec<HpkeKeyPair>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .encryption_epoch_key_pairs::<GroupId, EpochKey, HpkeKeyPair>(group_id, epoch, leaf_index)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -554,7 +598,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         hash_ref: &KeyPackageRef,
     ) -> Result<Option<KeyPackage>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .key_package::<KeyPackageRef, KeyPackage>(hash_ref)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -568,7 +612,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .psk::<PskBundle, PskId>(psk_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -583,7 +627,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         proposal_ref: &ProposalRef,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .remove_proposal::<GroupId, ProposalRef>(group_id, proposal_ref)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -594,7 +638,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_own_leaf_nodes::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -605,7 +649,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_group_config::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -616,7 +660,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_tree::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -627,7 +671,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_confirmation_tag::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -638,7 +682,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_group_state::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -649,7 +693,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_context::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -660,7 +704,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_interim_transcript_hash::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -671,7 +715,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_message_secrets::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -682,7 +726,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_all_resumption_psk_secrets::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -693,7 +737,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_own_leaf_index::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -704,7 +748,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_group_epoch_secrets::<GroupId>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -718,7 +762,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .clear_proposal_queue::<GroupId, ProposalRef>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -731,7 +775,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         public_key: &SignaturePublicKey,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_signature_key_pair::<SignaturePublicKey>(public_key)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -742,7 +786,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         public_key: &EncryptionKey,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_encryption_key_pair::<EncryptionKey>(public_key)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -758,7 +802,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         leaf_index: u32,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_encryption_epoch_key_pairs::<GroupId, EpochKey>(group_id, epoch, leaf_index)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -769,7 +813,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         hash_ref: &KeyPackageRef,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_key_package::<KeyPackageRef>(hash_ref)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -780,7 +824,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         psk_id: &PskKey,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_psk::<PskKey>(psk_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -795,7 +839,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         application_export_tree: &ApplicationExportTree,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .write_application_export_tree::<GroupId, ApplicationExportTree>(group_id, application_export_tree)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -809,7 +853,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<ApplicationExportTree>, Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .application_export_tree::<GroupId, ApplicationExportTree>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -823,7 +867,7 @@ impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         let mut conn = self.db.conn().await?;
-        PostgresStorageProvider::<BincodeCodec>::new(&mut *conn)
+        PostgresStorageProvider::<CborCodec>::new(&mut *conn)
             .delete_application_export_tree::<GroupId, ApplicationExportTree>(group_id)
             .await
             .map_err(|e| SqlKeyStoreError::from(crate::ConnectionError::from(e)))
@@ -905,9 +949,11 @@ impl XmtpMlsStorageProvider for PgKeyStore {
         }
     }
 
-    // TODO(savepoint): real Postgres SAVEPOINT nesting. For now a savepoint runs
-    // through the same path as `transaction`; the async provider does not yet
-    // model nested savepoints, and this keeps the shape correct until it does.
+    // A savepoint is a `transaction` that nests: called inside an open
+    // transaction it maps to a real Postgres SAVEPOINT (via `PgDb::savepoint`),
+    // called standalone it degrades to a fresh transaction. The Rollback-outcome
+    // translation is identical to `transaction` above — only the underlying
+    // `PgDb` primitive differs.
     fn savepoint<T, E, F>(
         &self,
         f: F,
@@ -918,49 +964,109 @@ impl XmtpMlsStorageProvider for PgKeyStore {
             + TxFn<Self::TxQuery, T, E>,
         E: From<crate::ConnectionError> + std::error::Error + xmtp_common::MaybeSend,
     {
-        async move { self.transaction(f).await }
+        async move {
+            let rolled_back = std::sync::atomic::AtomicBool::new(false);
+            let result = self
+                .db
+                .savepoint(async |scoped: &PgDb| {
+                    let mut txq = PgTxQuery { db: scoped.clone() };
+                    match f.run(&mut txq).await {
+                        Ok(TransactionOutcome::Continue(v)) => Ok(TransactionOutcome::Continue(v)),
+                        Ok(TransactionOutcome::Rollback) => {
+                            rolled_back.store(true, std::sync::atomic::Ordering::SeqCst);
+                            Err(E::from(crate::ConnectionError::InvalidQuery(
+                                "intentional rollback".into(),
+                            )))
+                        }
+                        Err(e) => Err(e),
+                    }
+                })
+                .await;
+            match result {
+                Ok(o) => Ok(o),
+                Err(_) if rolled_back.load(std::sync::atomic::Ordering::SeqCst) => {
+                    Ok(TransactionOutcome::Rollback)
+                }
+                Err(e) => Err(e),
+            }
+        }
     }
 
     // --- Generic (label, key, value) byte accessors ----------------------
     //
-    // The sync track backs these with its `openmls_key_value` KV table. The
-    // async Postgres schema has no generic KV table -- every OpenMLS value lands
-    // in a typed `openmls_*` table via the `StorageProvider` methods above -- so
-    // there is nothing to delegate to. `UnsupportedMethod` keeps the async build
-    // honest rather than silently no-op'ing.
-    // TODO(pg-kv): back read/read_list/delete/write with a generic KV table if a
-    // caller on the async track needs the raw byte interface.
-    fn read<V: Entity<CURRENT_VERSION>>(
+    // libxmtp's own raw KV interface (key package references, the commit-log
+    // signer key, …), distinct from OpenMLS' typed `StorageProvider` methods
+    // above. Backed by the Postgres `openmls_key_value` table (`label || key ||
+    // version_be` key layout, bincode values). Genuinely async — each body takes
+    // a connection from the handle and awaits sqlx, exactly like the typed
+    // methods above.
+    async fn read<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
-        _label: &[u8],
-        _key: &[u8],
+        label: &[u8],
+        key: &[u8],
     ) -> Result<Option<V>, SqlKeyStoreError> {
-        Err(SqlKeyStoreError::UnsupportedMethod)
+        let Some(bytes) = self.kv_select(label, key).await? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            bincode::deserialize::<V>(&bytes).map_err(|_| SqlKeyStoreError::SerializationError)?,
+        ))
     }
 
-    fn read_list<V: Entity<CURRENT_VERSION>>(
+    async fn read_list<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
-        _label: &[u8],
-        _key: &[u8],
+        label: &[u8],
+        key: &[u8],
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        Err(SqlKeyStoreError::UnsupportedMethod)
+        let Some(bytes) = self.kv_select(label, key).await? else {
+            return Ok(vec![]);
+        };
+        // Stored as bincode(Vec<Vec<u8>>); each inner element is bincode(V).
+        let list: Vec<Vec<u8>> =
+            bincode::deserialize(&bytes).map_err(|_| SqlKeyStoreError::SerializationError)?;
+        list.iter()
+            .map(|item| {
+                bincode::deserialize::<V>(item).map_err(|_| SqlKeyStoreError::SerializationError)
+            })
+            .collect()
     }
 
-    fn delete(
+    async fn delete(
         &self,
-        _label: &[u8],
-        _key: &[u8],
+        label: &[u8],
+        key: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        Err(SqlKeyStoreError::UnsupportedMethod)
+        let storage_key = build_kv_key(label, key);
+        let mut c = self.db.conn().await?;
+        sqlx::query("DELETE FROM openmls_key_value WHERE key_bytes = $1 AND version = $2")
+            .bind(storage_key)
+            .bind(CURRENT_VERSION as i32)
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
     }
 
-    fn write(
+    async fn write(
         &self,
-        _label: &[u8],
-        _key: &[u8],
-        _value: &[u8],
+        label: &[u8],
+        key: &[u8],
+        value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        Err(SqlKeyStoreError::UnsupportedMethod)
+        let storage_key = build_kv_key(label, key);
+        let mut c = self.db.conn().await?;
+        sqlx::query(
+            "INSERT INTO openmls_key_value (key_bytes, version, value_bytes) \
+             VALUES ($1, $2, $3) \
+             ON CONFLICT (version, key_bytes) DO UPDATE SET value_bytes = EXCLUDED.value_bytes",
+        )
+        .bind(storage_key)
+        .bind(CURRENT_VERSION as i32)
+        .bind(value.to_vec())
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+        Ok(())
     }
 
     // TODO(pg-hash-all): hash the `openmls_*` tables for cross-track test parity.

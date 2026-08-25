@@ -33,8 +33,10 @@ pub mod pg;
 mod pg_key_store;
 #[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 pub use pg::PgDb;
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+pub use pg::PgMlsDb;
 #[cfg(all(feature = "async", not(target_arch = "wasm32")))]
-pub use pg_key_store::{BincodeCodec, PgKeyStore};
+pub use pg_key_store::{CborCodec, PgKeyStore};
 pub mod serialization;
 pub use serialization::*;
 #[cfg(feature = "sync")]

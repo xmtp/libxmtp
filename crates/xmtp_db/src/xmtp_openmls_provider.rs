@@ -193,35 +193,41 @@ pub trait XmtpMlsStorageProvider:
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 
-    // Generic byte KV accessors. Kept synchronous on both tracks: the sync
-    // (SQLite) impl is naturally sync, and the async (Postgres) impl has no
-    // generic KV table so it only returns `UnsupportedMethod` -- there is
-    // nothing to await either way. Keeping them sync also spares every leaf
-    // caller (commit-log key, key-package references, ...) an async cascade.
-    fn read<V: Entity<CURRENT_VERSION>>(
+    // Generic byte KV accessors (key-package references, the commit-log signer
+    // key, ...). Maybe-async: the sync (SQLite) impl bodies are synchronous under
+    // an `async fn` (ready futures), while the async (Postgres) impl awaits real
+    // sqlx against `openmls_key_value`. The `+ MaybeSend` future flows through
+    // libxmtp's Send worker tasks, so it must be Send on the async track.
+    fn read<V: Entity<CURRENT_VERSION> + MaybeSend>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Option<V>, SqlKeyStoreError>;
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + MaybeSend;
 
-    fn read_list<V: Entity<CURRENT_VERSION>>(
+    fn read_list<V: Entity<CURRENT_VERSION> + MaybeSend>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + MaybeSend;
 
     fn delete(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+    ) -> impl std::future::Future<
+        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + MaybeSend;
 
     fn write(
         &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+    ) -> impl std::future::Future<
+        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + MaybeSend;
 
     #[cfg(feature = "test-utils")]
     fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError>;

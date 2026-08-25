@@ -51,7 +51,7 @@ impl DecryptedWelcome {
         } = welcome_v1;
         tracing::debug!(id = %welcome.cursor, "Trying to decrypt welcome");
         let wrapper_ciphersuite = WrapperAlgorithm::try_from(*wrapper_algorithm)?;
-        let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
+        let hash_ref = find_key_package_hash_ref(provider, hpke_public_key).await?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite).await?;
 
         let (welcome_bytes, welcome_metadata_bytes) = unwrap_payload_hpke(
@@ -219,14 +219,15 @@ impl DecryptedWelcome {
     }
 }
 
-pub(super) fn find_key_package_hash_ref(
+pub(super) async fn find_key_package_hash_ref(
     provider: &impl XmtpMlsStorageProvider,
     hpke_public_key: &[u8],
 ) -> Result<KeyPackageRef, GroupError> {
     let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
 
     Ok(provider
-        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?
+        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)
+        .await?
         .ok_or(NotFound::KeyPackageReference(serialized_hpke_public_key))?)
 }
 
@@ -249,8 +250,9 @@ pub(super) async fn find_private_key(
         WrapperAlgorithm::XWingMLKEM768Draft6 => {
             let serialized_hash_ref = bincode::serialize(hash_ref)
                 .map_err(|_| GroupError::NotFound(NotFound::PostQuantumPrivateKey))?;
-            let private_key =
-                provider.read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?;
+            let private_key = provider
+                .read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)
+                .await?;
 
             Ok(private_key.ok_or(NotFound::PostQuantumPrivateKey)?)
         }
@@ -289,7 +291,7 @@ pub(crate) async fn decrypt_welcome_pointer(
     welcome_pointer: &WelcomePointer,
 ) -> Result<DecryptedWelcomePointer, GroupError> {
     tracing::debug!("Trying to decrypt welcome pointer");
-    let hash_ref = find_key_package_hash_ref(provider, &welcome_pointer.hpke_public_key)?;
+    let hash_ref = find_key_package_hash_ref(provider, &welcome_pointer.hpke_public_key).await?;
     let wrapper_algorithm = WrapperAlgorithm::try_from(welcome_pointer.wrapper_algorithm)?;
     let private_key = find_private_key(provider, &hash_ref, &wrapper_algorithm).await?;
 

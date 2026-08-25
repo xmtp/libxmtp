@@ -89,41 +89,44 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn read<V: openmls_traits::storage::Entity<CURRENT_VERSION>>(
+    fn read<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Option<V>, SqlKeyStoreError> {
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
         XmtpMlsStorageProvider::read::<V>(self.in_memory.as_ref(), label, key)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
-    fn read_list<V: openmls_traits::storage::Entity<CURRENT_VERSION>>(
+    fn read_list<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+    ) -> impl std::future::Future<
+        Output = Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + xmtp_common::MaybeSend {
         XmtpMlsStorageProvider::read_list::<V>(self.in_memory.as_ref(), label, key)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
     fn delete(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        self.in_memory.delete::<CURRENT_VERSION>(label, key)
+    ) -> impl std::future::Future<
+        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + xmtp_common::MaybeSend {
+        XmtpMlsStorageProvider::delete(self.in_memory.as_ref(), label, key)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
     fn write(
         &self,
         label: &[u8],
         key: &[u8],
         value: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        self.in_memory.write::<CURRENT_VERSION>(label, key, value)
+    ) -> impl std::future::Future<
+        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + xmtp_common::MaybeSend {
+        XmtpMlsStorageProvider::write(self.in_memory.as_ref(), label, key, value)
     }
 
     #[cfg(feature = "test-utils")]

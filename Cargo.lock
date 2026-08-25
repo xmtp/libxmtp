@@ -11285,6 +11285,7 @@ dependencies = [
  "ascii_table",
  "bincode",
  "bon",
+ "ciborium",
  "const-hex",
  "criterion",
  "ctor",

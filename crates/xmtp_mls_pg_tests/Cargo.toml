@@ -1,0 +1,71 @@
+[package]
+name = "xmtp_mls_pg_tests"
+description = "Integration tests for the full async xmtp_mls client over the sqlx + Postgres storage track"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+
+# Deliberately NOT a member of the libxmtp workspace -- it is listed in the root
+# manifest's `exclude`, exactly like xmtp_db_pg_tests. See that crate's Cargo.toml
+# for the full rationale; the short version: `maybe-async/is_sync` is a global
+# switch, so any graph containing the `sync` feature collapses the Query* traits
+# to their blocking shape and compiles the sqlx impls out. A separate excluded
+# crate is the only way to build the exact `--no-default-features --features
+# async` client that servers (herald) run.
+#
+# Unlike xmtp_db_pg_tests, this one pulls in the whole client stack (xmtp_mls +
+# the api/id crates) and its tests hit BOTH a live Postgres and a live XMTP node
+# -- they register real identities and exchange real MLS messages. They are gated
+# on env vars and skipped when unset (see src/lib.rs), so a bare `cargo test`
+# here is a clean no-op rather than a failure.
+
+[dependencies]
+# --- libxmtp, async/Postgres storage track. xmtp_db + xmtp_mls turn OFF the
+# default sync/diesel features and turn ON `async`; every other libxmtp crate is
+# storage-track-agnostic. Path deps within the same checkout. ---
+xmtp_api = { path = "../xmtp_api" }
+xmtp_api_d14n = { path = "../xmtp_api_d14n" }
+xmtp_common = { path = "../xmtp_common" }
+xmtp_configuration = { path = "../xmtp_configuration" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_db = { path = "../xmtp_db", default-features = false, features = ["async"] }
+xmtp_id = { path = "../xmtp_id" }
+xmtp_mls = { path = "../xmtp_mls", default-features = false, features = [
+  "async",
+] }
+xmtp_proto = { path = "../xmtp_proto", features = ["sqlx"] }
+
+# Wallet signer for the InboxOwner identity path. Same major as the libxmtp
+# workspace (`alloy = "2"`) so the graph resolves to one copy.
+alloy = { version = "2", default-features = false, features = [
+  "signer-local",
+  "std",
+] }
+anyhow = "1.0"
+futures = { version = "0.3.32", default-features = false, features = ["std"] }
+hex = "0.4.3"
+rand = "0.10"
+sqlx = { version = "0.8.6", default-features = false, features = [
+  "postgres",
+  "runtime-tokio",
+] }
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Mirrors the root manifest's `[patch.crates-io]`. Cargo only honours patches at
+# a workspace root, and this crate is its own root, so they have to be restated.
+# KEEP IN SYNC with the root Cargo.toml (source of truth). Drift here surfaces as
+# confusing resolution errors in this crate only.
+[patch.crates-io]
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+tracing-oslog = { git = "https://github.com/xmtp/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
+
+[patch.crates-io.xmtp-workspace-hack]
+path = "../xmtp-workspace-hack"

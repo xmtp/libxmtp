@@ -27,6 +27,7 @@
 
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use sqlx::{PgConnection, PgPool, Postgres, Transaction, pool::PoolConnection};
 use tokio::sync::{Mutex, MutexGuard};
@@ -180,7 +181,79 @@ impl PgDb {
             }
         }
     }
+
+    /// Run `f` as a Postgres SAVEPOINT nested inside the caller's transaction,
+    /// releasing it on `Ok` and rolling back to it on `Err`.
+    ///
+    /// This is the async analog of the sync/diesel track's *nested*
+    /// `transaction` call, which issues a SAVEPOINT under an already-open
+    /// transaction. MLS welcome and commit processing legitimately nests an
+    /// atomic sub-unit inside [`Self::transaction`] (see `xmtp_welcome`'s
+    /// `transaction(..).savepoint(..)`), and that sub-unit must be able to roll
+    /// back on its own without aborting the enclosing transaction — precisely
+    /// what a SAVEPOINT provides and what a nested `transaction` (rejected by
+    /// design) cannot.
+    ///
+    /// Called with no open transaction there is nothing to nest inside, so it
+    /// degrades to a plain [`Self::transaction`]. `f` runs against the same
+    /// pinned connection, so its writes join the savepoint.
+    pub async fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: AsyncFnOnce(&PgDb) -> Result<T, E>,
+        E: From<ConnectionError>,
+    {
+        if !self.in_transaction() {
+            return self.transaction(f).await;
+        }
+
+        // A unique name per savepoint so strictly-nested savepoints never alias.
+        // Names are cleaned up (RELEASE) on both paths, but reuse would still be
+        // ambiguous if two live at once, which double-nesting can do.
+        let name = format!(
+            "xmtp_sp_{}",
+            SAVEPOINT_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+
+        // Open the savepoint, then drop the connection guard before running `f`
+        // so `f`'s own queries can re-acquire the pinned connection.
+        {
+            let mut conn = self.conn().await?;
+            sqlx::query(&format!("SAVEPOINT {name}"))
+                .execute(&mut *conn)
+                .await
+                .map_err(ConnectionError::from)?;
+        }
+
+        let result = f(self).await;
+
+        let mut conn = self.conn().await?;
+        match result {
+            Ok(value) => {
+                sqlx::query(&format!("RELEASE SAVEPOINT {name}"))
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(ConnectionError::from)?;
+                Ok(value)
+            }
+            Err(e) => {
+                // Roll the sub-unit back, then release the (now-empty) savepoint
+                // so its name does not linger for the rest of the transaction.
+                sqlx::query(&format!("ROLLBACK TO SAVEPOINT {name}"))
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(ConnectionError::from)?;
+                sqlx::query(&format!("RELEASE SAVEPOINT {name}"))
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(ConnectionError::from)?;
+                Err(e)
+            }
+        }
+    }
 }
+
+/// Monotonic source of unique SAVEPOINT identifiers for [`PgDb::savepoint`].
+static SAVEPOINT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // Tests for this module live in the `xmtp_db_pg_tests` crate, not here: the sqlx
 // `Query*` impls are gated `not(feature = "sync")`, and every test target inside
@@ -231,3 +304,73 @@ const _: fn() = || {
     assert_db_query::<PgDb>();
     assert_db_query::<&PgDb>();
 };
+
+/// The async-track [`XmtpDb`] store, backing an `xmtp_mls::Client` with a
+/// Postgres [`PgDb`] instead of the sync/diesel `EncryptedMessageStore`.
+///
+/// `EncryptedMessageStore` is the SQLite/diesel store (its `XmtpDb::new` runs
+/// diesel migrations and it carries SQLite-only bits); the async track supplies
+/// its own store type over `PgDb`, exactly as the `MlsContext` alias comment in
+/// xmtp_mls notes. Schema setup is the caller's job (run the Postgres migrations
+/// against the pool before constructing this), so there is no `init` here — the
+/// `XmtpDb::init` hook is sync-only anyway.
+///
+/// `conn()` and `db()` both hand back the same cheap-to-clone [`PgDb`] handle:
+/// on the async track a "connection" is just a pooled handle, and every query
+/// goes through the `DbQuery` (`= PgDb`) surface, never a raw diesel connection.
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[derive(Clone, Debug)]
+pub struct PgMlsDb {
+    db: PgDb,
+    opts: crate::StorageOption,
+}
+
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl PgMlsDb {
+    /// Wrap a `PgDb` as an `XmtpDb` store. Defaults to `Ephemeral` opts — a
+    /// server-side Postgres store has no local file path, and `Ephemeral` keeps
+    /// callers off the diesel/SQLite path-based logic keyed on `Persistent`.
+    pub fn new(db: PgDb) -> Self {
+        Self {
+            db,
+            opts: crate::StorageOption::Ephemeral,
+        }
+    }
+
+    /// Wrap a `PgDb` with an explicit [`StorageOption`].
+    pub fn with_opts(db: PgDb, opts: crate::StorageOption) -> Self {
+        Self { db, opts }
+    }
+
+    /// The underlying `PgDb` handle (e.g. to build a `PgKeyStore` or a cursor
+    /// store over the same pool).
+    pub fn pg(&self) -> &PgDb {
+        &self.db
+    }
+}
+
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+impl crate::XmtpDb for PgMlsDb {
+    type Connection = PgDb;
+    type DbQuery = PgDb;
+
+    fn conn(&self) -> Self::Connection {
+        self.db.clone()
+    }
+
+    fn db(&self) -> Self::DbQuery {
+        self.db.clone()
+    }
+
+    fn opts(&self) -> &crate::StorageOption {
+        &self.opts
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
+}

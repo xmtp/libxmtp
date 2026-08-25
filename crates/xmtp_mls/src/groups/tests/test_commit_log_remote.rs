@@ -1557,6 +1557,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     // Store this key in alix's key store (overwriting any existing key)
     key_store
         .write_commit_log_key(group.group_id, &new_signing_key)
+        .await
         .unwrap();
 
     println!("✓ Generated and stored new signing key for alix in key store");

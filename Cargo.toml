@@ -19,6 +19,11 @@ exclude = [
   # dev-dependency always turns `sync` back on). Keeping it out also keeps it
   # clear of hakari, `clippy --all-features`, and default-members.
   "crates/xmtp_db_pg_tests",
+  # Postgres + live-network integration tests for the FULL async client
+  # (xmtp_mls over the sqlx/Postgres store). Excluded for the same reason as
+  # xmtp_db_pg_tests: it depends on xmtp_mls/xmtp_db with `sync` OFF, which is
+  # impossible from inside this workspace.
+  "crates/xmtp_mls_pg_tests",
 ]
 
 # Default members must be part of workspace hack to maximize cache hits in CI/nix/crane

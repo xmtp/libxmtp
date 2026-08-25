@@ -165,6 +165,20 @@ pub trait DbQuery:
 {
 }
 
+// Compile-time parity guard — the sync-side twin of `pg.rs`'s
+// `assert_db_query::<PgDb>()`. Both storage backends must satisfy the SAME
+// `DbQuery` supertrait bundle above, so adding a `Query*` supertrait forces an
+// implementation on BOTH: you cannot implement it for SQLite (`DbConnection`)
+// and forget Postgres (`PgDb`), or the reverse — either omission fails to
+// compile here (sync) or in `pg.rs` (async), not in some distant consumer.
+#[cfg(feature = "sync")]
+const _: fn() = || {
+    fn assert_db_query<T: DbQuery>() {}
+    fn assert_sqlite_backend<C: crate::ConnectionExt>() {
+        assert_db_query::<crate::DbConnection<C>>();
+    }
+};
+
 impl<T: ?Sized> DbQuery for T where
     T: MaybeSend
         + MaybeSync

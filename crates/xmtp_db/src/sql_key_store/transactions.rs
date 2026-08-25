@@ -20,8 +20,23 @@ pub(crate) fn drive_to_completion<F: std::future::Future>(fut: F) -> F::Output {
     let mut fut = std::pin::pin!(fut);
     match fut.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
         Poll::Ready(output) => output,
+        // A single poll is enough because on the sync (SQLite/diesel) track every
+        // storage op is synchronous under an `async fn` — i.e. a ready future that
+        // completes in one poll. `Pending` therefore means the transaction body
+        // awaited something that actually SUSPENDS (a network call, a timer, a real
+        // async lock). That is forbidden here: this runs inside `immediate_
+        // transaction`, so suspending would hold the SQLite write lock across the
+        // await. We panic loudly rather than rely on reviewer discipline — the same
+        // mistake in C/C++ just deadlocks silently. Move the awaited work OUTSIDE
+        // the transaction. (The Postgres track drives these bodies with a real
+        // executor and never takes this path.)
         Poll::Pending => {
-            panic!("a sync-track transaction body awaited something that yielded")
+            panic!(
+                "a sync-track (SQLite) transaction body awaited an operation that \
+                 suspended (returned Pending) — almost certainly a network call. \
+                 Storage transactions on the sync track must complete synchronously; \
+                 move the awaited work outside the transaction."
+            )
         }
     }
 }
@@ -183,28 +198,36 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         }
     }
 
-    fn read<V: Entity<CURRENT_VERSION>>(
+    // Maybe-async KV: the diesel bodies are synchronous, so each is wrapped in a
+    // ready future (`std::future::ready`) to satisfy the `-> impl Future +
+    // MaybeSend` trait shape; the async (Postgres) impl awaits real sqlx.
+    fn read<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Option<V>, SqlKeyStoreError> {
-        self.read(label, key)
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.read(label, key))
     }
 
-    fn read_list<V: Entity<CURRENT_VERSION>>(
+    fn read_list<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        self.read_list(label, key)
+    ) -> impl std::future::Future<
+        Output = Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + xmtp_common::MaybeSend {
+        std::future::ready(self.read_list(label, key))
     }
 
     fn delete(
         &self,
         label: &[u8],
         key: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        self.delete::<CURRENT_VERSION>(label, key)
+    ) -> impl std::future::Future<
+        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + xmtp_common::MaybeSend {
+        std::future::ready(self.delete::<CURRENT_VERSION>(label, key))
     }
 
     fn write(
@@ -212,8 +235,10 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         label: &[u8],
         key: &[u8],
         value: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        self.write::<CURRENT_VERSION>(label, key, value)
+    ) -> impl std::future::Future<
+        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
+    > + xmtp_common::MaybeSend {
+        std::future::ready(self.write::<CURRENT_VERSION>(label, key, value))
     }
 
     #[cfg(feature = "test-utils")]
