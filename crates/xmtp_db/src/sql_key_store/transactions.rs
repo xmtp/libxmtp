@@ -198,47 +198,96 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         }
     }
 
-    // Maybe-async KV: the diesel bodies are synchronous, so each is wrapped in a
-    // ready future (`std::future::ready`) to satisfy the `-> impl Future +
-    // MaybeSend` trait shape; the async (Postgres) impl awaits real sqlx.
-    fn read<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+    // Typed accessors. On SQLite the storage stays the generic `openmls_key_value`
+    // KV: the label + key encoding (`COMMIT_LOG_SIGNER_PRIVATE_KEY`, bincode of the
+    // group id) lives HERE now instead of at the call site, so the on-disk format
+    // is byte-identical to what the old generic path wrote. Synchronous bodies
+    // under a ready future, like the generic accessors above.
+    fn set_commit_log_signer_key(
         &self,
-        label: &[u8],
-        key: &[u8],
+        group_id: &[u8],
+        signer_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        let result = bincode::serialize(group_id)
+            .map_err(|_| SqlKeyStoreError::SerializationError)
+            .and_then(|key| {
+                self.write::<CURRENT_VERSION>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, signer_key)
+            });
+        std::future::ready(result)
+    }
+
+    fn commit_log_signer_key<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+        &self,
+        group_id: &[u8],
     ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
     {
-        std::future::ready(self.read(label, key))
+        let result = bincode::serialize(group_id)
+            .map_err(|_| SqlKeyStoreError::SerializationError)
+            .and_then(|key| {
+                self.read::<CURRENT_VERSION, V>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)
+            });
+        std::future::ready(result)
     }
 
-    fn read_list<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+    // Key-package references + wrapper keys: keyed verbatim (public key / hash
+    // ref) under their labels, matching the old generic path's on-disk bytes.
+    fn set_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + xmtp_common::MaybeSend {
-        std::future::ready(self.read_list(label, key))
+        public_key: &[u8],
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.write::<CURRENT_VERSION>(
+            KEY_PACKAGE_REFERENCES,
+            public_key,
+            hash_ref,
+        ))
     }
 
-    fn delete(
+    fn key_package_reference<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + xmtp_common::MaybeSend {
-        std::future::ready(self.delete::<CURRENT_VERSION>(label, key))
+        public_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.read::<CURRENT_VERSION, V>(KEY_PACKAGE_REFERENCES, public_key))
     }
 
-    fn write(
+    fn delete_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-        value: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + xmtp_common::MaybeSend {
-        std::future::ready(self.write::<CURRENT_VERSION>(label, key, value))
+        public_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.delete::<CURRENT_VERSION>(KEY_PACKAGE_REFERENCES, public_key))
+    }
+
+    fn set_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+        private_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.write::<CURRENT_VERSION>(
+            KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+            hash_ref,
+            private_key,
+        ))
+    }
+
+    fn key_package_wrapper_key<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+        &self,
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.read::<CURRENT_VERSION, V>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref))
+    }
+
+    fn delete_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        std::future::ready(self.delete::<CURRENT_VERSION>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref))
     }
 
     #[cfg(feature = "test-utils")]

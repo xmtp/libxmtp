@@ -89,44 +89,76 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
         }
     }
 
-    fn read<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+
+    fn set_commit_log_signer_key(
         &self,
-        label: &[u8],
-        key: &[u8],
+        group_id: &[u8],
+        signer_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::set_commit_log_signer_key(
+            self.in_memory.as_ref(),
+            group_id,
+            signer_key,
+        )
+    }
+
+    fn commit_log_signer_key<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+        &self,
+        group_id: &[u8],
     ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
     {
-        XmtpMlsStorageProvider::read::<V>(self.in_memory.as_ref(), label, key)
+        XmtpMlsStorageProvider::commit_log_signer_key::<V>(self.in_memory.as_ref(), group_id)
     }
 
-    fn read_list<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+    fn set_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + xmtp_common::MaybeSend {
-        XmtpMlsStorageProvider::read_list::<V>(self.in_memory.as_ref(), label, key)
+        public_key: &[u8],
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::set_key_package_reference(self.in_memory.as_ref(), public_key, hash_ref)
     }
 
-    fn delete(
+    fn key_package_reference<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + xmtp_common::MaybeSend {
-        XmtpMlsStorageProvider::delete(self.in_memory.as_ref(), label, key)
+        public_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::key_package_reference::<V>(self.in_memory.as_ref(), public_key)
     }
 
-    fn write(
+    fn delete_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-        value: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + xmtp_common::MaybeSend {
-        XmtpMlsStorageProvider::write(self.in_memory.as_ref(), label, key, value)
+        public_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::delete_key_package_reference(self.in_memory.as_ref(), public_key)
+    }
+
+    fn set_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+        private_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::set_key_package_wrapper_key(self.in_memory.as_ref(), hash_ref, private_key)
+    }
+
+    fn key_package_wrapper_key<V: openmls_traits::storage::Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+        &self,
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::key_package_wrapper_key::<V>(self.in_memory.as_ref(), hash_ref)
+    }
+
+    fn delete_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + xmtp_common::MaybeSend
+    {
+        XmtpMlsStorageProvider::delete_key_package_wrapper_key(self.in_memory.as_ref(), hash_ref)
     }
 
     #[cfg(feature = "test-utils")]

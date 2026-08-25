@@ -12,7 +12,6 @@ use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::StorageError;
 use xmtp_db::prelude::*;
-use xmtp_db::sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY};
 use xmtp_db::tasks::{NEVER_EXPIRES, NewTask, TaskDataHash, data_hash_for};
 use xmtp_proto::xmtp::mls::database::{
     KpDeletion, KpRotation, Task as TaskProto, task::Task as TaskKind,
@@ -122,13 +121,12 @@ pub(crate) async fn delete_key_package<Context: XmtpSharedContext>(
 
     if let Some(pq_pub_key) = pq_pub_key {
         key_store
-            .delete(
-                KEY_PACKAGE_REFERENCES,
+            .delete_key_package_reference(
                 crate::identity::pq_key_package_references_key(&pq_pub_key)?.as_slice(),
             )
             .await?;
         key_store
-            .delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)
+            .delete_key_package_wrapper_key(&hash_ref)
             .await?;
     }
 

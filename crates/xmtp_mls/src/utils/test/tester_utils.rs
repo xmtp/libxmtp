@@ -62,7 +62,6 @@ use xmtp_db::{
     diesel::{self, Connection, RunQueryDsl, SqliteConnection, sql_query},
     key_package_history::StoredKeyPackageHistoryEntry,
     prelude::{QueryIdentity, QueryIdentityUpdates, QueryKeyPackageHistory},
-    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 use xmtp_db::{
     EncryptedMessageStore, MlsProviderExt, StorageOption, XmtpOpenMlsProvider,

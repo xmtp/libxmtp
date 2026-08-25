@@ -118,12 +118,21 @@ async fn two_clients_exchange_messages_over_postgres() {
     assert!(bo.count("identity").await >= 1, "bo identity persisted");
     assert!(alix.count("groups").await >= 1, "alix group persisted");
     assert!(bo.count("groups").await >= 1, "bo group persisted");
+
+    // PROTOTYPE: libxmtp's own KV data now lands in purpose-built tables; there is
+    // no generic `openmls_key_value` at all (kv_routing.rs asserts its absence).
+    eprintln!(
+        "TYPED KV TABLES (bo): kp_references={} kp_wrapper_private_keys={} commit_log_signer_keys={}",
+        bo.count("kp_references").await,
+        bo.count("kp_wrapper_private_keys").await,
+        bo.count("commit_log_signer_keys").await,
+    );
     assert!(
-        bo.count("openmls_key_value").await >= 1,
-        "bo's libxmtp KV (key-package refs, commit-log key) persisted via the PgKeyStore bridge"
+        bo.count("kp_references").await >= 1,
+        "key-package references now persist to the typed kp_references table"
     );
 
-    eprintln!("ROUND TRIP OK: bidirectional messaging over Postgres");
+    eprintln!("ROUND TRIP OK: bidirectional messaging over Postgres, typed KV tables");
 }
 
 /// A three-member group: two members are welcomed concurrently off a single

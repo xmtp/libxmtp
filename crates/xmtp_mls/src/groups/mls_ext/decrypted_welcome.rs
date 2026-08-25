@@ -11,10 +11,7 @@ use xmtp_db::XmtpOpenMlsProviderRef;
 
 use crate::{client::ClientError, groups::GroupError, identity::parse_credential};
 use xmtp_configuration::{MAX_PAST_EPOCHS, WELCOME_HPKE_LABEL};
-use xmtp_db::{
-    NotFound,
-    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-};
+use xmtp_db::NotFound;
 use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_common::mls_ext::payload_encryption::{unwrap_payload_hpke, unwrap_payload_symmetric};
 use xmtp_proto::{
@@ -226,7 +223,7 @@ pub(super) async fn find_key_package_hash_ref(
     let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
 
     Ok(provider
-        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)
+        .key_package_reference(&serialized_hpke_public_key)
         .await?
         .ok_or(NotFound::KeyPackageReference(serialized_hpke_public_key))?)
 }
@@ -251,7 +248,7 @@ pub(super) async fn find_private_key(
             let serialized_hash_ref = bincode::serialize(hash_ref)
                 .map_err(|_| GroupError::NotFound(NotFound::PostQuantumPrivateKey))?;
             let private_key = provider
-                .read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)
+                .key_package_wrapper_key(&serialized_hash_ref)
                 .await?;
 
             Ok(private_key.ok_or(NotFound::PostQuantumPrivateKey)?)

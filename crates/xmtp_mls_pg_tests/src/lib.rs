@@ -254,3 +254,19 @@ pub async fn register_client(database_url: &str, label: &str) -> Result<Register
         inbox_id,
     })
 }
+
+/// A bare `PgKeyStore` over a fresh, migrated Postgres schema — no identity, no
+/// network. For exercising the KV label routing directly (e.g. the commit-log
+/// key path, whose key transform the client-level tests don't reach). Returns
+/// the store plus the underlying `PgDb` (to inspect the typed tables) and the
+/// schema name.
+pub async fn bare_key_store(
+    database_url: &str,
+    label: &str,
+) -> Result<(xmtp_db::PgKeyStore, PgDb, String)> {
+    xmtp_cryptography::install_crypto_provider();
+    let schema = format!("bare_{label}_{}", hex::encode(rand::random::<[u8; 5]>()));
+    let store = build_store(database_url, &schema).await?;
+    let db = store.pg().clone();
+    Ok((xmtp_db::PgKeyStore::new(db.clone()), db, schema))
+}

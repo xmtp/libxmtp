@@ -43,6 +43,7 @@ alloy = { version = "2", default-features = false, features = [
   "std",
 ] }
 anyhow = "1.0"
+bincode = "1.3"
 futures = { version = "0.3.32", default-features = false, features = ["std"] }
 hex = "0.4.3"
 rand = "0.10"

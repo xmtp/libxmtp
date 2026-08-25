@@ -42,9 +42,7 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::identity::StoredIdentity;
-use xmtp_db::sql_key_store::{
-    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
-};
+use xmtp_db::sql_key_store::SqlKeyStoreError;
 use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_db::{MlsProviderExt, TransactionOutcome};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
@@ -1038,7 +1036,7 @@ pub(crate) async fn store_key_package_references(
     let storage = provider.key_store();
     // Write the normal init key to the key package references
     storage
-        .write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref)
+        .set_key_package_reference(&public_init_key, &hash_ref)
         .await?;
 
     if let Some(post_quantum_keypair) = post_quantum_keypair {
@@ -1050,15 +1048,11 @@ pub(crate) async fn store_key_package_references(
 
         // Write the post quantum wrapper encryption public key to the key package references
         storage
-            .write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)
+            .set_key_package_reference(&post_quantum_public_key, &hash_ref)
             .await?;
 
         storage
-            .write(
-                KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-                &hash_ref,
-                &post_quantum_private_key,
-            )
+            .set_key_package_wrapper_key(&hash_ref, &post_quantum_private_key)
             .await?;
     }
 
@@ -1085,7 +1079,6 @@ mod tests {
     use xmtp_db::{
         MlsProviderExt,
         group::{ConversationType, GroupQueryArgs},
-        sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     };
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_mls_common::group::DMMetadataOptions;
@@ -1123,7 +1116,7 @@ mod tests {
     async fn get_hash_ref(provider: &impl MlsProviderExt, pub_key: &[u8]) -> Option<KeyPackageRef> {
         provider
             .key_store()
-            .read(KEY_PACKAGE_REFERENCES, pub_key)
+            .key_package_reference(pub_key)
             .await
             .unwrap()
     }
@@ -1131,7 +1124,7 @@ mod tests {
     async fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
         let val: Option<Vec<u8>> = provider
             .key_store()
-            .read::<Vec<u8>>(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)
+            .key_package_wrapper_key::<Vec<u8>>(hash_ref)
             .await
             .unwrap();
 

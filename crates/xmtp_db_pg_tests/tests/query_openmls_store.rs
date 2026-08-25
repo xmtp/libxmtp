@@ -1,7 +1,7 @@
 //! The OpenMLS Postgres tables in libxmtp's async schema.
 //!
 //! `openmls_pg_storage` (the per-type typed tables) and `PgKeyStore` (the
-//! generic `openmls_key_value` KV) read and write these tables; nothing in the
+//! per-label typed KV tables) read and write these tables; nothing in the
 //! rest of the xmtp_db query suite touches them. That blind spot is exactly how
 //! the schema once shipped the sync/SQLite `openmls_key_store`/`openmls_key_value`
 //! KV tables instead of `openmls_pg_storage`'s per-type tables — unnoticed until
@@ -37,46 +37,53 @@ async fn table_exists(db: &PgDb, table: &str) -> bool {
     row.get::<bool, _>("present")
 }
 
-/// libxmtp's `XmtpMlsStorageProvider` KV (key-package references, the commit-log
-/// signer key, …) round-trips through the Postgres `openmls_key_value` table.
-/// This is the exact path that returned `UnsupportedMethod` before the async KV
-/// was implemented, which broke client registration.
+/// libxmtp's typed value accessors store to purpose-built tables — there is no
+/// generic `openmls_key_value`. The value is stored verbatim so `read<V>`
+/// deserializes exactly as it did through the old KV; only the operation is now
+/// named instead of a `(label, key)` pair.
 #[tokio::test]
-async fn kv_round_trip_through_openmls_key_value() {
-    let db = fresh_db("openmls_kv_round_trip").await;
+async fn typed_accessors_store_to_purpose_built_tables() {
+    let db = fresh_db("openmls_typed_accessors").await;
     let store = PgKeyStore::new(db.clone());
 
-    let value: Vec<u8> = vec![9, 8, 7, 6, 5, 4, 3, 2, 1];
-    let serialized = bincode::serialize(&value).expect("serialize");
+    // Key-package reference: public key -> serialized hash ref (stored verbatim).
+    let public_key = vec![1u8, 2, 3, 4];
+    let hash_ref: Vec<u8> = vec![9, 8, 7, 6];
+    let serialized = bincode::serialize(&hash_ref).expect("serialize");
 
-    // Absent → None.
-    let before: Option<Vec<u8>> = store.read::<Vec<u8>>(b"kv_label", b"k1").await.unwrap();
+    // Absent → None; no fallback table exists to consult.
+    let before: Option<Vec<u8>> = store.key_package_reference(&public_key).await.unwrap();
     assert_eq!(before, None);
 
-    // Write → one row in openmls_key_value.
-    store.write(b"kv_label", b"k1", &serialized).await.unwrap();
-    assert_eq!(count(&db, "openmls_key_value").await, 1);
+    // Write → one row in the typed table, and there is no generic KV at all.
+    store
+        .set_key_package_reference(&public_key, &serialized)
+        .await
+        .unwrap();
+    assert_eq!(count(&db, "kp_references").await, 1);
+    assert!(
+        !table_exists(&db, "openmls_key_value").await,
+        "there must be no generic KV backup table"
+    );
 
-    // Read the typed value back.
-    let got: Option<Vec<u8>> = store.read::<Vec<u8>>(b"kv_label", b"k1").await.unwrap();
-    assert_eq!(got, Some(value));
+    // Round-trips through the typed table.
+    let got: Option<Vec<u8>> = store.key_package_reference(&public_key).await.unwrap();
+    assert_eq!(got, Some(hash_ref));
 
-    // Re-writing the same (label, key) is an upsert, not a second row.
+    // Re-writing the same key upserts (still one row).
     let v2 = bincode::serialize(&vec![42u8, 43u8]).unwrap();
-    store.write(b"kv_label", b"k1", &v2).await.unwrap();
-    assert_eq!(count(&db, "openmls_key_value").await, 1);
-    let got2: Option<Vec<u8>> = store.read::<Vec<u8>>(b"kv_label", b"k1").await.unwrap();
-    assert_eq!(got2, Some(vec![42u8, 43u8]));
+    store
+        .set_key_package_reference(&public_key, &v2)
+        .await
+        .unwrap();
+    assert_eq!(count(&db, "kp_references").await, 1);
 
-    // A different (label, key) is a distinct row.
-    store.write(b"kv_label", b"k2", &serialized).await.unwrap();
-    assert_eq!(count(&db, "openmls_key_value").await, 2);
-
-    // Delete removes only its own row.
-    store.delete(b"kv_label", b"k1").await.unwrap();
-    assert_eq!(count(&db, "openmls_key_value").await, 1);
-    let gone: Option<Vec<u8>> = store.read::<Vec<u8>>(b"kv_label", b"k1").await.unwrap();
-    assert_eq!(gone, None);
+    // Delete removes it.
+    store
+        .delete_key_package_reference(&public_key)
+        .await
+        .unwrap();
+    assert_eq!(count(&db, "kp_references").await, 0);
 }
 
 /// The async schema installs `openmls_pg_storage`'s per-type tables (and NOT the
@@ -87,8 +94,15 @@ async fn kv_round_trip_through_openmls_key_value() {
 async fn typed_openmls_tables_match_the_storage_provider() {
     let db = fresh_db("openmls_typed_tables").await;
 
-    // The generic KV table exists; the sync/SQLite key store does NOT.
-    assert!(table_exists(&db, "openmls_key_value").await);
+    // The typed KV tables exist; neither the sync/SQLite key store nor the
+    // (now-removed) generic openmls_key_value backup is in the async schema.
+    for typed in ["kp_references", "kp_wrapper_private_keys", "commit_log_signer_keys"] {
+        assert!(table_exists(&db, typed).await, "{typed} must exist");
+    }
+    assert!(
+        !table_exists(&db, "openmls_key_value").await,
+        "the generic KV backup table must not exist — labels route to typed tables"
+    );
     assert!(
         !table_exists(&db, "openmls_key_store").await,
         "the sync/SQLite openmls_key_store must not be in the async schema"

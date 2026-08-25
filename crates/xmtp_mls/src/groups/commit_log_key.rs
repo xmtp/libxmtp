@@ -8,10 +8,7 @@ use xmtp_cryptography::Secret;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::group::StoredGroupCommitLogPublicKey;
 use xmtp_db::prelude::QueryGroup;
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
-};
+use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStoreError};
 use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
 
@@ -86,9 +83,8 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
     ) -> impl std::future::Future<Output = Result<Option<Secret>, Self::Error>> + xmtp_common::MaybeSend
     {
         async move {
-            let key = bincode::serialize(group_id.as_ref())?;
             let value = self
-                .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)
+                .commit_log_signer_key::<Vec<u8>>(group_id.as_ref())
                 .await?
                 .map(Secret::new);
             Ok(value)
@@ -101,9 +97,8 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         value: &Secret,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + xmtp_common::MaybeSend {
         async move {
-            let key = bincode::serialize(group_id.as_ref())?;
-            let value = Secret::new(bincode::serialize(value.as_slice())?);
-            self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, value.as_slice())
+            let signer_key = bincode::serialize(value.as_slice())?;
+            self.set_commit_log_signer_key(group_id.as_ref(), &signer_key)
                 .await
         }
     }

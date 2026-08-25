@@ -70,16 +70,38 @@ CREATE TABLE openmls_key_package (
 
 CREATE TABLE openmls_psk (psk_id BYTEA PRIMARY KEY, psk_bundle BYTEA NOT NULL);
 
--- Generic (label, key, value) KV, the async counterpart of the sync track's
--- `openmls_key_value`. `openmls_pg_storage` covers every *typed* OpenMLS value,
--- but libxmtp's own `XmtpMlsStorageProvider::{read,write,delete,read_list}` (key
--- package references, the commit-log signer key, …) still need a raw byte store;
--- `PgKeyStore` backs them here. `key_bytes` is `label || key || version_be`.
-CREATE TABLE openmls_key_value (
-    version INTEGER NOT NULL,
-    key_bytes BYTEA NOT NULL,
-    value_bytes BYTEA NOT NULL,
-    PRIMARY KEY (version, key_bytes)
+-- PROTOTYPE (Postgres-only): purpose-built tables for the three KV labels that
+-- are libxmtp's OWN data (not OpenMLS StorageProvider state — that goes to
+-- `openmls_pg_storage`'s typed tables above). `PgKeyStore`'s read/write/delete
+-- dispatch on the label to these; there is deliberately NO generic
+-- `openmls_key_value` fallback — an unrecognized label panics, forcing a real
+-- table + migration rather than stranding data in a backup table. This is
+-- invisible outside PgKeyStore: the XmtpMlsStorageProvider trait is a
+-- (label,key)->bytes interface, so the physical layout is the store's business
+-- and the sync/SQLite track is unchanged. Values are stored verbatim (the
+-- caller's already-serialized bytes) so `read<V>` deserializes exactly as before;
+-- only the KEY becomes a real, semantic PK.
+--
+-- public_key -> serialized key-package hash ref. Keyed by the TLS-serialized
+-- HPKE init key (or the post-quantum public key); both share this table.
+CREATE TABLE kp_references (
+    public_key BYTEA PRIMARY KEY,
+    hash_ref BYTEA NOT NULL
+);
+
+-- key-package hash ref -> post-quantum wrapper private key.
+CREATE TABLE kp_wrapper_private_keys (
+    hash_ref BYTEA PRIMARY KEY,
+    private_key BYTEA NOT NULL
+);
+
+-- group id -> commit-log signer private key. The label's key arrives as
+-- bincode(group_id); PgKeyStore decodes it to the raw id so this is a clean,
+-- join-able 16-byte group id (a FK to "groups"(id) is a natural follow-up, left
+-- off for now to avoid write-ordering assumptions).
+CREATE TABLE commit_log_signer_keys (
+    group_id BYTEA PRIMARY KEY,
+    private_key BYTEA NOT NULL
 );
 
 -- Identity of this installation. There can only be one, hence CHECK (rowid = 1).

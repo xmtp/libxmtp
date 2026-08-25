@@ -66,38 +66,68 @@ impl PgKeyStore {
         Self { db }
     }
 
-    /// Shared SELECT for the generic KV `read`/`read_list`: the raw
-    /// `value_bytes` stored under `label || key || version_be`, if present.
-    async fn kv_select(
+    // --- Typed-table routing (PROTOTYPE) -------------------------------------
+    //
+    // Each of the three KV labels (all libxmtp's own data) gets a purpose-built
+    // table; `read`/`write`/`delete` consult `route_label` and hit it. There is
+    // no generic-KV fallback — an unrecognized label panics (see `route_label`),
+    // and `read_list` is unreached on this track. `table`/`key_col`/`value_col`
+    // are compile-time constants, never caller input, so interpolating them into
+    // SQL is injection-safe.
+
+    async fn typed_select(
         &self,
-        label: &[u8],
+        table: &str,
+        key_col: &str,
+        value_col: &str,
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, SqlKeyStoreError> {
-        let storage_key = build_kv_key(label, key);
         let mut c = self.db.conn().await?;
-        let row: Option<(Vec<u8>,)> = sqlx::query_as(
-            "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = $1 AND version = $2",
-        )
-        .bind(storage_key)
-        .bind(CURRENT_VERSION as i32)
-        .fetch_optional(&mut *c)
-        .await
-        .map_err(crate::ConnectionError::from)?;
+        let row: Option<(Vec<u8>,)> =
+            sqlx::query_as(&format!("SELECT {value_col} FROM {table} WHERE {key_col} = $1"))
+                .bind(key.to_vec())
+                .fetch_optional(&mut *c)
+                .await
+                .map_err(crate::ConnectionError::from)?;
         Ok(row.map(|(v,)| v))
     }
-}
 
-/// The generic-KV storage key: `label || key || version_be`. Byte-identical to
-/// the sync track's `build_key_from_vec::<CURRENT_VERSION>`, so a database ever
-/// shared between the two backends would agree on the layout.
-fn build_kv_key(label: &[u8], key: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(label.len() + key.len() + 2);
-    out.extend_from_slice(label);
-    out.extend_from_slice(key);
-    out.extend_from_slice(&u16::to_be_bytes(CURRENT_VERSION));
-    out
-}
+    async fn typed_upsert(
+        &self,
+        table: &str,
+        key_col: &str,
+        value_col: &str,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        let mut c = self.db.conn().await?;
+        sqlx::query(&format!(
+            "INSERT INTO {table} ({key_col}, {value_col}) VALUES ($1, $2) \
+             ON CONFLICT ({key_col}) DO UPDATE SET {value_col} = EXCLUDED.{value_col}"
+        ))
+        .bind(key.to_vec())
+        .bind(value.to_vec())
+        .execute(&mut *c)
+        .await
+        .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
 
+    async fn typed_delete(
+        &self,
+        table: &str,
+        key_col: &str,
+        key: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        let mut c = self.db.conn().await?;
+        sqlx::query(&format!("DELETE FROM {table} WHERE {key_col} = $1"))
+            .bind(key.to_vec())
+            .execute(&mut *c)
+            .await
+            .map_err(crate::ConnectionError::from)?;
+        Ok(())
+    }
+}
 
 impl StorageProvider<CURRENT_VERSION> for PgKeyStore {
     type Error = SqlKeyStoreError;
@@ -992,20 +1022,35 @@ impl XmtpMlsStorageProvider for PgKeyStore {
         }
     }
 
-    // --- Generic (label, key, value) byte accessors ----------------------
-    //
-    // libxmtp's own raw KV interface (key package references, the commit-log
-    // signer key, …), distinct from OpenMLS' typed `StorageProvider` methods
-    // above. Backed by the Postgres `openmls_key_value` table (`label || key ||
-    // version_be` key layout, bincode values). Genuinely async — each body takes
-    // a connection from the handle and awaits sqlx, exactly like the typed
-    // methods above.
-    async fn read<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+    // libxmtp's own stored values, each in its purpose-built table. Genuinely
+    // async — every body takes a connection from the handle and awaits sqlx,
+    // exactly like OpenMLS' typed `StorageProvider` methods above. Note the
+    // caller passes the RAW group id / public key / hash ref — no bincode round
+    // trip through a label, which is exactly the indirection the generic KV
+    // forced.
+    async fn set_commit_log_signer_key(
         &self,
-        label: &[u8],
-        key: &[u8],
+        group_id: &[u8],
+        signer_key: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        self.typed_upsert(
+            "commit_log_signer_keys",
+            "group_id",
+            "private_key",
+            group_id,
+            signer_key,
+        )
+        .await
+    }
+
+    async fn commit_log_signer_key<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+        &self,
+        group_id: &[u8],
     ) -> Result<Option<V>, SqlKeyStoreError> {
-        let Some(bytes) = self.kv_select(label, key).await? else {
+        let Some(bytes) = self
+            .typed_select("commit_log_signer_keys", "group_id", "private_key", group_id)
+            .await?
+        else {
             return Ok(None);
         };
         Ok(Some(
@@ -1013,60 +1058,74 @@ impl XmtpMlsStorageProvider for PgKeyStore {
         ))
     }
 
-    async fn read_list<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+    async fn set_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        let Some(bytes) = self.kv_select(label, key).await? else {
-            return Ok(vec![]);
-        };
-        // Stored as bincode(Vec<Vec<u8>>); each inner element is bincode(V).
-        let list: Vec<Vec<u8>> =
-            bincode::deserialize(&bytes).map_err(|_| SqlKeyStoreError::SerializationError)?;
-        list.iter()
-            .map(|item| {
-                bincode::deserialize::<V>(item).map_err(|_| SqlKeyStoreError::SerializationError)
-            })
-            .collect()
-    }
-
-    async fn delete(
-        &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        let storage_key = build_kv_key(label, key);
-        let mut c = self.db.conn().await?;
-        sqlx::query("DELETE FROM openmls_key_value WHERE key_bytes = $1 AND version = $2")
-            .bind(storage_key)
-            .bind(CURRENT_VERSION as i32)
-            .execute(&mut *c)
+        public_key: &[u8],
+        hash_ref: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        self.typed_upsert("kp_references", "public_key", "hash_ref", public_key, hash_ref)
             .await
-            .map_err(crate::ConnectionError::from)?;
-        Ok(())
     }
 
-    async fn write(
+    async fn key_package_reference<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
         &self,
-        label: &[u8],
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        let storage_key = build_kv_key(label, key);
-        let mut c = self.db.conn().await?;
-        sqlx::query(
-            "INSERT INTO openmls_key_value (key_bytes, version, value_bytes) \
-             VALUES ($1, $2, $3) \
-             ON CONFLICT (version, key_bytes) DO UPDATE SET value_bytes = EXCLUDED.value_bytes",
+        public_key: &[u8],
+    ) -> Result<Option<V>, SqlKeyStoreError> {
+        let Some(bytes) = self
+            .typed_select("kp_references", "public_key", "hash_ref", public_key)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(
+            bincode::deserialize::<V>(&bytes).map_err(|_| SqlKeyStoreError::SerializationError)?,
+        ))
+    }
+
+    async fn delete_key_package_reference(
+        &self,
+        public_key: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        self.typed_delete("kp_references", "public_key", public_key)
+            .await
+    }
+
+    async fn set_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+        private_key: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        self.typed_upsert(
+            "kp_wrapper_private_keys",
+            "hash_ref",
+            "private_key",
+            hash_ref,
+            private_key,
         )
-        .bind(storage_key)
-        .bind(CURRENT_VERSION as i32)
-        .bind(value.to_vec())
-        .execute(&mut *c)
         .await
-        .map_err(crate::ConnectionError::from)?;
-        Ok(())
+    }
+
+    async fn key_package_wrapper_key<V: Entity<CURRENT_VERSION> + xmtp_common::MaybeSend>(
+        &self,
+        hash_ref: &[u8],
+    ) -> Result<Option<V>, SqlKeyStoreError> {
+        let Some(bytes) = self
+            .typed_select("kp_wrapper_private_keys", "hash_ref", "private_key", hash_ref)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(
+            bincode::deserialize::<V>(&bytes).map_err(|_| SqlKeyStoreError::SerializationError)?,
+        ))
+    }
+
+    async fn delete_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+    ) -> Result<(), SqlKeyStoreError> {
+        self.typed_delete("kp_wrapper_private_keys", "hash_ref", hash_ref)
+            .await
     }
 
     // TODO(pg-hash-all): hash the `openmls_*` tables for cross-track test parity.

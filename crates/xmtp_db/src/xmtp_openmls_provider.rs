@@ -193,41 +193,66 @@ pub trait XmtpMlsStorageProvider:
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 
-    // Generic byte KV accessors (key-package references, the commit-log signer
-    // key, ...). Maybe-async: the sync (SQLite) impl bodies are synchronous under
-    // an `async fn` (ready futures), while the async (Postgres) impl awaits real
-    // sqlx against `openmls_key_value`. The `+ MaybeSend` future flows through
-    // libxmtp's Send worker tasks, so it must be Send on the async track.
-    fn read<V: Entity<CURRENT_VERSION> + MaybeSend>(
+    // Typed accessors for libxmtp's own stored values. These REPLACE a former
+    // generic byte-KV (`read`/`write`/`delete` over a `(label, key)` pair): the
+    // caller set is closed and compile-time known, so each value gets a named
+    // operation, and the storage LAYOUT is the backend's business — the SQLite
+    // impl keeps its `openmls_key_value` KV (encoding the key with a label
+    // internally), while the Postgres impl hits a purpose-built table. No label
+    // reaches a caller, so an unhandled value is a compile error, not a runtime
+    // fallback that could strand data.
+
+    /// Store a group's commit-log signer key. `signer_key` is stored verbatim.
+    fn set_commit_log_signer_key(
         &self,
-        label: &[u8],
-        key: &[u8],
+        group_id: &[u8],
+        signer_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + MaybeSend;
+
+    /// Load a group's commit-log signer key, if present.
+    fn commit_log_signer_key<V: Entity<CURRENT_VERSION> + MaybeSend>(
+        &self,
+        group_id: &[u8],
     ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + MaybeSend;
 
-    fn read_list<V: Entity<CURRENT_VERSION> + MaybeSend>(
+    /// Store a key-package reference (`public_key -> hash_ref`, stored verbatim).
+    /// Keyed by the TLS-serialized init key or the post-quantum public key.
+    fn set_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + MaybeSend;
+        public_key: &[u8],
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + MaybeSend;
 
-    fn delete(
+    /// Load the key-package reference for a public key, if present.
+    fn key_package_reference<V: Entity<CURRENT_VERSION> + MaybeSend>(
         &self,
-        label: &[u8],
-        key: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + MaybeSend;
+        public_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + MaybeSend;
 
-    fn write(
+    /// Delete the key-package reference for a public key.
+    fn delete_key_package_reference(
         &self,
-        label: &[u8],
-        key: &[u8],
-        value: &[u8],
-    ) -> impl std::future::Future<
-        Output = Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>,
-    > + MaybeSend;
+        public_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + MaybeSend;
+
+    /// Store a key-package wrapper private key (`hash_ref -> private_key`).
+    fn set_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+        private_key: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + MaybeSend;
+
+    /// Load the wrapper private key for a key-package hash ref, if present.
+    fn key_package_wrapper_key<V: Entity<CURRENT_VERSION> + MaybeSend>(
+        &self,
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<Option<V>, SqlKeyStoreError>> + MaybeSend;
+
+    /// Delete the wrapper private key for a key-package hash ref.
+    fn delete_key_package_wrapper_key(
+        &self,
+        hash_ref: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), SqlKeyStoreError>> + MaybeSend;
 
     #[cfg(feature = "test-utils")]
     fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError>;
