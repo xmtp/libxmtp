@@ -17,7 +17,11 @@ impl HealthOp for UpdateConsentState {
         "UpdateConsentState"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UpdateConsentState"))]
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(operation = "UpdateConsentState")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
@@ -40,7 +44,7 @@ impl HealthOp for UpdateConsentStateQuiet {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "UpdateConsentStateQuiet")
+        fields(operation = "UpdateConsentStateQuiet")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {

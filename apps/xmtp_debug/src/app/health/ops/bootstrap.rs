@@ -28,7 +28,7 @@ impl HealthOp for BootstrapIdentities {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "BootstrapIdentities")
+        fields(operation = "BootstrapIdentities")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();

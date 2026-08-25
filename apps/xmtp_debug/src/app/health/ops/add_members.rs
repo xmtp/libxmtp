@@ -24,7 +24,7 @@ impl HealthOp for AddMembersToNewGroup {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "AddMembersToNewGroup")
+        fields(operation = "AddMembersToNewGroup")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let primary_bytes = ctx.primary.inbox_id_bytes();
@@ -74,7 +74,7 @@ impl HealthOp for AddPrimaryToExistingGroups {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "AddPrimaryToExistingGroups")
+        fields(operation = "AddPrimaryToExistingGroups")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let primary_inbox = ctx.primary.inbox_id_hex();

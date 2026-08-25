@@ -15,7 +15,11 @@ impl HealthOp for UpdateAdminList {
         "UpdateAdminList"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UpdateAdminList"))]
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(operation = "UpdateAdminList")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             let inbox = primary.inbox_id().to_string();

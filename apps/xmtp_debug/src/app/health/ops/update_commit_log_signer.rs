@@ -17,7 +17,7 @@ impl HealthOp for UpdateCommitLogSigner {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "UpdateCommitLogSigner")
+        fields(operation = "UpdateCommitLogSigner")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {

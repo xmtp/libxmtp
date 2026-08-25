@@ -19,7 +19,7 @@ impl HealthOp for SendMessage {
         "SendMessage"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "SendMessage"))]
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(operation = "SendMessage"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let ctx_ref = &*ctx;
         ctx_ref

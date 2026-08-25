@@ -47,9 +47,9 @@ impl Info {
         let sqlite_stores = crate::app::App::db_directory()?;
         let db_dir_size = fs_extra::dir::get_size(&sqlite_stores)? / 1_000 / 1_000;
         info!(
-            metadata.identities,
-            metadata.groups,
-            metadata.messages,
+            identities = metadata.identities,
+            groups = metadata.groups,
+            messages = metadata.messages,
             project = crate::app::App::data_directory()?.as_value(),
             sqlite = sqlite_stores.as_value(),
             sqlite_size = %format!("{db_dir_size}MB"),

@@ -386,7 +386,7 @@ where
                             context.installation_id(),
                             group_id = send_sync_archive.sync_group_id,
                             pin = send_sync_archive.pin(),
-                            err = %e
+                            error = %e
                         )
                     })?;
             }

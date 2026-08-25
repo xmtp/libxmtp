@@ -502,7 +502,7 @@ impl Test {
 
         info!(
             iterations,
-            msg_count,
+            message_count = msg_count,
             timeout_secs,
             v3_backend = ?self.network.backend,
             v4_node = %v4_node_url,
@@ -581,7 +581,7 @@ impl Test {
         info!(group_baseline, "group topic baseline");
 
         // Step 4: Send N tagged messages
-        info!(msg_count, "sending tagged messages on V3");
+        info!(message_count = msg_count, "sending tagged messages on V3");
         let send_start = Instant::now();
         for i in 0..msg_count {
             let payload = format!(
@@ -1049,7 +1049,7 @@ impl Test {
 
         info!(
             iterations,
-            msg_count,
+            message_count = msg_count,
             timeout_secs,
             v3_backend = ?self.network.backend,
             v4_node = %v4_node_url,
@@ -1110,7 +1110,7 @@ impl Test {
         info!(group_baseline, "group topic baseline captured");
 
         // Step 3: Send N tagged messages
-        info!(msg_count, "sending tagged messages on V3");
+        info!(message_count = msg_count, "sending tagged messages on V3");
         for i in 0..msg_count {
             let payload = format!(
                 "{}{}_{}_{}",

@@ -33,7 +33,7 @@ impl HealthOp for EnsurePerVersionMembership {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "EnsurePerVersionMembership")
+        fields(operation = "EnsurePerVersionMembership")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(new_group_id) = ctx.new_groups.first().cloned() else {
@@ -103,7 +103,7 @@ impl HealthOp for EnsurePerVersionMembership {
                 let hex_to_add: Vec<String> = to_add.iter().map(hex::encode).collect();
                 tracing::info!(
                     target: "healthcheck",
-                    group = %new_group_id,
+                    group_id = %new_group_id,
                     adding = ?hex_to_add,
                     "adding representative members for missing versions",
                 );

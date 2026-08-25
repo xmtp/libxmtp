@@ -17,7 +17,7 @@ impl HealthOp for UpdateMessageDisappearing {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "UpdateMessageDisappearing")
+        fields(operation = "UpdateMessageDisappearing")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
@@ -44,7 +44,7 @@ impl HealthOp for RemoveMessageDisappearing {
     #[tracing::instrument(
         target = "healthcheck.op",
         skip_all,
-        fields(op = "RemoveMessageDisappearing")
+        fields(operation = "RemoveMessageDisappearing")
     )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {

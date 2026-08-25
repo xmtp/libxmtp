@@ -248,7 +248,7 @@ impl GenerateIdentity {
             tracing::error!("{} errors during identity generation", errs.len());
             tracing::error!("{} unique errors during identity generation", unique.len());
             for err in unique.into_iter() {
-                error!(err);
+                error!(error = err);
             }
             bail!("Error generation failed");
         }

@@ -439,7 +439,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
-    #[tracing::instrument(level = "debug", skip(self, payload_hash), fields(id = intent_id, payload_hash = hex::encode(payload_hash)))]
+    #[tracing::instrument(level = "debug", skip(self, payload_hash), fields(intent_id = intent_id, payload_hash = hex::encode(payload_hash)))]
     fn set_group_intent_published(
         &self,
         intent_id: ID,
@@ -691,7 +691,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(id = %intent.id, kind = %intent.kind, group_id = %intent.group_id))]
+    #[tracing::instrument(level = "debug", skip_all, fields(intent_id = %intent.id, intent_kind = %intent.kind, group_id = %intent.group_id))]
     fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,

@@ -16,7 +16,11 @@ impl HealthOp for UploadKeyPackage {
         "UploadKeyPackage"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UploadKeyPackage"))]
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(operation = "UploadKeyPackage")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_client(self.name(), |client| async move {
             client

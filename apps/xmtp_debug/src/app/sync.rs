@@ -116,15 +116,15 @@ impl Sync {
                     stats.new_dms += 1;
                     tracing::info!(
                         target: "xdbg.sync",
-                        id = %dm_id,
+                        dm_id = %dm_id,
                         "imported new dm into DmStore"
                     );
                 }
                 Some(_existing) => {
                     tracing::info!(
                         target: "xdbg.sync",
-                        id = %dm_id,
-                        group = %gid,
+                        dm_id = %dm_id,
+                        group_id = %gid,
                         "dm already persisted; skipping"
                     );
                 }
@@ -151,8 +151,8 @@ impl Sync {
                     stats.new_groups += 1;
                     tracing::info!(
                         target: "xdbg.sync",
-                        group = %gid,
-                        members = member_count,
+                        group_id = %gid,
+                        member_count = member_count,
                         "imported new group into GroupStore"
                     );
                 }
@@ -166,8 +166,8 @@ impl Sync {
                     stats.updated_groups += 1;
                     tracing::info!(
                         target: "xdbg.sync",
-                        group = %gid,
-                        members = member_count,
+                        group_id = %gid,
+                        member_count = member_count,
                         "updated GroupStore membership"
                     );
                 }
@@ -199,8 +199,8 @@ impl Sync {
                     stats.orphan_messages += 1;
                     tracing::warn!(
                         target: "xdbg.sync",
-                        inbox = client.inbox_id(),
-                        group = %gid,
+                        inbox_id = client.inbox_id(),
+                        group_id = %gid,
                         message_id = %hex::encode(message_id),
                         "recorded orphan message via sync — sender did not record it"
                     );

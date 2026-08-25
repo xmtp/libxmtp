@@ -24,7 +24,7 @@ impl Validator for NoForkedGroups {
     #[tracing::instrument(
         target = "healthcheck.validator",
         skip_all,
-        fields(op = "NoForkedGroups")
+        fields(operation = "NoForkedGroups")
     )]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let clients = match ctx.all_clients() {

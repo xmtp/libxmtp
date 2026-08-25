@@ -22,7 +22,7 @@ impl Validator for NoMissingMessages {
     #[tracing::instrument(
         target = "healthcheck.validator",
         skip_all,
-        fields(op = "NoMissingMessages")
+        fields(operation = "NoMissingMessages")
     )]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
@@ -74,8 +74,8 @@ impl Validator for NoMissingMessages {
                 if let Err(e) = mls_group.sync_with_conn().await {
                     tracing::debug!(
                         target: "healthcheck",
-                        inbox = client.inbox_id(),
-                        group = %group_id,
+                        inbox_id = client.inbox_id(),
+                        group_id = %group_id,
                         error = %e,
                         "sync_with_conn before NoMissingMessages check failed",
                     );
@@ -95,8 +95,8 @@ impl Validator for NoMissingMessages {
                 Ok(None) => {
                     tracing::debug!(
                         target: "healthcheck",
-                        inbox = client.inbox_id(),
-                        group = %group_id,
+                        inbox_id = client.inbox_id(),
+                        group_id = %group_id,
                         "skipping NoMissingMessages: client has no local group row",
                     );
                     continue;
@@ -104,8 +104,8 @@ impl Validator for NoMissingMessages {
                 Err(e) => {
                     tracing::warn!(
                         target: "healthcheck",
-                        inbox = client.inbox_id(),
-                        group = %group_id,
+                        inbox_id = client.inbox_id(),
+                        group_id = %group_id,
                         error = %e,
                         "find_group failed; skipping client/group",
                     );
@@ -126,8 +126,8 @@ impl Validator for NoMissingMessages {
                         missing += 1;
                         tracing::warn!(
                             target: "healthcheck",
-                            inbox = client.inbox_id(),
-                            group = %group_id,
+                            inbox_id = client.inbox_id(),
+                            group_id = %group_id,
                             message_id = %hex::encode(msg.id),
                             sender = %hex::encode(msg.sender_inbox_id),
                             sent_at_ns = msg.sent_at_ns,
@@ -138,8 +138,8 @@ impl Validator for NoMissingMessages {
                     Err(e) => {
                         tracing::warn!(
                             target: "healthcheck",
-                            inbox = client.inbox_id(),
-                            group = %group_id,
+                            inbox_id = client.inbox_id(),
+                            group_id = %group_id,
                             error = %e,
                             message_id = %hex::encode(msg.id),
                             "get_group_message error; counting as missing",
