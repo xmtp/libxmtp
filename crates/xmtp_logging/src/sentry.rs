@@ -35,10 +35,12 @@ pub(crate) fn stable_id(value: &str, info: &[u8]) -> String {
     hex::encode(okm)
 }
 
-/// `sentry_tracing` renames span-inherited fields to `"{span_name}:{key}"`, so
-/// match on the segment after the last `':'`.
+/// `sentry_tracing` renames span-inherited fields to `"{span_name}:{key}"`, and
+/// strips the `tags.` prefix on the event path but *not* the breadcrumb one, so
+/// normalize both before matching (`"sync_group:tags.dm_id"` -> `"dm_id"`).
 pub(crate) fn scrub_value(key: &str, value: &str) -> Option<String> {
     let key = key.rsplit(':').next().unwrap_or(key);
+    let key = key.strip_prefix("tags.").unwrap_or(key);
     ID_KEYS
         .iter()
         .find(|(k, _)| *k == key)
@@ -253,6 +255,12 @@ mod tests {
         assert_eq!(scrub_value("sender_inbox_id", "a9be").unwrap(), hashed);
         assert!(scrub_value("cursor", "123").is_none());
         assert!(scrub_value("operation", "mls.sync").is_none());
+
+        // Span-qualified and `tags.`-prefixed keys normalize to the same id key.
+        let dm = scrub_value("dm_id", "d279").unwrap();
+        assert_eq!(scrub_value("tags.dm_id", "d279").unwrap(), dm);
+        assert_eq!(scrub_value("sync_group:dm_id", "d279").unwrap(), dm);
+        assert_eq!(scrub_value("sync_group:tags.dm_id", "d279").unwrap(), dm);
     }
 }
 
@@ -260,11 +268,35 @@ mod tests {
 mod layer_tests {
     use super::*;
 
-    /// `USER_STABLE_ID` is process-global; serialize the tests that write it.
     static USER_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn lock_user_slot() -> std::sync::MutexGuard<'static, ()> {
-        USER_SLOT.lock().unwrap_or_else(|e| e.into_inner())
+    fn user_stable_id() -> Option<String> {
+        USER_STABLE_ID
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// `USER_STABLE_ID` is process-global: serialize the tests that write it and
+    /// restore the prior value on drop, so a failed assertion can't leave the
+    /// slot dirty for the next test.
+    struct UserSlot {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        previous: Option<String>,
+    }
+
+    impl Drop for UserSlot {
+        fn drop(&mut self) {
+            set_user_stable_id(self.previous.take());
+        }
+    }
+
+    fn lock_user_slot() -> UserSlot {
+        let _lock = USER_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+        UserSlot {
+            _lock,
+            previous: user_stable_id(),
+        }
     }
 
     // Metadata can't be constructed directly; capture it via a subscriber.
@@ -371,16 +403,30 @@ mod layer_tests {
                 "97a6abdc3b86714e001232db751893461d16038c4dc03a24c1e9e648e6485675".into()
             )
         );
-        set_user_stable_id(None);
     }
 
-    // The transport is `rustls-no-provider`: without a process-default provider
-    // building the client panics. Asserted without a real `sentry::init`, which
-    // would install the process panic hook for the rest of the test binary.
     #[test]
     fn crypto_provider_is_installed_for_the_transport() {
         install_crypto_provider();
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    /// The transport is `rustls-no-provider`: building the client panics without
+    /// a process-default provider, so this is the only test that proves the real
+    /// reqwest/rustls transport constructs (`EnvelopeSender::new` builds it
+    /// eagerly inside `sentry::init`). `default_integrations(false)` keeps the
+    /// real init from installing sentry's panic hook for the rest of the binary,
+    /// and the tiny `shutdown_timeout` bounds the guard drop.
+    #[test]
+    fn client_builds_a_real_transport_without_a_host_installed_provider() {
+        let mut options = client_options(&SentryConfig::default()).unwrap();
+        options.dsn = Some("https://public@o0.ingest.sentry.io/0".parse().unwrap());
+        options.default_integrations = false;
+        options.shutdown_timeout = std::time::Duration::from_millis(1);
+        install_crypto_provider();
+        let guard = sentry::init(options);
+        assert!(guard.is_enabled());
+        drop(guard);
     }
 
     #[test]
@@ -394,11 +440,10 @@ mod layer_tests {
         };
         assert!(matches!(build_sentry_layer(cfg), Err(Error::Telemetry(_))));
         assert_eq!(
-            USER_STABLE_ID.read().unwrap().as_deref(),
+            user_stable_id().as_deref(),
             Some("sentinel"),
             "a failed init must not touch the user slot"
         );
-        set_user_stable_id(None);
     }
 
     const INBOX_ID_RAW: &str = "a9be0a2ae5aca34ff1a4bd25277f7e56e3b32e4b418ba1b48f0d33d004cd4b9a";
@@ -431,12 +476,8 @@ mod layer_tests {
     fn sentry_tracing_event_is_scrubbed_in_every_container() {
         use tracing_subscriber::prelude::*;
         let _slot = lock_user_slot();
-        // Span data only materializes on a sampled transaction.
-        let options = client_options(&SentryConfig {
-            traces_sample_rate: 1.0,
-            ..Default::default()
-        })
-        .unwrap();
+        // Production default: the trace context is populated even unsampled.
+        let options = client_options(&SentryConfig::default()).unwrap();
         let events = sentry::test::with_captured_events_options(
             || {
                 let subscriber = tracing_subscriber::registry().with(
@@ -445,12 +486,38 @@ mod layer_tests {
                         .span_filter(span_filter)
                         .enable_span_attributes(),
                 );
-                tracing::subscriber::with_default(subscriber, emit_error_in_span);
+                tracing::subscriber::with_default(subscriber, || {
+                    // Non-FFI WARN -> breadcrumb. `breadcrumb_from_event` does not
+                    // strip the `tags.` prefix the event path removes, so the key
+                    // arrives verbatim and still has to be normalized.
+                    tracing::warn!(
+                        target: "xmtp_mls::test",
+                        group_id = %GROUP_ID_RAW,
+                        tags.dm_id = %GROUP_ID_RAW,
+                        "ctx"
+                    );
+                    emit_error_in_span();
+                });
             },
             options,
         );
         assert_eq!(events.len(), 1);
         let event = &events[0];
+
+        let crumb = event
+            .breadcrumbs
+            .values
+            .iter()
+            .find(|b| b.category.as_deref() == Some("xmtp_mls::test"))
+            .expect("context breadcrumb");
+        assert_eq!(
+            crumb.data["tags.dm_id"],
+            sentry::protocol::Value::String(GROUP_ID_HASH.into())
+        );
+        assert_eq!(
+            crumb.data["group_id"],
+            sentry::protocol::Value::String(GROUP_ID_HASH.into())
+        );
 
         let fields = match event.contexts.get("Rust Tracing Fields") {
             Some(sentry::protocol::Context::Other(map)) => map,
