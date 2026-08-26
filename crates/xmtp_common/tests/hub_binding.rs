@@ -16,13 +16,18 @@ use tracing_subscriber::prelude::*;
 /// it then makes, which copy the thread hub's top scope. Tests therefore have to
 /// stay on their own thread (`futures::executor::block_on`, never a worker pool).
 fn bind_test_client() -> Arc<TestTransport> {
+    let (client, transport) = test_client();
+    Hub::current().bind_client(Some(client));
+    transport
+}
+
+fn test_client() -> (Arc<Client>, Arc<TestTransport>) {
     let transport = TestTransport::new();
     let options = ClientOptions::new()
         .dsn("https://public@example.com/1")
         .transport(transport.clone())
         .traces_sample_rate(1.0);
-    Hub::current().bind_client(Some(Arc::new(Client::from(options))));
-    transport
+    (Arc::new(Client::from(options)), transport)
 }
 
 /// Suspends once so `futures::future::join` interleaves the two tasks; a hub
@@ -141,6 +146,76 @@ fn err_span_hub_keeps_inner_spans_under_the_ffi_transaction() {
         [(Some("mls"), Some("mls.inner_op"))],
         "expected mls.inner_op as the one child span: {transactions:?}"
     );
+}
+
+/// Restores the process hub's client on drop, so a test that binds one there
+/// (or panics part-way through) cannot leave it behind for the rest of the binary.
+struct MainHubSlot(Option<Arc<Client>>);
+
+impl Drop for MainHubSlot {
+    fn drop(&mut self) {
+        Hub::main().bind_client(self.0.take());
+    }
+}
+
+/// The late-enable case: a long-lived worker future is bound to its task hub
+/// *before* any client exists anywhere, so the fork is a client-less snapshot and
+/// `Hub::main()` has nothing to hand it either. Enabling afterwards happens on a
+/// different thread and binds the client to that thread's hub *and* to
+/// `Hub::main()` — what `build_sentry_layer` does. Nothing propagates that to the
+/// already-forked task hub except `bind_task_hub`'s per-poll refresh: without it
+/// `Hub::capture_event` returns early on a client-less hub and the event is
+/// silently dropped.
+#[xmtp_common::test(unwrap_try = true)]
+fn task_hub_bound_before_enable_picks_up_a_late_client() {
+    let restore = MainHubSlot(Hub::main().client());
+    assert!(
+        restore.0.is_none() && Hub::current().client().is_none(),
+        "precondition: this test starts from a client-less process and thread hub"
+    );
+
+    // Bound now, while no client exists: the fork cannot inherit one, and the
+    // eager `Hub::main()` fallback has nothing to bind either.
+    let task = xmtp_common::bind_task_hub(async {
+        crumb("late-1".to_string());
+        yield_once().await;
+        crumb("late-2".to_string());
+        yield_once().await;
+        sentry_core::capture_message("late-error", Level::Error);
+    });
+
+    // "Enable" from another thread, the way `build_sentry_layer` now does it:
+    // `sentry::init` binds the calling thread's hub, and we propagate to the
+    // process hub so hubs forked later — and this already-forked one — can find it.
+    let transport = std::thread::spawn(|| {
+        let (client, transport) = test_client();
+        Hub::current().bind_client(Some(client));
+        Hub::main().bind_client(Hub::current().client());
+        transport
+    })
+    .join()
+    .expect("enable thread");
+
+    futures::executor::block_on(task);
+
+    let events = transport.fetch_and_clear_events();
+    let event = events
+        .iter()
+        .find(|e| e.message.as_deref() == Some("late-error"))
+        .unwrap_or_else(|| {
+            panic!("late-enabled client never reached the pre-bound task hub: {events:?}")
+        });
+    let crumbs: Vec<&str> = event
+        .breadcrumbs
+        .iter()
+        .filter_map(|b| b.message.as_deref())
+        .collect();
+    assert_eq!(
+        crumbs,
+        ["late-1", "late-2"],
+        "task hub adopted the client but lost its own trail"
+    );
+    drop(restore);
 }
 
 #[xmtp_common::err_span]

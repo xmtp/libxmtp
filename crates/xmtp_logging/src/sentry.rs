@@ -100,8 +100,9 @@ pub fn set_user_stable_id(id: Option<String>) {
 pub(crate) fn event_filter(meta: &tracing::Metadata<'_>) -> sentry_tracing::EventFilter {
     use sentry_tracing::EventFilter;
     use tracing::Level;
+    let ffi = |t: &str| t == "xmtpv3" || t.starts_with("xmtpv3::");
     match *meta.level() {
-        Level::ERROR if meta.target().starts_with("xmtpv3") => EventFilter::Event,
+        Level::ERROR if ffi(meta.target()) => EventFilter::Event,
         Level::ERROR | Level::WARN | Level::INFO => EventFilter::Breadcrumb,
         _ => EventFilter::Ignore,
     }
@@ -118,12 +119,33 @@ fn scrub_breadcrumb(mut b: sentry::Breadcrumb) -> Option<sentry::Breadcrumb> {
     Some(b)
 }
 
+/// Constant tags stamped on every outgoing event. Applied here rather than on a
+/// scope: a scope belongs to one hub, and `enable_sentry` runs on whatever thread
+/// the host calls it from, so scope-set tags would only ever reach that one
+/// thread's hub. `before_send` runs for every event on every hub.
+fn event_tags(cfg: &SentryConfig) -> Vec<(String, String)> {
+    std::iter::once(("component".to_string(), "libxmtp".to_string()))
+        .chain(cfg.tags.iter().cloned())
+        .collect()
+}
+
 /// `sentry_tracing` writes event fields to `contexts["Rust Tracing Fields"]` and
 /// `tags.`-prefixed fields to `tags`; the scope's span copies its data into
 /// `contexts["trace"]`. `extra` only ever holds scope-set values.
 fn scrub_event(
     mut e: sentry::protocol::Event<'static>,
+    tags: &[(String, String)],
 ) -> Option<sentry::protocol::Event<'static>> {
+    // The default `contexts` integration fills `server_name` from the device
+    // hostname and `send_default_pii = false` does not suppress it. `before_send`
+    // runs after that fill, so this is what reaches the wire; `client_options`
+    // also pre-sets the option so the hostname is never read in the first place.
+    e.server_name = None;
+    // Stamped before the scrub below so a configured tag that happens to name an
+    // identity field is hashed like any other. Never clobbers an event-set key.
+    for (key, value) in tags {
+        e.tags.entry(key.clone()).or_insert_with(|| value.clone());
+    }
     for context in e.contexts.values_mut() {
         match context {
             sentry::protocol::Context::Other(map) => scrub_map(map),
@@ -179,7 +201,10 @@ fn client_options(cfg: &SentryConfig) -> Result<sentry::ClientOptions, Error> {
     options.environment = cfg.environment.clone().map(Into::into);
     options.max_breadcrumbs = cfg.max_breadcrumbs;
     options.send_default_pii = false;
-    options.before_send = Some(Arc::new(scrub_event));
+    // Pre-empt the `contexts` integration's hostname default (see `scrub_event`).
+    options.server_name = Some("libxmtp".into());
+    let tags = event_tags(cfg);
+    options.before_send = Some(Arc::new(move |e| scrub_event(e, &tags)));
     options.before_breadcrumb = Some(Arc::new(scrub_breadcrumb));
     Ok(options)
 }
@@ -201,12 +226,13 @@ pub(crate) fn build_sentry_layer(
     }
     install_crypto_provider();
     let guard = sentry::init(options);
-    sentry::configure_scope(|scope| {
-        scope.set_tag("component", "libxmtp");
-        for (k, v) in &cfg.tags {
-            scope.set_tag(k, v);
-        }
-    });
+    // `sentry::init` binds the client to `Hub::current()` — the hub of whichever
+    // thread the host called `enable_sentry` on, which is an island: a thread's
+    // hub is a one-time fork of the process hub, so nothing else would ever see
+    // this client. Publishing it on the process hub is what makes it reachable
+    // from hubs forked later, from `bind_task_hub`'s per-poll adoption, and from
+    // the `Hub::main().client()` lookups in `flush`/`disable_sentry`.
+    sentry::Hub::main().bind_client(sentry::Hub::current().client());
     let layer = sentry_tracing::layer()
         .event_filter(event_filter)
         .span_filter(span_filter);
@@ -509,6 +535,18 @@ mod layer_tests {
         );
         assert_eq!(events.len(), 1);
         let event = &events[0];
+
+        // Stamped by `before_send`, not by a scope: it has to be on the event no
+        // matter which hub captured it.
+        assert_eq!(event.tags["component"], "libxmtp");
+        // `client_options` keeps the hostname out of the options, and `scrub_event`
+        // clears whatever `prepare_event` filled in — `before_send` runs last, so
+        // `None` is what would go on the wire.
+        assert!(
+            event.server_name.is_none(),
+            "device hostname leaked as server_name: {:?}",
+            event.server_name
+        );
 
         let crumb = event
             .breadcrumbs

@@ -227,6 +227,11 @@ impl LoggingHandle {
         // Drop outside the lock; see enable_sentry.
         let previous = self.guards.lock().sentry.take();
         drop(previous);
+        // Undo the propagation `build_sentry_layer` did: the process hub is where
+        // every later fork (and `bind_task_hub`'s adoption) looks, so a client left
+        // there would keep being handed out after we closed it. Owner path only —
+        // we returned above if the slot is not ours.
+        sentry::Hub::main().bind_client(None);
         crate::sentry::set_user_stable_id(None);
         Ok(())
     }

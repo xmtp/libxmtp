@@ -378,7 +378,7 @@ where
     let (tx, rx) = oneshot::channel();
     xmtp_common::spawn(
         Some(rx),
-        run_watchdog_stream(
+        xmtp_common::bind_task_hub(run_watchdog_stream(
             cancel,
             label,
             subscribe,
@@ -387,7 +387,7 @@ where
             },
             callback,
             on_close,
-        ),
+        )),
     )
 }
 

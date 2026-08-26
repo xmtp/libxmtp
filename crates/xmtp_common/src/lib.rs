@@ -56,14 +56,65 @@ pub use xmtp_cryptography::rand::*;
 /// Forks from `Hub::current()`, not `Hub::main()`: the fork inherits the calling
 /// scope, so the caller's transaction stays the parent of everything inside (a
 /// `main()` fork has no current span and re-roots inner spans as their own
-/// transactions), and a client bound after a client-less thread first touched
-/// the hub still applies.
+/// transactions).
+///
+/// A hub is a *snapshot*: a thread's hub is forked off the process hub the first
+/// time that thread touches it, so a client bound afterwards never reaches it,
+/// and captures on a client-less hub are dropped in silence. Two things stop
+/// tasks bound before `enable_sentry` from being lost that way: the fork adopts
+/// `Hub::main()`'s client when it has none of its own, and every poll retries
+/// that adoption until it lands — so a long-lived worker bound before any client
+/// existed starts reporting on its first poll after `enable_sentry` binds the
+/// process hub. Once bound, the per-poll cost is a single bool check.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn bind_task_hub<F: core::future::Future>(
     fut: F,
 ) -> impl core::future::Future<Output = F::Output> {
     use sentry_core::{Hub, SentryFutureExt};
-    fut.bind_hub(Hub::new_from_top(Hub::current()))
+    let hub = std::sync::Arc::new(Hub::new_from_top(Hub::current()));
+    let bound = adopt_main_client(&hub);
+    AdoptMainClient { bound, inner: fut }.bind_hub(hub)
+}
+
+/// Give `hub` the process hub's client if it has none. Returns whether `hub` has
+/// a client now, i.e. whether there is anything left to retry.
+#[cfg(not(target_arch = "wasm32"))]
+fn adopt_main_client(hub: &sentry_core::Hub) -> bool {
+    if hub.client().is_some() {
+        return true;
+    }
+    let Some(client) = sentry_core::Hub::main().client() else {
+        return false;
+    };
+    hub.bind_client(Some(client));
+    true
+}
+
+/// Retries [`adopt_main_client`] on the hub `SentryFuture` installs for the poll,
+/// until that hub has a client. Sits *inside* the `bind_hub` wrapper precisely so
+/// `Hub::current()` is the task hub while polling.
+#[cfg(not(target_arch = "wasm32"))]
+struct AdoptMainClient<F> {
+    bound: bool,
+    inner: F,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<F: core::future::Future> core::future::Future for AdoptMainClient<F> {
+    type Output = F::Output;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        // safe because we consider `inner` to be structurally pinned, and `bound` not
+        // https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
+        let this = unsafe { self.get_unchecked_mut() };
+        if !this.bound {
+            this.bound = adopt_main_client(&sentry_core::Hub::current());
+        }
+        unsafe { core::pin::Pin::new_unchecked(&mut this.inner) }.poll(cx)
+    }
 }
 
 /// Identity passthrough: wasm is single-threaded and has no Sentry client.
