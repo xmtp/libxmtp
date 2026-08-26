@@ -708,7 +708,7 @@ where
         Ok(group)
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(inbox_id = self.context.inbox_id(), size = inbox_ids.len()))]
+    #[tracing::instrument(level = "debug", skip_all, fields(size = inbox_ids.len()))]
     pub async fn create_group_with_members(
         &self,
         inbox_ids: &[impl AsIdRef],
