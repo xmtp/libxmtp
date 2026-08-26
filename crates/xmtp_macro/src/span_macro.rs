@@ -98,7 +98,7 @@ pub fn err_span(
             ::xmtp_common::bind_task_hub(async move {
                 let __xmtp_result = async move #block.await;
                 if let Err(__xmtp_err) = &__xmtp_result {
-                    tracing::error!(error = %__xmtp_err, "{}", #name);
+                    ::tracing::error!(error = %__xmtp_err, #name);
                 }
                 __xmtp_result
             })

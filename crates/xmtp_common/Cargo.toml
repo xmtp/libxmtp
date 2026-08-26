@@ -20,8 +20,7 @@ tracing.workspace = true
 web-time.workspace = true
 
 # optional/test-utils/dev-deps. tracing-subscriber survives here only for the
-# bench subscriber + the `traced_test` test helper; all production logging now
-# lives in xmtp_logging.
+# bench subscriber + the `traced_test` test helper.
 parking_lot = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
@@ -53,6 +52,9 @@ tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
+# The one telemetry dep outside xmtp_logging: `bind_task_hub` forks a per-task
+# Sentry Hub. Scope plumbing only — no client and no transport are configured
+# here, so it is inert unless xmtp_logging installs one.
 sentry-core.workspace = true
 # Used to keep reqwest off `rustls-platform-verifier` on Android (see `src/http.rs`), and
 # by that module's test on every other native target.
@@ -60,7 +62,6 @@ rustls.workspace = true
 webpki-roots.workspace = true
 
 [dev-dependencies]
-futures = { workspace = true, features = ["std", "executor"] }
 parking_lot.workspace = true
 thiserror.workspace = true
 toxiproxy_rust.workspace = true
@@ -86,16 +87,19 @@ tokio = { workspace = true, features = [
 ] }
 ctor.workspace = true
 parking_lot.workspace = true
+# `executor` is native-only: tests/hub_binding.rs uses `block_on` to keep the
+# futures on the test's own thread, where its hub client is bound.
+futures = { workspace = true, features = ["std", "executor"] }
 # `test` adds TestTransport; sentry-tracing gives tests/hub_binding.rs the same
 # span/event pipeline production uses, so hub parenting is asserted end-to-end.
 sentry-core = { workspace = true, features = ["client", "test"] }
 sentry-tracing.workspace = true
 
 [features]
-# All production logging/telemetry now lives in xmtp_logging. The remaining
-# tracing-subscriber usage here is test/bench-only (traced_test helper + bench
-# subscriber), so it is pulled in by test-utils/bench rather than a `logging`
-# feature.
+# Production logging/telemetry lives in xmtp_logging, save for the `sentry-core`
+# hub plumbing above. The remaining tracing-subscriber usage here is test/bench-only
+# (traced_test helper + bench subscriber), so it is pulled in by test-utils/bench
+# rather than a `logging` feature.
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",

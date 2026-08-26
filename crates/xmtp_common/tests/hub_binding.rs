@@ -10,9 +10,11 @@ use sentry_core::{Breadcrumb, Client, ClientOptions, Hub, Level};
 use std::sync::Arc;
 use tracing_subscriber::prelude::*;
 
-/// Binds a capturing client to *this thread's* hub. `Hub::current()` is
-/// thread-local and libtest gives each test its own thread, so tests running in
-/// parallel never see each other's envelopes.
+/// Binds a capturing client to *this thread's* hub. A thread's hub is forked
+/// client-less off `Hub::main()` on first touch, so the client each test binds
+/// afterwards belongs to that test alone — including the `bind_task_hub` forks
+/// it then makes, which copy the thread hub's top scope. Tests therefore have to
+/// stay on their own thread (`futures::executor::block_on`, never a worker pool).
 fn bind_test_client() -> Arc<TestTransport> {
     let transport = TestTransport::new();
     let options = ClientOptions::new()
@@ -109,14 +111,15 @@ fn err_span_hub_keeps_inner_spans_under_the_ffi_transaction() {
         futures::executor::block_on(ffi_op()).unwrap();
     });
 
-    let mut transactions: Vec<(String, usize)> = Vec::new();
-    for envelope in transport.fetch_and_clear_envelopes() {
-        for item in envelope.items() {
-            if let EnvelopeItem::Transaction(tx) = item {
-                transactions.push((tx.name.clone().unwrap_or_default(), tx.spans.len()));
-            }
-        }
-    }
+    let envelopes = transport.fetch_and_clear_envelopes();
+    let transactions: Vec<_> = envelopes
+        .iter()
+        .flat_map(|envelope| envelope.items())
+        .filter_map(|item| match item {
+            EnvelopeItem::Transaction(tx) => Some(tx),
+            _ => None,
+        })
+        .collect();
 
     // Forking from `Hub::main()` instead yields two parentless transactions
     // ("ffi_op" with 0 spans and "mls.inner_op" with 0 spans).
@@ -125,10 +128,18 @@ fn err_span_hub_keeps_inner_spans_under_the_ffi_transaction() {
         1,
         "inner span re-rooted as its own transaction: {transactions:?}"
     );
-    assert_eq!(transactions[0].0, "ffi_op");
+    assert_eq!(transactions[0].name.as_deref(), Some("ffi_op"));
+    // `#[mls_span]`'s sentry.op/sentry.name land on the child's `op`/`description`,
+    // so this pins its identity rather than just "some span arrived".
+    let children: Vec<_> = transactions[0]
+        .spans
+        .iter()
+        .map(|s| (s.op.as_deref(), s.description.as_deref()))
+        .collect();
     assert_eq!(
-        transactions[0].1, 1,
-        "expected mls.inner_op as a child span: {transactions:?}"
+        children,
+        [(Some("mls"), Some("mls.inner_op"))],
+        "expected mls.inner_op as the one child span: {transactions:?}"
     );
 }
 
@@ -162,6 +173,12 @@ fn err_span_error_event_carries_the_task_hub_trail() {
         events.len(),
         1,
         "expected exactly one FFI error event: {events:?}"
+    );
+    // `#[err_span]` names the event after the fn, with no format-args wrapping.
+    assert_eq!(
+        events[0].message.as_deref(),
+        Some("ffi_failing_op"),
+        "unexpected FFI error event message: {events:?}"
     );
     let crumbs: Vec<&str> = events[0]
         .breadcrumbs
