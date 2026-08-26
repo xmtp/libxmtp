@@ -97,6 +97,10 @@ dyn-clone.workspace = true
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 sqlite-wasm-rs = { version = "0.5", default-features = false }
 sqlite-wasm-vfs = "0.2"
+# OpenMLS needs the `js` feature on wasm (secure randomness + current time via
+# web-time); the fork's build script hard-errors without it. Wired here so both
+# the sync and async(ready-future) SQLite wasm builds link it.
+openmls = { workspace = true, features = ["js"] }
 tokio.workspace = true
 web-sys = { workspace = true, features = ["DomException"] }
 wasm-bindgen.workspace = true
@@ -130,23 +134,32 @@ criterion = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [features]
-default = ["sync"]
-# Storage tracks. `sync` is diesel+SQLite and is the only option on wasm (sqlx
-# cannot target wasm32-unknown-unknown). `async` is sqlx and is what servers
-# use. maybe-async/is_sync is a global switch, so exactly one may be enabled.
+default = ["sync", "blocking"]
+# Storage BACKEND + SHAPE are two axes.
+#
+# `sync` selects the diesel/SQLite BACKEND (the ~530 `cfg(feature = "sync")`
+# gates key on this). `blocking` selects the maybe-async `is_sync` SHAPE. They
+# used to be fused, but the all-async spike needs the diesel backend under the
+# ASYNC openmls shape ("ready-future SQLite"): `--no-default-features --features
+# sync` gives exactly that. The normal client is `sync + blocking` (unchanged),
+# and `async` is the sqlx/Postgres backend which is async-shaped by construction.
+# `blocking` and `async` are mutually exclusive (is_sync is a global switch);
+# wasm can only use the diesel backend (sqlx cannot target wasm32).
 sync = [
-  "maybe-async/is_sync",
-  # openmls' traits ride the same global `is_sync` switch, so its track is
-  # selected here rather than on the workspace dependency -- otherwise the
-  # async-only build inherits `is_sync` and its Query* traits collapse to sync.
-  "openmls/sync",
-  "openmls_traits/sync",
-  "openmls_basic_credential/sync",
-  "openmls_rust_crypto/sync",
   "dep:diesel",
   "dep:diesel_migrations",
   "dep:libsqlite3-sys",
   "xmtp_proto/diesel",
+]
+# The blocking SHAPE: maybe-async's global `is_sync` switch, plus openmls' matching
+# blocking track (its traits ride the same switch). Separated from `sync` so the
+# diesel backend can also be built under the async openmls shape.
+blocking = [
+  "maybe-async/is_sync",
+  "openmls/sync",
+  "openmls_traits/sync",
+  "openmls_basic_credential/sync",
+  "openmls_rust_crypto/sync",
 ]
 # `openmls/0-8-1-storage-format` switches OpenMLS' storage enums (CredentialType,
 # ExtensionType, ProposalType) to STANDARD serde derive, which is self-consistent

@@ -62,7 +62,20 @@ impl BackupRecordProvider for GroupSave {
                     return None;
                 }
                 let group_id = record.id;
-                let mls_group = match MlsGroup::load(&storage, &group_id.to_openmls()) {
+                // `MlsGroup::load` is maybe_async: a plain `Result` under the
+                // blocking shape, a `Future` under the async (ready-future SQLite)
+                // shape. This `filter_map` closure is sync so it can't `.await`, but
+                // on the diesel backend the load is synchronous either way — under
+                // the async shape drive the always-ready future to completion.
+                #[cfg(feature = "blocking")]
+                let loaded = MlsGroup::load(&storage, &group_id.to_openmls());
+                #[cfg(not(feature = "blocking"))]
+                let loaded = futures::FutureExt::now_or_never(MlsGroup::load(
+                    &storage,
+                    &group_id.to_openmls(),
+                ))
+                .expect("diesel-backed MlsGroup::load resolves synchronously");
+                let mls_group = match loaded {
                     Ok(Some(mls_group)) => mls_group,
                     Ok(None) => {
                         tracing::warn!(

@@ -12,8 +12,9 @@ workspace = true
 
 [features]
 # Storage-track selection, forwarded to xmtp_db + xmtp_mls_common.
-default = ["sync"]
+default = ["sync", "blocking"]
 sync = ["xmtp_db/sync", "xmtp_mls_common/sync"]
+blocking = ["xmtp_db/blocking", "xmtp_mls_common/blocking"]
 async = ["xmtp_db/async", "xmtp_mls_common/async"]
 test-utils = ["xmtp_common/test-utils"]
 

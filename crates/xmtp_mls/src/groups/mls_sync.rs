@@ -5042,7 +5042,7 @@ macro_rules! generate_commit_with_rollback_body {
 /// the closure's `CallOnceFuture` and requiring it `MaybeSend`, which needs
 /// this crate's async-track nightly features. See
 /// [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(not(feature = "blocking"))]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,
@@ -5070,7 +5070,7 @@ where
 /// all that's needed and there is no `CallOnceFuture: Send` requirement (naming
 /// it would need nightly features the stable toolchain can't enable). See
 /// [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(feature = "sync")]
+#[cfg(feature = "blocking")]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,

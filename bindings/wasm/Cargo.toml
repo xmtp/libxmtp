@@ -53,11 +53,13 @@ xmtp_api_d14n.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
-xmtp_db.workspace = true
+# Direct path (not workspace-inherited) so `default-features = false` is allowed —
+# lets the all-async spike select the storage SHAPE (`blocking`) per-build.
+xmtp_db = { path = "../../crates/xmtp_db", default-features = false }
 xmtp_id.workspace = true
 xmtp_logging.workspace = true
 xmtp_macro.workspace = true
-xmtp_mls.workspace = true
+xmtp_mls = { path = "../../crates/xmtp_mls", default-features = false }
 xmtp_proto.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
@@ -73,6 +75,12 @@ xmtp_mls = { workspace = true, features = ["test-utils"] }
 owo-colors.workspace = true
 
 [features]
+# Storage BACKEND (`sync`=diesel/SQLite — the only wasm-capable one) + SHAPE
+# (`blocking`=maybe-async is_sync). The all-async spike builds
+# `--no-default-features --features sync` = ready-future SQLite on wasm.
+default = ["sync", "blocking"]
+sync = ["xmtp_mls/sync", "xmtp_db/sync"]
+blocking = ["xmtp_mls/blocking", "xmtp_db/blocking"]
 test-utils = [
   "dep:alloy",
   "dep:wasm-bindgen-test",

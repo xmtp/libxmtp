@@ -371,6 +371,12 @@ const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 // related to ApplicationExportTree
 const APPLICATION_EXPORT_TREE_LABEL: &[u8] = b"ApplicationExportTree";
 
+// `maybe_async(AFIT)` mirrors openmls' `StorageProvider` trait: under `blocking`
+// (is_sync ON) the `async` is stripped and these are ordinary blocking methods;
+// with the blocking shape OFF (the ready-future SQLite spike) they stay `async
+// fn` — the bodies are synchronous diesel calls, so each returns an already-ready
+// future, satisfying the async trait with zero runtime suspension.
+#[maybe_async::maybe_async(AFIT)]
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
     C: ConnectionExt,
@@ -378,7 +384,7 @@ where
     type Error = SqlKeyStoreError;
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), proposal_ref = %hex_kv(proposal_ref)), err)]
-    fn queue_proposal<
+    async fn queue_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
         QueuedProposal: traits::QueuedProposal<CURRENT_VERSION>,
@@ -402,7 +408,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_tree<
+    async fn write_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
     >(
@@ -416,7 +422,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_interim_transcript_hash<
+    async fn write_interim_transcript_hash<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         InterimTranscriptHash: traits::InterimTranscriptHash<CURRENT_VERSION>,
     >(
@@ -432,7 +438,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), group_context = %hex_kv(group_context)), err)]
-    fn write_context<
+    async fn write_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
     >(
@@ -447,7 +453,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_confirmation_tag<
+    async fn write_confirmation_tag<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ConfirmationTag: traits::ConfirmationTag<CURRENT_VERSION>,
     >(
@@ -462,7 +468,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
-    fn write_signature_key_pair<
+    async fn write_signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
         SignatureKeyPair: traits::SignatureKeyPair<CURRENT_VERSION>,
     >(
@@ -480,7 +486,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn queued_proposal_refs<
+    async fn queued_proposal_refs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
     >(
@@ -492,7 +498,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn queued_proposals<
+    async fn queued_proposals<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
         QueuedProposal: traits::QueuedProposal<CURRENT_VERSION>,
@@ -515,7 +521,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn tree<
+    async fn tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
     >(
@@ -528,7 +534,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn group_context<
+    async fn group_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
     >(
@@ -541,7 +547,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn interim_transcript_hash<
+    async fn interim_transcript_hash<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         InterimTranscriptHash: traits::InterimTranscriptHash<CURRENT_VERSION>,
     >(
@@ -554,7 +560,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn confirmation_tag<
+    async fn confirmation_tag<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ConfirmationTag: traits::ConfirmationTag<CURRENT_VERSION>,
     >(
@@ -567,7 +573,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
-    fn signature_key_pair<
+    async fn signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
         SignatureKeyPair: traits::SignatureKeyPair<CURRENT_VERSION>,
     >(
@@ -583,7 +589,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref), key_package = %hex_kv(key_package)), err)]
-    fn write_key_package<
+    async fn write_key_package<
         HashReference: traits::HashReference<CURRENT_VERSION>,
         KeyPackage: traits::KeyPackage<CURRENT_VERSION>,
     >(
@@ -599,7 +605,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
-    fn write_psk<
+    async fn write_psk<
         PskId: traits::PskId<CURRENT_VERSION>,
         PskBundle: traits::PskBundle<CURRENT_VERSION>,
     >(
@@ -611,7 +617,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
-    fn write_encryption_key_pair<
+    async fn write_encryption_key_pair<
         EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
     >(
@@ -630,7 +636,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref)), err)]
-    fn key_package<
+    async fn key_package<
         HashReference: traits::HashReference<CURRENT_VERSION>,
         KeyPackage: traits::KeyPackage<CURRENT_VERSION>,
     >(
@@ -643,7 +649,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
-    fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
+    async fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
         &self,
         _psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
@@ -651,7 +657,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
-    fn encryption_key_pair<
+    async fn encryption_key_pair<
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
         EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>,
     >(
@@ -665,7 +671,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
-    fn delete_signature_key_pair<
+    async fn delete_signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
     >(
         &self,
@@ -680,7 +686,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
-    fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
+    async fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
         &self,
         public_key: &EncryptionKey,
     ) -> Result<(), Self::Error> {
@@ -691,7 +697,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref)), err)]
-    fn delete_key_package<HashReference: traits::HashReference<CURRENT_VERSION>>(
+    async fn delete_key_package<HashReference: traits::HashReference<CURRENT_VERSION>>(
         &self,
         hash_ref: &HashReference,
     ) -> Result<(), Self::Error> {
@@ -700,7 +706,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
-    fn delete_psk<PskKey: traits::PskId<CURRENT_VERSION>>(
+    async fn delete_psk<PskKey: traits::PskId<CURRENT_VERSION>>(
         &self,
         _psk_id: &PskKey,
     ) -> Result<(), Self::Error> {
@@ -708,7 +714,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn group_state<
+    async fn group_state<
         GroupState: traits::GroupState<CURRENT_VERSION>,
         GroupId: traits::GroupId<CURRENT_VERSION>,
     >(
@@ -721,7 +727,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_group_state<
+    async fn write_group_state<
         GroupState: traits::GroupState<CURRENT_VERSION>,
         GroupId: traits::GroupId<CURRENT_VERSION>,
     >(
@@ -735,7 +741,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_group_state<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_group_state<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -745,7 +751,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn message_secrets<
+    async fn message_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MessageSecrets: traits::MessageSecrets<CURRENT_VERSION>,
     >(
@@ -758,7 +764,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_message_secrets<
+    async fn write_message_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MessageSecrets: traits::MessageSecrets<CURRENT_VERSION>,
     >(
@@ -776,7 +782,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_message_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_message_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -786,7 +792,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn resumption_psk_store<
+    async fn resumption_psk_store<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
@@ -797,7 +803,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_resumption_psk_store<
+    async fn write_resumption_psk_store<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
@@ -813,7 +819,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -821,7 +827,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn own_leaf_index<
+    async fn own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
     >(
@@ -833,7 +839,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), own_leaf_index = %hex_kv(own_leaf_index)), err)]
-    fn write_own_leaf_index<
+    async fn write_own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
     >(
@@ -850,7 +856,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_own_leaf_index<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_own_leaf_index<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -859,7 +865,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn group_epoch_secrets<
+    async fn group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
     >(
@@ -871,7 +877,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_group_epoch_secrets<
+    async fn write_group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
     >(
@@ -888,7 +894,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_group_epoch_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_group_epoch_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -897,7 +903,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), epoch = %hex_kv(epoch), leaf_index = %leaf_index), err)]
-    fn write_encryption_epoch_key_pairs<
+    async fn write_encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
@@ -916,7 +922,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), epoch = %hex_kv(epoch), leaf_index = %leaf_index), err)]
-    fn encryption_epoch_key_pairs<
+    async fn encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
@@ -949,7 +955,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), epoch = %hex_kv(epoch), leaf_index = %leaf_index), err)]
-    fn delete_encryption_epoch_key_pairs<
+    async fn delete_encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
     >(
@@ -964,7 +970,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn clear_proposal_queue<
+    async fn clear_proposal_queue<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
     >(
@@ -985,7 +991,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn mls_group_join_config<
+    async fn mls_group_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
     >(
@@ -998,7 +1004,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), config = %hex_kv(config)), err)]
-    fn write_mls_join_config<
+    async fn write_mls_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
     >(
@@ -1013,7 +1019,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn own_leaf_nodes<
+    async fn own_leaf_nodes<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
     >(
@@ -1026,7 +1032,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), leaf_node = %hex_kv(leaf_node)), err)]
-    fn append_own_leaf_node<
+    async fn append_own_leaf_node<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
     >(
@@ -1041,7 +1047,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -1050,7 +1056,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_group_config<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_group_config<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -1059,7 +1065,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_tree<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_tree<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -1069,7 +1075,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_confirmation_tag<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_confirmation_tag<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -1079,7 +1085,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_context<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_context<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -1089,7 +1095,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_interim_transcript_hash<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_interim_transcript_hash<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
@@ -1099,7 +1105,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), proposal_ref = %hex_kv(proposal_ref)), err)]
-    fn remove_proposal<
+    async fn remove_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
     >(
@@ -1118,7 +1124,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn write_application_export_tree<
+    async fn write_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
     >(
@@ -1135,7 +1141,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn application_export_tree<
+    async fn application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
     >(
@@ -1147,7 +1153,7 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
-    fn delete_application_export_tree<
+    async fn delete_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
     >(

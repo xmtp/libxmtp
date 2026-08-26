@@ -39,11 +39,14 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
-xmtp_db.workspace = true
+# Direct path (not workspace-inherited) so `default-features = false` is allowed:
+# the all-async spike needs to select the storage SHAPE (`blocking`) per-build,
+# and cargo forbids overriding default-features on an inherited workspace dep.
+xmtp_db = { path = "../../crates/xmtp_db", default-features = false }
 xmtp_id.workspace = true
 xmtp_logging.workspace = true
 xmtp_macro.workspace = true
-xmtp_mls.workspace = true
+xmtp_mls = { path = "../../crates/xmtp_mls", default-features = false }
 xmtp_proto.workspace = true
 
 [build-dependencies]
@@ -59,6 +62,12 @@ toxiproxy_rust.workspace = true
 volumes = ["__LIB12_DEP=../"]
 
 [features]
+# Storage BACKEND (`sync` = diesel/SQLite) and SHAPE (`blocking` = maybe-async
+# is_sync) are forwarded so this binding can be built in the all-async spike's
+# ready-future-SQLite config: `--no-default-features --features sync`.
+default = ["sync", "blocking"]
+sync = ["xmtp_mls/sync", "xmtp_db/sync"]
+blocking = ["xmtp_mls/blocking", "xmtp_db/blocking"]
 test-utils = [
   "dep:xmtp_api_grpc",
   "xmtp_api_grpc/test-utils",

@@ -5,7 +5,7 @@
 // features (built with a nightly / `RUSTC_BOOTSTRAP=1` toolchain). The stable sync
 // track never enables them (its `generate_commit_with_rollback` omits that bound).
 #![cfg_attr(
-    all(feature = "async", not(feature = "sync")),
+    not(feature = "blocking"),
     feature(async_fn_traits, unboxed_closures)
 )]
 
@@ -18,11 +18,11 @@
 /// stays single-source. (openmls-async ⟺ this crate's `async` feature without `sync`.)
 macro_rules! maybe_await {
     ($e:expr) => {{
-        #[cfg(all(feature = "async", not(feature = "sync")))]
+        #[cfg(not(feature = "blocking"))]
         {
             $e.await
         }
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "blocking")]
         {
             $e
         }
