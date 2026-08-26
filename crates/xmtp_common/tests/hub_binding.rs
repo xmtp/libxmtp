@@ -7,6 +7,7 @@
 use sentry_core::protocol::EnvelopeItem;
 use sentry_core::test::TestTransport;
 use sentry_core::{Breadcrumb, Client, ClientOptions, Hub, Level};
+use std::future::Future;
 use std::sync::Arc;
 use tracing_subscriber::prelude::*;
 
@@ -67,6 +68,7 @@ async fn bound_task(tag: &'static str) {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn concurrent_tasks_keep_their_own_breadcrumb_trails() {
+    let _slot = lock_main_hub();
     let transport = bind_test_client();
     futures::executor::block_on(futures::future::join(bound_task("A"), bound_task("B")));
 
@@ -105,6 +107,7 @@ async fn ffi_op() -> Result<(), std::io::Error> {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn err_span_hub_keeps_inner_spans_under_the_ffi_transaction() {
+    let _slot = lock_main_hub();
     let transport = bind_test_client();
     let layer = sentry_tracing::layer()
         .span_filter(|meta| meta.fields().field("sentry.op").is_some())
@@ -148,13 +151,29 @@ fn err_span_hub_keeps_inner_spans_under_the_ffi_transaction() {
     );
 }
 
-/// Restores the process hub's client on drop, so a test that binds one there
-/// (or panics part-way through) cannot leave it behind for the rest of the binary.
-struct MainHubSlot(Option<Arc<Client>>);
+/// Serializes the tests in this binary and restores the process hub's client on
+/// drop, so a test that binds one there (or panics part-way through) cannot leave
+/// it behind for the rest of the binary. Serialization matters because
+/// `bind_task_hub` tracks the process hub's client: under `cargo test` the tests
+/// share a process, and one binding a client to `Hub::main()` would otherwise
+/// reach into another's task hubs.
+struct MainHubSlot {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    previous: Option<Arc<Client>>,
+}
 
 impl Drop for MainHubSlot {
     fn drop(&mut self) {
-        Hub::main().bind_client(self.0.take());
+        Hub::main().bind_client(self.previous.take());
+    }
+}
+
+fn lock_main_hub() -> MainHubSlot {
+    static MAIN_HUB: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _lock = MAIN_HUB.lock().unwrap_or_else(|e| e.into_inner());
+    MainHubSlot {
+        _lock,
+        previous: Hub::main().client(),
     }
 }
 
@@ -168,14 +187,14 @@ impl Drop for MainHubSlot {
 /// silently dropped.
 #[xmtp_common::test(unwrap_try = true)]
 fn task_hub_bound_before_enable_picks_up_a_late_client() {
-    let restore = MainHubSlot(Hub::main().client());
+    let restore = lock_main_hub();
     assert!(
-        restore.0.is_none() && Hub::current().client().is_none(),
+        restore.previous.is_none() && Hub::current().client().is_none(),
         "precondition: this test starts from a client-less process and thread hub"
     );
 
     // Bound now, while no client exists: the fork cannot inherit one, and the
-    // eager `Hub::main()` fallback has nothing to bind either.
+    // process hub has nothing to hand it either.
     let task = xmtp_common::bind_task_hub(async {
         crumb("late-1".to_string());
         yield_once().await;
@@ -218,6 +237,74 @@ fn task_hub_bound_before_enable_picks_up_a_late_client() {
     drop(restore);
 }
 
+/// Drives `fut` one poll with a no-op waker, so the test controls what the
+/// process hub looks like between polls. Panics if the future finishes early.
+fn poll_once<F: Future>(fut: &mut std::pin::Pin<&mut F>) {
+    let waker = futures::task::noop_waker();
+    let polled = fut
+        .as_mut()
+        .poll(&mut std::task::Context::from_waker(&waker));
+    assert!(
+        polled.is_pending(),
+        "future finished before the test drove it"
+    );
+}
+
+/// The re-enable case, which the host exposes over FFI: `enable_sentry` ->
+/// `disable_sentry` -> `enable_sentry` puts a *second*, different client on the
+/// process hub. Long-lived task hubs (workers, watchdog, streams) are still alive
+/// across all three, so an adoption that latches on presence keeps captures going
+/// to the closed first client forever — a silent, unrecoverable drop. Adoption
+/// keyed on client *identity* moves them onto the new one, and the disabled gap
+/// in the middle reports nowhere at all.
+#[xmtp_common::test(unwrap_try = true)]
+fn task_hub_follows_a_disable_then_re_enable() {
+    let restore = lock_main_hub();
+    let (client_a, transport_a) = test_client();
+    Hub::main().bind_client(Some(client_a));
+
+    let task = xmtp_common::bind_task_hub(async {
+        sentry_core::capture_message("first", Level::Error);
+        yield_once().await;
+        sentry_core::capture_message("while-off", Level::Error);
+        yield_once().await;
+        sentry_core::capture_message("second", Level::Error);
+        // Never completes: the test drives it poll by poll and asserts on the
+        // transports, so it stays a live task hub throughout.
+        std::future::pending::<()>().await;
+    });
+    futures::pin_mut!(task);
+
+    poll_once(&mut task);
+
+    // `disable_sentry`: the process hub gives its client back (here, to nothing).
+    Hub::main().bind_client(None);
+    poll_once(&mut task);
+
+    // `enable_sentry` again — a brand new client, not the one A was.
+    let (client_b, transport_b) = test_client();
+    Hub::main().bind_client(Some(client_b));
+    poll_once(&mut task);
+
+    let messages = |t: &Arc<TestTransport>| -> Vec<String> {
+        t.fetch_and_clear_events()
+            .iter()
+            .filter_map(|e| e.message.clone())
+            .collect()
+    };
+    assert_eq!(
+        messages(&transport_a),
+        ["first"],
+        "the first client kept receiving after it was replaced"
+    );
+    assert_eq!(
+        messages(&transport_b),
+        ["second"],
+        "the re-enabled client never reached the still-running task hub"
+    );
+    drop(restore);
+}
+
 #[xmtp_common::err_span]
 async fn ffi_failing_op() -> Result<(), std::io::Error> {
     crumb("E-1".to_string());
@@ -231,6 +318,7 @@ async fn ffi_failing_op() -> Result<(), std::io::Error> {
 /// trail the call accumulated is on a hub nobody looks at.
 #[xmtp_common::test(unwrap_try = true)]
 fn err_span_error_event_carries_the_task_hub_trail() {
+    let _slot = lock_main_hub();
     let transport = bind_test_client();
     let layer = sentry_tracing::layer()
         .span_filter(|meta| meta.fields().field("sentry.op").is_some())

@@ -59,6 +59,13 @@ pub(crate) struct Guards {
     pub(crate) telemetry: Option<TelemetryGuard>,
     #[cfg(feature = "sentry")]
     pub(crate) sentry: Option<sentry::ClientInitGuard>,
+    /// What the process hub carried before we took it over, stashed on the
+    /// none -> owner transition only. A Rust host embedding libxmtp may have run
+    /// its own `sentry::init`, and `disable_sentry` hands that client back rather
+    /// than clearing the hub. `Some(None)` records "the host had none", which is
+    /// not the same as the `None` meaning "we never took the hub over".
+    #[cfg(feature = "sentry")]
+    pub(crate) prev_main_client: Option<Option<std::sync::Arc<sentry::Client>>>,
 }
 
 /// Handle to the installed logging pipeline. Holds the reload handles for each
@@ -198,12 +205,28 @@ impl LoggingHandle {
                 "OTLP telemetry active; disable it before enabling sentry".into(),
             ));
         }
+        // Read before `build_sentry_layer` overwrites the process hub, and only
+        // while we are not already the owner: on a re-enable this would otherwise
+        // stash our own client and "restore" it on the way out.
+        let host_client = {
+            let guards = self.guards.lock();
+            guards
+                .sentry
+                .is_none()
+                .then(|| sentry::Hub::main().client())
+        };
         let (layer, guard) = crate::sentry::build_sentry_layer(cfg)?;
         self.telemetry.reload(Some(layer))?;
         // Drop the previous guard (if any) outside the guards lock: its Drop can
         // block up to the client shutdown timeout, which would stall concurrent
         // flush/set_level/enable_file callers waiting on the same mutex.
-        let previous = self.guards.lock().sentry.replace(guard);
+        let previous = {
+            let mut guards = self.guards.lock();
+            if let Some(host) = host_client {
+                guards.prev_main_client = Some(host);
+            }
+            guards.sentry.replace(guard)
+        };
         drop(previous);
         Ok(())
     }
@@ -229,9 +252,12 @@ impl LoggingHandle {
         drop(previous);
         // Undo the propagation `build_sentry_layer` did: the process hub is where
         // every later fork (and `bind_task_hub`'s adoption) looks, so a client left
-        // there would keep being handed out after we closed it. Owner path only —
-        // we returned above if the slot is not ours.
-        sentry::Hub::main().bind_client(None);
+        // there would keep being handed out after we closed it. Restores whatever
+        // the host had there rather than clearing, so an embedding Rust app's own
+        // `sentry::init` survives our enable/disable cycle. Owner path only — we
+        // returned above if the slot is not ours.
+        let host_client = self.guards.lock().prev_main_client.take().flatten();
+        sentry::Hub::main().bind_client(host_client);
         crate::sentry::set_user_stable_id(None);
         Ok(())
     }

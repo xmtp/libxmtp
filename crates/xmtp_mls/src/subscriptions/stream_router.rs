@@ -194,7 +194,7 @@ where
             next_id: 0,
             ends: ends_tx,
         };
-        xmtp_common::spawn(None, task.run(cmds_rx, ends_rx));
+        xmtp_common::spawn(None, xmtp_common::bind_task_hub(task.run(cmds_rx, ends_rx)));
         Self { context, cmds }
     }
 
@@ -649,14 +649,17 @@ where
         let (kill, kill_rx) = oneshot::channel();
         let ends = self.ends.clone();
         let task = consumer(kill_rx);
-        xmtp_common::spawn(None, async move {
-            task.await;
-            // A stream that ends on its own (wire death, backpressure drop)
-            // frees its consumer slot without waiting for the exhausted
-            // `RouterStream` handle to be dropped — idempotent with that
-            // handle's own drop notification.
-            let _ = ends.send(id);
-        });
+        xmtp_common::spawn(
+            None,
+            xmtp_common::bind_task_hub(async move {
+                task.await;
+                // A stream that ends on its own (wire death, backpressure drop)
+                // frees its consumer slot without waiting for the exhausted
+                // `RouterStream` handle to be dropped — idempotent with that
+                // handle's own drop notification.
+                let _ = ends.send(id);
+            }),
+        );
         self.consumers.insert(id, ConsumerHandle { _kill: kill });
         id
     }
