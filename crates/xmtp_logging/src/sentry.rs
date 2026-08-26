@@ -35,11 +35,24 @@ pub(crate) fn stable_id(value: &str, info: &[u8]) -> String {
     hex::encode(okm)
 }
 
+/// `sentry_tracing` renames span-inherited fields to `"{span_name}:{key}"`, so
+/// match on the segment after the last `':'`.
 pub(crate) fn scrub_value(key: &str, value: &str) -> Option<String> {
+    let key = key.rsplit(':').next().unwrap_or(key);
     ID_KEYS
         .iter()
         .find(|(k, _)| *k == key)
         .map(|(_, info)| stable_id(value, info))
+}
+
+fn scrub_map(map: &mut sentry::protocol::Map<String, sentry::protocol::Value>) {
+    for (key, value) in map.iter_mut() {
+        if let sentry::protocol::Value::String(s) = value
+            && let Some(hashed) = scrub_value(key, s)
+        {
+            *s = hashed;
+        }
+    }
 }
 
 /// Sentry backend configuration. `user_stable_id` is the HKDF stable id
@@ -75,7 +88,7 @@ static USER_STABLE_ID: RwLock<Option<String>> = RwLock::new(None);
 /// A global slot read at capture time in `before_send`, so late identify (at
 /// inbox-ready) applies to already-bound worker hubs too.
 pub fn set_user_stable_id(id: Option<String>) {
-    *USER_STABLE_ID.write().expect("poisoned") = id;
+    *USER_STABLE_ID.write().unwrap_or_else(|e| e.into_inner()) = id;
 }
 
 /// ERROR events from the mobile FFI crate become Sentry issues; every other
@@ -98,27 +111,34 @@ pub(crate) fn span_filter(meta: &tracing::Metadata<'_>) -> bool {
 }
 
 fn scrub_breadcrumb(mut b: sentry::Breadcrumb) -> Option<sentry::Breadcrumb> {
-    for (key, value) in b.data.iter_mut() {
-        if let sentry::protocol::Value::String(s) = value
-            && let Some(hashed) = scrub_value(key, s)
-        {
-            *s = hashed;
-        }
-    }
+    scrub_map(&mut b.data);
     Some(b)
 }
 
+/// `sentry_tracing` writes event fields to `contexts["Rust Tracing Fields"]` and
+/// `tags.`-prefixed fields to `tags`; the scope's span copies its data into
+/// `contexts["trace"]`. `extra` only ever holds scope-set values.
 fn scrub_event(
     mut e: sentry::protocol::Event<'static>,
 ) -> Option<sentry::protocol::Event<'static>> {
-    for (key, value) in e.extra.iter_mut() {
-        if let sentry::protocol::Value::String(s) = value
-            && let Some(hashed) = scrub_value(key, s)
-        {
-            *s = hashed;
+    for context in e.contexts.values_mut() {
+        match context {
+            sentry::protocol::Context::Other(map) => scrub_map(map),
+            sentry::protocol::Context::Trace(trace) => scrub_map(&mut trace.data),
+            _ => {}
         }
     }
-    if let Some(id) = USER_STABLE_ID.read().expect("poisoned").clone() {
+    for (key, value) in e.tags.iter_mut() {
+        if let Some(hashed) = scrub_value(key, value) {
+            *value = hashed;
+        }
+    }
+    scrub_map(&mut e.extra);
+    if let Some(id) = USER_STABLE_ID
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         e.user = Some(sentry::User {
             id: Some(id),
             ..Default::default()
@@ -173,7 +193,11 @@ pub(crate) fn build_sentry_layer(
         .map_err(|_| Error::Telemetry(format!("invalid sentry dsn: {}", cfg.dsn)))?;
     let mut options = client_options(&cfg)?;
     options.dsn = Some(dsn);
-    set_user_stable_id(cfg.user_stable_id.clone());
+    // Only write the slot when the caller has an id: a re-init with `None` must
+    // not clobber an identify that already landed.
+    if cfg.user_stable_id.is_some() {
+        set_user_stable_id(cfg.user_stable_id.clone());
+    }
     install_crypto_provider();
     let guard = sentry::init(options);
     sentry::configure_scope(|scope| {
@@ -263,6 +287,46 @@ mod layer_tests {
         CAPTURED.lock().unwrap().take().expect("event fired")
     }
 
+    fn span_metadata_of(f: impl FnOnce()) -> &'static tracing::Metadata<'static> {
+        use std::sync::Mutex;
+        static CAPTURED: Mutex<Option<&'static tracing::Metadata<'static>>> = Mutex::new(None);
+        struct Cap;
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Cap {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                _id: &tracing::span::Id,
+                _ctx: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                *CAPTURED.lock().unwrap() = Some(attrs.metadata());
+            }
+        }
+        use tracing_subscriber::prelude::*;
+        let subscriber = tracing_subscriber::registry().with(Cap);
+        tracing::subscriber::with_default(subscriber, f);
+        CAPTURED.lock().unwrap().take().expect("span created")
+    }
+
+    #[test]
+    fn spans_pass_on_sentry_op_or_severity() {
+        let op = span_metadata_of(|| {
+            let _s = tracing::trace_span!("ffi_root", sentry.op = "ffi");
+        });
+        let plain_trace = span_metadata_of(|| {
+            let _s = tracing::trace_span!("noisy");
+        });
+        let debug = span_metadata_of(|| {
+            let _s = tracing::debug_span!("detail");
+        });
+        let info = span_metadata_of(|| {
+            let _s = tracing::info_span!("sync");
+        });
+        assert!(span_filter(op));
+        assert!(!span_filter(plain_trace));
+        assert!(span_filter(debug));
+        assert!(span_filter(info));
+    }
+
     #[test]
     fn error_events_promote_only_at_ffi_boundary() {
         use sentry_tracing::EventFilter;
@@ -310,26 +374,112 @@ mod layer_tests {
         set_user_stable_id(None);
     }
 
-    // The transport is `rustls-no-provider`: without `install_crypto_provider`
-    // building the client panics in a process that installed no provider.
+    // The transport is `rustls-no-provider`: without a process-default provider
+    // building the client panics. Asserted without a real `sentry::init`, which
+    // would install the process panic hook for the rest of the test binary.
     #[test]
-    fn client_builds_without_a_host_installed_provider() {
-        let _slot = lock_user_slot();
-        let cfg = SentryConfig {
-            dsn: "https://abc123@o0.ingest.sentry.io/42".into(),
-            ..Default::default()
-        };
-        let (_layer, guard) = build_sentry_layer(cfg).unwrap();
-        assert!(guard.is_enabled());
+    fn crypto_provider_is_installed_for_the_transport() {
+        install_crypto_provider();
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 
     #[test]
     fn invalid_dsn_is_an_error() {
+        let _slot = lock_user_slot();
+        set_user_stable_id(Some("sentinel".into()));
         let cfg = SentryConfig {
             dsn: "not-a-dsn".into(),
+            user_stable_id: Some("clobbered".into()),
             ..Default::default()
         };
         assert!(matches!(build_sentry_layer(cfg), Err(Error::Telemetry(_))));
+        assert_eq!(
+            USER_STABLE_ID.read().unwrap().as_deref(),
+            Some("sentinel"),
+            "a failed init must not touch the user slot"
+        );
+        set_user_stable_id(None);
+    }
+
+    const INBOX_ID_RAW: &str = "a9be0a2ae5aca34ff1a4bd25277f7e56e3b32e4b418ba1b48f0d33d004cd4b9a";
+    const INBOX_ID_HASH: &str = "68a7e54af6e50bf438d86104d6ea9e25ffa0cfe80ceac0a5497db459da371074";
+    const GROUP_ID_RAW: &str = "d2794b1478b6e0a06d3bd1a52a3aae1c";
+    const GROUP_ID_HASH: &str = "97a6abdc3b86714e001232db751893461d16038c4dc03a24c1e9e648e6485675";
+
+    /// TRACE span: only `sentry.op` gets it past `span_filter`. Its `group_id`
+    /// reaches the event renamed to `"sync_group:group_id"`, and also verbatim
+    /// in the trace context copied off the transaction.
+    #[tracing::instrument(
+        level = "trace",
+        name = "sync_group",
+        skip_all,
+        fields(group_id = %GROUP_ID_RAW, sentry.op = "mls")
+    )]
+    fn emit_error_in_span() {
+        tracing::error!(
+            target: "xmtpv3::test",
+            inbox_id = %INBOX_ID_RAW,
+            tags.dm_id = %GROUP_ID_RAW,
+            "boom"
+        );
+    }
+
+    /// End-to-end through the real `sentry_tracing` layer: identity values must
+    /// be hashed in every container the converter writes (`contexts`, `tags`),
+    /// under both plain and span-qualified keys.
+    #[test]
+    fn sentry_tracing_event_is_scrubbed_in_every_container() {
+        use tracing_subscriber::prelude::*;
+        let _slot = lock_user_slot();
+        // Span data only materializes on a sampled transaction.
+        let options = client_options(&SentryConfig {
+            traces_sample_rate: 1.0,
+            ..Default::default()
+        })
+        .unwrap();
+        let events = sentry::test::with_captured_events_options(
+            || {
+                let subscriber = tracing_subscriber::registry().with(
+                    sentry_tracing::layer()
+                        .event_filter(event_filter)
+                        .span_filter(span_filter)
+                        .enable_span_attributes(),
+                );
+                tracing::subscriber::with_default(subscriber, emit_error_in_span);
+            },
+            options,
+        );
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+
+        let fields = match event.contexts.get("Rust Tracing Fields") {
+            Some(sentry::protocol::Context::Other(map)) => map,
+            other => panic!("expected a tracing-fields context, got {other:?}"),
+        };
+        assert_eq!(
+            fields["sync_group:group_id"],
+            sentry::protocol::Value::String(GROUP_ID_HASH.into())
+        );
+        assert_eq!(
+            fields["inbox_id"],
+            sentry::protocol::Value::String(INBOX_ID_HASH.into())
+        );
+        assert_eq!(event.tags["dm_id"], GROUP_ID_HASH);
+
+        // The scope copies the transaction's data verbatim into `contexts["trace"]`.
+        let trace = match event.contexts.get("trace") {
+            Some(sentry::protocol::Context::Trace(trace)) => trace,
+            other => panic!("expected a trace context, got {other:?}"),
+        };
+        assert_eq!(
+            trace.data["group_id"],
+            sentry::protocol::Value::String(GROUP_ID_HASH.into())
+        );
+
+        let json = sentry::protocol::value::to_value(event)
+            .unwrap()
+            .to_string();
+        assert!(!json.contains(GROUP_ID_RAW), "raw group_id in {json}");
+        assert!(!json.contains(INBOX_ID_RAW), "raw inbox_id in {json}");
     }
 }
