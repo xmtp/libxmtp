@@ -86,6 +86,10 @@ tokio = { workspace = true, features = [
 ] }
 ctor.workspace = true
 parking_lot.workspace = true
+# `test` adds TestTransport; sentry-tracing gives tests/hub_binding.rs the same
+# span/event pipeline production uses, so hub parenting is asserted end-to-end.
+sentry-core = { workspace = true, features = ["client", "test"] }
+sentry-tracing.workspace = true
 
 [features]
 # All production logging/telemetry now lives in xmtp_logging. The remaining

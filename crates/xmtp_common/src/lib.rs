@@ -52,12 +52,18 @@ pub use xmtp_cryptography::rand::*;
 
 /// Run a future with its own Sentry Hub so its breadcrumbs never interleave
 /// with concurrent tasks. Near-free when no Sentry client is configured.
+///
+/// Forks from `Hub::current()`, not `Hub::main()`: the fork inherits the calling
+/// scope, so the caller's transaction stays the parent of everything inside (a
+/// `main()` fork has no current span and re-roots inner spans as their own
+/// transactions), and a client bound after a client-less thread first touched
+/// the hub still applies.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn bind_task_hub<F: core::future::Future>(
     fut: F,
 ) -> impl core::future::Future<Output = F::Output> {
     use sentry_core::{Hub, SentryFutureExt};
-    fut.bind_hub(Hub::new_from_top(Hub::main()))
+    fut.bind_hub(Hub::new_from_top(Hub::current()))
 }
 
 /// Identity passthrough: wasm is single-threaded and has no Sentry client.

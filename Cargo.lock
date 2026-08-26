@@ -11171,6 +11171,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rustls",
  "sentry-core",
+ "sentry-tracing",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",

@@ -72,24 +72,25 @@ pub fn span(
 
 /// `#[err_span]` → trace-level `#[tracing::instrument(skip_all, err)]` plus
 /// `sentry.op = "ffi"` / `sentry.name = "<fn_name>"`, and — on async fns — a
-/// fresh Sentry Hub bound around the body. `extern`-ABI fns pass through
-/// untouched: napi-rs clones method attributes onto the raw-`napi_value`-returning
-/// `extern "C"` wrapper it generates, where `err` would not compile.
+/// fresh Sentry Hub bound around the body. `extern`-ABI fns pass through untouched.
 pub fn err_span(
     _attr: proc_macro::TokenStream,
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let mut input_fn = parse_macro_input!(body as syn::ItemFn);
+    // napi-rs clones method attributes onto the raw-`napi_value`-returning
+    // `extern "C"` wrapper it generates, where `err` would not compile.
     if input_fn.sig.abi.is_some() {
         return quote! { #input_fn }.into();
     }
     let name = input_fn.sig.ident.to_string();
     // Bind a fresh Sentry Hub per async FFI call so concurrent tasks keep
     // separate breadcrumb trails. Sync fns keep instrument-only (rare at FFI).
+    // An outer `#[async_trait]` desugars the fn first, so this would see a sync fn and skip the wrap (no such site today).
     if input_fn.sig.asyncness.is_some() {
         let block = &input_fn.block;
         let wrapped: syn::Block = syn::parse_quote! {{
-            xmtp_common::bind_task_hub(async move #block).await
+            ::xmtp_common::bind_task_hub(async move #block).await
         }};
         *input_fn.block = wrapped;
     }
