@@ -12,8 +12,10 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use xmtp_configuration::OPENMLS_KV_TARGET;
 
-// Builds on `crate::mock`, which is sync-track only.
-#[cfg(any(feature = "test-utils", test))]
+// Its StorageProvider impl calls the in-memory delegate synchronously, so it only
+// type-checks in the blocking SHAPE (`blocking`), not merely the diesel backend
+// (`sync`). Gate to the blocking shape until threaded for the async shape.
+#[cfg(all(feature = "blocking", any(feature = "test-utils", test)))]
 pub mod mock;
 mod transactions;
 

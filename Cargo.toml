@@ -36,6 +36,12 @@ exclude = [
   # instance). Retiring the split entirely would mean making the whole client
   # stack always-async (ready-future SQLite) -- a separate, larger decision.
   "crates/openmls_pg_storage",
+  # Storage-shape A/B microbenchmark (blocking vs ready-future SQLite over the same
+  # diesel backend). Excluded because it toggles the client SHAPE via a feature: as
+  # a member, `clippy --all-features` would turn on `blocking` and `async` together
+  # (conflicting shapes). Depends only on xmtp_db (no test-utils). See the crate's
+  # Cargo.toml for the full note.
+  "crates/xmtp_db_shape_bench",
 ]
 
 # Default members must be part of workspace hack to maximize cache hits in CI/nix/crane

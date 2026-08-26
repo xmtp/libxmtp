@@ -135,7 +135,7 @@ pub async fn create_dm_with_consent(
             sequence_id: None,
             should_publish_commit_log: false,
         };
-        group.store(&client.db()).unwrap();
+        group.store(&client.db()).await.unwrap();
 
         let consent = StoredConsentRecord {
             consented_at_ns: now_ns(),
@@ -143,7 +143,7 @@ pub async fn create_dm_with_consent(
             entity_type: ConsentType::ConversationId,
             state: ConsentState::Allowed,
         };
-        consent.store(&client.db()).unwrap();
+        consent.store(&client.db()).await.unwrap();
 
         dm_ids.push(dm_id);
         bar.inc(1);

@@ -178,13 +178,13 @@ url.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
-xmtp_archive = { workspace = true, features = ["test-utils"] }
+xmtp_archive = { path = "../xmtp_archive", default-features = false, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_content_types = { path = "../xmtp_content_types", features = [
   "test-utils",
 ] }
-xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_db = { path = "../xmtp_db", default-features = false, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 # Required for traced_test! macro
