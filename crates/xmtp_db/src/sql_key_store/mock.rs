@@ -167,11 +167,12 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
     }
 }
 
+#[maybe_async::maybe_async(AFIT)]
 impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
     type Error = SqlKeyStoreError;
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn queue_proposal<
+    async fn queue_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
         QueuedProposal: traits::QueuedProposal<CURRENT_VERSION>,
@@ -186,11 +187,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
                 group_id,
                 proposal_ref,
                 proposal,
-            )
+            ).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_tree<
+    async fn write_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
     >(
@@ -199,11 +200,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         tree: &TreeSync,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_tree::<GroupId, TreeSync>(group_id, tree)
+            .write_tree::<GroupId, TreeSync>(group_id, tree).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_interim_transcript_hash<
+    async fn write_interim_transcript_hash<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         InterimTranscriptHash: traits::InterimTranscriptHash<CURRENT_VERSION>,
     >(
@@ -215,11 +216,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
             .write_interim_transcript_hash::<GroupId, InterimTranscriptHash>(
                 group_id,
                 interim_transcript_hash,
-            )
+            ).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_context<
+    async fn write_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
     >(
@@ -228,11 +229,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_context: &GroupContext,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_context::<GroupId, GroupContext>(group_id, group_context)
+            .write_context::<GroupId, GroupContext>(group_id, group_context).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_confirmation_tag<
+    async fn write_confirmation_tag<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ConfirmationTag: traits::ConfirmationTag<CURRENT_VERSION>,
     >(
@@ -241,11 +242,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         confirmation_tag: &ConfirmationTag,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_confirmation_tag::<GroupId, ConfirmationTag>(group_id, confirmation_tag)
+            .write_confirmation_tag::<GroupId, ConfirmationTag>(group_id, confirmation_tag).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_signature_key_pair<
+    async fn write_signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
         SignatureKeyPair: traits::SignatureKeyPair<CURRENT_VERSION>,
     >(
@@ -257,11 +258,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
             .write_signature_key_pair::<SignaturePublicKey, SignatureKeyPair>(
                 public_key,
                 signature_key_pair,
-            )
+            ).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn queued_proposal_refs<
+    async fn queued_proposal_refs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
     >(
@@ -269,11 +270,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<ProposalRef>, Self::Error> {
         self.in_memory
-            .queued_proposal_refs::<GroupId, ProposalRef>(group_id)
+            .queued_proposal_refs::<GroupId, ProposalRef>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn queued_proposals<
+    async fn queued_proposals<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
         QueuedProposal: traits::QueuedProposal<CURRENT_VERSION>,
@@ -282,22 +283,22 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Vec<(ProposalRef, QueuedProposal)>, Self::Error> {
         self.in_memory
-            .queued_proposals::<GroupId, ProposalRef, QueuedProposal>(group_id)
+            .queued_proposals::<GroupId, ProposalRef, QueuedProposal>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn tree<
+    async fn tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
     >(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<TreeSync>, Self::Error> {
-        self.in_memory.tree::<GroupId, TreeSync>(group_id)
+        self.in_memory.tree::<GroupId, TreeSync>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn group_context<
+    async fn group_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
     >(
@@ -305,11 +306,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<GroupContext>, Self::Error> {
         self.in_memory
-            .group_context::<GroupId, GroupContext>(group_id)
+            .group_context::<GroupId, GroupContext>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn interim_transcript_hash<
+    async fn interim_transcript_hash<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         InterimTranscriptHash: traits::InterimTranscriptHash<CURRENT_VERSION>,
     >(
@@ -317,11 +318,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<InterimTranscriptHash>, Self::Error> {
         self.in_memory
-            .interim_transcript_hash::<GroupId, InterimTranscriptHash>(group_id)
+            .interim_transcript_hash::<GroupId, InterimTranscriptHash>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn confirmation_tag<
+    async fn confirmation_tag<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ConfirmationTag: traits::ConfirmationTag<CURRENT_VERSION>,
     >(
@@ -329,11 +330,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<ConfirmationTag>, Self::Error> {
         self.in_memory
-            .confirmation_tag::<GroupId, ConfirmationTag>(group_id)
+            .confirmation_tag::<GroupId, ConfirmationTag>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn signature_key_pair<
+    async fn signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
         SignatureKeyPair: traits::SignatureKeyPair<CURRENT_VERSION>,
     >(
@@ -341,11 +342,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         public_key: &SignaturePublicKey,
     ) -> Result<Option<SignatureKeyPair>, Self::Error> {
         self.in_memory
-            .signature_key_pair::<SignaturePublicKey, SignatureKeyPair>(public_key)
+            .signature_key_pair::<SignaturePublicKey, SignatureKeyPair>(public_key).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_key_package<
+    async fn write_key_package<
         HashReference: traits::HashReference<CURRENT_VERSION>,
         KeyPackage: traits::KeyPackage<CURRENT_VERSION>,
     >(
@@ -354,11 +355,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         key_package: &KeyPackage,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_key_package::<HashReference, KeyPackage>(hash_ref, key_package)
+            .write_key_package::<HashReference, KeyPackage>(hash_ref, key_package).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_psk<
+    async fn write_psk<
         PskId: traits::PskId<CURRENT_VERSION>,
         PskBundle: traits::PskBundle<CURRENT_VERSION>,
     >(
@@ -366,11 +367,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         _psk_id: &PskId,
         _psk: &PskBundle,
     ) -> Result<(), Self::Error> {
-        self.in_memory.write_psk::<PskId, PskBundle>(_psk_id, _psk)
+        self.in_memory.write_psk::<PskId, PskBundle>(_psk_id, _psk).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_encryption_key_pair<
+    async fn write_encryption_key_pair<
         EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
     >(
@@ -379,11 +380,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         key_pair: &HpkeKeyPair,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_encryption_key_pair::<EncryptionKey, HpkeKeyPair>(public_key, key_pair)
+            .write_encryption_key_pair::<EncryptionKey, HpkeKeyPair>(public_key, key_pair).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn key_package<
+    async fn key_package<
         HashReference: traits::HashReference<CURRENT_VERSION>,
         KeyPackage: traits::KeyPackage<CURRENT_VERSION>,
     >(
@@ -391,19 +392,19 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         hash_ref: &HashReference,
     ) -> Result<Option<KeyPackage>, Self::Error> {
         self.in_memory
-            .key_package::<HashReference, KeyPackage>(hash_ref)
+            .key_package::<HashReference, KeyPackage>(hash_ref).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
+    async fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
         &self,
         _psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
-        self.in_memory.psk::<PskBundle, PskId>(_psk_id)
+        self.in_memory.psk::<PskBundle, PskId>(_psk_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn encryption_key_pair<
+    async fn encryption_key_pair<
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
         EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>,
     >(
@@ -411,39 +412,39 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         public_key: &EncryptionKey,
     ) -> Result<Option<HpkeKeyPair>, Self::Error> {
         self.in_memory
-            .encryption_key_pair::<HpkeKeyPair, EncryptionKey>(public_key)
+            .encryption_key_pair::<HpkeKeyPair, EncryptionKey>(public_key).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_signature_key_pair<
+    async fn delete_signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
     >(
         &self,
         public_key: &SignaturePublicKey,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .delete_signature_key_pair::<SignaturePublicKey>(public_key)
+            .delete_signature_key_pair::<SignaturePublicKey>(public_key).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
+    async fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
         &self,
         public_key: &EncryptionKey,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .delete_encryption_key_pair::<EncryptionKey>(public_key)
+            .delete_encryption_key_pair::<EncryptionKey>(public_key).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_key_package<HashReference: traits::HashReference<CURRENT_VERSION>>(
+    async fn delete_key_package<HashReference: traits::HashReference<CURRENT_VERSION>>(
         &self,
         hash_ref: &HashReference,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_key_package::<HashReference>(hash_ref)
+        self.in_memory.delete_key_package::<HashReference>(hash_ref).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_psk<PskKey: traits::PskId<CURRENT_VERSION>>(
+    async fn delete_psk<PskKey: traits::PskId<CURRENT_VERSION>>(
         &self,
         _psk_id: &PskKey,
     ) -> Result<(), Self::Error> {
@@ -451,18 +452,18 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn group_state<
+    async fn group_state<
         GroupState: traits::GroupState<CURRENT_VERSION>,
         GroupId: traits::GroupId<CURRENT_VERSION>,
     >(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<GroupState>, Self::Error> {
-        self.in_memory.group_state::<GroupState, GroupId>(group_id)
+        self.in_memory.group_state::<GroupState, GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_group_state<
+    async fn write_group_state<
         GroupState: traits::GroupState<CURRENT_VERSION>,
         GroupId: traits::GroupId<CURRENT_VERSION>,
     >(
@@ -471,19 +472,19 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_state: &GroupState,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_group_state::<GroupState, GroupId>(group_id, group_state)
+            .write_group_state::<GroupState, GroupId>(group_id, group_state).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_group_state<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_group_state<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_group_state::<GroupId>(group_id)
+        self.in_memory.delete_group_state::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn message_secrets<
+    async fn message_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MessageSecrets: traits::MessageSecrets<CURRENT_VERSION>,
     >(
@@ -491,11 +492,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MessageSecrets>, Self::Error> {
         self.in_memory
-            .message_secrets::<GroupId, MessageSecrets>(group_id)
+            .message_secrets::<GroupId, MessageSecrets>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_message_secrets<
+    async fn write_message_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MessageSecrets: traits::MessageSecrets<CURRENT_VERSION>,
     >(
@@ -504,30 +505,30 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         message_secrets: &MessageSecrets,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_message_secrets::<GroupId, MessageSecrets>(group_id, message_secrets)
+            .write_message_secrets::<GroupId, MessageSecrets>(group_id, message_secrets).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_message_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_message_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_message_secrets::<GroupId>(group_id)
+        self.in_memory.delete_message_secrets::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn resumption_psk_store<
+    async fn resumption_psk_store<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<ResumptionPskStore>, Self::Error> {
-        self.in_memory.resumption_psk_store(group_id)
+        self.in_memory.resumption_psk_store(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_resumption_psk_store<
+    async fn write_resumption_psk_store<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
     >(
@@ -539,30 +540,30 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
             .write_resumption_psk_store::<GroupId, ResumptionPskStore>(
                 group_id,
                 resumption_psk_store,
-            )
+            ).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_all_resumption_psk_secrets(group_id)
+        self.in_memory.delete_all_resumption_psk_secrets(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn own_leaf_index<
+    async fn own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
     >(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<LeafNodeIndex>, Self::Error> {
-        self.in_memory.own_leaf_index(group_id)
+        self.in_memory.own_leaf_index(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_own_leaf_index<
+    async fn write_own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
     >(
@@ -571,30 +572,30 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         own_leaf_index: &LeafNodeIndex,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_own_leaf_index::<GroupId, LeafNodeIndex>(group_id, own_leaf_index)
+            .write_own_leaf_index::<GroupId, LeafNodeIndex>(group_id, own_leaf_index).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_own_leaf_index<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_own_leaf_index<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_own_leaf_index::<GroupId>(group_id)
+        self.in_memory.delete_own_leaf_index::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn group_epoch_secrets<
+    async fn group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
     >(
         &self,
         group_id: &GroupId,
     ) -> Result<Option<GroupEpochSecrets>, Self::Error> {
-        self.in_memory.group_epoch_secrets(group_id)
+        self.in_memory.group_epoch_secrets(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_group_epoch_secrets<
+    async fn write_group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
     >(
@@ -603,20 +604,20 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_epoch_secrets: &GroupEpochSecrets,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_group_epoch_secrets::<GroupId, GroupEpochSecrets>(group_id, group_epoch_secrets)
+            .write_group_epoch_secrets::<GroupId, GroupEpochSecrets>(group_id, group_epoch_secrets).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_group_epoch_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_group_epoch_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .delete_group_epoch_secrets::<GroupId>(group_id)
+            .delete_group_epoch_secrets::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_encryption_epoch_key_pairs<
+    async fn write_encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
@@ -628,11 +629,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         key_pairs: &[HpkeKeyPair],
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_encryption_epoch_key_pairs(group_id, epoch, leaf_index, key_pairs)
+            .write_encryption_epoch_key_pairs(group_id, epoch, leaf_index, key_pairs).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn encryption_epoch_key_pairs<
+    async fn encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
@@ -643,11 +644,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         leaf_index: u32,
     ) -> Result<Vec<HpkeKeyPair>, Self::Error> {
         self.in_memory
-            .encryption_epoch_key_pairs(group_id, epoch, leaf_index)
+            .encryption_epoch_key_pairs(group_id, epoch, leaf_index).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_encryption_epoch_key_pairs<
+    async fn delete_encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
     >(
@@ -657,11 +658,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         leaf_index: u32,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .delete_encryption_epoch_key_pairs(group_id, epoch, leaf_index)
+            .delete_encryption_epoch_key_pairs(group_id, epoch, leaf_index).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn clear_proposal_queue<
+    async fn clear_proposal_queue<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
     >(
@@ -669,11 +670,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .clear_proposal_queue::<GroupId, ProposalRef>(group_id)
+            .clear_proposal_queue::<GroupId, ProposalRef>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn mls_group_join_config<
+    async fn mls_group_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
     >(
@@ -681,11 +682,11 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<MlsGroupJoinConfig>, Self::Error> {
         self.in_memory
-            .mls_group_join_config::<GroupId, MlsGroupJoinConfig>(group_id)
+            .mls_group_join_config::<GroupId, MlsGroupJoinConfig>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn write_mls_join_config<
+    async fn write_mls_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
     >(
@@ -694,22 +695,22 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         config: &MlsGroupJoinConfig,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .write_mls_join_config::<GroupId, MlsGroupJoinConfig>(group_id, config)
+            .write_mls_join_config::<GroupId, MlsGroupJoinConfig>(group_id, config).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn own_leaf_nodes<
+    async fn own_leaf_nodes<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
     >(
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
-        self.in_memory.own_leaf_nodes::<GroupId, LeafNode>(group_id)
+        self.in_memory.own_leaf_nodes::<GroupId, LeafNode>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn append_own_leaf_node<
+    async fn append_own_leaf_node<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
     >(
@@ -717,60 +718,60 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
         leaf_node: &LeafNode,
     ) -> Result<(), Self::Error> {
-        self.in_memory.append_own_leaf_node(group_id, leaf_node)
+        self.in_memory.append_own_leaf_node(group_id, leaf_node).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_own_leaf_nodes(group_id)
+        self.in_memory.delete_own_leaf_nodes(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_group_config<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_group_config<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_group_config::<GroupId>(group_id)
+        self.in_memory.delete_group_config::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_tree<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_tree<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_tree(group_id)
+        self.in_memory.delete_tree(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_confirmation_tag<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_confirmation_tag<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_confirmation_tag::<GroupId>(group_id)
+        self.in_memory.delete_confirmation_tag::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_context<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_context<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
-        self.in_memory.delete_context::<GroupId>(group_id)
+        self.in_memory.delete_context::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn delete_interim_transcript_hash<GroupId: traits::GroupId<CURRENT_VERSION>>(
+    async fn delete_interim_transcript_hash<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .delete_interim_transcript_hash::<GroupId>(group_id)
+            .delete_interim_transcript_hash::<GroupId>(group_id).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn remove_proposal<
+    async fn remove_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
     >(
@@ -779,10 +780,10 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         proposal_ref: &ProposalRef,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .remove_proposal::<GroupId, ProposalRef>(group_id, proposal_ref)
+            .remove_proposal::<GroupId, ProposalRef>(group_id, proposal_ref).await
     }
 
-    fn write_application_export_tree<
+    async fn write_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
     >(
@@ -794,10 +795,10 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
             .write_application_export_tree::<GroupId, ApplicationExportTree>(
                 group_id,
                 application_export_tree,
-            )
+            ).await
     }
 
-    fn application_export_tree<
+    async fn application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
     >(
@@ -805,10 +806,10 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<Option<ApplicationExportTree>, Self::Error> {
         self.in_memory
-            .application_export_tree::<GroupId, ApplicationExportTree>(group_id)
+            .application_export_tree::<GroupId, ApplicationExportTree>(group_id).await
     }
 
-    fn delete_application_export_tree<
+    async fn delete_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
     >(
@@ -816,6 +817,6 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         self.in_memory
-            .delete_application_export_tree::<GroupId, ApplicationExportTree>(group_id)
+            .delete_application_export_tree::<GroupId, ApplicationExportTree>(group_id).await
     }
 }

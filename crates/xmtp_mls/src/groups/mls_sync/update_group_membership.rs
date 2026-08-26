@@ -629,6 +629,10 @@ mod tests {
         Ok(group_config)
     }
 
+    // Uses openmls's multi-client test framework (blocking-shape only) to build a
+    // mocked MLS client/group; runs on the blocking track until that framework is
+    // threaded for the async shape.
+    #[cfg(feature = "blocking")]
     #[rstest]
     #[xmtp_common::test]
     #[allow(clippy::readonly_write_lock, clippy::await_holding_lock)]

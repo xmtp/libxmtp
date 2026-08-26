@@ -80,4 +80,10 @@ test-utils = [
 ]
 v3 = []
 d14n = []
+# Marker for the openmls blocking (is_sync) SHAPE, forwarded by the shape-deciding
+# crate (xmtp_mls/blocking). openmls defaults to the async shape, so this is OFF by
+# default; the only shape-dependent code is a test-util that builds a KeyPackage
+# (async under the async shape). Collapses to the async branch once `blocking` is
+# retired workspace-wide.
+blocking = []
 dev = ["xmtp_configuration/dev", "xmtp_proto/dev"]

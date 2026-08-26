@@ -32,7 +32,12 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 mod generate;
 pub use generate::*;
+// openmls_mock is built on openmls's multi-client test framework, which is gated to
+// the blocking shape (openmls/sync). Available on the blocking track only until that
+// framework is threaded for the async shape.
+#[cfg(feature = "blocking")]
 mod openmls_mock;
+#[cfg(feature = "blocking")]
 pub use openmls_mock::*;
 
 pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;

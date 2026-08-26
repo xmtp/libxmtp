@@ -926,7 +926,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     // Bo's group is at epoch E; snapshot the raw epoch-E GroupContext and
     // epoch-keypair kv rows so they can be written back after the sync.
     let mut group_copy =
-        OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls())?
+        maybe_await!(OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls()))?
             .expect("bo's group must exist");
     let epoch_e = group_copy.epoch();
     let auth_e = group_copy.epoch_authenticator().as_slice().to_vec();
@@ -996,7 +996,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     // --- The "concurrent process" applies the same commit normally. ---
     bo_group.sync().await?;
 
-    let consistent = OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls())?
+    let consistent = maybe_await!(OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls()))?
         .expect("bo's group must exist");
     assert_eq!(consistent.epoch(), staged_commit.group_context().epoch());
     let auth_e1 = consistent.epoch_authenticator().as_slice().to_vec();
@@ -1017,7 +1017,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
 
     // --- The reload hands back the torn group: it reports epoch E, but its
     // epoch secrets (and therefore its authenticator) are already E+1's.
-    let mut torn = OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls())?
+    let mut torn = maybe_await!(OpenMlsGroup::load(bo.context.mls_storage(), &bo_group.group_id.to_openmls()))?
         .expect("bo's group must exist");
     assert_eq!(torn.epoch(), epoch_e, "torn group reports the stale epoch");
     assert_eq!(

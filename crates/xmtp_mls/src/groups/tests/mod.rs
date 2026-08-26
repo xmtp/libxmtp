@@ -133,13 +133,13 @@ async fn force_add_member(
         .hpke_init_key()
         .as_slice()
         .to_vec();
-    let (commit, welcome, _) = sender_mls_group
+    let (commit, welcome, _) = maybe_await!(sender_mls_group
         .add_members(
             sender_provider,
             &sender_client.identity().installation_keys,
             &[key_package_result.key_package],
-        )
-        .unwrap();
+        ))
+    .unwrap();
     let serialized_commit = commit.tls_serialize_detached().unwrap();
     let serialized_welcome = welcome.tls_serialize_detached().unwrap();
     let send_welcomes_action = SendWelcomesAction::new(
@@ -396,14 +396,14 @@ fn test_create_from_welcome_validation() {
                     .add_or_replace(build_group_membership_extension(&group_membership))
                     .unwrap();
 
-                mls_group
+                maybe_await!(mls_group
                     .update_group_context_extensions(
                         &provider,
                         existing_extensions.clone(),
                         &alix.identity().installation_keys,
-                    )
-                    .unwrap();
-                mls_group.merge_pending_commit(&provider).unwrap();
+                    ))
+                .unwrap();
+                maybe_await!(mls_group.merge_pending_commit(&provider)).unwrap();
 
                 Ok::<_, GroupError>(mls_group) // Return the updated group if necessary
             })
@@ -5173,13 +5173,13 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
     let invalid_message_bytes = invalid_payload_message.encode_to_vec();
     let message = group
         .load_mls_group_with_lock_async(async |mut mls_group| {
-            let m = mls_group
+            let m = maybe_await!(mls_group
                 .create_message(
                     &XmtpOpenMlsProviderRef::new(storage),
                     &alice.context.identity().installation_keys,
                     invalid_message_bytes.as_slice(),
-                )
-                .unwrap();
+                ))
+            .unwrap();
             Ok::<_, GroupError>(m)
         })
         .await

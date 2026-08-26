@@ -12,10 +12,10 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use xmtp_configuration::OPENMLS_KV_TARGET;
 
-// Its StorageProvider impl calls the in-memory delegate synchronously, so it only
-// type-checks in the blocking SHAPE (`blocking`), not merely the diesel backend
-// (`sync`). Gate to the blocking shape until threaded for the async shape.
-#[cfg(all(feature = "blocking", any(feature = "test-utils", test)))]
+// Its StorageProvider impl is `#[maybe_async]` (async fns on the async shape,
+// blocking on the sync shape), delegating to the in-memory `SqlKeyStore`, so it works
+// on both shapes. The enclosing `sql_key_store` module is already `sync`-gated.
+#[cfg(any(feature = "test-utils", test))]
 pub mod mock;
 mod transactions;
 

@@ -209,10 +209,10 @@ async fn test_spoofed_inbox_id() {
             )?;
             let PostCommitAction::SendWelcomes(action) = post_commit_action;
             let staged_commit = publish_intent_data.staged_commit().await.unwrap();
-            openmls_group.merge_staged_commit(
+            maybe_await!(openmls_group.merge_staged_commit(
                 &XmtpOpenMlsProviderRef::new(context.mls_storage()),
                 decode_staged_commit(staged_commit.as_slice())?,
-            )?;
+            ))?;
 
             Ok::<_, GroupError>(action)
         })

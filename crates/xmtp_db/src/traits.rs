@@ -12,10 +12,10 @@ use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
 /// this must only be used within transactions.
-// The trait is track-agnostic; the automock's `Store` names `MockSqlKeyStore`,
-// which only type-checks in the blocking SHAPE (its StorageProvider impl calls the
-// delegate synchronously), so mock generation stays gated to the blocking shape.
-#[cfg_attr(all(feature = "blocking", any(feature = "test-utils", test)), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
+// The trait is track-agnostic; the automock's `Store` names the diesel-backed
+// `MockSqlKeyStore` (`#[maybe_async]`, works on both shapes), so mock generation is
+// gated to the diesel backend (`sync`) — present on both blocking and ready-future.
+#[cfg_attr(all(feature = "sync", any(feature = "test-utils", test)), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
 pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where

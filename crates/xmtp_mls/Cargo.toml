@@ -59,7 +59,7 @@ default = ["sync", "blocking"]
 # through the whole xmtp_db-dependent chain so cargo unification does not silently
 # drag a shape back on.
 sync = ["xmtp_db/sync", "xmtp_mls_common/sync", "xmtp_archive/sync"]
-blocking = ["xmtp_db/blocking", "xmtp_mls_common/blocking", "xmtp_archive/blocking"]
+blocking = ["xmtp_db/blocking", "xmtp_mls_common/blocking", "xmtp_archive/blocking", "xmtp_api_d14n/blocking"]
 async = ["xmtp_db/async", "xmtp_mls_common/async", "xmtp_archive/async"]
 d14n = ["xmtp_api_d14n/d14n"]
 v3 = ["xmtp_api_d14n/v3"]

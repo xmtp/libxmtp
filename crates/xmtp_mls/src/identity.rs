@@ -1171,11 +1171,11 @@ mod tests {
         let pq_hash_ref_inner = pq_hash_ref.unwrap();
 
         // Make sure we can find the key package based on the post quantum public key
-        let key_package_bundle: KeyPackageBundle = provider
+        let key_package_bundle: KeyPackageBundle = maybe_await!(provider
             .storage()
-            .key_package(&pq_hash_ref_inner)
-            .unwrap()
-            .unwrap();
+            .key_package(&pq_hash_ref_inner))
+        .unwrap()
+        .unwrap();
 
         // Make sure we can find the private key based on the init key
         let serialized_hash_ref = bincode::serialize(&init_key_hash_ref.unwrap()).unwrap();
@@ -1208,7 +1208,7 @@ mod tests {
         assert!(pq_private_key.is_none());
 
         let key_package_from_db: Option<KeyPackageBundle> =
-            provider.storage().key_package(&pq_hash_ref_inner).unwrap();
+            maybe_await!(provider.storage().key_package(&pq_hash_ref_inner)).unwrap();
         assert!(key_package_from_db.is_none());
     }
 
