@@ -211,6 +211,11 @@ impl LoggingHandle {
     /// Turn off the Sentry backend: empty the slot, flush, drop the client.
     #[cfg(feature = "sentry")]
     pub fn disable_sentry(&self) -> Result<(), Error> {
+        // No-op unless we own the telemetry slot: otherwise this would tear down
+        // another owner's layer (e.g. OTLP's) without clearing its guard.
+        if self.guards.lock().sentry.is_none() {
+            return Ok(());
+        }
         self.telemetry.reload(None)?;
         // Only flush if we actually own the installed global client — a host
         // app may have installed its own Sentry client that we must not touch.

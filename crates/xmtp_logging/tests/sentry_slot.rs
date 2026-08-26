@@ -9,6 +9,12 @@ fn sentry_slot_lifecycle() {
         .install()
         .expect("first install in this process");
 
+    // disable_sentry before any enable_sentry is a no-op: it must not corrupt
+    // slot state (asserted below by a subsequent enable_sentry succeeding).
+    handle
+        .disable_sentry()
+        .expect("disable before enable is a no-op");
+
     let cfg = SentryConfig {
         // Valid-shape DSN; nothing sends without real traffic + flush.
         dsn: "https://public@example.ingest.sentry.io/1".into(),
