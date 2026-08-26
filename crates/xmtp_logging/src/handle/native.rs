@@ -13,6 +13,8 @@ use crate::config::{FileConfig, Level, TelemetryConfig};
 use crate::error::Error;
 use crate::filter::filter_directive;
 use crate::layers::file::EmptyOrFileWriter;
+#[cfg(feature = "sentry")]
+use crate::sentry::SentryConfig;
 use crate::telemetry::{self, TelemetryGuard};
 
 /// A boxed, type-erased layer over the global [`Registry`]. Used for the
@@ -55,6 +57,8 @@ pub(crate) fn build_telemetry_layer(
 pub(crate) struct Guards {
     pub(crate) file_worker: Option<WorkerGuard>,
     pub(crate) telemetry: Option<TelemetryGuard>,
+    #[cfg(feature = "sentry")]
+    pub(crate) sentry: Option<sentry::ClientInitGuard>,
 }
 
 /// Handle to the installed logging pipeline. Holds the reload handles for each
@@ -155,6 +159,12 @@ impl LoggingHandle {
     /// from `cfg`, installs it in the telemetry slot, and keeps the tracer
     /// provider guard alive. Replaces any previously-enabled telemetry layer.
     pub fn enable_telemetry(&self, cfg: TelemetryConfig) -> Result<(), Error> {
+        #[cfg(feature = "sentry")]
+        if self.guards.lock().sentry.is_some() {
+            return Err(Error::Telemetry(
+                "sentry telemetry active; disable it before enabling OTLP".into(),
+            ));
+        }
         let (trace_layer, appender, guard) = build_telemetry_layer(cfg)?;
         let combined: BoxLayer = vec![trace_layer, appender].boxed();
         self.telemetry.reload(Some(combined))?;
@@ -171,5 +181,38 @@ impl LoggingHandle {
         if let Some(t) = self.guards.lock().telemetry.as_ref() {
             t.force_flush();
         }
+        #[cfg(feature = "sentry")]
+        if self.guards.lock().sentry.is_some()
+            && let Some(client) = sentry::Hub::main().client()
+        {
+            client.flush(Some(std::time::Duration::from_secs(2)));
+        }
+    }
+
+    /// Turn on the Sentry backend at runtime. Occupies the same telemetry slot
+    /// as OTLP; the two are mutually exclusive. Replaces a prior Sentry layer.
+    #[cfg(feature = "sentry")]
+    pub fn enable_sentry(&self, cfg: SentryConfig) -> Result<(), Error> {
+        if self.guards.lock().telemetry.is_some() {
+            return Err(Error::Telemetry(
+                "OTLP telemetry active; disable it before enabling sentry".into(),
+            ));
+        }
+        let (layer, guard) = crate::sentry::build_sentry_layer(cfg)?;
+        self.telemetry.reload(Some(layer))?;
+        self.guards.lock().sentry = Some(guard);
+        Ok(())
+    }
+
+    /// Turn off the Sentry backend: empty the slot, flush, drop the client.
+    #[cfg(feature = "sentry")]
+    pub fn disable_sentry(&self) -> Result<(), Error> {
+        self.telemetry.reload(None)?;
+        if let Some(client) = sentry::Hub::main().client() {
+            client.flush(Some(std::time::Duration::from_secs(2)));
+        }
+        self.guards.lock().sentry = None;
+        crate::sentry::set_user_stable_id(None);
+        Ok(())
     }
 }

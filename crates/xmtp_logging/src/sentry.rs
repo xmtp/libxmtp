@@ -183,8 +183,6 @@ fn client_options(cfg: &SentryConfig) -> Result<sentry::ClientOptions, Error> {
     Ok(options)
 }
 
-// Wired into the telemetry slot by the builder in the next change.
-#[allow(dead_code)]
 pub(crate) fn build_sentry_layer(
     cfg: SentryConfig,
 ) -> Result<(crate::handle::BoxLayer, sentry::ClientInitGuard), Error> {
