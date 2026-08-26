@@ -724,7 +724,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
-    #[tracing::instrument(level = "debug", skip_all, fields(inbox_id = self.context.inbox_id(), with = target_inbox_id))]
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn create_dm_by_inbox_id(
         &self,
         target_inbox_id: InboxId,

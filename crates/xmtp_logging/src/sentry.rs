@@ -23,6 +23,7 @@ pub(crate) const ID_KEYS: &[(&str, &[u8])] = &[
     ("actor_installation_id", b"installation-stable-id"),
     ("message_id", b"message-stable-id"),
     ("topic", b"topic-stable-id"),
+    ("entity_id", b"entity-stable-id"),
 ];
 
 pub(crate) fn stable_id(value: &str, info: &[u8]) -> String {
@@ -253,6 +254,13 @@ mod tests {
         assert_eq!(scrub_value("sender_inbox_id", "a9be").unwrap(), hashed);
         assert!(scrub_value("cursor", "123").is_none());
         assert!(scrub_value("operation", "mls.sync").is_none());
+
+        // entity_id hashes under its own class, not inbox_id's.
+        let entity = scrub_value("entity_id", "a9be").unwrap();
+        assert_eq!(entity.len(), 64);
+        assert!(entity.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(entity, "a9be");
+        assert_ne!(entity, hashed);
 
         // Span-qualified and `tags.`-prefixed keys normalize to the same id key.
         let dm = scrub_value("dm_id", "d279").unwrap();
