@@ -6029,8 +6029,8 @@ dependencies = [
  "const-hex",
  "futures",
  "lru 0.18.2",
- "openmls 0.8.1",
- "openmls_rust_crypto 0.5.1",
+ "openmls",
+ "openmls_rust_crypto",
  "parking_lot",
  "rand 0.10.2",
  "rstest",
@@ -6343,14 +6343,14 @@ dependencies = [
  "log",
  "maybe-async",
  "once_cell",
- "openmls_basic_credential 0.5.0",
- "openmls_libcrux_crypto 0.3.1",
- "openmls_memory_storage 0.5.0",
- "openmls_rust_crypto 0.5.1",
- "openmls_serialization_helpers 0.1.0",
- "openmls_sqlite_storage 0.2.0",
- "openmls_test 0.2.1",
- "openmls_traits 0.5.0",
+ "openmls_basic_credential",
+ "openmls_libcrux_crypto",
+ "openmls_memory_storage",
+ "openmls_rust_crypto",
+ "openmls_serialization_helpers",
+ "openmls_sqlite_storage",
+ "openmls_test",
+ "openmls_traits",
  "rand 0.10.2",
  "rayon",
  "serde",
@@ -6364,57 +6364,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "openmls"
-version = "0.8.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "backtrace",
- "itertools 0.14.0",
- "log",
- "once_cell",
- "openmls_basic_credential 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_libcrux_crypto 0.3.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_memory_storage 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_rust_crypto 0.5.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_serialization_helpers 0.1.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_sqlite_storage 0.2.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_test 0.2.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "rand 0.10.2",
- "rayon",
- "serde",
- "serde_bytes",
- "serde_json",
- "thiserror 2.0.19",
- "tls_codec 0.5.0",
- "wasm-bindgen-test",
- "zeroize",
-]
-
-[[package]]
 name = "openmls_basic_credential"
 version = "0.5.0"
 dependencies = [
  "ed25519-dalek",
  "maybe-async",
  "ml-dsa",
- "openmls_traits 0.5.0",
- "p256",
- "p384",
- "rand_core 0.6.4",
- "serde",
- "tls_codec 0.5.0",
- "zeroize",
-]
-
-[[package]]
-name = "openmls_basic_credential"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "ed25519-dalek",
- "ml-dsa",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
+ "openmls_traits",
  "p256",
  "p384",
  "rand_core 0.6.4",
@@ -6437,29 +6393,8 @@ dependencies = [
  "libcrux-hmac-drbg",
  "libcrux-sha2",
  "libcrux-traits",
- "openmls_memory_storage 0.5.0",
- "openmls_traits 0.5.0",
- "rand 0.10.2",
- "tls_codec 0.5.0",
-]
-
-[[package]]
-name = "openmls_libcrux_crypto"
-version = "0.3.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "hpke-rs 0.7.0",
- "hpke-rs-crypto 0.7.0",
- "hpke-rs-libcrux 0.7.0",
- "libcrux-aead",
- "libcrux-ed25519",
- "libcrux-hkdf",
- "libcrux-hmac",
- "libcrux-hmac-drbg",
- "libcrux-sha2",
- "libcrux-traits",
- "openmls_memory_storage 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
+ "openmls_memory_storage",
+ "openmls_traits",
  "rand 0.10.2",
  "tls_codec 0.5.0",
 ]
@@ -6471,20 +6406,7 @@ dependencies = [
  "hex",
  "log",
  "maybe-async",
- "openmls_traits 0.5.0",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "openmls_memory_storage"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "hex",
- "log",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
+ "openmls_traits",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -6496,7 +6418,7 @@ version = "1.12.0-dev"
 dependencies = [
  "futures-core",
  "futures-util",
- "openmls_traits 0.5.0",
+ "openmls_traits",
  "serde",
  "sqlx",
  "thiserror 2.0.19",
@@ -6515,34 +6437,8 @@ dependencies = [
  "hpke-rs-crypto 0.7.0",
  "hpke-rs-rust-crypto 0.7.0",
  "ml-dsa",
- "openmls_memory_storage 0.5.0",
- "openmls_traits 0.5.0",
- "p256",
- "p384",
- "rand_chacha 0.3.1",
- "rand_core 0.10.1",
- "rand_core 0.6.4",
- "sha2 0.11.0",
- "thiserror 2.0.19",
- "tls_codec 0.5.0",
-]
-
-[[package]]
-name = "openmls_rust_crypto"
-version = "0.5.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "aes-gcm",
- "chacha20poly1305",
- "ed25519-dalek",
- "hkdf 0.13.0",
- "hmac 0.13.0",
- "hpke-rs 0.7.0",
- "hpke-rs-crypto 0.7.0",
- "hpke-rs-rust-crypto 0.7.0",
- "ml-dsa",
- "openmls_memory_storage 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
+ "openmls_memory_storage",
+ "openmls_traits",
  "p256",
  "p384",
  "rand_chacha 0.3.1",
@@ -6564,32 +6460,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "openmls_serialization_helpers"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "thiserror 2.0.19",
-]
-
-[[package]]
 name = "openmls_sqlite_storage"
 version = "0.2.0"
 dependencies = [
- "openmls_traits 0.5.0",
- "refinery",
- "rusqlite",
- "serde",
-]
-
-[[package]]
-name = "openmls_sqlite_storage"
-version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
+ "openmls_traits",
  "refinery",
  "rusqlite",
  "serde",
@@ -6599,23 +6473,10 @@ dependencies = [
 name = "openmls_test"
 version = "0.2.1"
 dependencies = [
- "openmls_libcrux_crypto 0.3.1",
- "openmls_rust_crypto 0.5.1",
- "openmls_sqlite_storage 0.2.0",
- "openmls_traits 0.5.0",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "openmls_test"
-version = "0.2.1"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
- "openmls_libcrux_crypto 0.3.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_rust_crypto 0.5.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_sqlite_storage 0.2.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
+ "openmls_libcrux_crypto",
+ "openmls_rust_crypto",
+ "openmls_sqlite_storage",
+ "openmls_traits",
  "quote",
  "syn 2.0.119",
 ]
@@ -6625,15 +6486,6 @@ name = "openmls_traits"
 version = "0.5.0"
 dependencies = [
  "maybe-async",
- "serde",
- "tls_codec 0.5.0",
-]
-
-[[package]]
-name = "openmls_traits"
-version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6#3fabbf23d417ac80e787ca858a5134c6ca1d9ce6"
-dependencies = [
  "serde",
  "tls_codec 0.5.0",
 ]
@@ -10879,8 +10731,8 @@ dependencies = [
  "k256",
  "lipsum",
  "num_cpus",
- "openmls 0.8.1",
- "openmls_rust_crypto 0.5.1",
+ "openmls",
+ "openmls_rust_crypto",
  "owo-colors",
  "prometheus",
  "prost",
@@ -10997,11 +10849,6 @@ dependencies = [
  "memchr",
  "nu-ansi-term",
  "num-traits",
- "openmls 0.8.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_basic_credential 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_memory_storage 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_rust_crypto 0.5.1 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
- "openmls_traits 0.5.0 (git+https://github.com/xmtp/openmls?rev=3fabbf23d417ac80e787ca858a5134c6ca1d9ce6)",
  "p256",
  "percent-encoding",
  "proc-macro2",
@@ -11092,8 +10939,8 @@ dependencies = [
  "impl-trait-for-tuples",
  "itertools 0.15.0",
  "mockall",
- "openmls 0.8.1",
- "openmls_rust_crypto 0.5.1",
+ "openmls",
+ "openmls_rust_crypto",
  "parking_lot",
  "pbjson-types",
  "pin-project",
@@ -11161,7 +11008,7 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.4.3",
- "openmls 0.8.1",
+ "openmls",
  "pin-project",
  "prost",
  "reqwest 0.13.4",
@@ -11221,7 +11068,7 @@ dependencies = [
 name = "xmtp_configuration"
 version = "1.12.0-dev"
 dependencies = [
- "openmls 0.8.1",
+ "openmls",
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",
@@ -11262,9 +11109,9 @@ dependencies = [
  "getrandom 0.3.4",
  "getrandom 0.4.3",
  "libcrux-ed25519",
- "openmls 0.8.1",
- "openmls_basic_credential 0.5.0",
- "openmls_traits 0.5.0",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_traits",
  "rand 0.10.2",
  "rand_chacha 0.10.0",
  "rustls",
@@ -11298,11 +11145,11 @@ dependencies = [
  "libsqlite3-sys",
  "maybe-async",
  "mockall",
- "openmls 0.8.1",
- "openmls_basic_credential 0.5.0",
+ "openmls",
+ "openmls_basic_credential",
  "openmls_pg_storage",
- "openmls_rust_crypto 0.5.1",
- "openmls_traits 0.5.0",
+ "openmls_rust_crypto",
+ "openmls_traits",
  "parking_lot",
  "prost",
  "rand 0.10.2",
@@ -11345,9 +11192,9 @@ dependencies = [
  "futures",
  "gloo-timers",
  "hpke-rs 0.6.1",
- "openmls 0.8.1",
- "openmls_rust_crypto 0.5.1",
- "openmls_traits 0.5.0",
+ "openmls",
+ "openmls_rust_crypto",
+ "openmls_traits",
  "p256",
  "prost",
  "regex",
@@ -11433,11 +11280,11 @@ dependencies = [
  "mockall",
  "mockito",
  "once_cell",
- "openmls 0.8.1",
- "openmls_basic_credential 0.5.0",
- "openmls_libcrux_crypto 0.3.1",
- "openmls_rust_crypto 0.5.1",
- "openmls_traits 0.5.0",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_libcrux_crypto",
+ "openmls_rust_crypto",
+ "openmls_traits",
  "owo-colors",
  "parking_lot",
  "passkey",
@@ -11493,10 +11340,10 @@ dependencies = [
  "bon",
  "const-hex",
  "hpke-rs 0.6.1",
- "openmls 0.8.1",
- "openmls_libcrux_crypto 0.3.1",
- "openmls_rust_crypto 0.5.1",
- "openmls_traits 0.5.0",
+ "openmls",
+ "openmls_libcrux_crypto",
+ "openmls_rust_crypto",
+ "openmls_traits",
  "parking_lot",
  "proptest",
  "prost",
@@ -11530,8 +11377,8 @@ dependencies = [
  "futures",
  "http 1.4.2",
  "mockall",
- "openmls 0.8.1",
- "openmls_traits 0.5.0",
+ "openmls",
+ "openmls_traits",
  "pbjson",
  "pbjson-build",
  "pbjson-types",

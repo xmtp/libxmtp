@@ -1,3 +1,4 @@
+use futures::FutureExt as _;
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -121,7 +122,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = consentState)]
   pub fn consent_state(&self) -> Result<ConsentState, JsError> {
     let group = self.to_mls_group();
-    let state = group.consent_state().map_err(ErrorWrapper::js)?;
+    let state = group.consent_state().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(state.into())
   }
@@ -132,7 +133,7 @@ impl Conversation {
 
     group
       .update_consent_state(state.into())
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(())
   }

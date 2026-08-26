@@ -65,11 +65,6 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["libm"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9", default-features = false, features = ["serde", "thread_rng"] }
@@ -158,11 +153,6 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["libm"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }

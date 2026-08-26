@@ -1,3 +1,4 @@
+use futures::FutureExt as _;
 use crate::ErrorWrapper;
 use crate::client::{GroupSyncSummary, RustXmtpClient};
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
@@ -238,7 +239,7 @@ impl DeviceSync {
       .inner_client
       .device_sync_client()
       .list_available_archives(days_cutoff)
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(available.into_iter().map(Into::into).collect())
   }

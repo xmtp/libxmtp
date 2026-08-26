@@ -1,3 +1,4 @@
+use futures::FutureExt as _;
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
 use prost::Message as ProstMessage;
@@ -290,7 +291,7 @@ impl Conversation {
     let message_id = match opts.optimistic {
       Some(true) => group
         .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
-        .map_err(ErrorWrapper::js)?,
+        .await.map_err(ErrorWrapper::js)?,
       _ => group
         .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
         .await
@@ -317,7 +318,7 @@ impl Conversation {
         should_push,
         idempotency_key,
       )
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
     Ok(hex::encode(message_id))
   }
 
@@ -489,7 +490,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let messages: Vec<Message> = group
       .find_messages(&opts.into())
-      .map_err(ErrorWrapper::js)?
+      .await.map_err(ErrorWrapper::js)?
       .into_iter()
       .map(Into::into)
       .collect();
@@ -504,7 +505,7 @@ impl Conversation {
     let query_args = opts.into();
     let count = group
       .count_messages(&query_args)
-      .map_err(ErrorWrapper::js)?;
+      .await.map_err(ErrorWrapper::js)?;
 
     Ok(count)
   }
@@ -545,14 +546,14 @@ impl Conversation {
   #[wasm_bindgen(js_name = membershipState)]
   pub fn membership_state(&self) -> Result<GroupMembershipState, JsError> {
     let group = self.to_mls_group();
-    let state = group.membership_state().map_err(ErrorWrapper::js)?;
+    let state = group.membership_state().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
     Ok(state.into())
   }
 
   #[wasm_bindgen(js_name = adminList)]
   pub fn admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
-    let admin_list = group.admin_list().map_err(ErrorWrapper::js)?;
+    let admin_list = group.admin_list().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(admin_list)
   }
@@ -560,7 +561,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = superAdminList)]
   pub fn super_admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
-    let super_admin_list = group.super_admin_list().map_err(ErrorWrapper::js)?;
+    let super_admin_list = group.super_admin_list().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(super_admin_list)
   }
@@ -661,7 +662,7 @@ impl Conversation {
   pub fn group_permissions(&self) -> Result<GroupPermissions, JsError> {
     let group = self.to_mls_group();
 
-    let permissions = group.permissions().map_err(ErrorWrapper::js)?;
+    let permissions = group.permissions().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(permissions.into())
   }
@@ -743,14 +744,14 @@ impl Conversation {
   #[wasm_bindgen(js_name = proposalsEnabled)]
   pub fn proposals_enabled(&self) -> Result<bool, JsError> {
     let group = self.to_mls_group();
-    group.is_proposals_enabled().map_err(ErrorWrapper::js)
+    group.is_proposals_enabled().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = groupName)]
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let group_name = group.group_name().map_err(ErrorWrapper::js)?;
+    let group_name = group.group_name().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(group_name)
   }
@@ -771,7 +772,7 @@ impl Conversation {
   pub fn app_data(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let app_data = group.app_data().map_err(ErrorWrapper::js)?;
+    let app_data = group.app_data().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(app_data)
   }
@@ -795,7 +796,7 @@ impl Conversation {
   pub fn group_image_url_square(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let group_image_url_square = group.group_image_url_square().map_err(ErrorWrapper::js)?;
+    let group_image_url_square = group.group_image_url_square().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(group_image_url_square)
   }
@@ -819,7 +820,7 @@ impl Conversation {
   pub fn group_description(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let group_description = group.group_description().map_err(ErrorWrapper::js)?;
+    let group_description = group.group_description().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(group_description)
   }
@@ -849,21 +850,21 @@ impl Conversation {
   pub fn is_active(&self) -> Result<bool, JsError> {
     let group = self.to_mls_group();
 
-    group.is_active().map_err(ErrorWrapper::js)
+    group.is_active().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = pausedForVersion)]
   pub fn paused_for_version(&self) -> Result<Option<String>, JsError> {
     let group = self.to_mls_group();
 
-    group.paused_for_version().map_err(ErrorWrapper::js)
+    group.paused_for_version().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = addedByInboxId)]
   pub fn added_by_inbox_id(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    group.added_by_inbox_id().map_err(ErrorWrapper::js)
+    group.added_by_inbox_id().now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = groupMetadata)]
@@ -951,7 +952,7 @@ impl Conversation {
     let settings = self
       .inner_group
       .disappearing_settings()
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     match settings {
       Some(s) => Ok(Some(s.into())),
@@ -975,13 +976,15 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in dms {
       let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
+        .now_or_never()
+        .expect("diesel-backed storage future is ready on wasm")
         .map_err(ErrorWrapper::js)?
         .into_iter()
         .map(Into::into)
@@ -991,7 +994,7 @@ impl Conversation {
 
     let keys = group
       .hmac_keys(-1..=1)
-      .map_err(ErrorWrapper::js)?
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?
       .into_iter()
       .map(Into::into)
       .collect::<Vec<HmacKey>>();
@@ -1023,7 +1026,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(ErrorWrapper::js)?;
+      .await.map_err(ErrorWrapper::js)?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
@@ -1039,7 +1042,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let messages: Result<Vec<DecodedMessage>, _> = group
       .find_messages_v2(&opts.into())
-      .map_err(ErrorWrapper::js)?
+      .await.map_err(ErrorWrapper::js)?
       .into_iter()
       .map(|msg| msg.try_into())
       .collect();
@@ -1050,7 +1053,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = getLastReadTimes)]
   pub async fn get_last_read_times(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
-    let times = group.get_last_read_times().map_err(ErrorWrapper::js)?;
+    let times = group.get_last_read_times().await.map_err(ErrorWrapper::js)?;
 
     Ok(crate::to_value(&times)?)
   }

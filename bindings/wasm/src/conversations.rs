@@ -1,3 +1,4 @@
+use futures::FutureExt as _;
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -374,7 +375,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(group.into())
   }
@@ -457,7 +458,7 @@ impl Conversations {
     let group = self
       .inner_client
       .stitched_group(&group_id)
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(group.into())
   }
@@ -470,7 +471,7 @@ impl Conversations {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(target_inbox_id)
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(convo.into())
   }
@@ -485,7 +486,7 @@ impl Conversations {
     let message = self
       .inner_client
       .message(message_id)
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(message.into())
   }
@@ -500,7 +501,7 @@ impl Conversations {
     let message = self
       .inner_client
       .message_v2(message_id)
-      .map_err(ErrorWrapper::js)?;
+      .await.map_err(ErrorWrapper::js)?;
 
     message.try_into()
   }
@@ -515,7 +516,7 @@ impl Conversations {
     let deleted_count = self
       .inner_client
       .delete_message(message_id)
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     Ok(deleted_count as u32)
   }
@@ -553,7 +554,7 @@ impl Conversations {
     let convo_list: js_sys::Array = self
       .inner_client
       .list_conversations(opts.unwrap_or_default().into())
-      .map_err(ErrorWrapper::js)?
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?
       .into_iter()
       .map(|group| {
         JsValue::from(ConversationListItem::new(
@@ -571,17 +572,19 @@ impl Conversations {
   pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
     let inner = self.inner_client.as_ref();
     let conversations = inner
-      .find_groups(&GroupQueryArgs {
+      .find_groups(GroupQueryArgs {
         include_duplicate_dms: true,
         ..Default::default()
       })
-      .map_err(ErrorWrapper::js)?;
+      .now_or_never().expect("diesel-backed storage future is ready on wasm").map_err(ErrorWrapper::js)?;
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in conversations {
       let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
+        .now_or_never()
+        .expect("diesel-backed storage future is ready on wasm")
         .map_err(ErrorWrapper::js)?
         .into_iter()
         .map(Into::into)
