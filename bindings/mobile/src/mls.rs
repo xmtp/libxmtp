@@ -3927,7 +3927,15 @@ impl FfiStreamCloser {
 impl FfiStreamCloser {
     /// Signal the stream to end
     /// Does not wait for the stream to end.
-    #[tracing::instrument(level = "debug", name = "end_stream", skip_all)]
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(
+            operation = "stream.end_stream",
+            sentry.op = "stream",
+            sentry.name = "stream.end_stream"
+        )
+    )]
     pub fn end(&self) {
         self.abort_handle.end();
     }
