@@ -10991,8 +10991,6 @@ dependencies = [
  "rustls-pki-types",
  "rustls-webpki",
  "sec1",
- "sentry",
- "sentry-core",
  "serde",
  "serde_core",
  "serde_json",
