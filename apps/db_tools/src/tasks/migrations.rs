@@ -86,7 +86,7 @@ mod tests {
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
 
-        let bo_dm = bo.group(&dm.group_id)?;
+        let bo_dm = bo.group(&dm.group_id).await?;
         let bo_msgs = bo_dm.find_messages(&Default::default()).await?;
         assert_eq!(bo_msgs.len(), 2);
 

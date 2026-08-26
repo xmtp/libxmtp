@@ -62,7 +62,7 @@ impl Validator for NoForkedGroups {
                 // Skip clients that aren't active members. A removed
                 // client's frozen local commit-log diverges from the
                 // live one by design; that's not a fork worth flagging.
-                let is_active = match client.group(gid).ok() {
+                let is_active = match client.group(gid).await.ok() {
                     Some(g) => g.is_active().await.unwrap_or(false),
                     None => false,
                 };

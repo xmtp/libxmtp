@@ -200,7 +200,7 @@ impl GenerateMessages {
             .get(&group.created_by)
             .ok_or(eyre!("group has no owner"))?;
         let owner = owner.lock().await;
-        let owner_group = owner.group(&group.id()).wrap_err(format!(
+        let owner_group = owner.group(&group.id()).await.wrap_err(format!(
             "owner {} of group {} failed to look up in sqlite db",
             hex::encode(group.created_by),
             group.id()
@@ -240,7 +240,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let mls_group = client.group(&group.id())?;
+            let mls_group = client.group(&group.id()).await?;
             mls_group.sync_with_conn().await?;
             mls_group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..10);
@@ -343,7 +343,7 @@ impl GenerateMessages {
             .ok_or(eyre!("client does not exist"))?;
         let client = client.lock().await;
         client.sync_welcomes().await?;
-        let mls_group = client.group(&stored_group.id())?;
+        let mls_group = client.group(&stored_group.id()).await?;
         mls_group.sync_with_conn().await?;
         mls_group.maybe_update_installations(None).await?;
         let words = rng.random_range(0..*max_message_size);

@@ -479,7 +479,7 @@ impl HealthContext {
             Vec::new();
         for hc in self.existing_clients.iter() {
             let client = hc.realize(&self.id_store)?;
-            let Ok(group) = client.group(group_id) else {
+            let Ok(group) = client.group(group_id).await else {
                 continue;
             };
             if !group.is_active().await.unwrap_or(false) {

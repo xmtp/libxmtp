@@ -1,4 +1,5 @@
 use crate::{ErrorWrapper, conversation::Conversation};
+use futures::FutureExt;
 use napi::bindgen_prelude::{BigInt, Result};
 use napi_derive::napi;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
@@ -61,9 +62,17 @@ impl Conversation {
   #[napi]
   #[xmtp_common::err_span]
   pub fn message_disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>> {
+    // `disappearing_settings` is `async` in the storage-trait shape, but on the
+    // SQLite (sync) storage track every await resolves synchronously, so the
+    // future is ready on its first poll. `now_or_never` drives it to completion
+    // with no executor, keeping this FFI method a plain sync `fn` that the SDKs
+    // call synchronously. If the sync track is retired this becomes a real
+    // `.await` (and the SDK signatures move with it).
     let settings = self
       .create_mls_group()
       .disappearing_settings()
+      .now_or_never()
+      .expect("sqlite storage futures resolve synchronously")
       .map_err(ErrorWrapper::from)?;
 
     match settings {

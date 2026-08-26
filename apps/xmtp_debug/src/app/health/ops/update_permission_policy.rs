@@ -22,7 +22,7 @@ impl HealthOp for UpdatePermissionPolicy {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
-                .group(&gid)?
+                .group(&gid).await?
                 .update_permission_policy(
                     PermissionUpdateType::AddMember,
                     PermissionPolicyOption::Allow,

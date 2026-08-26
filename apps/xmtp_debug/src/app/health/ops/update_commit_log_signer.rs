@@ -23,7 +23,7 @@ impl HealthOp for UpdateCommitLogSigner {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             let signer: Secret = vec![0u8; 32].into();
             primary
-                .group(&gid)?
+                .group(&gid).await?
                 .update_commit_log_signer(signer)
                 .await?;
             Ok(())

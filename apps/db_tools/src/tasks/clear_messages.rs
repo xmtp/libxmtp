@@ -43,7 +43,7 @@ mod tests {
             .await?;
 
         alix.sync_all_welcomes_and_groups(None).await?;
-        let alix_bo_dm = alix.group(&bo_alix_dm.group_id)?;
+        let alix_bo_dm = alix.group(&bo_alix_dm.group_id).await?;
         let alix_group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;

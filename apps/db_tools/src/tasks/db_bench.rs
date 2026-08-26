@@ -5,7 +5,6 @@ use xmtp_db::{
     association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
     conversation_list::QueryConversationList,
-    diesel::Connection,
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
     group_intent::{IntentKind, IntentState, QueryGroupIntent},
     group_message::{MsgQueryArgs, QueryGroupMessage, RelationQuery},
@@ -115,7 +114,7 @@ where
         last_result.unwrap()
     }
 
-    pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
+    pub async fn bench(&mut self) -> Result<Vec<Result<()>>> {
         let mut results = vec![];
         // The benches are async now, so the enclosing transaction has to be the
         // storage provider's (which drives the await-free sqlite futures to
@@ -146,7 +145,8 @@ where
             results.push(self.bench_group_version_queries().await);
 
             Ok(TransactionOutcome::Rollback)
-        })?;
+        })
+        .await?;
 
         self.print_results();
 
@@ -738,7 +738,7 @@ mod tests {
         alix.test_talk_in_dm_with(&bo).await?;
 
         let mut bencher = DbBencher::new(alix.context.store().clone()).await?;
-        let result = bencher.bench()?;
+        let result = bencher.bench().await?;
         assert!(result.iter().all(|r| r.is_ok()));
     }
 }

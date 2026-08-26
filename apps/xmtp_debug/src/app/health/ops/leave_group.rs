@@ -41,12 +41,12 @@ impl HealthOp for LeaveGroup {
             // Primary adds the transient to the group, then transient
             // syncs the welcome and leaves.
             let primary = ctx.primary()?;
-            let primary_group = primary.group(&gid)?;
+            let primary_group = primary.group(&gid).await?;
             primary_group
                 .add_members(&[transient.inbox_id().to_string()])
                 .await?;
             transient.sync_welcomes().await?;
-            let transient_group = transient.group(&gid)?;
+            let transient_group = transient.group(&gid).await?;
             transient_group.leave_group().await?;
             Ok(())
         }

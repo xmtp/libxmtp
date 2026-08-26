@@ -22,7 +22,7 @@ impl HealthOp for UpdateMessageDisappearing {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
-                .group(&gid)?
+                .group(&gid).await?
                 .update_conversation_message_disappearing_settings(
                     MessageDisappearingSettings::new(1, 86_400_000_000_000),
                 )
@@ -49,7 +49,7 @@ impl HealthOp for RemoveMessageDisappearing {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
-                .group(&gid)?
+                .group(&gid).await?
                 .remove_conversation_message_disappearing_settings()
                 .await?;
             Ok(())

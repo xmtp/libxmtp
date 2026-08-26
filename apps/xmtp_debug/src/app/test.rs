@@ -316,7 +316,7 @@ impl Test {
         let mut welcome_attempts = 0;
         loop {
             client2.sync_welcomes().await?;
-            if client2.group(&group.group_id).is_ok() {
+            if client2.group(&group.group_id).await.is_ok() {
                 break;
             }
             welcome_attempts += 1;
@@ -355,7 +355,7 @@ impl Test {
 
         // Step 5: user2 syncs the group and retrieves messages (measure this)
         info!("receiver syncing group");
-        let receiver_group = client2.group(&group.group_id)?;
+        let receiver_group = client2.group(&group.group_id).await?;
 
         let sync_start = Instant::now();
         receiver_group.sync().await?;

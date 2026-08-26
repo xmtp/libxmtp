@@ -53,7 +53,7 @@ impl Validator for NoMissingMessages {
                 continue;
             }
             for client in &clients {
-                let Ok(mls_group) = client.group(group_id) else {
+                let Ok(mls_group) = client.group(group_id).await else {
                     continue;
                 };
                 // Skip clients that left or were removed: their local view

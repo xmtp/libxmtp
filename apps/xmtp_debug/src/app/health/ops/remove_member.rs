@@ -42,7 +42,7 @@ impl HealthOp for RemoveMember {
             // Primary adds the victim, then admin-removes them via
             // `remove_members`. Both commits go through primary.
             let primary = ctx.primary()?;
-            let primary_group = primary.group(&gid)?;
+            let primary_group = primary.group(&gid).await?;
             primary_group
                 .add_members(std::slice::from_ref(&victim_inbox))
                 .await?;

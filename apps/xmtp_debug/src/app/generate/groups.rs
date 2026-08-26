@@ -225,7 +225,7 @@ async fn check_member_visibility(group_id: &GroupId, invitee: &Identity) -> Resu
 
     loop {
         reader_client.sync_welcomes().await?;
-        if reader_client.group(group_id).is_ok() {
+        if reader_client.group(group_id).await.is_ok() {
             visible = true;
             break;
         }

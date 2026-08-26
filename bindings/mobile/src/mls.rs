@@ -8,6 +8,7 @@ use crate::message::{
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
 use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
+use futures::FutureExt;
 use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -3123,7 +3124,16 @@ impl FfiConversation {
     pub fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<Option<FfiMessageDisappearingSettings>, FfiError> {
-        let settings = self.inner.disappearing_settings()?;
+        // `disappearing_settings` is async in the storage-trait shape but resolves
+        // synchronously on the sqlite (sync) track, so the future is ready on its
+        // first poll. `now_or_never` drives it with no executor, keeping this a
+        // sync uniffi export (the SDKs call it synchronously). Retiring the sync
+        // track turns this into a real `.await`.
+        let settings = self
+            .inner
+            .disappearing_settings()
+            .now_or_never()
+            .expect("sqlite storage futures resolve synchronously")?;
 
         match settings {
             Some(s) => Ok(Some(FfiMessageDisappearingSettings::from(s))),

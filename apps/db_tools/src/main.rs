@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     match &args.task {
         Task::QueryBench => {
             tracing::info!("Running query bench task.");
-            manager.new_bencher().await?.bench()?;
+            manager.new_bencher().await?.bench().await?;
         }
         Task::DbVacuum => {
             let target =

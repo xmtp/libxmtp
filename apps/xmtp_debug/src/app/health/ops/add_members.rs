@@ -31,7 +31,7 @@ impl HealthOp for AddMembersToNewGroup {
         let mut out = ctx
             .for_new_group(self.name(), |ctx, primary, gid| {
                 async move {
-                    let group = primary.group(&gid)?;
+                    let group = primary.group(&gid).await?;
                     let inbox_ids: Vec<String> = ctx
                         .existing_clients
                         .iter()

@@ -56,7 +56,7 @@ impl Modify {
                 )
             })?;
         let admin = app::client_from_identity(&identity)?;
-        let group = admin.group(&local_group.id())?;
+        let group = admin.group(&local_group.id()).await?;
         match action {
             Remove => {
                 let Some(inbox_id) = inbox_id else {
@@ -172,7 +172,7 @@ async fn add_members_from_redb(
             )
         })?;
     let actor_client = app::client_from_identity(&actor_identity)?;
-    let group = actor_client.group(&local_group.id())?;
+    let group = actor_client.group(&local_group.id()).await?;
 
     let inbox_ids: Vec<String> = candidates
         .iter()

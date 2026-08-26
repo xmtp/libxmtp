@@ -45,7 +45,7 @@ impl Send {
 
         let client = crate::app::client_from_identity(&identity)?;
         client.sync_welcomes().await?;
-        let xmtp_group = client.group(&group.id())?;
+        let xmtp_group = client.group(&group.id()).await?;
         xmtp_group
             .send_message(
                 data.as_bytes(),

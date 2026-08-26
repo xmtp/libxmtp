@@ -26,7 +26,7 @@ impl HealthOp for SendMessage {
             .for_each_client_group(self.name(), |client, gid| async move {
                 // Non-membership = client.group(gid) errors. Pass with no
                 // send so we distinguish "not in group" from "send broke".
-                let Ok(group) = client.group(&gid) else {
+                let Ok(group) = client.group(&gid).await else {
                     return Ok(());
                 };
                 if !group.is_active().await? {
