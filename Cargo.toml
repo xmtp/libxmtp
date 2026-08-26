@@ -24,6 +24,18 @@ exclude = [
   # xmtp_db_pg_tests: it depends on xmtp_mls/xmtp_db with `sync` OFF, which is
   # impossible from inside this workspace.
   "crates/xmtp_mls_pg_tests",
+  # The sqlx/Postgres OpenMLS storage provider. It implements openmls's own
+  # `StorageProvider`, whose shape rides the global `maybe-async/is_sync` switch
+  # (it and openmls core are `#[maybe_async]`). Its impl is hard `async fn`, so
+  # it type-checks only when `is_sync` is OFF. A default (`sync`) `--workspace`
+  # build unifies `openmls_traits/sync` onto the single shared instance from the
+  # many sync consumers, collapsing that trait to blocking -> every method
+  # mismatches (E0053). Excluded so the sync build never force-compiles it; it is
+  # still built by `xmtp_db`'s `async` feature as a PATH dependency (resolved
+  # against this workspace's lockfile + `[patch]`, so a single `openmls_traits`
+  # instance). Retiring the split entirely would mean making the whole client
+  # stack always-async (ready-future SQLite) -- a separate, larger decision.
+  "crates/openmls_pg_storage",
 ]
 
 # Default members must be part of workspace hack to maximize cache hits in CI/nix/crane
