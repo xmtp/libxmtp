@@ -5036,13 +5036,13 @@ macro_rules! generate_commit_with_rollback_body {
     }};
 }
 
-/// Async (Postgres) track. The operation runs openmls ops that are `async`
-/// here, so it is an async closure whose future is awaited inside the (Send)
-/// transaction future and must itself be `Send`. That is expressed by naming
-/// the closure's `CallOnceFuture` and requiring it `MaybeSend`, which needs
-/// this crate's async-track nightly features. See
+/// sqlx/Postgres track ONLY. There the diesel `drive_to_completion` path does not
+/// exist; the operation's future is genuinely awaited inside the (Send) transaction
+/// future and must itself be `Send`. That is expressed by naming the closure's
+/// `CallOnceFuture` and requiring it `MaybeSend`, which needs this crate's
+/// nightly features (herald/server runs a `RUSTC_BOOTSTRAP=1` toolchain). See
 /// [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(not(feature = "blocking"))]
+#[cfg(all(feature = "async", not(feature = "sync")))]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,
@@ -5065,12 +5065,14 @@ where
     generate_commit_with_rollback_body!(storage, openmls_group, operation)
 }
 
-/// Sync (SQLite) track. openmls ops are blocking here, so the operation closure
-/// yields a ready future with no real awaits; the stable `AsyncFnOnce` sugar is
-/// all that's needed and there is no `CallOnceFuture: Send` requirement (naming
-/// it would need nightly features the stable toolchain can't enable). See
+/// Diesel/SQLite backend, either shape (blocking OR ready-future is_sync-off). Both
+/// drive the operation future to completion synchronously inside the diesel
+/// transaction (`drive_to_completion`), so it never crosses an await and needs no
+/// `CallOnceFuture: Send` bound — the stable `AsyncFnOnce` sugar is all that is
+/// needed (naming `CallOnceFuture` would need nightly the stable toolchain can't
+/// enable). This is the STABLE path the shipping bindings compile. See
 /// [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(feature = "blocking")]
+#[cfg(any(feature = "blocking", feature = "sync"))]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,

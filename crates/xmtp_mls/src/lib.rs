@@ -1,11 +1,15 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
-// Async-track only: naming an async closure's `CallOnceFuture` to bound it `Send`
-// for `generate_commit_with_rollback`'s operation closure needs these unstable
-// features (built with a nightly / `RUSTC_BOOTSTRAP=1` toolchain). The stable sync
-// track never enables them (its `generate_commit_with_rollback` omits that bound).
+// sqlx/Postgres track ONLY: naming an async closure's `CallOnceFuture` to bound it
+// `Send` for `generate_commit_with_rollback`'s operation closure needs these
+// unstable features (built with a nightly / `RUSTC_BOOTSTRAP=1` toolchain). Neither
+// the blocking track NOR the ready-future SQLite track (`sync` backend, is_sync off)
+// needs them: both drive the operation future to completion synchronously inside the
+// diesel transaction (`drive_to_completion`), so it never crosses an await and never
+// has to be `Send` — those tracks build on STABLE. Only the sqlx transaction genuinely
+// awaits the closure inside a `Send` future.
 #![cfg_attr(
-    not(feature = "blocking"),
+    all(feature = "async", not(feature = "sync")),
     feature(async_fn_traits, unboxed_closures)
 )]
 
