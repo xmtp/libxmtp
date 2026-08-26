@@ -70,9 +70,11 @@ pub fn span(
     expand_with_prefix(&args.prefix, input_fn).into()
 }
 
-/// `#[err_span]` → trace-level `#[tracing::instrument(skip_all, err)]` plus
-/// `sentry.op = "ffi"` / `sentry.name = "<fn_name>"`, and — on async fns — a
-/// fresh Sentry Hub bound around the body. `extern`-ABI fns pass through untouched.
+/// `#[err_span]` → trace-level `#[tracing::instrument(skip_all)]` plus
+/// `sentry.op = "ffi"` / `sentry.name = "<fn_name>"`, and an ERROR event on an
+/// `Err` return. Async fns additionally get a fresh Sentry Hub bound around the
+/// body, with the error event raised inside it. `extern`-ABI fns pass through
+/// untouched.
 pub fn err_span(
     _attr: proc_macro::TokenStream,
     body: proc_macro::TokenStream,
@@ -89,10 +91,25 @@ pub fn err_span(
     // An outer `#[async_trait]` desugars the fn first, so this would see a sync fn and skip the wrap (no such site today).
     if input_fn.sig.asyncness.is_some() {
         let block = &input_fn.block;
+        // The error event is emitted here, not by `instrument(err)`: `err` fires
+        // after the awaited body returns, by which point the task hub is gone and
+        // the event Sentry promotes to an issue carries none of its breadcrumbs.
         let wrapped: syn::Block = syn::parse_quote! {{
-            ::xmtp_common::bind_task_hub(async move #block).await
+            ::xmtp_common::bind_task_hub(async move {
+                let __xmtp_result = async move #block.await;
+                if let Err(__xmtp_err) = &__xmtp_result {
+                    tracing::error!(error = %__xmtp_err, "{}", #name);
+                }
+                __xmtp_result
+            })
+            .await
         }};
         *input_fn.block = wrapped;
+        return quote! {
+            #[tracing::instrument(level = "trace", skip_all, fields(sentry.op = "ffi", sentry.name = #name))]
+            #input_fn
+        }
+        .into();
     }
     quote! {
         #[tracing::instrument(level = "trace", skip_all, err, fields(sentry.op = "ffi", sentry.name = #name))]

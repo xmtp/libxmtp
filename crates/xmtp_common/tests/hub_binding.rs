@@ -1,6 +1,7 @@
 //! Behavioral cover for `bind_task_hub` (and the `#[err_span]` wrap that uses it):
-//! per-task breadcrumb isolation, and inner spans staying children of the FFI
-//! transaction rather than re-rooting as transactions of their own.
+//! per-task breadcrumb isolation, inner spans staying children of the FFI
+//! transaction rather than re-rooting as transactions of their own, and the
+//! FFI error event carrying the trail its own call accumulated.
 #![cfg(not(target_arch = "wasm32"))]
 
 use sentry_core::protocol::EnvelopeItem;
@@ -128,5 +129,52 @@ fn err_span_hub_keeps_inner_spans_under_the_ffi_transaction() {
     assert_eq!(
         transactions[0].1, 1,
         "expected mls.inner_op as a child span: {transactions:?}"
+    );
+}
+
+#[xmtp_common::err_span]
+async fn ffi_failing_op() -> Result<(), std::io::Error> {
+    crumb("E-1".to_string());
+    yield_once().await;
+    crumb("E-2".to_string());
+    Err(std::io::Error::other("boom"))
+}
+
+/// The error event an `#[err_span]` fn emits is the one Sentry promotes to an
+/// issue, so it has to fire while the task hub is still bound — otherwise the
+/// trail the call accumulated is on a hub nobody looks at.
+#[xmtp_common::test(unwrap_try = true)]
+fn err_span_error_event_carries_the_task_hub_trail() {
+    let transport = bind_test_client();
+    let layer = sentry_tracing::layer()
+        .span_filter(|meta| meta.fields().field("sentry.op").is_some())
+        .event_filter(|meta| match *meta.level() {
+            tracing::Level::ERROR => sentry_tracing::EventFilter::Event,
+            _ => sentry_tracing::EventFilter::Ignore,
+        });
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), || {
+        futures::executor::block_on(ffi_failing_op()).unwrap_err();
+    });
+
+    let events = transport.fetch_and_clear_events();
+    // Exactly one: the manual event replaces `instrument(err)`'s, never doubles it.
+    assert_eq!(
+        events.len(),
+        1,
+        "expected exactly one FFI error event: {events:?}"
+    );
+    let crumbs: Vec<&str> = events[0]
+        .breadcrumbs
+        .iter()
+        .filter_map(|b| b.message.as_deref())
+        .collect();
+    assert_eq!(
+        crumbs,
+        ["E-1", "E-2"],
+        "error event captured off the task hub, without its trail"
+    );
+    assert!(
+        events[0].contexts.contains_key("trace"),
+        "error event lost the FFI span's trace context: {events:?}"
     );
 }
