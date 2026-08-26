@@ -28,6 +28,11 @@ mod telemetry;
 #[cfg(not(target_arch = "wasm32"))]
 pub use telemetry::{SCOPE, TelemetryGuard, init};
 
+#[cfg(all(feature = "sentry", not(target_arch = "wasm32")))]
+pub mod sentry;
+#[cfg(all(feature = "sentry", not(target_arch = "wasm32")))]
+pub use sentry::SentryConfig;
+
 // Test subscriber, behind the `test-utils` feature. `logger_layer` is the native
 // layer used by binding test harnesses; the browser only needs `logger`.
 #[cfg(feature = "test-utils")]
