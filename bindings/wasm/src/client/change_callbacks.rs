@@ -110,6 +110,7 @@ impl From<UnstableChangeCallbacks> for RustUnstableChangeCallbacks {
         .app_data
         .take()
         .map(|cb| Arc::new(cb) as Arc<dyn RustAppDataChangeCallback>),
+      ..Default::default()
     }
   }
 }

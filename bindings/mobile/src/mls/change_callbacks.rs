@@ -67,6 +67,7 @@ impl From<FfiUnstableChangeCallbacks> for UnstableChangeCallbacks {
             app_data: callbacks
                 .app_data
                 .map(|cb| Arc::new(FfiAppDataChangeCallbackBridge::new(cb)) as _),
+            ..Default::default()
         }
     }
 }
