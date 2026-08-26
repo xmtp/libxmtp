@@ -62,10 +62,10 @@ describe("resolveSdkVersion", () => {
         base: "1.10.0",
         pending,
         releaseType: "nightly",
-        nightlyDate: "20260603",
+        timestamp: "20260603060000",
         shortSha: "abc1234",
       }),
-    ).toBe("1.11.0-nightly.20260603.abc1234");
+    ).toBe("1.11.0-pre.20260603060000.nightly.abc1234");
   });
 
   it("independent nightly previews the next number on its own base", () => {
@@ -75,13 +75,13 @@ describe("resolveSdkVersion", () => {
         base: "4.10.0",
         pending,
         releaseType: "nightly",
-        nightlyDate: "20260603",
+        timestamp: "20260603060000",
         shortSha: "abc1234",
       }),
-    ).toBe("4.11.0-nightly.20260603.abc1234");
+    ).toBe("4.11.0-pre.20260603060000.nightly.abc1234");
   });
 
-  it("nightly requires date and sha", () => {
+  it("nightly requires timestamp and sha", () => {
     expect(() =>
       resolveSdkVersion({
         track: "independent",

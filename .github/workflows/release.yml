@@ -65,6 +65,7 @@ jobs:
       release-type: ${{ steps.resolve.outputs.release-type }}
       ref: ${{ steps.resolve.outputs.ref }}
       branch: ${{ steps.branch.outputs.branch }}
+      timestamp: ${{ steps.timestamp.outputs.timestamp }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
@@ -116,6 +117,20 @@ jobs:
         env:
           REF: ${{ steps.resolve.outputs.ref }}
         run: echo "branch=${REF#refs/heads/}" >> "$GITHUB_OUTPUT"
+      # ONE stamp for the whole run. Each SDK computes its version in its own
+      # job, minutes apart — if each called `date` itself, `@xmtp/node-sdk` and
+      # `@xmtp/node-bindings` from a single run would carry different
+      # `pre.<ts>.…` suffixes and break the consumers' same-suffix lockstep
+      # guards (they assert whole-suffix equality). Minted once here and
+      # threaded into every fan-out below.
+      #
+      # Second precision, not minute: the stamp is the semver ordering key, so
+      # two runs sharing one stamp fall through to comparing `dev` vs `nightly`
+      # (alphabetical — a newer dev would sort BELOW an older nightly) and then
+      # sha. Seconds keep separate runs on separate keys.
+      - name: Mint release timestamp
+        id: timestamp
+        run: echo "timestamp=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
       - name: Validate dev release
         if: steps.resolve.outputs.release-type == 'dev'
         env:
@@ -155,7 +170,7 @@ jobs:
           set -euo pipefail
           HEAD_SHA=$(gh api "repos/${REPO}/commits/${REF}" --jq '.sha[0:7]')
           LAST_TAG=$(gh api "repos/${REPO}/git/matching-refs/tags/ios-" \
-            --jq '[.[] | .ref | sub("refs/tags/"; "")] | map(select(test("-nightly\\."))) | sort | last // ""')
+            --jq '[.[] | .ref | sub("refs/tags/"; "")] | map(select(test("-pre\\..*\\.nightly\\."))) | sort | last // ""')
           if [ -n "$LAST_TAG" ]; then
             LAST_SHA=$(echo "$LAST_TAG" | grep -oE '[0-9a-f]{7}$' || true)
             if [ "$LAST_SHA" = "$HEAD_SHA" ]; then
@@ -194,6 +209,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
     secrets: inherit
@@ -211,6 +227,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
     secrets: inherit
@@ -227,6 +244,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
@@ -244,6 +262,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
@@ -264,6 +283,7 @@ jobs:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
       ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
@@ -440,10 +460,13 @@ jobs:
       - name: Compute libxmtp hub version
         id: hubver
         if: steps.guard.outputs.should-release == 'true'
+        env:
+          TIMESTAMP: ${{ needs.validate.outputs.timestamp }}
         run: |
           set -euo pipefail
           VERSION=$(xmtp-release resolve-sdk-version \
             --sdk libxmtp --release-type nightly \
+            --timestamp "$TIMESTAMP" \
             --pending-version "${{ needs.plan.outputs.version }}" \
             --pending-kind "${{ needs.plan.outputs.kind }}")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -456,14 +479,17 @@ jobs:
           git cliff --version
       # Per-nightly changelog: the delta since the PREVIOUS nightly tag (not
       # since the last stable). Computed BEFORE tagging this run, so the newest
-      # existing v*-nightly.* tag is genuinely the prior nightly. First-ever
-      # nightly (no prior nightly tag) falls back to since-last-stable.
+      # existing nightly tag is genuinely the prior nightly. Both eras are
+      # globbed — legacy `v*-nightly.<date>.<sha>` and unified
+      # `v*-pre.<ts>.nightly.<sha>` — so the range stays correct across the
+      # transition. First-ever nightly (no prior nightly tag) falls back to
+      # since-last-stable.
       - name: Compute per-nightly changelog
         id: nightly_changelog
         if: steps.guard.outputs.should-release == 'true'
         run: |
           set -euo pipefail
-          PREV_NIGHTLY=$(git tag -l 'v*-nightly.*' --sort=-creatordate | head -1 || true)
+          PREV_NIGHTLY=$(git tag -l 'v*-nightly.*' 'v*-pre.*.nightly.*' --sort=-creatordate | head -1 || true)
           if [ -n "$PREV_NIGHTLY" ]; then
             echo "::notice::Changelog range ${PREV_NIGHTLY}..HEAD"
             git cliff --config cliff.toml "${PREV_NIGHTLY}..HEAD" --strip header > /tmp/nightly-changelog.md 2>/dev/null || true

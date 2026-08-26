@@ -35,10 +35,30 @@ def _console_width() -> int | None:
 
 _stderr_console = Console(stderr=True, highlight=False, width=_console_width())
 
+# Nightly tags span two eras and the matrix samples across the transition:
+#   legacy  <sdk>-<ver>-nightly.<YYYYMMDD>.<sha7>
+#   unified <sdk>-<ver>-pre.<YYYYMMDDHHMMSS>.nightly.<sha7>
+# One pattern covers both, with each era's parts COUPLED: the channel literal,
+# the stamp width and the trailing `.nightly` travel together in one arm, so
+# the cross products no release ever emits — `-pre.<YYYYMMDD>.<sha7>` (unified
+# channel, legacy stamp, no `.nightly`) and `-nightly.<YYYYMMDDHHMMSS>.nightly`
+# — are rejected instead of being sampled as if they were real nightlies. Dev
+# channels never match either: `-dev.<sha7>` and `-pre.<ts>.dev.<sha7>` both
+# fail the required `nightly` literal.
+#
+# Whichever arm hits, the day is `date8` and the commit is `sha`, so this ONE
+# pattern both filters (which remote tags bootstrap_fetch pulls) and parses
+# (which local tags nightly_candidates samples) — the set fetched is exactly the
+# set sampled, and the SDK prefixes are enforced on both sides. That matters
+# locally, where the tag namespace also holds `v<ver>-pre.…` hub tags and
+# whatever else a working copy has fetched; without the prefix those would
+# occupy sample slots that belong to real per-SDK nightlies.
 NIGHTLY_TAG_RE = re.compile(
-    r"^(?:node-bindings|wasm-bindings|android|ios)-.*-nightly\.\d{8}\.[0-9a-f]{7}$"
+    r"^(?:node-bindings|wasm-bindings|android|ios)-.*"
+    r"-(?:nightly\.(?P<legacy_date>\d{8})"
+    r"|pre\.(?P<unified_date>\d{8})\d{6}\.nightly)"
+    r"\.(?P<sha>[0-9a-f]{7})$"
 )
-NIGHTLY_PARSE_RE = re.compile(r".*-nightly\.(\d{8})\.([0-9a-f]{7})$")
 
 STATUS_PLAIN = {
     "PASS": "✓ PASS",
@@ -295,10 +315,11 @@ def nightly_candidates() -> list[tuple[str, str]]:
     seen = set()
     out = []
     for t in git_tags_by_creator_date():
-        m = NIGHTLY_PARSE_RE.match(t)
+        m = NIGHTLY_TAG_RE.match(t)
         if not m:
             continue
-        key = (m.group(1), m.group(2))
+        # Exactly one date arm participates per match; the other is None.
+        key = (m["legacy_date"] or m["unified_date"], m["sha"])
         if key not in seen:
             seen.add(key)
             out.append(key)
