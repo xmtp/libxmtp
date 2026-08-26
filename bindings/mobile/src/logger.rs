@@ -193,18 +193,30 @@ pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
 /// stable id (MetricsStableIdEncoder derivation), never a raw inbox id.
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct FfiSentryConfig {
+    /// The app's Sentry DSN.
     pub dsn: String,
+    /// Sentry environment name (e.g. "production", "staging").
     pub environment: Option<String>,
+    /// Release identifier reported to Sentry. Defaults to the libxmtp version
+    /// when `None`.
     pub release: Option<String>,
+    /// Fraction of transactions sampled for tracing. Valid range is
+    /// `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
     pub traces_sample_rate: f32,
+    /// Number of breadcrumbs kept in the rolling buffer before the oldest are
+    /// evicted; pass 100 to match the underlying crate default.
     pub max_breadcrumbs: u32,
+    /// The app-computed HKDF stable id, never a raw inbox id.
     pub user_stable_id: Option<String>,
+    /// Tags attached to every event. `component=libxmtp` is always added.
     pub tags: Vec<FfiSentryTag>,
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct FfiSentryTag {
+    /// Tag name.
     pub key: String,
+    /// Tag value.
     pub value: String,
 }
 
@@ -232,7 +244,8 @@ fn sentry_err(e: xmtp_logging::Error) -> FfiError {
 const NO_HANDLE: &str = "logging subscriber owned by host process";
 
 /// Enable Sentry error/trace export. Errors if logging is owned by the host
-/// process, the DSN is invalid, or OTLP telemetry is already active.
+/// process, the DSN is invalid, `traces_sample_rate` is outside `[0.0, 1.0]`,
+/// or OTLP telemetry is already active.
 #[uniffi::export]
 #[xmtp_common::err_span]
 pub fn enable_sentry_telemetry(config: FfiSentryConfig) -> Result<(), FfiError> {
@@ -240,7 +253,8 @@ pub fn enable_sentry_telemetry(config: FfiSentryConfig) -> Result<(), FfiError> 
     h.enable_sentry(config.into()).map_err(sentry_err)
 }
 
-/// Disable Sentry export, flushing pending envelopes first.
+/// Disable Sentry export: remove the layer, then, if this handle owns the
+/// installed client, flush and drop it. Clears the stamped user id.
 #[uniffi::export]
 #[xmtp_common::err_span]
 pub fn disable_sentry_telemetry() -> Result<(), FfiError> {
