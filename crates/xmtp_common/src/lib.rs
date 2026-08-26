@@ -50,6 +50,22 @@ pub use event_logging::*;
 pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
+/// Run a future with its own Sentry Hub so its breadcrumbs never interleave
+/// with concurrent tasks. Near-free when no Sentry client is configured.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn bind_task_hub<F: core::future::Future>(
+    fut: F,
+) -> impl core::future::Future<Output = F::Output> {
+    use sentry_core::{Hub, SentryFutureExt};
+    fut.bind_hub(Hub::new_from_top(Hub::main()))
+}
+
+/// Identity passthrough: wasm is single-threaded and has no Sentry client.
+#[cfg(target_arch = "wasm32")]
+pub fn bind_task_hub<F: core::future::Future>(fut: F) -> F {
+    fut
+}
+
 pub use xmtp_macro::db_span;
 pub use xmtp_macro::err_span;
 pub use xmtp_macro::log_event;

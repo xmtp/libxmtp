@@ -11170,6 +11170,7 @@ dependencies = [
  "rand 0.10.2",
  "reqwest 0.13.4",
  "rustls",
+ "sentry-core",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
