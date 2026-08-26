@@ -174,11 +174,7 @@ where
     #[tracing::instrument(
         skip_all,
         level = "debug",
-        fields(
-            operation = "stream.poll_next_stream_all",
-            sentry.op = "stream",
-            sentry.name = "stream.poll_next_stream_all"
-        )
+        fields(operation = "stream.poll_next_stream_all")
     )]
     fn poll_next(
         mut self: Pin<&mut Self>,

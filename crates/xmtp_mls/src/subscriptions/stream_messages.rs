@@ -313,14 +313,13 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
+    // Per-poll span: no sentry.op/sentry.name, or every poll becomes a Sentry
+    // span candidate once the mobile TRACE-level filter is on. `operation`
+    // still feeds the Collector.
     #[tracing::instrument(
         level = "trace",
         skip_all,
-        fields(
-            operation = "stream.poll_next_message",
-            sentry.op = "stream",
-            sentry.name = "stream.poll_next_message"
-        )
+        fields(operation = "stream.poll_next_message")
     )]
     fn poll_next(
         mut self: Pin<&mut Self>,
