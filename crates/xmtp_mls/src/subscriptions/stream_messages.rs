@@ -313,9 +313,10 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
-    // Per-poll span: no sentry.op/sentry.name, or every poll becomes a Sentry
-    // span candidate once the mobile TRACE-level filter is on. `operation`
-    // still feeds the Collector.
+    // Per-poll span: must stay TRACE and carry no sentry.op, or every poll
+    // becomes a Sentry span candidate (span_filter passes DEBUG-or-more-severe
+    // spans on level alone, and any span with sentry.op regardless of level).
+    // `operation` still feeds the Collector.
     #[tracing::instrument(
         level = "trace",
         skip_all,

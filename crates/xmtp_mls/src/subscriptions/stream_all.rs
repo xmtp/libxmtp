@@ -173,7 +173,7 @@ where
 
     #[tracing::instrument(
         skip_all,
-        level = "debug",
+        level = "trace",
         fields(operation = "stream.poll_next_stream_all")
     )]
     fn poll_next(
