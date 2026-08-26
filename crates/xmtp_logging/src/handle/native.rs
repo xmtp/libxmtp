@@ -200,7 +200,11 @@ impl LoggingHandle {
         }
         let (layer, guard) = crate::sentry::build_sentry_layer(cfg)?;
         self.telemetry.reload(Some(layer))?;
-        self.guards.lock().sentry = Some(guard);
+        // Drop the previous guard (if any) outside the guards lock: its Drop can
+        // block up to the client shutdown timeout, which would stall concurrent
+        // flush/set_level/enable_file callers waiting on the same mutex.
+        let previous = self.guards.lock().sentry.replace(guard);
+        drop(previous);
         Ok(())
     }
 
@@ -208,10 +212,16 @@ impl LoggingHandle {
     #[cfg(feature = "sentry")]
     pub fn disable_sentry(&self) -> Result<(), Error> {
         self.telemetry.reload(None)?;
-        if let Some(client) = sentry::Hub::main().client() {
+        // Only flush if we actually own the installed global client — a host
+        // app may have installed its own Sentry client that we must not touch.
+        if self.guards.lock().sentry.is_some()
+            && let Some(client) = sentry::Hub::main().client()
+        {
             client.flush(Some(std::time::Duration::from_secs(2)));
         }
-        self.guards.lock().sentry = None;
+        // Drop outside the lock; see enable_sentry.
+        let previous = self.guards.lock().sentry.take();
+        drop(previous);
         crate::sentry::set_user_stable_id(None);
         Ok(())
     }
