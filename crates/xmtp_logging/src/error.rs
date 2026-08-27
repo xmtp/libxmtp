@@ -19,4 +19,7 @@ pub enum Error {
     /// A reloadable layer slot could not be swapped (the subscriber was dropped).
     #[error("layer reload: {0}")]
     Reload(#[from] tracing_subscriber::reload::Error),
+    /// A telemetry backend could not be configured (e.g. a malformed Sentry DSN).
+    #[error("telemetry: {0}")]
+    Telemetry(String),
 }

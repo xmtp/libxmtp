@@ -519,7 +519,7 @@ where
     FS: Stream<Item = Result<T>> + MaybeSend + 'static,
 {
     let (tx, rx) = oneshot::channel();
-    xmtp_common::spawn(Some(rx), async move {
+    let task = async move {
         let StreamOrigin {
             kind,
             installation,
@@ -588,7 +588,8 @@ where
         pump(stream, cancel, callback, on_close).await;
         tracing::debug!("bidi {kind:?} stream ended");
         Ok::<_, SubscribeError>(())
-    })
+    };
+    xmtp_common::spawn(Some(rx), xmtp_common::bind_task_hub(task))
 }
 
 /// The one `StreamHandle` shape a dispatcher can return: the two arms are

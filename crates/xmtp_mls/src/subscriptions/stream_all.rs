@@ -171,7 +171,11 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
-    #[tracing::instrument(skip_all, level = "debug", name = "poll_next_stream_all")]
+    #[tracing::instrument(
+        skip_all,
+        level = "trace",
+        fields(operation = "stream.poll_next_stream_all")
+    )]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

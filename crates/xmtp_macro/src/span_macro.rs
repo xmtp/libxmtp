@@ -8,7 +8,7 @@ use syn::{
 /// form, deriving the operation as `"<prefix>.<fn_name>"`:
 ///
 /// ```ignore
-/// #[tracing::instrument(err, skip_all, fields(operation = "<prefix>.<fn_name>"))]
+/// #[tracing::instrument(err, skip_all, fields(operation = "<prefix>.<fn_name>", sentry.op = "<prefix>", sentry.name = "<prefix>.<fn_name>"))]
 /// ```
 ///
 /// `err` records span status=error on an `Err` return (feeding
@@ -20,8 +20,10 @@ use syn::{
 /// compile time — no runtime test required.
 pub(crate) fn expand_with_prefix(prefix: &str, input_fn: syn::ItemFn) -> TokenStream {
     let operation = format!("{}.{}", prefix, input_fn.sig.ident);
+    // sentry.op/sentry.name are static vendor hints (same pattern as otel.*):
+    // without them every Sentry span arrives as op = "default".
     quote! {
-        #[tracing::instrument(err, skip_all, fields(operation = #operation))]
+        #[tracing::instrument(err, skip_all, fields(operation = #operation, sentry.op = #prefix, sentry.name = #operation))]
         #input_fn
     }
 }
@@ -68,20 +70,49 @@ pub fn span(
     expand_with_prefix(&args.prefix, input_fn).into()
 }
 
-/// `#[err_span]` → `#[tracing::instrument(level = "trace", skip_all, err)]`,
-/// except on `extern`-ABI fns, which pass through untouched: napi-rs clones
-/// method attributes onto the raw-`napi_value`-returning `extern "C"` wrapper
-/// it generates, where `err` would not compile.
+/// `#[err_span]` → trace-level `#[tracing::instrument(skip_all)]` plus
+/// `sentry.op = "ffi"` / `sentry.name = "<fn_name>"`, and an ERROR event on an
+/// `Err` return. Async fns additionally get a fresh Sentry Hub bound around the
+/// body, with the error event raised inside it. `extern`-ABI fns pass through
+/// untouched.
 pub fn err_span(
     _attr: proc_macro::TokenStream,
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let input_fn = parse_macro_input!(body as syn::ItemFn);
+    let mut input_fn = parse_macro_input!(body as syn::ItemFn);
+    // napi-rs clones method attributes onto the raw-`napi_value`-returning
+    // `extern "C"` wrapper it generates, where `err` would not compile.
     if input_fn.sig.abi.is_some() {
         return quote! { #input_fn }.into();
     }
+    let name = input_fn.sig.ident.to_string();
+    // Bind a fresh Sentry Hub per async FFI call so concurrent tasks keep
+    // separate breadcrumb trails. Sync fns keep instrument-only (rare at FFI).
+    // An outer `#[async_trait]` desugars the fn first, so this would see a sync fn and skip the wrap (no such site today).
+    if input_fn.sig.asyncness.is_some() {
+        let block = &input_fn.block;
+        // The error event is emitted here, not by `instrument(err)`: `err` fires
+        // after the awaited body returns, by which point the task hub is gone and
+        // the event Sentry promotes to an issue carries none of its breadcrumbs.
+        let wrapped: syn::Block = syn::parse_quote! {{
+            ::xmtp_common::bind_task_hub(async move {
+                let __xmtp_result = async move #block.await;
+                if let Err(__xmtp_err) = &__xmtp_result {
+                    ::tracing::error!(error = %__xmtp_err, #name);
+                }
+                __xmtp_result
+            })
+            .await
+        }};
+        *input_fn.block = wrapped;
+        return quote! {
+            #[tracing::instrument(level = "trace", skip_all, fields(sentry.op = "ffi", sentry.name = #name))]
+            #input_fn
+        }
+        .into();
+    }
     quote! {
-        #[tracing::instrument(level = "trace", skip_all, err)]
+        #[tracing::instrument(level = "trace", skip_all, err, fields(sentry.op = "ffi", sentry.name = #name))]
         #input_fn
     }
     .into()

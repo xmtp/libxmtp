@@ -313,7 +313,15 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
-    #[tracing::instrument(level = "trace", skip_all, name = "poll_next_message")]
+    // Per-poll span: must stay TRACE and carry no sentry.op, or every poll
+    // becomes a Sentry span candidate (span_filter passes DEBUG-or-more-severe
+    // spans on level alone, and any span with sentry.op regardless of level).
+    // `operation` still feeds the Collector.
+    #[tracing::instrument(
+        level = "trace",
+        skip_all,
+        fields(operation = "stream.poll_next_message")
+    )]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

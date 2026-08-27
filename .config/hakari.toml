@@ -64,4 +64,11 @@ third-party = [
   { name = "uniffi" },
   { name = "wasm-bindgen" },
   { name = "libsqlite3-sys" },
+  # xmtp_logging/xmtp_common enable `sentry`/`sentry-core`'s `test` feature as a
+  # dev-dependency. Unifying that into the workspace-hack would put it in every
+  # native crate's *normal* build, and `test` implies `release-health` — which
+  # makes `sentry::init` start a session and the guard end one in production.
+  # Sentry stays a plain dependency of the two crates that actually use it.
+  { name = "sentry" },
+  { name = "sentry-core" },
 ]

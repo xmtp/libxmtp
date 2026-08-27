@@ -331,7 +331,11 @@ where
 {
     type Item = Result<MlsGroup<C>>;
 
-    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "debug")]
+    #[tracing::instrument(
+        skip_all,
+        level = "trace",
+        fields(operation = "stream.poll_next_stream_conversations")
+    )]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

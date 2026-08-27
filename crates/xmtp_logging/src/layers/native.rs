@@ -49,8 +49,11 @@ pub(crate) fn native_layer(native_level: Level) -> NativeLayer {
         reload::Layer::new(crate::filter_directive(native_level.as_str()));
     let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
     let layers: Vec<Box<dyn Layer<Registry> + Send + Sync>> = vec![
+        // `paranoid_android::layer` is a plain `fmt::Layer`, so logcat takes the
+        // same `sentry.*`-suppressing field formatter as the stdout path.
         paranoid_android::layer(env!("CARGO_PKG_NAME"))
             .with_thread_names(true)
+            .fmt_fields(crate::layers::fmt::HideSentryFields)
             .with_filter(logcat_filter)
             .boxed(),
         tracing_android_trace::AndroidTraceAsyncLayer::new()

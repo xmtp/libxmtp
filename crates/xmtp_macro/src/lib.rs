@@ -203,7 +203,8 @@ pub fn timeout(
 /// ```ignore
 /// #[xmtp_macro::rpc_span]
 /// pub async fn upload_key_package(&self, ..) -> Result<()> { .. }
-/// // → #[tracing::instrument(err, skip_all, fields(operation = "rpc.upload_key_package"))]
+/// // → #[tracing::instrument(err, skip_all, fields(operation = "rpc.upload_key_package",
+/// //        sentry.op = "rpc", sentry.name = "rpc.upload_key_package"))]
 /// ```
 #[proc_macro_attribute]
 pub fn rpc_span(
@@ -237,7 +238,8 @@ pub fn mls_span(
 
 /// Instrument a method as a telemetry operation span in libxmtp's single
 /// canonical, OTEL-safe form: `#[tracing::instrument(err, skip_all,
-/// fields(operation = "<prefix>.<fn_name>"))]`.
+/// fields(operation = "<prefix>.<fn_name>", sentry.op = "<prefix>",
+/// sentry.name = "<prefix>.<fn_name>"))]`.
 ///
 /// `err` records span status=error on an `Err` return; `skip_all` keeps every
 /// argument off the span so a per-call id can never leak in and explode
@@ -245,13 +247,18 @@ pub fn mls_span(
 /// Collector's `span_metrics` connector buckets on. Making this the only
 /// writable form guarantees those invariants at compile time — no runtime test.
 ///
+/// `sentry.op`/`sentry.name` are static vendor hints (same pattern as `otel.*`)
+/// consumed by sentry-tracing; without them every Sentry span arrives as
+/// op = "default".
+///
 /// This is the escape hatch for a namespace without a dedicated attribute;
 /// prefer [`rpc_span`] / [`db_span`] / [`mls_span`] where they apply.
 ///
 /// ```ignore
 /// #[xmtp_macro::span(prefix = "stream")]
 /// pub async fn subscribe(&self, ..) -> Result<..> { .. }
-/// // → operation = "stream.subscribe"
+/// // → operation = "stream.subscribe", sentry.op = "stream",
+/// //   sentry.name = "stream.subscribe"
 /// ```
 #[proc_macro_attribute]
 pub fn span(
@@ -261,12 +268,21 @@ pub fn span(
     span_macro::span(attr, body)
 }
 
-/// Error-case-only tracing for an FFI-exported fn:
-/// `#[tracing::instrument(level = "trace", skip_all, err)]`.
+/// Error-case-only tracing for an FFI-exported fn: a `trace`-level `skip_all`
+/// span carrying `sentry.op = "ffi"` / `sentry.name = "<fn_name>"`, plus an
+/// ERROR event on an `Err` return.
 ///
 /// The span is `trace`-level, so under normal filters the success path emits
-/// nothing; `err` fires an ERROR event only when the fn returns `Err`, and
-/// `skip_all` keeps arguments (keys, pins, paths) off the span.
+/// nothing, and `skip_all` keeps arguments (keys, pins, paths) off the span.
+/// `sentry.op`/`sentry.name` are static vendor hints, as in [`span`].
+///
+/// An async fn gets more than the attribute: its body is rewritten into a
+/// nested `async move` bound to a per-call Sentry Hub (`bind_task_hub`), so
+/// concurrent FFI calls keep separate breadcrumb trails, and the ERROR event is
+/// emitted by hand *inside* that hub instead of by `instrument(err)` — `err`
+/// fires only after the awaited body returns, by which point the task hub is
+/// gone and the event Sentry promotes to an issue carries none of its
+/// breadcrumbs. A sync fn keeps plain `instrument(.., err)` (rare at FFI).
 ///
 /// Unlike [`span`], this is napi-safe: napi-rs clones every method attribute
 /// onto the `extern "C"` wrapper it generates (which returns a raw

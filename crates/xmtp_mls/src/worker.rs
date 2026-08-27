@@ -197,7 +197,10 @@ impl WorkerRunner {
                     }
                     let (abort_handle, reg) = AbortHandle::new_pair();
                     new_handles.push(abort_handle);
-                    futs.push(Abortable::new(worker.spawn(cancel.clone()), reg));
+                    futs.push(Abortable::new(
+                        xmtp_common::bind_task_hub(worker.spawn(cancel.clone())),
+                        reg,
+                    ));
                 }
                 *this.abort_handles.lock() = new_handles;
 

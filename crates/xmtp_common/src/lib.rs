@@ -50,6 +50,11 @@ pub use event_logging::*;
 pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
+pub mod telemetry;
+// Re-exported at the crate root: `::xmtp_common::bind_task_hub` is what the span
+// macros emit and what call sites use.
+pub use telemetry::bind_task_hub;
+
 pub use xmtp_macro::db_span;
 pub use xmtp_macro::err_span;
 pub use xmtp_macro::log_event;
