@@ -30,7 +30,8 @@ jobs:
   integration-tests:
     name: Integration Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    # Job budget leaves headroom for setup/backend before the suite step (#4044).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
@@ -50,8 +51,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # Suite runs ~18–20m with 0 failures; 20m step budget killed healthy runs (#4044).
       - name: Run integration tests
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           NIX_DEVSHELL: android
           NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
