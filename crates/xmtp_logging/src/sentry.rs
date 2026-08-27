@@ -133,10 +133,17 @@ fn scrub_breadcrumb(mut b: sentry::Breadcrumb) -> Option<sentry::Breadcrumb> {
     Some(b)
 }
 
-/// Constant tags stamped on every outgoing event. Applied here rather than on a
-/// scope: a scope belongs to one hub, and `enable_sentry` runs on whatever thread
-/// the host calls it from, so scope-set tags would only ever reach that one
-/// thread's hub. `before_send` runs for every event on every hub.
+/// Constant tags stamped on every outgoing payload. Applied per-payload rather
+/// than on a scope: a scope belongs to one hub, and `enable_sentry` runs on
+/// whatever thread the host calls it from, so scope-set tags would only ever
+/// reach that one thread's hub.
+///
+/// Two hooks consume this list, because the two envelope kinds take different
+/// paths out: error events go through `before_send` (`scrub_event`), and
+/// transactions — which 0.49 has no `before_send_transaction` for — through the
+/// transport wrapper (`tag_transactions`). Transactions are therefore also
+/// *unscrubbed* by explicit decision; the release span fields are designed to be
+/// identity-free, which is what keeps that safe.
 fn event_tags(cfg: &SentryConfig) -> Vec<(String, String)> {
     std::iter::once(("component".to_string(), "libxmtp".to_string()))
         .chain(cfg.tags.iter().cloned())
@@ -200,6 +207,77 @@ fn install_crypto_provider() {
     }
 }
 
+/// Wraps whatever transport `inner` builds so transaction items get tagged on
+/// their way out. `options.transport` is the only seam that sees a transaction
+/// envelope: 0.49 offers no `before_send_transaction`, and `Transaction::finish`
+/// hands its envelope straight to `Client::send_envelope`.
+struct TransactionTagFactory {
+    inner: Arc<dyn sentry::TransportFactory>,
+    tags: Arc<Vec<(String, String)>>,
+}
+
+impl sentry::TransportFactory for TransactionTagFactory {
+    fn create_transport_with_options(
+        &self,
+        options: sentry::TransportOptions,
+    ) -> Arc<dyn sentry::Transport> {
+        Arc::new(TransactionTagTransport {
+            inner: self.inner.create_transport_with_options(options),
+            tags: self.tags.clone(),
+        })
+    }
+}
+
+struct TransactionTagTransport {
+    inner: Arc<dyn sentry::Transport>,
+    tags: Arc<Vec<(String, String)>>,
+}
+
+impl sentry::Transport for TransactionTagTransport {
+    fn send_envelope(&self, envelope: sentry::Envelope) {
+        self.inner
+            .send_envelope(tag_transactions(envelope, &self.tags));
+    }
+
+    fn flush(&self, timeout: std::time::Duration) -> bool {
+        self.inner.flush(timeout)
+    }
+
+    fn shutdown(&self, timeout: std::time::Duration) -> bool {
+        self.inner.shutdown(timeout)
+    }
+}
+
+/// `Envelope` has no mutable item accessor, so a transaction envelope has to be
+/// rebuilt item by item under its original headers. Envelopes carrying no
+/// transaction — error events, sessions, client reports — are handed on
+/// untouched; that also protects raw (pre-serialized) envelopes, which yield no
+/// items and would come out empty if rebuilt.
+fn tag_transactions(envelope: sentry::Envelope, tags: &[(String, String)]) -> sentry::Envelope {
+    use sentry::protocol::EnvelopeItem;
+    if !envelope
+        .items()
+        .any(|item| matches!(item, EnvelopeItem::Transaction(_)))
+    {
+        return envelope;
+    }
+    let headers = envelope.headers().clone();
+    let mut tagged = sentry::Envelope::new().with_headers(headers);
+    for mut item in envelope.into_items() {
+        if let EnvelopeItem::Transaction(transaction) = &mut item {
+            // Never clobber a key the transaction or its scope already set.
+            for (key, value) in tags {
+                transaction
+                    .tags
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+        }
+        tagged.add_item(item);
+    }
+    tagged
+}
+
 /// Client options minus the DSN: sampling, breadcrumb cap, and the scrub hooks.
 /// Shared with the tests, which supply their own capturing transport + DSN.
 fn client_options(cfg: &SentryConfig) -> Result<sentry::ClientOptions, Error> {
@@ -227,9 +305,19 @@ fn client_options(cfg: &SentryConfig) -> Result<sentry::ClientOptions, Error> {
     // error events do run `scrub_event` and it is that hook's `None` — not this
     // placeholder — that reaches the wire.
     options.server_name = Some("libxmtp".into());
-    let tags = event_tags(cfg);
-    options.before_send = Some(Arc::new(move |e| scrub_event(e, &tags)));
+    let tags = Arc::new(event_tags(cfg));
+    options.before_send = Some(Arc::new({
+        let tags = Arc::clone(&tags);
+        move |e| scrub_event(e, &tags)
+    }));
     options.before_breadcrumb = Some(Arc::new(scrub_breadcrumb));
+    // Pre-empting `apply_defaults`, which only fills this slot when it is empty:
+    // wrapping `DefaultTransportFactory` ourselves keeps the reqwest transport
+    // it would have installed, with the transaction tagging layered on top.
+    options.transport = Some(Arc::new(TransactionTagFactory {
+        inner: Arc::new(sentry::transports::DefaultTransportFactory),
+        tags,
+    }));
     Ok(options)
 }
 
@@ -510,6 +598,106 @@ mod layer_tests {
             Some("sentinel"),
             "a failed init must not touch the user slot"
         );
+    }
+
+    /// `sentry::test` helpers overwrite `options.transport` outright, which would
+    /// throw away the wrapper under test. Recompose what `client_options` builds,
+    /// but with the capturing transport as the *inner* factory, and bind it to a
+    /// throwaway hub the way `with_captured_envelopes_options` does.
+    fn envelopes_through_wrapper(cfg: &SentryConfig, f: impl FnOnce()) -> Vec<sentry::Envelope> {
+        let transport = sentry::test::TestTransport::new();
+        let mut options = client_options(cfg).unwrap();
+        options.dsn = Some("https://public@sentry.invalid/1".parse().unwrap());
+        options.transport = Some(Arc::new(TransactionTagFactory {
+            inner: Arc::new(transport.clone()),
+            tags: Arc::new(event_tags(cfg)),
+        }));
+        sentry::Hub::run(
+            Arc::new(sentry::Hub::new(
+                Some(Arc::new(options.into())),
+                Arc::new(Default::default()),
+            )),
+            f,
+        );
+        transport.fetch_and_clear_envelopes()
+    }
+
+    fn transaction_of(envelope: &sentry::Envelope) -> &sentry::protocol::Transaction<'static> {
+        envelope
+            .items()
+            .find_map(|item| match item {
+                sentry::protocol::EnvelopeItem::Transaction(t) => Some(&**t),
+                _ => None,
+            })
+            .expect("transaction item")
+    }
+
+    /// Transactions bypass `before_send`, so the transport wrapper is the only
+    /// thing putting `component` and the caller's tags on them.
+    #[test]
+    fn transactions_carry_config_tags_without_clobbering_their_own() {
+        let cfg = SentryConfig {
+            traces_sample_rate: 1.0,
+            tags: vec![("app".to_string(), "convos".to_string())],
+            ..Default::default()
+        };
+        let envelopes = envelopes_through_wrapper(&cfg, || {
+            sentry::start_transaction(sentry::TransactionContext::new("plain", "mls")).finish();
+            let overriding =
+                sentry::start_transaction(sentry::TransactionContext::new("overriding", "mls"));
+            overriding.set_tag("app", "host-set");
+            overriding.finish();
+        });
+        assert_eq!(envelopes.len(), 2);
+
+        let plain = transaction_of(&envelopes[0]);
+        assert_eq!(plain.name.as_deref(), Some("plain"));
+        assert_eq!(plain.tags["component"], "libxmtp");
+        assert_eq!(plain.tags["app"], "convos");
+
+        let overriding = transaction_of(&envelopes[1]);
+        assert_eq!(overriding.name.as_deref(), Some("overriding"));
+        assert_eq!(overriding.tags["component"], "libxmtp");
+        assert_eq!(
+            overriding.tags["app"], "host-set",
+            "a tag the transaction already set must win over the configured one"
+        );
+    }
+
+    /// The wrapper rebuilds transaction envelopes, so prove the headers survive
+    /// (Relay routes and samples on the `trace` header) and that a non-transaction
+    /// envelope is handed on as-is.
+    #[test]
+    fn envelope_rebuild_preserves_headers_and_leaves_events_alone() {
+        let cfg = SentryConfig {
+            traces_sample_rate: 1.0,
+            ..Default::default()
+        };
+        let envelopes = envelopes_through_wrapper(&cfg, || {
+            sentry::start_transaction(sentry::TransactionContext::new("kept", "mls")).finish();
+            sentry::capture_message("boom", sentry::Level::Error);
+        });
+        assert_eq!(envelopes.len(), 2);
+
+        let transaction = &envelopes[0];
+        assert_eq!(
+            transaction.uuid(),
+            Some(&transaction_of(transaction).event_id)
+        );
+        // `EnvelopeHeaders` exposes no getters, so read the header line off the
+        // wire format: Relay samples on the `trace` header the rebuild must keep.
+        let mut wire = Vec::new();
+        transaction.to_writer(&mut wire).unwrap();
+        let wire = String::from_utf8(wire).unwrap();
+        let headers = wire.lines().next().unwrap();
+        assert!(
+            headers.contains("\"trace\""),
+            "dynamic sampling context dropped by the rebuild: {headers}"
+        );
+
+        // Error events keep going through `before_send`; the wrapper is a no-op.
+        let event = envelopes[1].event().expect("event item");
+        assert_eq!(event.tags["component"], "libxmtp");
     }
 
     const INBOX_ID_RAW: &str = "a9be0a2ae5aca34ff1a4bd25277f7e56e3b32e4b418ba1b48f0d33d004cd4b9a";
