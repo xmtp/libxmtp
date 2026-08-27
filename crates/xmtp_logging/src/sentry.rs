@@ -180,6 +180,11 @@ fn scrub_event(
 /// The workspace pins sentry/reqwest to `rustls-no-provider`, so the transport
 /// built inside `sentry::init` panics unless a process-default provider exists.
 /// Idempotent, and a host- or `xmtp_cryptography`-installed provider wins.
+///
+/// Kept even though `xmtp_cryptography` installs one from a constructor: ctors
+/// do not run on Apple platforms (issue #3846), and this crate depends on
+/// neither that crate nor `xmtp_common`, so this call is the only guarantee on
+/// the path that actually builds the transport.
 fn install_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
