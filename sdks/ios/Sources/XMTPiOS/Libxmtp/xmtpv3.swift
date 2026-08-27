@@ -10368,6 +10368,198 @@ public func FfiConverterTypeFfiSendMessageOpts_lower(_ value: FfiSendMessageOpts
 }
 
 
+/**
+ * Sentry telemetry configuration. `user_stable_id` is the app-computed HKDF
+ * stable id (MetricsStableIdEncoder derivation), never a raw inbox id.
+ */
+public struct FfiSentryConfig: Equatable, Hashable {
+    /**
+     * The app's Sentry DSN.
+     */
+    public var dsn: String
+    /**
+     * Sentry environment name (e.g. "production", "staging").
+     */
+    public var environment: String?
+    /**
+     * Release identifier reported to Sentry. Defaults to the libxmtp version
+     * when `None`.
+     */
+    public var release: String?
+    /**
+     * Fraction of transactions sampled for tracing. Valid range is
+     * `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
+     */
+    public var tracesSampleRate: Float
+    /**
+     * Number of breadcrumbs kept in the rolling buffer before the oldest are
+     * evicted; pass 100 to match the underlying crate default.
+     */
+    public var maxBreadcrumbs: UInt32
+    /**
+     * The app-computed HKDF stable id, never a raw inbox id.
+     */
+    public var userStableId: String?
+    /**
+     * Tags attached to every event. `component=libxmtp` is always added.
+     */
+    public var tags: [FfiSentryTag]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The app's Sentry DSN.
+         */dsn: String, 
+        /**
+         * Sentry environment name (e.g. "production", "staging").
+         */environment: String?, 
+        /**
+         * Release identifier reported to Sentry. Defaults to the libxmtp version
+         * when `None`.
+         */release: String?, 
+        /**
+         * Fraction of transactions sampled for tracing. Valid range is
+         * `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
+         */tracesSampleRate: Float, 
+        /**
+         * Number of breadcrumbs kept in the rolling buffer before the oldest are
+         * evicted; pass 100 to match the underlying crate default.
+         */maxBreadcrumbs: UInt32, 
+        /**
+         * The app-computed HKDF stable id, never a raw inbox id.
+         */userStableId: String?, 
+        /**
+         * Tags attached to every event. `component=libxmtp` is always added.
+         */tags: [FfiSentryTag]) {
+        self.dsn = dsn
+        self.environment = environment
+        self.release = release
+        self.tracesSampleRate = tracesSampleRate
+        self.maxBreadcrumbs = maxBreadcrumbs
+        self.userStableId = userStableId
+        self.tags = tags
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSentryConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSentryConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSentryConfig {
+        return
+            try FfiSentryConfig(
+                dsn: FfiConverterString.read(from: &buf), 
+                environment: FfiConverterOptionString.read(from: &buf), 
+                release: FfiConverterOptionString.read(from: &buf), 
+                tracesSampleRate: FfiConverterFloat.read(from: &buf), 
+                maxBreadcrumbs: FfiConverterUInt32.read(from: &buf), 
+                userStableId: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceTypeFfiSentryTag.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSentryConfig, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.dsn, into: &buf)
+        FfiConverterOptionString.write(value.environment, into: &buf)
+        FfiConverterOptionString.write(value.release, into: &buf)
+        FfiConverterFloat.write(value.tracesSampleRate, into: &buf)
+        FfiConverterUInt32.write(value.maxBreadcrumbs, into: &buf)
+        FfiConverterOptionString.write(value.userStableId, into: &buf)
+        FfiConverterSequenceTypeFfiSentryTag.write(value.tags, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryConfig_lift(_ buf: RustBuffer) throws -> FfiSentryConfig {
+    return try FfiConverterTypeFfiSentryConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryConfig_lower(_ value: FfiSentryConfig) -> RustBuffer {
+    return FfiConverterTypeFfiSentryConfig.lower(value)
+}
+
+
+public struct FfiSentryTag: Equatable, Hashable {
+    /**
+     * Tag name.
+     */
+    public var key: String
+    /**
+     * Tag value.
+     */
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Tag name.
+         */key: String, 
+        /**
+         * Tag value.
+         */value: String) {
+        self.key = key
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSentryTag: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSentryTag: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSentryTag {
+        return
+            try FfiSentryTag(
+                key: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSentryTag, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryTag_lift(_ buf: RustBuffer) throws -> FfiSentryTag {
+    return try FfiConverterTypeFfiSentryTag.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryTag_lower(_ value: FfiSentryTag) -> RustBuffer {
+    return FfiConverterTypeFfiSentryTag.lower(value)
+}
+
+
 public struct FfiTextContent: Equatable, Hashable {
     public var content: String
 
@@ -10631,14 +10823,30 @@ public struct FfiUpdateAppDataOptions: Equatable, Hashable {
      * The new value for the group's opaque `APP_DATA` string slot.
      */
     public var value: String
+    /**
+     * Optional compare-and-swap guard. When set, the update is abandoned
+     * with an `AppDataSuperseded` error — rather than overwriting — if the
+     * committed value is no longer this, including when another member's
+     * commit wins the race after this update was published. Leave unset for
+     * the historical last-writer-wins behavior.
+     */
+    public var expectedValue: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
          * The new value for the group's opaque `APP_DATA` string slot.
-         */value: String) {
+         */value: String, 
+        /**
+         * Optional compare-and-swap guard. When set, the update is abandoned
+         * with an `AppDataSuperseded` error — rather than overwriting — if the
+         * committed value is no longer this, including when another member's
+         * commit wins the race after this update was published. Leave unset for
+         * the historical last-writer-wins behavior.
+         */expectedValue: String? = nil) {
         self.value = value
+        self.expectedValue = expectedValue
     }
 
     
@@ -10657,12 +10865,14 @@ public struct FfiConverterTypeFfiUpdateAppDataOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiUpdateAppDataOptions {
         return
             try FfiUpdateAppDataOptions(
-                value: FfiConverterString.read(from: &buf)
+                value: FfiConverterString.read(from: &buf), 
+                expectedValue: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiUpdateAppDataOptions, into buf: inout [UInt8]) {
         FfiConverterString.write(value.value, into: &buf)
+        FfiConverterOptionString.write(value.expectedValue, into: &buf)
     }
 }
 
@@ -16216,6 +16426,31 @@ fileprivate struct FfiConverterSequenceTypeFfiRemoteAttachment: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiSentryTag: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSentryTag]
+
+    public static func write(_ value: [FfiSentryTag], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSentryTag.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSentryTag] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSentryTag]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSentryTag.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiWalletCall: FfiConverterRustBuffer {
     typealias SwiftType = [FfiWalletCall]
 
@@ -16854,6 +17089,28 @@ public func generateInboxId(accountIdentifier: FfiIdentifier, nonce: UInt64)thro
 })
 }
 /**
+ * Disable Sentry export: remove the layer, then, if this handle owns the
+ * installed client, flush and drop it. Clears the stamped user id.
+ */
+public func disableSentryTelemetry()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_disable_sentry_telemetry(uniffiCallStatus
+    )
+}
+}
+/**
+ * Enable Sentry error/trace export. Errors if logging is owned by the host
+ * process, the DSN is invalid, `traces_sample_rate` is outside `[0.0, 1.0]`,
+ * or OTLP telemetry is already active.
+ */
+public func enableSentryTelemetry(config: FfiSentryConfig)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_enable_sentry_telemetry(
+        FfiConverterTypeFfiSentryConfig_lower(config),uniffiCallStatus
+    )
+}
+}
+/**
  * turns on logging to a file on-disk in the directory specified.
  * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
  * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
@@ -16899,6 +17156,15 @@ public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfi
 }
 }
 /**
+ * Flush pending telemetry (file, OTLP, and Sentry). Call on app background.
+ */
+public func flushTelemetry()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_flush_telemetry(uniffiCallStatus
+    )
+}
+}
+/**
  * Updates the log level of the native log layer (oslog on iOS, logcat on Android).
  * Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
  * activity in Console.app / Instruments. No-op on non-mobile builds.
@@ -16907,6 +17173,17 @@ public func setNativeLogLevel(logLevel: FfiLogLevel)throws   {try rustCallWithEr
         uniffiCallStatus in
     uniffi_xmtpv3_fn_func_set_native_log_level(
         FfiConverterTypeFfiLogLevel_lower(logLevel),uniffiCallStatus
+    )
+}
+}
+/**
+ * Late identify: stamp (or clear) the pseudonymous user id on future events.
+ * Call at inbox-ready with the HKDF stable id.
+ */
+public func setSentryUser(stableId: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_set_sentry_user(
+        FfiConverterOptionString.lower(stableId),uniffiCallStatus
     )
 }
 }
@@ -17379,6 +17656,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_generate_inbox_id() != 52479) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_disable_sentry_telemetry() != 23771) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_enable_sentry_telemetry() != 15966) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 36615) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17388,7 +17671,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 6014) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_flush_telemetry() != 29131) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_set_native_log_level() != 52757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_set_sentry_user() != 52914) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 53548) {
