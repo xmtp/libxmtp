@@ -258,6 +258,10 @@ pub fn enable_sentry_telemetry(config: FfiSentryConfig) -> Result<(), FfiError> 
 #[uniffi::export]
 #[xmtp_common::err_span]
 pub fn disable_sentry_telemetry() -> Result<(), FfiError> {
+    // Clear the staged user id even when logging is host-owned and there is no
+    // handle to disable: the slot is ours regardless, and a stale id would
+    // attribute a later session's events.
+    xmtp_logging::sentry::set_user_stable_id(None);
     let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
     h.disable_sentry().map_err(sentry_err)
 }
@@ -272,7 +276,10 @@ pub fn set_sentry_user(stable_id: Option<String>) {
 /// Flush pending telemetry (file, OTLP, and Sentry). Call on app background.
 #[uniffi::export]
 pub fn flush_telemetry() {
-    if let Some(h) = handle() {
+    // Flush only an already-installed pipeline: `handle()` would lazily install
+    // our global subscriber, permanently claiming it from a host that flushes
+    // before configuring logging.
+    if let Some(h) = HANDLE.get().and_then(|h| h.as_ref()) {
         h.flush();
     }
 }
@@ -283,6 +290,17 @@ mod sentry_tests {
 
     #[test]
     fn ffi_config_maps_and_bad_dsn_errors() {
+        // Ordered first inside the one test fn: flush before any init must not
+        // lazily install the subscriber (the other calls below do install it).
+        flush_telemetry();
+        assert!(
+            HANDLE.get().is_none(),
+            "flush_telemetry must not install the logging pipeline"
+        );
+        // A user id staged with no handle/enable must not survive disable.
+        set_sentry_user(Some("staged".into()));
+        let _ = disable_sentry_telemetry();
+        assert!(!xmtp_logging::sentry::user_stable_id_is_set());
         let cfg = FfiSentryConfig {
             dsn: "not a dsn".into(),
             environment: Some("dev".into()),
