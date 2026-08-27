@@ -240,6 +240,8 @@ pub(crate) fn build_sentry_layer(
         set_user_stable_id(cfg.user_stable_id.clone());
     }
     install_crypto_provider();
+    let thread_hub = sentry::Hub::current();
+    let prev_thread_client = thread_hub.client();
     let guard = sentry::init(options);
     // `sentry::init` binds the client to `Hub::current()` — the hub of whichever
     // thread the host called `enable_sentry` on, which is an island: a thread's
@@ -247,7 +249,15 @@ pub(crate) fn build_sentry_layer(
     // this client. Publishing it on the process hub is what makes it reachable
     // from hubs forked later, from `bind_task_hub`'s per-poll adoption, and from
     // the `Hub::main().client()` lookups in `flush`/`disable_sentry`.
-    sentry::Hub::main().bind_client(sentry::Hub::current().client());
+    sentry::Hub::main().bind_client(thread_hub.client());
+    // The process hub is the only place we want our client: hand the enabling
+    // thread's hub back to the host, or its own captures on that thread would go
+    // to a client `disable_sentry` closes. Skipped on the thread that owns the
+    // process hub, where `Hub::current()` *is* `Hub::main()` and restoring would
+    // undo the publish above; there the stashed client is given back on disable.
+    if !Arc::ptr_eq(&thread_hub, &sentry::Hub::main()) {
+        thread_hub.bind_client(prev_thread_client);
+    }
     let layer = sentry_tracing::layer()
         .event_filter(event_filter)
         .span_filter(span_filter);

@@ -68,6 +68,23 @@ pub(crate) struct Guards {
     pub(crate) prev_main_client: Option<Option<std::sync::Arc<sentry::Client>>>,
 }
 
+/// Hands the process hub back when the handle is dropped without a preceding
+/// `disable_sentry`, which would otherwise leave every later fork reading a
+/// client we are about to close. Fields drop *after* this body runs, so the
+/// restore always beats `sentry`'s `ClientInitGuard` closing that client.
+///
+/// A no-op on the ordinary path: `disable_sentry` `take()`s both fields, so
+/// `sentry` is `None` here and the hub is already the host's.
+#[cfg(feature = "sentry")]
+impl Drop for Guards {
+    fn drop(&mut self) {
+        if self.sentry.is_some() {
+            sentry::Hub::main().bind_client(self.prev_main_client.take().flatten());
+            crate::sentry::set_user_stable_id(None);
+        }
+    }
+}
+
 /// Handle to the installed logging pipeline. Holds the reload handles for each
 /// runtime-mutable layer slot plus the worker guards that keep the file writer
 /// and telemetry exporter alive.
@@ -260,10 +277,13 @@ impl LoggingHandle {
     /// Turn off the Sentry backend: empty the slot, flush, drop the client.
     #[cfg(feature = "sentry")]
     pub fn disable_sentry(&self) -> Result<(), Error> {
-        // Ownership check, slot clear and guard hand-off in one critical section,
-        // so no concurrent enable can interleave between them. Everything that
-        // blocks (the flush, the guard's drop) runs after the lock is released.
-        let (prev_guard, prev_main) = {
+        // Ownership check, slot clear, guard hand-off and the host-state restore
+        // are one critical section, so no concurrent enable can interleave between
+        // them: an enable that lands in that window installs and binds a new
+        // client, which the restore below would then replace with the host's while
+        // the new layer stays live. Everything that blocks (the flush, the guard's
+        // drop) runs after the lock is released.
+        let prev_guard = {
             let mut guards = self.guards.lock();
             // No-op unless we own the telemetry slot: otherwise this would tear down
             // another owner's layer (e.g. OTLP's) without clearing its guard.
@@ -271,23 +291,36 @@ impl LoggingHandle {
                 return Ok(());
             }
             self.telemetry.reload(None)?;
-            (guards.sentry.take(), guards.prev_main_client.take())
+            let prev_guard = guards.sentry.take();
+            // Undo the propagation `build_sentry_layer` did: the process hub is where
+            // every later fork (and `bind_task_hub`'s adoption) looks, so a client left
+            // there would keep being handed out after we closed it. Restores whatever
+            // the host had there rather than clearing, so an embedding Rust app's own
+            // `sentry::init` survives our enable/disable cycle. Owner path only — we
+            // returned above if the slot is not ours. Both writes are short and
+            // non-blocking (a hub stack write, an `RwLock` write), and neither can
+            // drop our client: `prev_guard` still holds it.
+            sentry::Hub::main().bind_client(guards.prev_main_client.take().flatten());
+            crate::sentry::set_user_stable_id(None);
+            prev_guard
         };
         // Flush the client we own, taken from our own guard rather than looked up
         // on the process hub: by here the hub is no longer authoritative for it.
         if let Some(guard) = &prev_guard {
             guard.flush(Some(std::time::Duration::from_secs(2)));
         }
-        // Undo the propagation `build_sentry_layer` did: the process hub is where
-        // every later fork (and `bind_task_hub`'s adoption) looks, so a client left
-        // there would keep being handed out after we closed it. Restores whatever
-        // the host had there rather than clearing, so an embedding Rust app's own
-        // `sentry::init` survives our enable/disable cycle. Owner path only — we
-        // returned above if the slot is not ours.
-        sentry::Hub::main().bind_client(prev_main.flatten());
-        crate::sentry::set_user_stable_id(None);
         // Closes the client; blocks up to its shutdown timeout, hence out here.
         drop(prev_guard);
         Ok(())
+    }
+}
+
+impl Drop for LoggingHandle {
+    /// Clear the telemetry slot before the `guards` field drops (Drop bodies
+    /// run before field drops), so teardown is slot-clear → hub-restore →
+    /// client-close and no layer is left routing events into a restored host
+    /// client.
+    fn drop(&mut self) {
+        let _ = self.telemetry.reload(None);
     }
 }
