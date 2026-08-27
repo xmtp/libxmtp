@@ -166,16 +166,30 @@ impl LoggingHandle {
     /// from `cfg`, installs it in the telemetry slot, and keeps the tracer
     /// provider guard alive. Replaces any previously-enabled telemetry layer.
     pub fn enable_telemetry(&self, cfg: TelemetryConfig) -> Result<(), Error> {
-        #[cfg(feature = "sentry")]
-        if self.guards.lock().sentry.is_some() {
-            return Err(Error::Telemetry(
-                "sentry telemetry active; disable it before enabling OTLP".into(),
-            ));
-        }
-        let (trace_layer, appender, guard) = build_telemetry_layer(cfg)?;
-        let combined: BoxLayer = vec![trace_layer, appender].boxed();
-        self.telemetry.reload(Some(combined))?;
-        self.guards.lock().telemetry = Some(guard);
+        // Exclusivity check, build, slot reload and guard store are one critical
+        // section; see `enable_sentry` for why splitting them races.
+        let previous = {
+            let mut guards = self.guards.lock();
+            #[cfg(feature = "sentry")]
+            if guards.sentry.is_some() {
+                return Err(Error::Telemetry(
+                    "sentry telemetry active; disable it before enabling OTLP".into(),
+                ));
+            }
+            let (trace_layer, appender, guard) = build_telemetry_layer(cfg)?;
+            let combined: BoxLayer = vec![trace_layer, appender].boxed();
+            match self.telemetry.reload(Some(combined)) {
+                Ok(()) => guards.telemetry.replace(guard),
+                // Release the lock before the fresh guard's shutdown-on-drop.
+                Err(e) => {
+                    drop(guards);
+                    return Err(e.into());
+                }
+            }
+        };
+        // Dropping a `TelemetryGuard` shuts its exporters down, which blocks; do
+        // it outside the lock, as `enable_sentry` does.
+        drop(previous);
         Ok(())
     }
 
@@ -200,33 +214,45 @@ impl LoggingHandle {
     /// as OTLP; the two are mutually exclusive. Replaces a prior Sentry layer.
     #[cfg(feature = "sentry")]
     pub fn enable_sentry(&self, cfg: SentryConfig) -> Result<(), Error> {
-        if self.guards.lock().telemetry.is_some() {
-            return Err(Error::Telemetry(
-                "OTLP telemetry active; disable it before enabling sentry".into(),
-            ));
-        }
-        // Read before `build_sentry_layer` overwrites the process hub, and only
-        // while we are not already the owner: on a re-enable this would otherwise
-        // stash our own client and "restore" it on the way out.
-        let host_client = {
-            let guards = self.guards.lock();
-            guards
+        // The whole transition — exclusivity check, host-client stash, build,
+        // slot reload, guard store — is one critical section. Checking the other
+        // backend's guard under a separate short lock lets two concurrent
+        // enables both pass their check and install competing layers, leaving
+        // one live backend with no layer in the slot and no guard recorded.
+        let previous = {
+            let mut guards = self.guards.lock();
+            if guards.telemetry.is_some() {
+                return Err(Error::Telemetry(
+                    "OTLP telemetry active; disable it before enabling sentry".into(),
+                ));
+            }
+            // Read before `build_sentry_layer` overwrites the process hub, and only
+            // while we are not already the owner: on a re-enable this would otherwise
+            // stash our own client and "restore" it on the way out.
+            let host_client = guards
                 .sentry
                 .is_none()
-                .then(|| sentry::Hub::main().client())
+                .then(|| sentry::Hub::main().client());
+            // Fallible, and nothing above it mutated state: an early return here
+            // leaves the slot and the guards exactly as they were.
+            let (layer, guard) = crate::sentry::build_sentry_layer(cfg)?;
+            match self.telemetry.reload(Some(layer)) {
+                Ok(()) => {
+                    if let Some(host) = host_client {
+                        guards.prev_main_client = Some(host);
+                    }
+                    guards.sentry.replace(guard)
+                }
+                // Release the lock before the fresh guard's blocking drop.
+                Err(e) => {
+                    drop(guards);
+                    return Err(e.into());
+                }
+            }
         };
-        let (layer, guard) = crate::sentry::build_sentry_layer(cfg)?;
-        self.telemetry.reload(Some(layer))?;
         // Drop the previous guard (if any) outside the guards lock: its Drop can
         // block up to the client shutdown timeout, which would stall concurrent
         // flush/set_level/enable_file callers waiting on the same mutex.
-        let previous = {
-            let mut guards = self.guards.lock();
-            if let Some(host) = host_client {
-                guards.prev_main_client = Some(host);
-            }
-            guards.sentry.replace(guard)
-        };
         drop(previous);
         Ok(())
     }
@@ -234,31 +260,34 @@ impl LoggingHandle {
     /// Turn off the Sentry backend: empty the slot, flush, drop the client.
     #[cfg(feature = "sentry")]
     pub fn disable_sentry(&self) -> Result<(), Error> {
-        // No-op unless we own the telemetry slot: otherwise this would tear down
-        // another owner's layer (e.g. OTLP's) without clearing its guard.
-        if self.guards.lock().sentry.is_none() {
-            return Ok(());
+        // Ownership check, slot clear and guard hand-off in one critical section,
+        // so no concurrent enable can interleave between them. Everything that
+        // blocks (the flush, the guard's drop) runs after the lock is released.
+        let (prev_guard, prev_main) = {
+            let mut guards = self.guards.lock();
+            // No-op unless we own the telemetry slot: otherwise this would tear down
+            // another owner's layer (e.g. OTLP's) without clearing its guard.
+            if guards.sentry.is_none() {
+                return Ok(());
+            }
+            self.telemetry.reload(None)?;
+            (guards.sentry.take(), guards.prev_main_client.take())
+        };
+        // Flush the client we own, taken from our own guard rather than looked up
+        // on the process hub: by here the hub is no longer authoritative for it.
+        if let Some(guard) = &prev_guard {
+            guard.flush(Some(std::time::Duration::from_secs(2)));
         }
-        self.telemetry.reload(None)?;
-        // Only flush if we actually own the installed global client — a host
-        // app may have installed its own Sentry client that we must not touch.
-        if self.guards.lock().sentry.is_some()
-            && let Some(client) = sentry::Hub::main().client()
-        {
-            client.flush(Some(std::time::Duration::from_secs(2)));
-        }
-        // Drop outside the lock; see enable_sentry.
-        let previous = self.guards.lock().sentry.take();
-        drop(previous);
         // Undo the propagation `build_sentry_layer` did: the process hub is where
         // every later fork (and `bind_task_hub`'s adoption) looks, so a client left
         // there would keep being handed out after we closed it. Restores whatever
         // the host had there rather than clearing, so an embedding Rust app's own
         // `sentry::init` survives our enable/disable cycle. Owner path only — we
         // returned above if the slot is not ours.
-        let host_client = self.guards.lock().prev_main_client.take().flatten();
-        sentry::Hub::main().bind_client(host_client);
+        sentry::Hub::main().bind_client(prev_main.flatten());
         crate::sentry::set_user_stable_id(None);
+        // Closes the client; blocks up to its shutdown timeout, hence out here.
+        drop(prev_guard);
         Ok(())
     }
 }

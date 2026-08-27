@@ -110,6 +110,11 @@ pub(crate) fn event_filter(meta: &tracing::Metadata<'_>) -> sentry_tracing::Even
 
 /// Spans carrying `sentry.op` (the span macros, incl. trace-level `err_span`
 /// FFI roots) always pass; other spans pass at DEBUG or more severe.
+///
+/// Deliberately relies on the global filter upstream of this layer: high-volume
+/// identity-carrying spans on non-libxmtp targets (e.g. `openmls_kv` in
+/// `xmtp_db::sql_key_store`) never reach it, because `filter_directive`'s target
+/// allowlist does not include them.
 pub(crate) fn span_filter(meta: &tracing::Metadata<'_>) -> bool {
     meta.fields().field("sentry.op").is_some() || *meta.level() <= tracing::Level::DEBUG
 }
@@ -202,6 +207,11 @@ fn client_options(cfg: &SentryConfig) -> Result<sentry::ClientOptions, Error> {
     options.max_breadcrumbs = cfg.max_breadcrumbs;
     options.send_default_pii = false;
     // Pre-empt the `contexts` integration's hostname default (see `scrub_event`).
+    // Both halves of that double suppression are load-bearing, on different
+    // envelope kinds: transaction envelopes never run a `before_send` hook, so
+    // this option is the only thing keeping the device hostname off them, while
+    // error events do run `scrub_event` and it is that hook's `None` — not this
+    // placeholder — that reaches the wire.
     options.server_name = Some("libxmtp".into());
     let tags = event_tags(cfg);
     options.before_send = Some(Arc::new(move |e| scrub_event(e, &tags)));
