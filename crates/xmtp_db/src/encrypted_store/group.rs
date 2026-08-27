@@ -2208,16 +2208,18 @@ pub(crate) mod tests {
                 "skip_all contract violated: the `id` arg leaked into the find_group \
                  span as a field (cardinality risk), got:\n{logged}"
             );
-            // Stronger: `operation` must be the ONLY field on the span — no other
-            // `<name>=` pair may appear between the braces.
+            // Stronger: only `operation` plus the static `sentry.*` vendor hints
+            // (emitted by the span macros for Sentry op/name mapping) may appear —
+            // still no per-call values, so the cardinality contract holds.
             let fields = logged
                 .split_once('{')
                 .and_then(|(_, rest)| rest.split_once('}'))
                 .map(|(inner, _)| inner.trim())
                 .unwrap_or("");
             assert_eq!(
-                fields, "operation=\"db.find_group\"",
-                "find_group span must carry only the operation field, got fields: {fields:?}"
+                fields,
+                "operation=\"db.find_group\" sentry.op=\"db\" sentry.name=\"db.find_group\"",
+                "find_group span must carry only operation + static sentry.* fields, got: {fields:?}"
             );
         })
     }
