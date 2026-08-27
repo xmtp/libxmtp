@@ -9,6 +9,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use crate::utils::TestMlsGroup;
 use std::sync::{Arc, Mutex, OnceLock};
+use xmtp_common::time::Duration;
 use xmtp_db::group_intent::{IntentState, StoredGroupIntent};
 use xmtp_db::prelude::*;
 
@@ -36,6 +37,7 @@ fn recording() -> (Arc<RecordingCallback>, UnstableChangeCallbacks) {
     let callback = Arc::new(RecordingCallback::default());
     let callbacks = UnstableChangeCallbacks {
         app_data: Some(callback.clone() as Arc<dyn AppDataChangeCallback>),
+        ..Default::default()
     };
     (callback, callbacks)
 }
@@ -153,6 +155,7 @@ async fn test_callback_can_publish_back_into_the_same_group() {
     let callback = Arc::new(RepublishingCallback::default());
     let callbacks = UnstableChangeCallbacks {
         app_data: Some(callback.clone() as Arc<dyn AppDataChangeCallback>),
+        ..Default::default()
     };
 
     tester!(alix);
@@ -378,5 +381,154 @@ async fn test_superseded_intent_resolves_promptly_as_an_error() {
         group.app_data()?,
         "current",
         "the guarded write must not have been applied"
+    );
+}
+
+/// The value a [`WedgingCallback`] hangs on.
+const WEDGE: &str = "wedge";
+
+/// Hangs forever on any change carrying [`WEDGE`]. Logs entry and return
+/// separately so a test can tell "never dispatched" apart from "dispatched and
+/// abandoned" — without that distinction, a regression that stopped detecting
+/// changes at all would satisfy the same assertions. Models a host handler
+/// that is *stuck* — an unresolved promise, a lock it never acquires — rather
+/// than one that is merely slow.
+#[derive(Default)]
+struct WedgingCallback {
+    entered: Mutex<Vec<String>>,
+    returned: Mutex<Vec<String>>,
+}
+
+impl WedgingCallback {
+    fn entered(&self) -> Vec<String> {
+        self.entered.lock().expect("lock poisoned").clone()
+    }
+
+    fn returned(&self) -> Vec<String> {
+        self.returned.lock().expect("lock poisoned").clone()
+    }
+
+    /// Drop whatever arrived while the group was being set up, so the
+    /// assertions below speak only to the changes the test provoked.
+    fn forget(&self) {
+        self.entered.lock().expect("lock poisoned").clear();
+        self.returned.lock().expect("lock poisoned").clear();
+    }
+}
+
+#[xmtp_common::async_trait]
+impl AppDataChangeCallback for WedgingCallback {
+    async fn on_app_data_changed(&self, change: AppDataChange) {
+        let value = change.new_value.unwrap_or_default();
+        self.entered
+            .lock()
+            .expect("lock poisoned")
+            .push(value.clone());
+        if value == WEDGE {
+            futures::future::pending::<()>().await;
+        }
+        self.returned.lock().expect("lock poisoned").push(value);
+    }
+}
+
+fn wedging(timeout: Duration) -> (Arc<WedgingCallback>, UnstableChangeCallbacks) {
+    let callback = Arc::new(WedgingCallback::default());
+    let callbacks = UnstableChangeCallbacks {
+        app_data: Some(callback.clone() as Arc<dyn AppDataChangeCallback>),
+        app_data_timeout: timeout,
+    };
+    (callback, callbacks)
+}
+
+/// A host callback that never returns must not stall its group forever. The
+/// dispatch is abandoned once `app_data_timeout` expires, the sync completes,
+/// the already-committed change survives, and the client keeps delivering the
+/// changes that follow.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_wedged_callback_does_not_stall_sync_forever() {
+    let (callback, callbacks) = wedging(Duration::from_millis(500));
+    tester!(alix);
+    tester!(bo, change_callbacks: callbacks);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    callback.forget();
+
+    alix_group.update_app_data(WEDGE.to_string(), None).await?;
+
+    xmtp_common::time::timeout(Duration::from_secs(30), bo_group.sync())
+        .await
+        .expect("sync never returned: the wedged callback was not abandoned")?;
+
+    assert_eq!(
+        callback.entered(),
+        [WEDGE.to_string()],
+        "the change must actually have reached the callback"
+    );
+    assert!(
+        callback.returned().is_empty(),
+        "the callback is still wedged, so it cannot have completed"
+    );
+    assert_eq!(
+        bo_group.app_data()?,
+        WEDGE,
+        "abandoning the callback must not roll back the committed change"
+    );
+
+    alix_group
+        .update_app_data("after".to_string(), None)
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(
+        callback.returned(),
+        ["after".to_string()],
+        "one abandoned dispatch must not poison later ones"
+    );
+}
+
+/// The first expiry abandons the rest of the batch instead of paying the
+/// budget again per change. A host that blows the budget is stuck, not slow,
+/// and re-confirming that N times turns a bounded stall into an unbounded one.
+/// Dropping the tail is safe because merges are idempotent: the host reads
+/// current state on the next change it does receive.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_wedged_callback_drops_the_rest_of_its_batch() {
+    let (callback, callbacks) = wedging(Duration::from_millis(500));
+    tester!(alix);
+    tester!(bo, change_callbacks: callbacks);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    callback.forget();
+
+    // Two commits before a single sync, so both changes are collected into one
+    // batch and dispatched together.
+    alix_group.update_app_data(WEDGE.to_string(), None).await?;
+    alix_group
+        .update_app_data("second".to_string(), None)
+        .await?;
+
+    xmtp_common::time::timeout(Duration::from_secs(30), bo_group.sync())
+        .await
+        .expect("sync never returned: the wedged callback was not abandoned")?;
+
+    // Exactly one entry, and it is the wedge: the batch reached the callback
+    // and then stopped there. Had it kept going, "second" would have been
+    // entered too; had detection broken, there would be no entries at all.
+    assert_eq!(
+        callback.entered(),
+        [WEDGE.to_string()],
+        "the change queued behind the wedged one must be dropped, not dispatched"
+    );
+    assert_eq!(
+        bo_group.app_data()?,
+        "second",
+        "both commits must still be applied to local state — only the callback was skipped"
     );
 }

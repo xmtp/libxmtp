@@ -73,6 +73,7 @@ impl From<&UnstableChangeCallbacks> for RustUnstableChangeCallbacks {
       app_data: callbacks.app_data.clone().map(|cb| {
         Arc::new(AppDataChangeBridge { callback: cb }) as Arc<dyn RustAppDataChangeCallback>
       }),
+      ..Default::default()
     }
   }
 }

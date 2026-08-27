@@ -2350,14 +2350,49 @@ where
     ///
     /// Awaited in order, one at a time: a merge decides what to write from the
     /// value it was handed, so overlapping or reordered dispatches would let a
-    /// host publish a merge derived from state that has already moved on.
+    /// host publish a merge derived from state that has already moved on. That
+    /// ordering requirement is why a slow callback cannot simply be spawned off
+    /// to the side.
+    ///
+    /// Each callback gets `app_data_timeout` to return. Expiry is logged and
+    /// never surfaced as an error: the change being reported is already durably
+    /// committed, so failing the sync would turn a badly behaved host callback
+    /// into a broken client.
+    ///
+    /// Abandoning at the budget is what *bounds* the stall, not what ends the
+    /// host's work — on a binding that cannot cancel, the abandoned handler may
+    /// still publish later, out of order. Restoring strict ordering would mean
+    /// holding the next dispatch until the previous one truly finished, which
+    /// is the unbounded wait the budget exists to prevent. The guard on
+    /// `update_app_data` is the intended remedy; see
+    /// [`crate::groups::change_callbacks`].
     pub(crate) async fn dispatch_app_data_changes(&self, changes: Vec<AppDataChange>) {
-        let Some(callback) = self.context.change_callbacks().app_data.clone() else {
+        let callbacks = self.context.change_callbacks();
+        let Some(callback) = callbacks.app_data.clone() else {
             return;
         };
+        let budget = callbacks.app_data_timeout;
+        let total = changes.len();
 
-        for change in changes {
-            callback.on_app_data_changed(change).await;
+        for (index, change) in changes.into_iter().enumerate() {
+            if xmtp_common::time::timeout(budget, callback.on_app_data_changed(change))
+                .await
+                .is_err()
+            {
+                // One expiry means wedged rather than slow — a host that is
+                // merely slow still returns. Dropping the rest of the batch
+                // holds the stall to a single budget instead of one per change;
+                // the next change re-triggers the merge from current state,
+                // which an idempotent merge handles by construction.
+                tracing::warn!(
+                    group_id = %self.group_id,
+                    "app_data change callback did not return within {:?}; dropping the \
+                     remaining {} change(s) in this batch",
+                    budget,
+                    total - index - 1,
+                );
+                return;
+            }
         }
     }
 
