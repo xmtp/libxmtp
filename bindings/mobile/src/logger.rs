@@ -189,6 +189,130 @@ pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
     Ok(())
 }
 
+/// Sentry telemetry configuration. `user_stable_id` is the app-computed HKDF
+/// stable id (MetricsStableIdEncoder derivation), never a raw inbox id.
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiSentryConfig {
+    /// The app's Sentry DSN.
+    pub dsn: String,
+    /// Sentry environment name (e.g. "production", "staging").
+    pub environment: Option<String>,
+    /// Release identifier reported to Sentry. Defaults to the libxmtp version
+    /// when `None`.
+    pub release: Option<String>,
+    /// Fraction of transactions sampled for tracing. Valid range is
+    /// `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
+    pub traces_sample_rate: f32,
+    /// Number of breadcrumbs kept in the rolling buffer before the oldest are
+    /// evicted; pass 100 to match the underlying crate default.
+    pub max_breadcrumbs: u32,
+    /// The app-computed HKDF stable id, never a raw inbox id.
+    pub user_stable_id: Option<String>,
+    /// Tags attached to every event. `component=libxmtp` is always added.
+    pub tags: Vec<FfiSentryTag>,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiSentryTag {
+    /// Tag name.
+    pub key: String,
+    /// Tag value.
+    pub value: String,
+}
+
+impl From<FfiSentryConfig> for xmtp_logging::SentryConfig {
+    fn from(c: FfiSentryConfig) -> Self {
+        Self {
+            dsn: c.dsn,
+            environment: c.environment,
+            release: c.release,
+            traces_sample_rate: c.traces_sample_rate,
+            max_breadcrumbs: c.max_breadcrumbs as usize,
+            user_stable_id: c.user_stable_id,
+            tags: c.tags.into_iter().map(|t| (t.key, t.value)).collect(),
+        }
+    }
+}
+
+// Sentry setup errors carry the actionable reason (bad DSN, sample rate, OTLP
+// already active), so keep the message instead of the `Log` variant's fixed
+// "error initializing debug log file" text.
+fn sentry_err(e: xmtp_logging::Error) -> FfiError {
+    FfiError::generic(e.to_string())
+}
+
+const NO_HANDLE: &str = "logging subscriber owned by host process";
+
+/// Enable Sentry error/trace export. Errors if logging is owned by the host
+/// process, the DSN is invalid, `traces_sample_rate` is outside `[0.0, 1.0]`,
+/// or OTLP telemetry is already active.
+#[uniffi::export]
+#[xmtp_common::err_span]
+pub fn enable_sentry_telemetry(config: FfiSentryConfig) -> Result<(), FfiError> {
+    let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
+    h.enable_sentry(config.into()).map_err(sentry_err)
+}
+
+/// Disable Sentry export: remove the layer, then, if this handle owns the
+/// installed client, flush and drop it. Clears the stamped user id.
+#[uniffi::export]
+#[xmtp_common::err_span]
+pub fn disable_sentry_telemetry() -> Result<(), FfiError> {
+    // Clear the staged user id even when logging is host-owned and there is no
+    // handle to disable: the slot is ours regardless, and a stale id would
+    // attribute a later session's events.
+    xmtp_logging::sentry::set_user_stable_id(None);
+    let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
+    h.disable_sentry().map_err(sentry_err)
+}
+
+/// Late identify: stamp (or clear) the pseudonymous user id on future events.
+/// Call at inbox-ready with the HKDF stable id.
+#[uniffi::export]
+pub fn set_sentry_user(stable_id: Option<String>) {
+    xmtp_logging::sentry::set_user_stable_id(stable_id);
+}
+
+/// Flush pending telemetry (file, OTLP, and Sentry). Call on app background.
+#[uniffi::export]
+pub fn flush_telemetry() {
+    // Flush only an already-installed pipeline: `handle()` would lazily install
+    // our global subscriber, permanently claiming it from a host that flushes
+    // before configuring logging.
+    if let Some(h) = HANDLE.get().and_then(|h| h.as_ref()) {
+        h.flush();
+    }
+}
+
+#[cfg(test)]
+mod sentry_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_config_maps_and_bad_dsn_errors() {
+        let cfg = FfiSentryConfig {
+            dsn: "not a dsn".into(),
+            environment: Some("dev".into()),
+            release: None,
+            traces_sample_rate: 0.0,
+            max_breadcrumbs: 50,
+            user_stable_id: None,
+            tags: vec![],
+        };
+        // Invalid DSN must surface as an error, not a silent no-op (unlike the
+        // log-level controls, which no-op without a handle). Which of the two
+        // error paths fires depends on whether this test binary won the
+        // subscriber install race, so accept either.
+        let err = enable_sentry_telemetry(cfg).unwrap_err().to_string();
+        assert!(
+            err.contains("invalid sentry dsn") || err.contains("owned by host process"),
+            "unexpected error: {err}"
+        );
+        set_sentry_user(None);
+        flush_telemetry();
+    }
+}
+
 #[cfg(test)]
 mod test_logger {
     use super::*;
