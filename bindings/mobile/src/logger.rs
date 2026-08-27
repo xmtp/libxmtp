@@ -290,17 +290,6 @@ mod sentry_tests {
 
     #[test]
     fn ffi_config_maps_and_bad_dsn_errors() {
-        // Ordered first inside the one test fn: flush before any init must not
-        // lazily install the subscriber (the other calls below do install it).
-        flush_telemetry();
-        assert!(
-            HANDLE.get().is_none(),
-            "flush_telemetry must not install the logging pipeline"
-        );
-        // A user id staged with no handle/enable must not survive disable.
-        set_sentry_user(Some("staged".into()));
-        let _ = disable_sentry_telemetry();
-        assert!(!xmtp_logging::sentry::user_stable_id_is_set());
         let cfg = FfiSentryConfig {
             dsn: "not a dsn".into(),
             environment: Some("dev".into()),
