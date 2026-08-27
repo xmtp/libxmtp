@@ -400,14 +400,16 @@ mod tests {
             kp
         };
 
-        let kp = kp
-            .build(
-                CIPHERSUITE,
-                &rust_crypto,
-                keypair,
-                credential_with_key.clone(),
-            )
-            .unwrap();
+        // openmls is always async; the RustCrypto memory provider's build future is
+        // always ready, so drive it with a single poll (this is a sync fn).
+        let kp = futures::FutureExt::now_or_never(kp.build(
+            CIPHERSUITE,
+            &rust_crypto,
+            keypair,
+            credential_with_key.clone(),
+        ))
+        .expect("memory-provider key package future resolves synchronously")
+        .unwrap();
         kp.key_package().tls_serialize_detached().unwrap()
     }
 

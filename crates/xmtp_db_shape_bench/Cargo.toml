@@ -23,10 +23,10 @@ publish = false
 #   ready-future (is_sync off):   RUSTC_BOOTSTRAP=1 cargo bench --no-default-features
 
 [features]
-default = ["blocking"]
-# `sync` (diesel backend) is always on via the xmtp_db dep; this toggles only the
-# blocking SHAPE.
-blocking = ["xmtp_db/blocking"]
+# Blocking is retired: the client is unconditionally async (ready-future). This
+# bench now measures the SqlKeyStore storage path on the single (async) shape; the
+# blocking-vs-ready-future A/B it was written for is recorded in the spike doc.
+default = []
 
 [dependencies]
 xmtp_db = { path = "../xmtp_db", default-features = false, features = ["sync"] }

@@ -62,12 +62,10 @@ toxiproxy_rust.workspace = true
 volumes = ["__LIB12_DEP=../"]
 
 [features]
-# Storage BACKEND (`sync` = diesel/SQLite) and SHAPE (`blocking` = maybe-async
-# is_sync) are forwarded so this binding can be built in the all-async spike's
-# ready-future-SQLite config: `--no-default-features --features sync`.
-default = ["sync", "blocking"]
+# Storage BACKEND (`sync` = diesel/SQLite). The client is unconditionally async
+# (ready-future SQLite); on SQLite the storage futures are always ready.
+default = ["sync"]
 sync = ["xmtp_mls/sync", "xmtp_db/sync"]
-blocking = ["xmtp_mls/blocking", "xmtp_db/blocking"]
 test-utils = [
   "dep:xmtp_api_grpc",
   "xmtp_api_grpc/test-utils",

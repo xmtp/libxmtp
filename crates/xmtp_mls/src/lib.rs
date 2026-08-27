@@ -13,23 +13,13 @@
     feature(async_fn_traits, unboxed_closures)
 )]
 
-/// `expr.await` on the async (Postgres) track, `expr` on the sync (SQLite) track.
-///
-/// openmls is compiled maybe_async: a given method is `async fn` on the async
-/// track and blocking on the sync track. This crate's own functions are `async fn`
-/// on both tracks, so a call to such an openmls method must be awaited on async and
-/// used directly on sync. This wraps that single difference so a shared call site
-/// stays single-source. (openmls-async ⟺ this crate's `async` feature without `sync`.)
+/// Awaits `expr`. openmls is now compiled unconditionally async (its maybe_async
+/// methods are always `async fn`), so awaiting is unconditional. Kept as a thin
+/// wrapper to leave call sites untouched by the blocking-feature removal; inlining
+/// the remaining `maybe_await!(x)` to `x.await` is a mechanical follow-up.
 macro_rules! maybe_await {
     ($e:expr) => {{
-        #[cfg(not(feature = "blocking"))]
-        {
-            $e.await
-        }
-        #[cfg(feature = "blocking")]
-        {
-            $e
-        }
+        $e.await
     }};
 }
 

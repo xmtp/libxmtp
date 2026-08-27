@@ -134,32 +134,19 @@ criterion = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [features]
-default = ["sync", "blocking"]
-# Storage BACKEND + SHAPE are two axes.
-#
-# `sync` selects the diesel/SQLite BACKEND (the ~530 `cfg(feature = "sync")`
-# gates key on this). `blocking` selects the maybe-async `is_sync` SHAPE. They
-# used to be fused, but the all-async spike needs the diesel backend under the
-# ASYNC openmls shape ("ready-future SQLite"): `--no-default-features --features
-# sync` gives exactly that. The normal client is `sync + blocking` (unchanged),
-# and `async` is the sqlx/Postgres backend which is async-shaped by construction.
-# `blocking` and `async` are mutually exclusive (is_sync is a global switch);
-# wasm can only use the diesel backend (sqlx cannot target wasm32).
+default = ["sync"]
+# Storage BACKEND selection. The client is unconditionally async (ready-future):
+# openmls and our maybe-async traits are always compiled async — nothing enables
+# `maybe-async/is_sync` / `openmls/sync` any more. `sync` selects the diesel/SQLite
+# backend (the ~530 `cfg(feature = "sync")` gates key on this); `async` selects the
+# sqlx/Postgres backend. wasm can only use the diesel backend (sqlx cannot target
+# wasm32). On SQLite the async storage futures are always ready (resolved with one
+# poll), so there is no runtime cost beyond that.
 sync = [
   "dep:diesel",
   "dep:diesel_migrations",
   "dep:libsqlite3-sys",
   "xmtp_proto/diesel",
-]
-# The blocking SHAPE: maybe-async's global `is_sync` switch, plus openmls' matching
-# blocking track (its traits ride the same switch). Separated from `sync` so the
-# diesel backend can also be built under the async openmls shape.
-blocking = [
-  "maybe-async/is_sync",
-  "openmls/sync",
-  "openmls_traits/sync",
-  "openmls_basic_credential/sync",
-  "openmls_rust_crypto/sync",
 ]
 # `openmls/0-8-1-storage-format` switches OpenMLS' storage enums (CredentialType,
 # ExtensionType, ProposalType) to STANDARD serde derive, which is self-consistent

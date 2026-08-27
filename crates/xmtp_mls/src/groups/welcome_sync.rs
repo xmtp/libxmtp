@@ -537,10 +537,9 @@ fn filter_groups_with_new_messages(
     groups_with_unread_messages
 }
 
-// These tests build their MLS client via `create_mls_client` (openmls_mock), which
-// wraps openmls's multi-client test framework — blocking-shape only. Gated to the
-// blocking track until that framework is threaded for the async shape.
-#[cfg(all(test, feature = "blocking"))]
+// These tests build their "other side" MLS client via `create_mls_client`
+// (openmls_mock), now re-homed onto the async openmls MlsGroup API.
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::groups::test::NoopValidator;

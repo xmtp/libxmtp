@@ -10,110 +10,94 @@ use crate::{
     },
     identity::create_credential,
 };
-use openmls::group::{GroupId, MlsGroupCreateConfig};
+use openmls::group::{GroupId, MlsGroup, MlsGroupCreateConfig};
 use openmls::prelude::MlsMessageOut;
 use openmls::prelude::{CredentialWithKey, KeyPackage, Welcome};
-use openmls::storage::OpenMlsProvider;
-use openmls::test_utils::test_framework::ActionType;
-use openmls::test_utils::test_framework::client::Client;
-use openmls::test_utils::test_framework::errors::ClientError;
 use prost::Message;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_cryptography::configuration::CIPHERSUITE;
 use xmtp_db::group::ConversationType;
-use xmtp_db::sql_key_store::SqlKeyStoreError;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_db::{MemoryStorage, MlsMemoryStorage, MlsProviderExt, XmtpOpenMlsProvider};
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    sql_key_store::{SqlKeyStore, mock::MockSqlKeyStore},
-};
+use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStore};
 use xmtp_proto::xmtp::identity::MlsCredential;
 
-pub struct BarebonesMlsClient<P: OpenMlsProvider> {
+/// A minimal "other side" MLS client for tests: it drives the openmls `MlsGroup`
+/// API directly to generate key packages, groups, and welcomes for the libxmtp
+/// client under test. Previously wrapped openmls' own multi-client test framework
+/// (`test_framework::client::Client`), which is written synchronously and does not
+/// compile against the always-async openmls storage; this re-homes it onto the
+/// public `MlsGroup` API with `.await`. The `installation_key` is the signer, so
+/// there is no async storage read of the key pair.
+pub struct BarebonesMlsClient<P: MlsProviderExt> {
+    identity: Vec<u8>,
     installation_key: XmtpInstallationCredential,
-    client: Client<P>,
+    credential: CredentialWithKey,
+    provider: P,
+    groups: RwLock<HashMap<GroupId, MlsGroup>>,
 }
 
-// `key_package`/`add_member`/`join_group` transit this crate's async
-// `NewKeyPackage::build` (async on both tracks), so they are `async fn`;
-// `create_mls_group` only calls openmls test-framework methods (blocking on the
-// sync track) and stays synchronous.
 #[allow(async_fn_in_trait)]
 pub trait OpenMlsTestExt {
-    /// Builds a fresh KeyPackage and stores its reference in the local db
-    async fn key_package(&self) -> Result<KeyPackage, ClientError<SqlKeyStoreError>>;
+    /// Builds a fresh KeyPackage and stores its reference in the local db.
+    async fn key_package(&self) -> KeyPackage;
 
-    /// Create a group in mls memory
-    fn create_mls_group(&self, members: &[&str]) -> Result<GroupId, ClientError<SqlKeyStoreError>>;
+    /// Create a group in mls memory, returning its id.
+    async fn create_mls_group(&self, members: &[&str]) -> GroupId;
 
-    /// Adds an anonymous member to [GroupId]
-    /// Returns KP of that member and the welcome
+    /// Adds an anonymous member to the group; returns their KP and the welcome.
     async fn add_member(&self, group_id: &GroupId) -> (KeyPackage, Welcome);
 
-    /// Join an anonymous group
-    /// Returns our key package used to join the group, and a welcome
-    /// to join the group.
+    /// Join an anonymous group; returns our key package and a welcome to join it.
     async fn join_group(&self) -> (KeyPackage, MlsMessageOut);
 }
 
-/// create an owned anonymous client
-pub fn gen_client(identity: &str) -> BarebonesMlsClient<XmtpOpenMlsProvider<MlsMemoryStorage>> {
-    let store = SqlKeyStore::new(MemoryStorage::new());
-    let mut credentials = HashMap::new();
-    let installation_key = XmtpInstallationCredential::new();
-    let key_pair = openmls_basic_credential::SignatureKeyPair::from(installation_key.clone());
-    key_pair.store(&store).unwrap();
-    let signature_key = installation_key.clone().into();
-    let credential = CredentialWithKey {
+fn credential_with_key(
+    identity: &str,
+    installation_key: &XmtpInstallationCredential,
+) -> CredentialWithKey {
+    CredentialWithKey {
         credential: create_credential(identity).unwrap(),
-        signature_key,
-    };
-    credentials.insert(CIPHERSUITE, credential);
-    let client = Client::<_> {
-        identity: b"alice".to_vec(),
-        credentials,
-        provider: XmtpOpenMlsProvider::new(store),
-        groups: RwLock::new(HashMap::new()),
-    };
-
-    BarebonesMlsClient {
-        installation_key,
-        client,
+        signature_key: installation_key.clone().into(),
     }
 }
 
+/// Create an owned anonymous client backed by fresh in-memory MLS storage.
+pub fn gen_client(identity: &str) -> BarebonesMlsClient<XmtpOpenMlsProvider<MlsMemoryStorage>> {
+    let store = SqlKeyStore::new(MemoryStorage::new());
+    let installation_key = XmtpInstallationCredential::new();
+    let credential = credential_with_key(identity, &installation_key);
+    BarebonesMlsClient {
+        identity: identity.as_bytes().to_vec(),
+        installation_key,
+        credential,
+        provider: XmtpOpenMlsProvider::new(store),
+        groups: RwLock::new(HashMap::new()),
+    }
+}
+
+/// Create a client backed by the given storage (e.g. the mock context's store).
 pub fn create_mls_client<S: XmtpMlsStorageProvider>(
     store: &S,
 ) -> BarebonesMlsClient<XmtpOpenMlsProviderRef<'_, S>> {
-    let mut credentials = HashMap::new();
     let installation_key = XmtpInstallationCredential::new();
-    let key_pair = openmls_basic_credential::SignatureKeyPair::from(installation_key.clone());
-    key_pair.store(store).unwrap();
-    let signature_key = installation_key.clone().into();
-    let credential = CredentialWithKey {
-        credential: create_credential("alice").unwrap(),
-        signature_key,
-    };
-    credentials.insert(CIPHERSUITE, credential);
+    let credential = credential_with_key("alice", &installation_key);
     BarebonesMlsClient {
+        identity: b"alice".to_vec(),
         installation_key,
-        client: Client::<_> {
-            identity: b"alice".to_vec(),
-            credentials,
-            provider: XmtpOpenMlsProviderRef::new(store),
-            groups: RwLock::new(HashMap::new()),
-        },
+        credential,
+        provider: XmtpOpenMlsProviderRef::new(store),
+        groups: RwLock::new(HashMap::new()),
     }
 }
 
 impl MockStoreAndContext {
-    /// Create an MLS client with an XMTP Installation Key
-    /// Stores the Key package in OpenMls Memory storage
-    /// Adds credential to client
-    pub fn mls_client(&self) -> BarebonesMlsClient<XmtpOpenMlsProviderRef<'_, MockSqlKeyStore>> {
+    /// Create an MLS client backed by this context's mock storage.
+    pub fn mls_client(
+        &self,
+    ) -> BarebonesMlsClient<XmtpOpenMlsProviderRef<'_, xmtp_db::sql_key_store::mock::MockSqlKeyStore>>
+    {
         create_mls_client(&self.mls_storage)
     }
 }
@@ -127,85 +111,95 @@ fn generate_group_config(
     members
         .iter()
         .for_each(|m| membership.add(m.to_string(), 0));
-    let _group_membership = build_group_membership_extension(&membership);
     let protected_metadata =
         build_protected_metadata_extension(creator_inbox, ConversationType::Group, None)?;
     let mutable_metadata =
         build_mutable_metadata_extension_default(creator_inbox, Default::default())?;
     let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
     let mutable_permissions = build_mutable_permissions_extension(Default::default())?;
-    let group_config = build_group_config(
+    build_group_config(
         protected_metadata,
         mutable_metadata,
         group_membership,
         mutable_permissions,
-    )?;
-    Ok(group_config)
+    )
 }
 
 impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
-    async fn key_package(&self) -> Result<KeyPackage, ClientError<SqlKeyStoreError>> {
-        let cred = self.client.credentials.get(&CIPHERSUITE).unwrap();
-        let cred = &cred.credential;
-        Ok(XmtpKeyPackage::builder()
-            .inbox_id(String::from_utf8_lossy(&self.client.identity))
-            .credential(cred.clone())
+    async fn key_package(&self) -> KeyPackage {
+        XmtpKeyPackage::builder()
+            .inbox_id(String::from_utf8_lossy(&self.identity))
+            .credential(self.credential.credential.clone())
             .installation_keys(self.installation_key.clone())
-            .build(&self.client.provider, false)
+            .build(&self.provider, false)
             .await
             .unwrap()
-            .key_package)
+            .key_package
     }
 
-    fn create_mls_group(&self, members: &[&str]) -> Result<GroupId, ClientError<SqlKeyStoreError>> {
+    async fn create_mls_group(&self, members: &[&str]) -> GroupId {
         let config = generate_group_config("alice", members).unwrap();
-        self.client.create_group(config, CIPHERSUITE)
+        let group = MlsGroup::new(
+            &self.provider,
+            &self.installation_key,
+            &config,
+            self.credential.clone(),
+        )
+        .await
+        .unwrap();
+        let group_id = group.group_id().clone();
+        self.groups
+            .write()
+            .unwrap()
+            .insert(group_id.clone(), group);
+        group_id
     }
 
     async fn add_member(&self, group_id: &GroupId) -> (KeyPackage, Welcome) {
         let new_member = gen_client(&xmtp_common::rand_string::<4>());
-        let kp = new_member.key_package().await.unwrap();
-        let (_, welcome, _) = self
-            .client
-            .add_members(ActionType::Commit, group_id, std::slice::from_ref(&kp))
+        let kp = new_member.key_package().await;
+        // Own the group across the await so we do not hold the lock over it.
+        let mut group = self.groups.write().unwrap().remove(group_id).unwrap();
+        let (_commit, welcome, _group_info) = group
+            .add_members(&self.provider, &self.installation_key, std::slice::from_ref(&kp))
+            .await
             .unwrap();
-        (kp, welcome.unwrap())
+        self.groups
+            .write()
+            .unwrap()
+            .insert(group_id.clone(), group);
+        (kp, welcome.into_welcome().expect("expected a welcome message"))
     }
 
     async fn join_group(&self) -> (KeyPackage, MlsMessageOut) {
         let anon = gen_client(&format!("anon-{}", xmtp_common::rand_string::<4>()));
-        let inbox_id = String::from_utf8_lossy(&self.client.identity);
-        let group_id = anon.create_mls_group(&[&inbox_id]).unwrap();
-        tracing::info!(
-            "created anon mock mls group {}",
-            hex::encode(group_id.as_slice())
-        );
-        let kp = self.key_package().await.unwrap();
+        let inbox_id = String::from_utf8_lossy(&self.identity).to_string();
+        let group_id = anon.create_mls_group(&[&inbox_id]).await;
+        tracing::info!("created anon mock mls group {}", hex::encode(group_id.as_slice()));
+        let kp = self.key_package().await;
 
-        let mut groups = anon.client.groups.write().unwrap();
-        let mls_group = groups.get_mut(&group_id).unwrap();
-
+        let mut group = anon.groups.write().unwrap().remove(&group_id).unwrap();
         let mut membership = GroupMembership::new();
-        for m in mls_group.members() {
+        for m in group.members() {
             let c: MlsCredential =
                 MlsCredential::decode(m.credential.serialized_content()).unwrap();
             membership.members.insert(c.inbox_id, 0);
         }
-        membership.members.insert(inbox_id.to_string(), 0);
-        // Update the extensions to have the new GroupMembership
-        let mut new_extensions = mls_group.extensions().clone();
+        membership.members.insert(inbox_id, 0);
+        let mut new_extensions = group.extensions().clone();
         new_extensions
             .add_or_replace(build_group_membership_extension(&membership))
             .unwrap();
 
-        let (_commit, welcome, _) = mls_group
+        let (_commit, welcome, _group_info) = group
             .update_group_membership(
-                &anon.client.provider,
+                &anon.provider,
                 &anon.installation_key,
                 std::slice::from_ref(&kp),
                 &[],
                 new_extensions,
             )
+            .await
             .unwrap();
         (kp, welcome.unwrap())
     }

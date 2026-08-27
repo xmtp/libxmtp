@@ -14,9 +14,8 @@ workspace = true
 # Storage-track selection, forwarded to xmtp_db (which drives the global
 # maybe-async/is_sync switch + the openmls track). Default is `sync` so every
 # existing consumer is unchanged; `async` is for the sqlx/Postgres track.
-default = ["sync", "blocking"]
+default = ["sync"]
 sync = ["xmtp_db/sync"]
-blocking = ["xmtp_db/blocking"]
 async = ["xmtp_db/async"]
 
 [dependencies]

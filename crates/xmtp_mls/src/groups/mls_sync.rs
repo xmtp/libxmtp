@@ -5065,14 +5065,13 @@ where
     generate_commit_with_rollback_body!(storage, openmls_group, operation)
 }
 
-/// Diesel/SQLite backend, either shape (blocking OR ready-future is_sync-off). Both
-/// drive the operation future to completion synchronously inside the diesel
-/// transaction (`drive_to_completion`), so it never crosses an await and needs no
-/// `CallOnceFuture: Send` bound — the stable `AsyncFnOnce` sugar is all that is
-/// needed (naming `CallOnceFuture` would need nightly the stable toolchain can't
-/// enable). This is the STABLE path the shipping bindings compile. See
-/// [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(any(feature = "blocking", feature = "sync"))]
+/// Diesel/SQLite backend. Drives the operation future to completion synchronously
+/// inside the diesel transaction (`drive_to_completion`), so it never crosses an
+/// await and needs no `CallOnceFuture: Send` bound — the stable `AsyncFnOnce` sugar
+/// is all that is needed (naming `CallOnceFuture` would need nightly the stable
+/// toolchain can't enable). This is the STABLE path the shipping bindings compile.
+/// See [`generate_commit_with_rollback_body`] for the shared logic.
+#[cfg(feature = "sync")]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,

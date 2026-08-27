@@ -50,16 +50,11 @@ bench = [
   "dep:alloy",
   "xmtp_common/bench",
 ]
-default = ["sync", "blocking"]
-# Storage-track selection, now on two axes. `sync` = diesel/SQLite BACKEND;
-# `blocking` = maybe-async/is_sync SHAPE (async fns collapse to blocking — today's
-# client, byte-identical). Default is both. `async` = sqlx/Postgres (is_sync OFF).
-# The all-async spike builds `--no-default-features --features sync` = the diesel
-# backend under the async shape (ready-future SQLite). All three are forwarded
-# through the whole xmtp_db-dependent chain so cargo unification does not silently
-# drag a shape back on.
+default = ["sync"]
+# Storage BACKEND selection (the client is unconditionally async / ready-future).
+# `sync` = diesel/SQLite backend; `async` = sqlx/Postgres. Forwarded through the
+# whole xmtp_db-dependent chain.
 sync = ["xmtp_db/sync", "xmtp_mls_common/sync", "xmtp_archive/sync"]
-blocking = ["xmtp_db/blocking", "xmtp_mls_common/blocking", "xmtp_archive/blocking", "xmtp_api_d14n/blocking"]
 async = ["xmtp_db/async", "xmtp_mls_common/async", "xmtp_archive/async"]
 d14n = ["xmtp_api_d14n/d14n"]
 v3 = ["xmtp_api_d14n/v3"]

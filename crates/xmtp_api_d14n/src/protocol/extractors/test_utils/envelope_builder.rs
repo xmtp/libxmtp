@@ -167,9 +167,6 @@ impl TestEnvelopeBuilder {
             &installation,
             credential,
         );
-        #[cfg(feature = "blocking")]
-        let kp = build.expect("test key package should build");
-        #[cfg(not(feature = "blocking"))]
         let kp = futures::FutureExt::now_or_never(build)
             .expect("memory-provider key package future resolves synchronously")
             .expect("test key package should build");

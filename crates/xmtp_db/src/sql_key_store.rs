@@ -1295,29 +1295,29 @@ pub(crate) mod tests {
         assert!(
             key_store
                 .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-                .unwrap()
+                .await.unwrap()
                 .is_none()
         );
 
         key_store
             .write_signature_key_pair::<StorageId, SignatureKeyPair>(&public_key, &signature_keys)
-            .unwrap();
+            .await.unwrap();
 
         assert!(
             key_store
                 .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-                .unwrap()
+                .await.unwrap()
                 .is_some()
         );
 
         key_store
             .delete_signature_key_pair::<StorageId>(&public_key)
-            .unwrap();
+            .await.unwrap();
 
         assert!(
             key_store
                 .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-                .unwrap()
+                .await.unwrap()
                 .is_none()
         );
     }
@@ -1447,7 +1447,7 @@ pub(crate) mod tests {
                     &ProposalRef(i),
                     proposal,
                 )
-                .expect("Failed to queue proposal");
+                .await.expect("Failed to queue proposal");
         }
 
         tracing::trace!("Finished with queued proposals");
@@ -1455,7 +1455,7 @@ pub(crate) mod tests {
         let proposal_refs_read: Vec<ProposalRef> = provider
             .storage()
             .queued_proposal_refs(&group_id)
-            .expect("Failed to read proposal refs");
+            .await.expect("Failed to read proposal refs");
         assert_eq!(
             (0..10).map(ProposalRef).collect::<Vec<_>>(),
             proposal_refs_read
@@ -1463,7 +1463,7 @@ pub(crate) mod tests {
 
         // Read proposals
         let proposals_read: Vec<(ProposalRef, Proposal)> =
-            provider.storage().queued_proposals(&group_id).unwrap();
+            provider.storage().queued_proposals(&group_id).await.unwrap();
         let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1474,16 +1474,16 @@ pub(crate) mod tests {
         provider
             .storage()
             .remove_proposal(&group_id, &ProposalRef(5))
-            .unwrap();
+            .await.unwrap();
 
         let proposal_refs_read: Vec<ProposalRef> =
-            provider.storage().queued_proposal_refs(&group_id).unwrap();
+            provider.storage().queued_proposal_refs(&group_id).await.unwrap();
         let mut expected = (0..10).map(ProposalRef).collect::<Vec<_>>();
         expected.remove(5);
         assert_eq!(expected, proposal_refs_read);
 
         let proposals_read: Vec<(ProposalRef, Proposal)> =
-            provider.storage().queued_proposals(&group_id).unwrap();
+            provider.storage().queued_proposals(&group_id).await.unwrap();
         let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1495,13 +1495,13 @@ pub(crate) mod tests {
         provider
             .storage()
             .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
-            .unwrap();
+            .await.unwrap();
         let proposal_refs_read: Result<Vec<ProposalRef>, SqlKeyStoreError> =
-            provider.storage().queued_proposal_refs(&group_id);
+            provider.storage().queued_proposal_refs(&group_id).await;
         assert!(proposal_refs_read.unwrap().is_empty());
 
         let proposals_read: Result<Vec<(ProposalRef, Proposal)>, SqlKeyStoreError> =
-            provider.storage().queued_proposals(&group_id);
+            provider.storage().queued_proposals(&group_id).await;
         assert!(proposals_read.unwrap().is_empty());
     }
 
@@ -1523,10 +1523,10 @@ pub(crate) mod tests {
         provider
             .storage()
             .write_group_state(&group_id, &GroupState(77))
-            .unwrap();
+            .await.unwrap();
 
         // Read group state
-        let group_state: Option<GroupState> = provider.storage().group_state(&group_id).unwrap();
+        let group_state: Option<GroupState> = provider.storage().group_state(&group_id).await.unwrap();
         assert_eq!(GroupState(77), group_state.unwrap());
     }
 
@@ -1567,38 +1567,38 @@ pub(crate) mod tests {
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .unwrap();
+            .await.unwrap();
         assert!(result.is_none());
 
         // Write tree for group 1
         provider
             .storage()
             .write_application_export_tree(&group_id_1, &tree_1)
-            .unwrap();
+            .await.unwrap();
 
         // Read back group 1
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .unwrap();
+            .await.unwrap();
         assert_eq!(result.unwrap(), tree_1);
 
         // Group 2 should still be None
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .unwrap();
+            .await.unwrap();
         assert!(result.is_none());
 
         // Write tree for group 2
         provider
             .storage()
             .write_application_export_tree(&group_id_2, &tree_2)
-            .unwrap();
+            .await.unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .unwrap();
+            .await.unwrap();
         assert_eq!(result.unwrap(), tree_2);
 
         // Overwrite group 1 with new data
@@ -1606,53 +1606,53 @@ pub(crate) mod tests {
         provider
             .storage()
             .write_application_export_tree(&group_id_1, &tree_1_updated)
-            .unwrap();
+            .await.unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .unwrap();
+            .await.unwrap();
         assert_eq!(result.unwrap(), tree_1_updated);
 
         // Group 2 should be unaffected
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .unwrap();
+            .await.unwrap();
         assert_eq!(result.unwrap(), tree_2);
 
         // Delete group 1
         provider
             .storage()
             .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_1)
-            .unwrap();
+            .await.unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .unwrap();
+            .await.unwrap();
         assert!(result.is_none());
 
         // Group 2 should still exist
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .unwrap();
+            .await.unwrap();
         assert_eq!(result.unwrap(), tree_2);
 
         // Delete group 2
         provider
             .storage()
             .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_2)
-            .unwrap();
+            .await.unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .unwrap();
+            .await.unwrap();
         assert!(result.is_none());
 
         // Deleting again should not error
         provider
             .storage()
             .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_1)
-            .unwrap();
+            .await.unwrap();
     }
 }

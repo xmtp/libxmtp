@@ -25,15 +25,8 @@ use xmtp_db::{EncryptedMessageStore, NativeDb};
 // shape, one poll of the already-ready future on the ready-future shape.
 macro_rules! drive {
     ($e:expr) => {{
-        #[cfg(feature = "blocking")]
-        {
-            $e
-        }
-        #[cfg(not(feature = "blocking"))]
-        {
-            futures::FutureExt::now_or_never($e)
-                .expect("diesel-backed storage future resolves synchronously")
-        }
+        futures::FutureExt::now_or_never($e)
+            .expect("diesel-backed storage future resolves synchronously")
     }};
 }
 

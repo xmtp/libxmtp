@@ -75,12 +75,10 @@ xmtp_mls = { workspace = true, features = ["test-utils"] }
 owo-colors.workspace = true
 
 [features]
-# Storage BACKEND (`sync`=diesel/SQLite — the only wasm-capable one) + SHAPE
-# (`blocking`=maybe-async is_sync). The all-async spike builds
-# `--no-default-features --features sync` = ready-future SQLite on wasm.
-default = ["sync", "blocking"]
+# Storage BACKEND (`sync`=diesel/SQLite — the only wasm-capable one). The client is
+# unconditionally async (ready-future SQLite); sqlx cannot target wasm32.
+default = ["sync"]
 sync = ["xmtp_mls/sync", "xmtp_db/sync"]
-blocking = ["xmtp_mls/blocking", "xmtp_db/blocking"]
 test-utils = [
   "dep:alloy",
   "dep:wasm-bindgen-test",

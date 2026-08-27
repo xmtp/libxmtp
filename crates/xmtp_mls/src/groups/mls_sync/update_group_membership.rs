@@ -587,7 +587,7 @@ pub(crate) async fn apply_readd_installations_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     use crate::{
         groups::{
@@ -601,7 +601,6 @@ mod tests {
     use openmls::{group::MlsGroupCreateConfig, prelude::CredentialWithKey};
     use rstest::*;
     use xmtp_cryptography::XmtpInstallationCredential;
-    use xmtp_cryptography::configuration::CIPHERSUITE;
     use xmtp_db::mock::MockDbQuery;
 
     fn generate_config(
@@ -629,33 +628,29 @@ mod tests {
         Ok(group_config)
     }
 
-    // Uses openmls's multi-client test framework (blocking-shape only) to build a
-    // mocked MLS client/group; runs on the blocking track until that framework is
-    // threaded for the async shape.
-    #[cfg(feature = "blocking")]
+    // Re-homed off openmls' sync-only multi-client test framework: build the group
+    // directly on the async openmls MlsGroup API. The signature key pair is stored so
+    // `apply_update_group_membership_intent` can read the signer from storage.
     #[rstest]
     #[xmtp_common::test]
     #[allow(clippy::readonly_write_lock, clippy::await_holding_lock)]
     async fn applies_group_membership_intent(mut context: NewMockContext) {
-        let mut credentials = HashMap::new();
         let installation_key = XmtpInstallationCredential::new();
         let key_pair = openmls_basic_credential::SignatureKeyPair::from(installation_key.clone());
-        key_pair.store(&context.mls_storage).unwrap();
-        let signature_key = installation_key.clone().into();
+        key_pair.store(&context.mls_storage).await.unwrap();
         let credential = CredentialWithKey {
             credential: create_credential("alice").unwrap(),
-            signature_key,
-        };
-        credentials.insert(CIPHERSUITE, credential);
-        // create a mocked, MLS client + group using openmls test framework
-        let client = openmls::test_utils::test_framework::client::Client::<_> {
-            identity: b"alice".to_vec(),
-            credentials,
-            provider: XmtpOpenMlsProviderRef::new(&context.mls_storage),
-            groups: RwLock::new(HashMap::new()),
+            signature_key: installation_key.clone().into(),
         };
         let config = generate_config("alice", &["bob", "caro", "eve"]).unwrap();
-        let id = client.create_group(config, CIPHERSUITE).unwrap();
+        // Scope the provider borrow of `context.mls_storage` to group creation; the
+        // owned group holds no borrow, so `context` can be moved afterward.
+        let mut g = {
+            let provider = XmtpOpenMlsProviderRef::new(&context.mls_storage);
+            openmls::group::MlsGroup::new(&provider, &installation_key, &config, credential)
+                .await
+                .unwrap()
+        };
         let installation = XmtpInstallationCredential::new();
 
         let db_calls = || {
@@ -667,14 +662,11 @@ mod tests {
         };
         context.store.expect_db().returning(db_calls);
 
-        let mut groups = client.groups.write().unwrap();
-        let g = groups.get_mut(&id).unwrap();
-
         // once context is in an arc, can no longer set expectations
         let context = Arc::new(context);
         let intent = apply_update_group_membership_intent(
             context.as_ref(),
-            g,
+            &mut g,
             UpdateGroupMembershipIntentData {
                 membership_updates: HashMap::new(),
                 removed_members: Vec::new(),
