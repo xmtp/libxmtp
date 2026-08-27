@@ -10631,14 +10631,30 @@ public struct FfiUpdateAppDataOptions: Equatable, Hashable {
      * The new value for the group's opaque `APP_DATA` string slot.
      */
     public var value: String
+    /**
+     * Optional compare-and-swap guard. When set, the update is abandoned
+     * with an `AppDataSuperseded` error — rather than overwriting — if the
+     * committed value is no longer this, including when another member's
+     * commit wins the race after this update was published. Leave unset for
+     * the historical last-writer-wins behavior.
+     */
+    public var expectedValue: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
          * The new value for the group's opaque `APP_DATA` string slot.
-         */value: String) {
+         */value: String, 
+        /**
+         * Optional compare-and-swap guard. When set, the update is abandoned
+         * with an `AppDataSuperseded` error — rather than overwriting — if the
+         * committed value is no longer this, including when another member's
+         * commit wins the race after this update was published. Leave unset for
+         * the historical last-writer-wins behavior.
+         */expectedValue: String? = nil) {
         self.value = value
+        self.expectedValue = expectedValue
     }
 
     
@@ -10657,12 +10673,14 @@ public struct FfiConverterTypeFfiUpdateAppDataOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiUpdateAppDataOptions {
         return
             try FfiUpdateAppDataOptions(
-                value: FfiConverterString.read(from: &buf)
+                value: FfiConverterString.read(from: &buf), 
+                expectedValue: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiUpdateAppDataOptions, into buf: inout [UInt8]) {
         FfiConverterString.write(value.value, into: &buf)
+        FfiConverterOptionString.write(value.expectedValue, into: &buf)
     }
 }
 
