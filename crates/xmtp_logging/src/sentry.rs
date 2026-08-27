@@ -144,9 +144,17 @@ fn scrub_breadcrumb(mut b: sentry::Breadcrumb) -> Option<sentry::Breadcrumb> {
 /// transport wrapper (`tag_transactions`). Transactions are therefore also
 /// *unscrubbed* by explicit decision; the release span fields are designed to be
 /// identity-free, which is what keeps that safe.
+/// Caller tags come first: every consumer stamps with first-occurrence-wins
+/// (`entry().or_insert`), so a caller-supplied `component` overrides the
+/// `libxmtp` default rather than the other way around.
 fn event_tags(cfg: &SentryConfig) -> Vec<(String, String)> {
-    std::iter::once(("component".to_string(), "libxmtp".to_string()))
-        .chain(cfg.tags.iter().cloned())
+    cfg.tags
+        .iter()
+        .cloned()
+        .chain(std::iter::once((
+            "component".to_string(),
+            "libxmtp".to_string(),
+        )))
         .collect()
 }
 
@@ -662,6 +670,23 @@ mod layer_tests {
             overriding.tags["app"], "host-set",
             "a tag the transaction already set must win over the configured one"
         );
+    }
+
+    #[test]
+    fn caller_supplied_component_tag_wins_over_the_default() {
+        let cfg = SentryConfig {
+            tags: vec![("component".into(), "host-app".into())],
+            ..Default::default()
+        };
+        let tags = event_tags(&cfg);
+        // First occurrence wins in every stamping consumer.
+        let first = tags.iter().find(|(k, _)| k == "component").unwrap();
+        assert_eq!(first.1, "host-app");
+        let mut event = sentry::protocol::Event::default();
+        for (k, v) in &tags {
+            event.tags.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        assert_eq!(event.tags["component"], "host-app");
     }
 
     /// The wrapper rebuilds transaction envelopes, so prove the headers survive
