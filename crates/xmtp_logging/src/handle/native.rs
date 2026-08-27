@@ -243,13 +243,12 @@ impl LoggingHandle {
                     "OTLP telemetry active; disable it before enabling sentry".into(),
                 ));
             }
-            // Read before `build_sentry_layer` overwrites the process hub, and only
-            // while we are not already the owner: on a re-enable this would otherwise
-            // stash our own client and "restore" it on the way out.
-            let host_client = guards
-                .sentry
-                .is_none()
-                .then(|| sentry::Hub::main().client());
+            // Snapshot before `build_sentry_layer` overwrites the process hub:
+            // unconditionally for the reload-failure rollback below, and gated on
+            // not-already-owner for the disable-time stash (a re-enable would
+            // otherwise stash our own client and "restore" it on the way out).
+            let main_before = sentry::Hub::main().client();
+            let host_client = guards.sentry.is_none().then(|| main_before.clone());
             // Fallible, and nothing above it mutated state: an early return here
             // leaves the slot and the guards exactly as they were.
             let (layer, guard) = crate::sentry::build_sentry_layer(cfg)?;
@@ -260,8 +259,13 @@ impl LoggingHandle {
                     }
                     guards.sentry.replace(guard)
                 }
+                // Roll back the hub propagation `build_sentry_layer` did — the
+                // fresh guard's drop below closes that client, and `Hub::main()`
+                // must not keep handing out a closed client (nor lose the host's
+                // or, on a failed re-enable, the still-active previous client).
                 // Release the lock before the fresh guard's blocking drop.
                 Err(e) => {
+                    sentry::Hub::main().bind_client(main_before);
                     drop(guards);
                     return Err(e.into());
                 }
