@@ -21,7 +21,8 @@ impl HealthOp for UpdateGroupImageUrlSquare {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
-                .group(&gid).await?
+                .group(&gid)
+                .await?
                 .update_group_image_url_square("https://example.invalid/img.png".into())
                 .await?;
             Ok(())

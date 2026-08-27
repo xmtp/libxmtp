@@ -1,7 +1,7 @@
 //! `#[derive(PgModel)]` — the async storage track's row mapping.
 //!
-//! The sync track gets its column mapping from `diesel::table!` plus the
-//! `Queryable`/`Insertable` derives. The async track has neither: `schema.rs` is
+//! The SQLite backend gets its column mapping from `diesel::table!` plus the
+//! `Queryable`/`Insertable` derives. The Postgres backend has neither: `schema.rs` is
 //! sync-only, so nothing there checks a `SELECT` against the schema at compile
 //! time. This derive supplies the missing half — a column list and a by-name
 //! `FromRow` — from the struct's own fields.
@@ -116,8 +116,7 @@ pub fn derive_pg_model(input: TokenStream) -> syn::Result<TokenStream> {
     // async (sqlx/Postgres) track is active only when `async` is on AND `sync` is
     // off. `sync` is dominant, so `--all-features` builds the SQLite track and this
     // impl (which names `crate::pg`) is compiled out with it. Never targets wasm.
-    let gate =
-        quote! { #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))] };
+    let gate = quote! { #[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))] };
 
     Ok(quote! {
         #gate

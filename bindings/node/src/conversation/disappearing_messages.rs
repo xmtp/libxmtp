@@ -62,12 +62,12 @@ impl Conversation {
   #[napi]
   #[xmtp_common::err_span]
   pub fn message_disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>> {
-    // `disappearing_settings` is `async` in the storage-trait shape, but on the
-    // SQLite (sync) storage track every await resolves synchronously, so the
-    // future is ready on its first poll. `now_or_never` drives it to completion
-    // with no executor, keeping this FFI method a plain sync `fn` that the SDKs
-    // call synchronously. If the sync track is retired this becomes a real
-    // `.await` (and the SDK signatures move with it).
+    // `disappearing_settings` is `async` in the storage trait, but on the SQLite
+    // backend every await resolves synchronously, so the future is ready on its
+    // first poll. `now_or_never` drives it to completion with no executor, keeping
+    // this FFI method a plain sync `fn` that the SDKs call synchronously. If the
+    // SQLite backend ever went async this would become a real `.await` (and the SDK
+    // signatures would move with it).
     let settings = self
       .create_mls_group()
       .disappearing_settings()

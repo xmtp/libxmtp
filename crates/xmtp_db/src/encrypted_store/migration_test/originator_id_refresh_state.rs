@@ -1,6 +1,6 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::QueryableByName;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sql_types::{BigInt, Blob, Bool, Integer, Text};
 use xmtp_configuration::Originators;
 
@@ -205,7 +205,8 @@ async fn down_identity_updates() {
         originator_id: 1,
     }
     .store(&db.conn())
-    .await.unwrap();
+    .await
+    .unwrap();
 
     db.conn()
         .raw_query(|conn| {
@@ -216,15 +217,15 @@ async fn down_identity_updates() {
 
     #[allow(dead_code)]
     #[derive(Debug)]
-    #[cfg_attr(feature = "sync", derive(QueryableByName))]
+    #[cfg_attr(feature = "sqlite", derive(QueryableByName))]
     struct OldIdentityUpdate {
-        #[cfg_attr(feature = "sync", diesel(sql_type = Text))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = Text))]
         inbox_id: String,
-        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = BigInt))]
         sequence_id: i64,
-        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = BigInt))]
         server_timestamp_ns: i64,
-        #[cfg_attr(feature = "sync", diesel(sql_type = Blob))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = Blob))]
         payload: Vec<u8>,
     }
     let results: Vec<OldIdentityUpdate> = db.conn().raw_query(|conn| {
@@ -330,13 +331,13 @@ async fn down() {
 
     // Query using the old schema (cursor column instead of sequence_id, no originator_id)
     #[derive(Debug)]
-    #[cfg_attr(feature = "sync", derive(QueryableByName))]
+    #[cfg_attr(feature = "sqlite", derive(QueryableByName))]
     struct OldRefreshState {
-        #[cfg_attr(feature = "sync", diesel(sql_type = Blob))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = Blob))]
         entity_id: Vec<u8>,
-        #[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
         entity_kind: i32,
-        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = BigInt))]
         cursor: i64,
     }
 

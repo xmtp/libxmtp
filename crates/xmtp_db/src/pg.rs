@@ -1,4 +1,4 @@
-//! Async-track storage handle: sqlx over Postgres, servers only.
+//! The `sqlx`/Postgres storage handle, servers only.
 //!
 //! # Why there is a lock at all
 //!
@@ -34,7 +34,7 @@ use tokio::sync::{Mutex, MutexGuard};
 
 use crate::ConnectionError;
 
-/// The async-track database handle. Cheap to clone; clones share one backend.
+/// The Postgres database handle. Cheap to clone; clones share one backend.
 #[derive(Clone, Debug)]
 pub struct PgDb {
     exec: Arc<PgExec>,
@@ -80,7 +80,7 @@ impl DerefMut for PgConn<'_> {
 
 /// Delegates to the inherent [`PgDb::conn`]; see [`crate::PgConnectionProvider`].
 /// This is what makes the generic `Store`/`Fetch` impls reachable through a
-/// `&impl DbQuery` on the async track.
+/// `&impl DbQuery` on the Postgres backend.
 impl crate::PgConnectionProvider for PgDb {
     fn pg_conn(
         &self,
@@ -185,7 +185,7 @@ impl PgDb {
     /// Run `f` as a Postgres SAVEPOINT nested inside the caller's transaction,
     /// releasing it on `Ok` and rolling back to it on `Err`.
     ///
-    /// This is the async analog of the sync/diesel track's *nested*
+    /// This is the Postgres analog of the diesel/SQLite backend's *nested*
     /// `transaction` call, which issues a SAVEPOINT under an already-open
     /// transaction. MLS welcome and commit processing legitimately nests an
     /// atomic sub-unit inside [`Self::transaction`] (see `xmtp_welcome`'s
@@ -209,10 +209,7 @@ impl PgDb {
         // A unique name per savepoint so strictly-nested savepoints never alias.
         // Names are cleaned up (RELEASE) on both paths, but reuse would still be
         // ambiguous if two live at once, which double-nesting can do.
-        let name = format!(
-            "xmtp_sp_{}",
-            SAVEPOINT_SEQ.fetch_add(1, Ordering::Relaxed)
-        );
+        let name = format!("xmtp_sp_{}", SAVEPOINT_SEQ.fetch_add(1, Ordering::Relaxed));
 
         // Open the savepoint, then drop the connection guard before running `f`
         // so `f`'s own queries can re-acquire the pinned connection.
@@ -256,15 +253,15 @@ impl PgDb {
 static SAVEPOINT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // Tests for this module live in the `xmtp_db_pg_tests` crate, not here: the sqlx
-// `Query*` impls are gated `not(feature = "sync")`, and every test target inside
-// this crate has `sync` on via the self dev-dependency, so they would be compiled
+// `Query*` impls are gated `not(feature = "sqlite")`, and every test target inside
+// this crate has `sqlite` on via the self dev-dependency, so they would be compiled
 // out. That crate depends on xmtp_db from outside and exercises the real
-// `--no-default-features --features async` build.
+// `--no-default-features --features sqlx` build.
 
 /// A struct that maps onto a Postgres table or view, as emitted by
 /// `#[derive(xmtp_macro::PgModel)]`.
 ///
-/// The async track has no `diesel::table!` equivalent, so this is where a
+/// The Postgres backend has no `diesel::table!` equivalent, so this is where a
 /// model's column list lives. Implementations are generated from the struct's
 /// fields, never written by hand -- writing one by hand would reintroduce
 /// exactly the drift the derive exists to prevent.
@@ -290,42 +287,42 @@ pub trait PgModel: Sized + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {
     }
 }
 
-/// `PgDb` is the async track's `DbQuery`, and callers take `&impl DbQuery`, so
-/// both forms have to hold. Asserting it here means the async clippy job fails
+/// `PgDb` is the Postgres backend's `DbQuery`, and callers take `&impl DbQuery`,
+/// so both forms have to hold. Asserting it here means the sqlx clippy job fails
 /// the moment a `Query*` impl goes missing or drifts out of the supertrait list
 /// -- otherwise the first sign is an unrelated downstream crate failing to
 /// satisfy a bound, far from the cause.
 ///
-/// Gated `not(sync)` to match the sqlx impls: with both features on, `sync`
+/// Gated `not(sqlite)` to match the sqlx impls: with both features on, `sqlite`
 /// wins and they are compiled out, so the assertion would be false there.
-#[cfg(not(feature = "sync"))]
+#[cfg(not(feature = "sqlite"))]
 const _: fn() = || {
     fn assert_db_query<T: crate::DbQuery>() {}
     assert_db_query::<PgDb>();
     assert_db_query::<&PgDb>();
 };
 
-/// The async-track [`XmtpDb`] store, backing an `xmtp_mls::Client` with a
-/// Postgres [`PgDb`] instead of the sync/diesel `EncryptedMessageStore`.
+/// The [`XmtpDb`] store for the Postgres backend, backing an `xmtp_mls::Client`
+/// with a [`PgDb`] instead of the diesel/SQLite `EncryptedMessageStore`.
 ///
 /// `EncryptedMessageStore` is the SQLite/diesel store (its `XmtpDb::new` runs
-/// diesel migrations and it carries SQLite-only bits); the async track supplies
-/// its own store type over `PgDb`, exactly as the `MlsContext` alias comment in
+/// diesel migrations and it carries SQLite-only bits); the Postgres backend
+/// supplies its own store type over `PgDb`, exactly as the `MlsContext` alias comment in
 /// xmtp_mls notes. Schema setup is the caller's job (run the Postgres migrations
 /// against the pool before constructing this), so there is no `init` here — the
 /// `XmtpDb::init` hook is sync-only anyway.
 ///
 /// `conn()` and `db()` both hand back the same cheap-to-clone [`PgDb`] handle:
-/// on the async track a "connection" is just a pooled handle, and every query
+/// on the Postgres backend a "connection" is just a pooled handle, and every query
 /// goes through the `DbQuery` (`= PgDb`) surface, never a raw diesel connection.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 #[derive(Clone, Debug)]
 pub struct PgMlsDb {
     db: PgDb,
     opts: crate::StorageOption,
 }
 
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl PgMlsDb {
     /// Wrap a `PgDb` as an `XmtpDb` store. Defaults to `Ephemeral` opts — a
     /// server-side Postgres store has no local file path, and `Ephemeral` keeps
@@ -349,7 +346,7 @@ impl PgMlsDb {
     }
 }
 
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl crate::XmtpDb for PgMlsDb {
     type Connection = PgDb;
     type DbQuery = PgDb;

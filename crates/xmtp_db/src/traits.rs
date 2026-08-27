@@ -1,4 +1,4 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
@@ -12,10 +12,10 @@ use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
 /// this must only be used within transactions.
-// The trait is track-agnostic; the automock's `Store` names the diesel-backed
-// `MockSqlKeyStore` (`#[maybe_async]`, works on both shapes), so mock generation is
-// gated to the diesel backend (`sync`) — present on both blocking and ready-future.
-#[cfg_attr(all(feature = "sync", any(feature = "test-utils", test)), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
+// The trait is backend-agnostic; the automock's `Store` names the diesel-backed
+// `MockSqlKeyStore` (`#[maybe_async]`), so mock generation is gated to the
+// `sqlite` backend.
+#[cfg_attr(all(feature = "sqlite", any(feature = "test-utils", test)), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
 pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where
@@ -26,8 +26,8 @@ pub trait TransactionalKeyStore {
 
 // `Store`/`StoreOrIgnore`/`Fetch` use the same hand-written AFIT shape as the
 // `Query*` traits (def returns `impl Future + MaybeSend`, impls are `async fn`):
-// the sync (diesel) impls have a synchronous body and so return a ready future,
-// while the async (sqlx/PgDb) impls genuinely await. Callers `.await` on both.
+// the diesel (SQLite) impls have a synchronous body and so return an already-ready
+// future, while the sqlx/Postgres impls genuinely await. Callers `.await` on both.
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
     type Output;
@@ -77,34 +77,34 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub trait IntoConnection {
     type Connection: ConnectionExt;
     fn into_connection(self) -> Self::Connection;
 }
 
-/// The parts of `DbQuery` that only one storage track can provide.
+/// The parts of `DbQuery` that only one storage backend can provide.
 ///
 /// `ReadOnly` (`PRAGMA query_only`), `Pragmas` (`busy_timeout`, `cipher_log_level`)
 /// and `ConnectionExt` (`raw_query` over a `&mut SqliteConnection`) are all
-/// SQLite-shaped, so they are supertraits of `DbQuery` on the sync track only.
-/// On the async track this collapses to an empty blanket-implemented trait,
+/// SQLite-shaped, so they are supertraits of `DbQuery` on the `sqlite` backend
+/// only. On the Postgres backend this collapses to an empty blanket-implemented trait,
 /// which keeps the `DbQuery` list below single-copy instead of cfg-forking it.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub trait BackendSpecific: ReadOnly + Pragmas + crate::ConnectionExt {}
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<T: ?Sized> BackendSpecific for T where T: ReadOnly + Pragmas + crate::ConnectionExt {}
 
-/// The async track's analog of `ConnectionExt`: hands out a pooled (or
+/// The Postgres backend's analog of `ConnectionExt`: hands out a pooled (or
 /// transaction-pinned) `PgConn` to run sqlx against.
 ///
 /// It is a supertrait of `DbQuery` (via `BackendSpecific`), so the generic
 /// `Store`/`Fetch`/`StoreOrIgnore` impls — written for any
 /// `C: PgConnectionProvider` — are reachable through a `&impl DbQuery`, exactly
-/// as the sync macros reach theirs through `C: ConnectionExt`. Without this the
+/// as the diesel macros reach theirs through `C: ConnectionExt`. Without this the
 /// impls would be concrete on `PgDb` and invisible to generic call sites, whose
 /// connection is the opaque `<Ctx::Db as XmtpDb>::DbQuery` associated type.
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 pub trait PgConnectionProvider: MaybeSend + MaybeSync {
     fn pg_conn(
         &self,
@@ -114,7 +114,7 @@ pub trait PgConnectionProvider: MaybeSend + MaybeSync {
 
 // Mirror the `Query*` impls, which cover both `PgDb` and `&PgDb`: a reference to
 // a provider is itself a provider. Keeps `&PgDb: DbQuery` well-formed.
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 impl<T: PgConnectionProvider> PgConnectionProvider for &T {
     fn pg_conn(
         &self,
@@ -124,15 +124,15 @@ impl<T: PgConnectionProvider> PgConnectionProvider for &T {
     }
 }
 
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 pub trait BackendSpecific: PgConnectionProvider {}
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 impl<T: ?Sized> BackendSpecific for T where T: PgConnectionProvider {}
 
 // Degenerate build (neither track's feature): keep `DbQuery` well-formed.
-#[cfg(all(not(feature = "sync"), not(feature = "async")))]
+#[cfg(all(not(feature = "sqlite"), not(feature = "sqlx")))]
 pub trait BackendSpecific {}
-#[cfg(all(not(feature = "sync"), not(feature = "async")))]
+#[cfg(all(not(feature = "sqlite"), not(feature = "sqlx")))]
 impl<T: ?Sized> BackendSpecific for T {}
 
 pub trait DbQuery:
@@ -174,7 +174,7 @@ pub trait DbQuery:
 // compile here (sync) or in `pg.rs` (async), not in some distant consumer.
 // The bodies are type-checked (enforcing `DbConnection<C>: DbQuery`) even though
 // nothing calls them — that IS the guard; silence the resulting dead-code lint.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 #[allow(dead_code)]
 const _: fn() = || {
     fn assert_db_query<T: DbQuery>() {}

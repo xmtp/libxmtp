@@ -32,7 +32,7 @@ use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use xmtp_db::ConnectionExt;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
@@ -355,7 +355,7 @@ where
         }
         // `reconnect()` is a diesel/SQLite `ConnectionExt` method; no-op on the
         // async (Postgres pool) track.
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         self.context.db().reconnect().map_err(StorageError::from)?;
         self.workers.spawn(self.context.clone());
         Ok(())
@@ -379,7 +379,7 @@ where
         self.workers.shutdown().await;
         // `disconnect()` is a diesel/SQLite `ConnectionExt` method; the async
         // (Postgres pool) track has no equivalent and needs none.
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         self.context
             .db()
             .disconnect()
@@ -647,7 +647,7 @@ where
     /// Release the client's database connection
     pub fn release_db_connection(&self) -> Result<(), ClientError> {
         // `disconnect()` is diesel/SQLite-only; no-op on the async (Postgres) track.
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         self.context
             .db()
             .disconnect()

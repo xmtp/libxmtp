@@ -1,21 +1,21 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::schema::message_deletions::dsl;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::types::GroupId;
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = message_deletions))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = message_deletions))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 /// Represents a deletion record for a message in a group conversation
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "message_deletions")]
@@ -34,9 +34,9 @@ pub struct StoredMessageDeletion {
     pub deleted_at_ns: i64,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(StoredMessageDeletion, message_deletions);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(StoredMessageDeletion, message_deletions);
 
 /// Trait for querying message deletions
@@ -119,7 +119,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     async fn get_message_deletion(
         &self,
@@ -182,8 +182,8 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -209,7 +209,7 @@ mod pg_impl {
                  VALUES ($1, $2, $3, $4, $5, $6)",
             )
             .bind(&self.id)
-            .bind(&self.group_id)
+            .bind(self.group_id)
             .bind(&self.deleted_message_id)
             .bind(&self.deleted_by_inbox_id)
             .bind(self.is_super_admin_deletion)
@@ -232,7 +232,7 @@ mod pg_impl {
                  VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
             )
             .bind(&self.id)
-            .bind(&self.group_id)
+            .bind(self.group_id)
             .bind(&self.deleted_message_id)
             .bind(&self.deleted_by_inbox_id)
             .bind(self.is_super_admin_deletion)
@@ -357,7 +357,8 @@ mod tests {
             has_pending_leave_request: None,
         }
         .store(conn)
-        .await.unwrap();
+        .await
+        .unwrap();
     }
 
     async fn create_test_message(
@@ -387,7 +388,8 @@ mod tests {
             idempotency_key: 1000.to_string(),
         }
         .store(conn)
-        .await.unwrap();
+        .await
+        .unwrap();
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -448,7 +450,8 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 2000,
             }
-            .store(conn).await?;
+            .store(conn)
+            .await?;
 
             // Now it's deleted
             assert!(conn.is_message_deleted(&message_id).await?);
@@ -482,7 +485,8 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 2000,
             }
-            .store(conn).await?;
+            .store(conn)
+            .await?;
 
             StoredMessageDeletion {
                 id: del2.clone(),
@@ -492,7 +496,8 @@ mod tests {
                 is_super_admin_deletion: true,
                 deleted_at_ns: 3000,
             }
-            .store(conn).await?;
+            .store(conn)
+            .await?;
 
             // Query for all three messages
             let deletions = conn
@@ -531,7 +536,8 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 2000,
             }
-            .store(conn).await?;
+            .store(conn)
+            .await?;
 
             StoredMessageDeletion {
                 id: del2.clone(),
@@ -541,7 +547,8 @@ mod tests {
                 is_super_admin_deletion: false,
                 deleted_at_ns: 3000,
             }
-            .store(conn).await?;
+            .store(conn)
+            .await?;
 
             // Get deletions for group1
             let group1_deletions = conn.get_group_deletions(&group1).await?;

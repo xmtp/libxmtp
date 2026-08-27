@@ -77,6 +77,7 @@ pub(crate) trait CommitLogKeyStore {
 impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
     type Error = SqlKeyStoreError;
 
+    #[allow(clippy::manual_async_fn)]
     fn read_commit_log_key(
         &self,
         group_id: impl AsRef<[u8]> + xmtp_common::MaybeSend,
@@ -91,6 +92,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
         }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn write_commit_log_key(
         &self,
         group_id: impl AsRef<[u8]> + xmtp_common::MaybeSend,

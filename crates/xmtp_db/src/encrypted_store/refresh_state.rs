@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer};
 use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::refresh_state};
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{StoreOrIgnore, impl_store_or_ignore};
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 allow_columns_to_appear_in_same_group_by_clause!(
     super::schema::identity_updates::originator_id,
     super::schema::identity_updates::sequence_id,
@@ -21,8 +21,8 @@ allow_columns_to_appear_in_same_group_by_clause!(
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum EntityKind {
     Welcome = 1,
     ApplicationMessage = 2,       // Application messages (originator 10)
@@ -79,10 +79,10 @@ crate::impl_sql_int_enum!(EntityKind {
 });
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = refresh_state))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = refresh_state))]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     diesel(primary_key(entity_id, entity_kind, originator_id))
 )]
 #[derive(xmtp_macro::PgModel)]
@@ -94,7 +94,7 @@ pub struct RefreshState {
     pub originator_id: i32,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(RefreshState, refresh_state);
 
 /// Helper function to convert rows of (entity_id, originator_id, sequence_id) into a HashMap
@@ -256,7 +256,7 @@ impl<T: QueryRefreshState + xmtp_common::MaybeSync> QueryRefreshState for &T {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     #[tracing::instrument(level = "debug", skip_all)]
     async fn get_refresh_state(
@@ -472,8 +472,8 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -579,7 +579,7 @@ mod pg_impl {
             .await
         }
 
-        /// Unlike the sync track this issues a single query: SQLite's 999-bind
+        /// Unlike the SQLite backend this issues a single query: SQLite's 999-bind
         /// ceiling forces that impl to chunk the id list, but Postgres takes the
         /// whole set as one array parameter.
         async fn get_last_cursor_for_ids<Id: EntityIdBytes>(
@@ -646,7 +646,7 @@ mod pg_impl {
             Ok(updated >= 1)
         }
 
-        /// One round trip for the whole batch. The sync track loops
+        /// One round trip for the whole batch. The SQLite backend loops
         /// `get_last_cursor_for_originator` per conversation, which would be 2N
         /// network calls here; conversations with no row still come back as a
         /// zero cursor, and are seeded in the same pass.
@@ -964,7 +964,8 @@ pub(crate) mod tests {
             originator_id,
         }
         .store_or_ignore(conn)
-        .await.unwrap();
+        .await
+        .unwrap();
     }
 
     #[rstest]

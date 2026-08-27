@@ -1,31 +1,31 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::schema::association_state::{self, dsl};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::ConnectionExt;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::DbConnection;
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{Fetch, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
 use prost::Message;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = association_state))]
-#[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, sequence_id)))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = association_state))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(inbox_id, sequence_id)))]
 pub struct StoredAssociationState {
     pub inbox_id: String,
     pub sequence_id: i64,
     pub state: Vec<u8>,
 }
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(StoredAssociationState, association_state, (String, i64));
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
 pub trait QueryAssociationStateCache {
@@ -79,7 +79,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
     async fn write_to_cache(
         &self,
@@ -169,10 +169,10 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl QueryAssociationStateCache for crate::pg::PgDb {
-    /// `store_or_ignore` on the sync track is SQLite's `INSERT OR IGNORE`;
+    /// `store_or_ignore` on the SQLite backend is SQLite's `INSERT OR IGNORE`;
     /// `ON CONFLICT DO NOTHING` is the Postgres equivalent. An existing row is
     /// left as-is rather than overwritten — association state for a given
     /// (inbox_id, sequence_id) is immutable, so a second write is redundant.

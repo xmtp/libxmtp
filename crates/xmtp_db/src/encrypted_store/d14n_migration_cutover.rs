@@ -1,20 +1,20 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
     schema::d14n_migration_cutover::{self, dsl},
 };
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Identifiable, Insertable, Queryable, AsChangeset)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = d14n_migration_cutover))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = d14n_migration_cutover))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 pub struct StoredMigrationCutover {
     pub id: i32,
     pub cutover_ns: i64,
@@ -81,7 +81,7 @@ impl<T: QueryMigrationCutover + xmtp_common::MaybeSync> QueryMigrationCutover fo
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
     async fn get_migration_cutover(&self) -> Result<StoredMigrationCutover, StorageError> {
         let result = self.raw_query(|conn| dsl::d14n_migration_cutover.first(conn).optional())?;
@@ -122,8 +122,8 @@ impl<C: ConnectionExt> QueryMigrationCutover for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl QueryMigrationCutover for crate::pg::PgDb {
     /// The migration seeds row 1, so the `unwrap_or_default` here is a fallback
     /// for a database that predates it rather than the normal path.

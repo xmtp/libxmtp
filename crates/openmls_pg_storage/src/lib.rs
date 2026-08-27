@@ -2,7 +2,7 @@
 //! # sqlx Postgres Storage Provider
 //!
 //! This crate implements an OpenMLS storage provider backed by sqlx and
-//! PostgreSQL. It is the async-track counterpart of the sqlx-SQLite provider:
+//! PostgreSQL. It is the Postgres counterpart of the diesel/SQLite `SqlKeyStore`:
 //! the OpenMLS storage trait is async here (the `maybe_async` openmls fork with
 //! its `sync` feature off), so every method is a native `async fn`.
 //!

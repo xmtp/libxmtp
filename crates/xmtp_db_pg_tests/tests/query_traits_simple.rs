@@ -1,7 +1,7 @@
 //! sqlx `Query*` impls whose SQL is straightforward, exercised against the real
 //! committed schema.
 //!
-//! The async track has no `diesel::table!` definitions, so a column rename or a
+//! The Postgres backend has no `diesel::table!` definitions, so a column rename or a
 //! type mismatch cannot fail the build — these tests are the only thing standing
 //! between a typo and a runtime error in production. Every method gets at least
 //! one call that actually reaches Postgres.
@@ -126,7 +126,7 @@ async fn association_state_write_then_read() {
     );
 }
 
-/// The sync track uses `INSERT OR IGNORE`; the first write must win.
+/// The SQLite backend uses `INSERT OR IGNORE`; the first write must win.
 #[tokio::test]
 async fn association_state_write_does_not_overwrite() {
     let db = fresh_db("as_ignore").await;

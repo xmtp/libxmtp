@@ -21,26 +21,23 @@ exclude = [
   "crates/xmtp_db_pg_tests",
   # Postgres + live-network integration tests for the FULL async client
   # (xmtp_mls over the sqlx/Postgres store). Excluded for the same reason as
-  # xmtp_db_pg_tests: it depends on xmtp_mls/xmtp_db with `sync` OFF, which is
-  # impossible from inside this workspace.
+  # xmtp_db_pg_tests: it depends on xmtp_mls/xmtp_db with `sqlite` OFF (i.e.
+  # `sqlx` only), which is impossible from inside this workspace.
   "crates/xmtp_mls_pg_tests",
   # The sqlx/Postgres OpenMLS storage provider. It implements openmls's own
-  # `StorageProvider`, whose shape rides the global `maybe-async/is_sync` switch
-  # (it and openmls core are `#[maybe_async]`). Its impl is hard `async fn`, so
-  # it type-checks only when `is_sync` is OFF. A default (`sync`) `--workspace`
-  # build unifies `openmls_traits/sync` onto the single shared instance from the
-  # many sync consumers, collapsing that trait to blocking -> every method
-  # mismatches (E0053). Excluded so the sync build never force-compiles it; it is
-  # still built by `xmtp_db`'s `async` feature as a PATH dependency (resolved
+  # `StorageProvider` (it and openmls core are `#[maybe_async]`). Its impl is hard
+  # `async fn`, so it type-checks only when `openmls_traits` is built with its
+  # `sync` feature OFF; a build that unified `openmls_traits/sync` onto the shared
+  # instance would collapse that trait to blocking and every method would mismatch
+  # (E0053). Excluded so a `--workspace` build never force-compiles it; it is
+  # still built by `xmtp_db`'s `sqlx` feature as a PATH dependency (resolved
   # against this workspace's lockfile + `[patch]`, so a single `openmls_traits`
-  # instance). Retiring the split entirely would mean making the whole client
-  # stack always-async (ready-future SQLite) -- a separate, larger decision.
+  # instance).
   "crates/openmls_pg_storage",
-  # Storage-shape A/B microbenchmark (blocking vs ready-future SQLite over the same
-  # diesel backend). Excluded because it toggles the client SHAPE via a feature: as
-  # a member, `clippy --all-features` would turn on `blocking` and `async` together
-  # (conflicting shapes). Depends only on xmtp_db (no test-utils). See the crate's
-  # Cargo.toml for the full note.
+  # Microbench of the SqlKeyStore storage path over the diesel/SQLite backend.
+  # Excluded because it is its own workspace root (it depends on the openmls fork by
+  # path and restates the root `[patch]` table). Depends only on xmtp_db (no
+  # test-utils). See the crate's Cargo.toml for the full note.
   "crates/xmtp_db_shape_bench",
 ]
 
@@ -119,20 +116,19 @@ maybe-async = "0.2.11"
 mockall = { version = "0.15" }
 mockall_double = "0.3.1"
 once_cell = "1.21.4"
-# openmls' storage traits are async-by-default via maybe_async; `sync` collapses
-# them to the blocking shape. The track is NOT selected here: `openmls/sync` is
-# `maybe-async/is_sync`, which is a global switch, so pinning it on a workspace
-# dependency would force it on in every build -- including xmtp_db's async-only
-# one, where it silently collapses the Query* traits back to sync. It is selected
-# by `xmtp_db`'s own `sync` feature instead, so the two tracks stay selectable.
-# LOCAL FORK (prototype): points at the `openmls-storage-send` jj workspace, based
-# on the pinned rev 19860a87 plus the change that makes the `StorageProvider` /
-# `PublicStorageProvider` futures `Send` on the async track (so openmls storage
-# awaits can flow through herald's spawned Send workers). Path deps (not a `[patch]`
-# on the git URL) on purpose: the workspace-hack pins a *different* openmls rev, and
-# a URL patch would merge the two instances and let the hack's `sync` feature poison
-# the async `openmls_traits` (is_sync -> blocking trait). Path keeps them separate.
-# Restore the git rev (bumped) once the Send change lands on the fork.
+# openmls' storage traits are async-by-default via maybe_async; its `sync` feature
+# collapses them to a blocking shape. `openmls/sync` (`maybe-async/is_sync`) is NOT
+# pinned here: it is a global switch, so pinning it on a workspace dependency would
+# force it on in every build -- including xmtp_db's `sqlx` one, where it would
+# silently collapse the Query* traits back to blocking. The backend is selected by
+# `xmtp_db`'s own `sqlite`/`sqlx` features instead, so the two stay selectable.
+# LOCAL FORK: points at the `openmls-storage-send` jj workspace, based on the pinned
+# rev 19860a87 plus the change that makes the `StorageProvider` / `PublicStorageProvider`
+# futures `Send` (so openmls storage awaits can flow through herald's spawned Send
+# workers). Path deps (not a `[patch]` on the git URL) on purpose: the workspace-hack
+# pins a *different* openmls rev, and a URL patch would merge the two instances and let
+# the hack's `sync` feature collapse `openmls_traits` to its blocking shape. Path keeps
+# them separate. Restore the git rev (bumped) once the Send change lands on the fork.
 openmls = { path = "../openmls-storage-send/openmls", default-features = false, features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",

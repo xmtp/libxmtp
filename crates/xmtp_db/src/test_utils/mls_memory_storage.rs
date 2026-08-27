@@ -1,6 +1,6 @@
 use crate::schema::openmls_key_value::dsl;
 use crate::sql_key_store::SqlKeyStore;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionExt, MIGRATIONS};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
@@ -70,7 +70,7 @@ impl MemoryStorage {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl ConnectionExt for MemoryStorage {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where

@@ -1,7 +1,7 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
 use super::group::StoredGroup;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     db_connection::DbConnection,
     schema::{
@@ -9,10 +9,10 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::impl_store;
 use crate::{DbQuery, StorageError};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer,
     upsert::excluded,
@@ -27,9 +27,9 @@ mod convert;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Debug, Clone, Eq, Deserialize, Serialize)]
-#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = consent_records))]
-#[cfg_attr(feature = "sync", diesel(primary_key(entity_type, entity)))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = consent_records))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(entity_type, entity)))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "consent_records")]
 pub struct StoredConsentRecord {
@@ -85,7 +85,7 @@ impl StoredConsentRecord {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(StoredConsentRecord, consent_records);
 
 pub trait QueryConsentRecord {
@@ -137,7 +137,7 @@ pub trait QueryConsentRecord {
     + xmtp_common::MaybeSend;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
     /// Returns the consent_records for the given entity up
     async fn get_consent_record(
@@ -358,8 +358,8 @@ impl<T: QueryConsentRecord + ?Sized + xmtp_common::MaybeSync> QueryConsentRecord
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 /// Type of consent record stored
 pub enum ConsentType {
     /// Consent is for a conversation
@@ -369,13 +369,13 @@ pub enum ConsentType {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
 
-    /// Upsert that only moves `state`, matching the sync track's
+    /// Upsert that only moves `state`, matching the SQLite backend's
     /// `do_update().set(state.eq(excluded(state)))` — `consented_at_ns` on an
     /// existing row is left alone.
     const UPSERT: &str = "INSERT INTO consent_records (entity_type, state, entity, consented_at_ns) \
@@ -450,7 +450,7 @@ mod pg_impl {
         /// inserted, or replaced an older one; false if an equal or newer record
         /// was already there.
         ///
-        /// Runs atomically, unlike the sync track: the read-back and conditional
+        /// Runs atomically, unlike the SQLite backend: the read-back and conditional
         /// replace are separate statements, and on a server two clients can race
         /// between them.
         async fn insert_newer_consent_record(
@@ -580,7 +580,7 @@ mod pg_impl {
             .await
         }
 
-        /// One round trip instead of the sync track's two: the group-id lookup
+        /// One round trip instead of the SQLite backend's two: the group-id lookup
         /// becomes a subquery. `encode(id, 'hex')` matches Rust's `hex::encode`
         /// (lowercase, unpadded), which is what the entity column holds.
         async fn find_consent_by_dm_id(
@@ -611,8 +611,8 @@ crate::impl_sql_int_enum!(ConsentType {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 /// The state of the consent
 pub enum ConsentState {
     /// Consent is unknown

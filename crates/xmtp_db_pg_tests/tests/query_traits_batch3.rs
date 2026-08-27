@@ -134,7 +134,7 @@ async fn task_update_and_delete() {
 
     assert!(
         db.update_task(999_999, 1, 1, 1).await.is_err(),
-        "updating a missing task errors, matching the sync track"
+        "updating a missing task errors, matching the SQLite backend"
     );
 
     assert!(db.delete_task(created.id).await.unwrap());

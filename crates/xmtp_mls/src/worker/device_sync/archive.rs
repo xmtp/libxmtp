@@ -8,7 +8,7 @@ use crate::{
 };
 use futures::StreamExt;
 pub use xmtp_archive::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use xmtp_db::ConnectionExt;
 use xmtp_db::{
     StoreOrIgnore,
@@ -29,11 +29,11 @@ struct ImportContext {
 
 impl ImportContext {
     fn post_import(&self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
-        // Group-timestamp fixup after a device-sync import. The sync track does it
+        // Group-timestamp fixup after a device-sync import. The SQLite backend does it
         // with a raw diesel update; the async/server track does not run device-sync
         // import. TODO(async-device-sync): port to a track-agnostic `Query*` update
         // if server-side import is ever needed.
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         {
             use xmtp_db::diesel::prelude::*;
             use xmtp_db::schema::groups::dsl;
@@ -49,7 +49,7 @@ impl ImportContext {
                 })?;
             }
         }
-        #[cfg(not(feature = "sync"))]
+        #[cfg(not(feature = "sqlite"))]
         let _ = (context, &self.group_timestamps);
 
         Ok(())

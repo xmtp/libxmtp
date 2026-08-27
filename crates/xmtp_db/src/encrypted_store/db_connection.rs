@@ -1,10 +1,10 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::SqliteConnection;
 
 use crate::{sql_key_store::SqlKeyStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use std::fmt;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
@@ -13,14 +13,14 @@ pub struct DbConnection<C> {
     pub(super) conn: C,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> DbConnection<C> {
     pub fn new(conn: C) -> Self {
         Self { conn }
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> crate::IntoConnection for DbConnection<C> {
     type Connection = C;
 
@@ -29,7 +29,7 @@ impl<C: ConnectionExt> crate::IntoConnection for DbConnection<C> {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> ConnectionExt for DbConnection<C>
 where
     C: ConnectionExt,
@@ -56,14 +56,14 @@ where
 // This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
 // use a connection from the provider, rather than pulling a new one from the pool, resulting
 // in two connections in the same scope.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> From<DbConnection<C>> for XmtpOpenMlsProvider<SqlKeyStore<C>> {
     fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<SqlKeyStore<C>> {
         XmtpOpenMlsProvider::new(SqlKeyStore::new(db.conn))
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> fmt::Debug for DbConnection<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DbConnection")

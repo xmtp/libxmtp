@@ -82,7 +82,7 @@ where
 pub enum CommitLogError {
     #[error("generic storage error: {0}")]
     Storage(#[from] StorageError),
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     #[error("diesel error: {0}")]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error("generic api error: {0}")]
@@ -120,7 +120,7 @@ impl RetryableError for CommitLogError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Storage(storage_error) => storage_error.is_retryable(),
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::Diesel(diesel_error) => diesel_error.is_retryable(),
             Self::Api(api_error) => api_error.is_retryable(),
             Self::Connection(connection_error) => connection_error.is_retryable(),
@@ -151,7 +151,7 @@ impl NeedsDbReconnect for CommitLogError {
             Self::FailedToSendReadd { source, .. } => source.needs_db_reconnect(),
             Self::FailedReadds { errors } => errors.iter().any(|e| e.needs_db_reconnect()),
             // Remaining variants can't carry a dropped-pool signal.
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::Diesel(_) => false,
             Self::Api(_)
             | Self::Prost(_)

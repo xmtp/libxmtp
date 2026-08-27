@@ -3,7 +3,7 @@
 //! This is the one trait whose async form is not a port: the sync impl is
 //! entirely diesel's embedded-migration machinery, which is SQLite-only. What it
 //! delegates to — a tracking table plus apply/revert of embedded SQL — is
-//! implemented directly here, which is what makes the async track's schema
+//! implemented directly here, which is what makes the Postgres backend's schema
 //! deployable rather than only creatable by a test fixture.
 //!
 //! These tests use `bare_db` (an empty namespace) rather than `fresh_db`, so the

@@ -1,21 +1,21 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::schema::identity_cache;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::DbConnection;
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{Store, impl_fetch, impl_store};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::deserialize::FromSqlRow;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::expression::AsExpression;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sql_types::Integer;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use std::any::type_name;
@@ -24,9 +24,9 @@ use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = identity_cache))]
-#[cfg_attr(feature = "sync", diesel())]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = identity_cache))]
+#[cfg_attr(feature = "sqlite", diesel())]
 pub struct IdentityCache {
     inbox_id: String,
     identity: String,
@@ -35,8 +35,8 @@ pub struct IdentityCache {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 /// Type of identity stored
 pub enum StoredIdentityKind {
     Ethereum = 1,
@@ -92,9 +92,9 @@ impl From<StoredIdentityKind> for IdentifierKind {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(IdentityCache, identity_cache);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(IdentityCache, identity_cache);
 
 pub trait QueryIdentityCache {
@@ -136,7 +136,7 @@ where
 
 type Address = String;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     /// Returns a HashMap of WalletAddress -> InboxId
     async fn fetch_cached_inbox_ids(
@@ -178,8 +178,8 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl QueryIdentityCache for crate::pg::PgDb {
     async fn fetch_cached_inbox_ids(
         &self,
@@ -219,7 +219,7 @@ impl QueryIdentityCache for crate::pg::PgDb {
             .collect()
     }
 
-    /// Plain `INSERT`, matching the sync track's `store`: caching the same
+    /// Plain `INSERT`, matching the SQLite backend's `store`: caching the same
     /// identity twice is a primary-key violation, not a silent overwrite.
     async fn cache_inbox_id(
         &self,

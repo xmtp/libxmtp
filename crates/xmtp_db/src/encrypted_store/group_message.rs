@@ -1,9 +1,9 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
 use super::group::ConversationType;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::schema::groups;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     Sqlite,
     db_connection::DbConnection,
@@ -12,10 +12,10 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::impl_fetch;
 use derive_builder::Builder;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     deserialize::FromSqlRow, dsl::sql as diesel_sql, expression::AsExpression, prelude::*,
     sql_types::Integer,
@@ -38,10 +38,10 @@ pub mod tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
 #[xmtp(table = "group_messages")]
-#[cfg_attr(feature = "sync", derive(Queryable, Selectable, Identifiable))]
-#[cfg_attr(feature = "sync", diesel(table_name = group_messages))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
-#[cfg_attr(feature = "sync", diesel(check_for_backend(Sqlite)))]
+#[cfg_attr(feature = "sqlite", derive(Queryable, Selectable, Identifiable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = group_messages))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(Sqlite)))]
 /// Successfully processed messages to be returned to the User.
 pub struct StoredGroupMessage {
     /// Id of the message.
@@ -93,10 +93,10 @@ impl StoredGroupMessage {
 }
 
 // Separate Insertable struct that excludes inserted_at_ns to let the database set it
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable))]
-#[cfg_attr(feature = "sync", diesel(table_name = group_messages))]
+#[cfg_attr(feature = "sqlite", derive(Insertable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = group_messages))]
 struct NewStoredGroupMessage {
     pub id: Vec<u8>,
     pub group_id: GroupId,
@@ -119,7 +119,7 @@ struct NewStoredGroupMessage {
     pub idempotency_key: String,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
     fn from(msg: &StoredGroupMessage) -> Self {
         Self {
@@ -167,8 +167,8 @@ pub enum SortBy {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum GroupMessageKind {
     Application = 1,
     MembershipChange = 2,
@@ -199,8 +199,8 @@ impl Deletable for GroupMessageKind {
 //Legacy content types found at https://github.com/xmtp/xmtp-js/tree/main/content-types
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "sync", derive(FromSqlRow, AsExpression))]
-#[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
+#[cfg_attr(feature = "sqlite", derive(FromSqlRow, AsExpression))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Integer))]
 pub enum ContentType {
     Unknown = 0,
     Text = 1,
@@ -347,8 +347,8 @@ crate::impl_sql_int_enum!(ContentType {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(FromSqlRow, AsExpression))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(FromSqlRow, AsExpression))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum DeliveryStatus {
     Unpublished = 1,
     Published = 2,
@@ -361,11 +361,11 @@ crate::impl_sql_int_enum!(DeliveryStatus {
     Failed = 3,
 });
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 
 // Custom store implementation that uses NewStoredGroupMessage to exclude inserted_at_ns
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> crate::Store<C> for StoredGroupMessage
 where
     C: crate::ConnectionExt,
@@ -384,7 +384,7 @@ where
 }
 
 // Custom store_or_ignore implementation that uses NewStoredGroupMessage
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> crate::StoreOrIgnore<C> for StoredGroupMessage
 where
     C: crate::ConnectionExt,
@@ -811,7 +811,7 @@ where
 // Macro to apply common message filters to any boxed query.
 // Sync track only -- the async impl expresses the same predicates as one
 // `$n IS NULL OR ...` block, see `MSG_FILTERS`.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 macro_rules! apply_message_filters {
     ($query:expr, $args:expr) => {{
         let mut query = $query;
@@ -864,7 +864,7 @@ macro_rules! apply_message_filters {
     }};
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
     #[xmtp_common::db_span]
@@ -1466,7 +1466,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 fn group_id_filter(
     group_id: &GroupId,
 ) -> impl diesel::expression::BoxableExpression<
@@ -1489,8 +1489,8 @@ fn group_id_filter(
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -1662,7 +1662,7 @@ mod pg_impl {
         let mut c = into.pg_conn().await?;
         sqlx::query(&sql)
             .bind(&m.id)
-            .bind(&m.group_id)
+            .bind(m.group_id)
             .bind(&m.decrypted_message_bytes)
             .bind(m.sent_at_ns)
             .bind(m.kind)
@@ -2018,7 +2018,7 @@ mod pg_impl {
                 .await?)
         }
 
-        /// The read/write connection split is a sync-track concept (one SQLite
+        /// The read/write connection split is a SQLite backend concept (one SQLite
         /// writer, many readers); a Postgres pool has no such distinction, so
         /// this is `get_group_message`.
         async fn write_conn_get_group_message(

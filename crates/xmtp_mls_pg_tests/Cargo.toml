@@ -1,6 +1,6 @@
 [package]
 name = "xmtp_mls_pg_tests"
-description = "Integration tests for the full async xmtp_mls client over the sqlx + Postgres storage track"
+description = "Integration tests for the full async xmtp_mls client over the sqlx/Postgres backend"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.0"
@@ -8,11 +8,10 @@ publish = false
 
 # Deliberately NOT a member of the libxmtp workspace -- it is listed in the root
 # manifest's `exclude`, exactly like xmtp_db_pg_tests. See that crate's Cargo.toml
-# for the full rationale; the short version: `maybe-async/is_sync` is a global
-# switch, so any graph containing the `sync` feature collapses the Query* traits
-# to their blocking shape and compiles the sqlx impls out. A separate excluded
-# crate is the only way to build the exact `--no-default-features --features
-# async` client that servers (herald) run.
+# for the full rationale; the short version: `sqlite` is dominant, so any graph
+# that turns it on (a `--workspace` or `--all-features` build) compiles the sqlx
+# impls out. A separate excluded crate is the only way to build the exact
+# `--no-default-features --features sqlx` client that servers (herald) run.
 #
 # Unlike xmtp_db_pg_tests, this one pulls in the whole client stack (xmtp_mls +
 # the api/id crates) and its tests hit BOTH a live Postgres and a live XMTP node
@@ -21,18 +20,18 @@ publish = false
 # here is a clean no-op rather than a failure.
 
 [dependencies]
-# --- libxmtp, async/Postgres storage track. xmtp_db + xmtp_mls turn OFF the
-# default sync/diesel features and turn ON `async`; every other libxmtp crate is
-# storage-track-agnostic. Path deps within the same checkout. ---
+# --- libxmtp, sqlx/Postgres backend. xmtp_db + xmtp_mls turn OFF the default
+# sqlite/diesel features and turn ON `sqlx`; every other libxmtp crate is
+# storage-backend-agnostic. Path deps within the same checkout. ---
 xmtp_api = { path = "../xmtp_api" }
 xmtp_api_d14n = { path = "../xmtp_api_d14n" }
 xmtp_common = { path = "../xmtp_common" }
 xmtp_configuration = { path = "../xmtp_configuration" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_db = { path = "../xmtp_db", default-features = false, features = ["async"] }
+xmtp_db = { path = "../xmtp_db", default-features = false, features = ["sqlx"] }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls", default-features = false, features = [
-  "async",
+  "sqlx",
 ] }
 xmtp_proto = { path = "../xmtp_proto", features = ["sqlx"] }
 

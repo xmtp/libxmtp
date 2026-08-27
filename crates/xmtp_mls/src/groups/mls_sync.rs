@@ -224,7 +224,7 @@ pub enum GroupMessageProcessingError {
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
     Builder(#[from] derive_builder::UninitializedFieldError),
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
@@ -255,7 +255,7 @@ impl RetryableError for GroupMessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Storage(err) => err.is_retryable(),
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::Diesel(err) => err.is_retryable(),
             Self::Identity(err) => err.is_retryable(),
             Self::OpenMlsProcessMessage(err) => err.is_retryable(),
@@ -4993,9 +4993,9 @@ fn get_removed_leaf_nodes(
 /// The epoch is captured from within the transaction before the operation,
 /// ensuring it reflects the state used during the commit creation even if
 /// the database is updated between the transaction and when the caller uses it.
-// Shared body for both track-specific definitions of
+// Shared body for both backend-specific definitions of
 // `generate_commit_with_rollback` below. The two definitions differ ONLY in the
-// operation-closure bound (the async track additionally requires the closure's
+// operation-closure bound (the Postgres backend additionally requires the closure's
 // `CallOnceFuture` be `Send`); the logic is identical, so it lives here once.
 // `storage`/`openmls_group`/`operation` are passed in so they resolve at the
 // call site inside each fn.
@@ -5061,7 +5061,7 @@ macro_rules! generate_commit_with_rollback_body {
 /// `CallOnceFuture` and requiring it `MaybeSend`, which needs this crate's
 /// nightly features (herald/server runs a `RUSTC_BOOTSTRAP=1` toolchain). See
 /// [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,
@@ -5090,7 +5090,7 @@ where
 /// is all that is needed (naming `CallOnceFuture` would need nightly the stable
 /// toolchain can't enable). This is the STABLE path the shipping bindings compile.
 /// See [`generate_commit_with_rollback_body`] for the shared logic.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub(super) async fn generate_commit_with_rollback<S, R, E, F>(
     storage: &S,
     openmls_group: &mut OpenMlsGroup,

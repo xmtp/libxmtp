@@ -1,7 +1,7 @@
 //! XMTP DB Pool
 
 use bon::bon;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     SqliteConnection,
     connection::SimpleConnection,
@@ -80,23 +80,23 @@ mod tests {
     }
 
     #[derive(Debug)]
-    #[cfg_attr(feature = "sync", derive(QueryableByName))]
+    #[cfg_attr(feature = "sqlite", derive(QueryableByName))]
     struct JournalMode {
-        #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Text))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Text))]
         journal_mode: String,
     }
 
     #[derive(Debug)]
-    #[cfg_attr(feature = "sync", derive(QueryableByName))]
+    #[cfg_attr(feature = "sqlite", derive(QueryableByName))]
     struct Synchronous {
-        #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Integer))]
         synchronous: i32,
     }
 
     #[derive(Debug)]
-    #[cfg_attr(feature = "sync", derive(QueryableByName))]
+    #[cfg_attr(feature = "sqlite", derive(QueryableByName))]
     struct Autocheckpoint {
-        #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Integer))]
         wal_autocheckpoint: i32,
     }
 

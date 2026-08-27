@@ -1,33 +1,33 @@
 use crate::icebox::{Icebox, IceboxDependency};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::QueryableByName;
 use xmtp_proto::types::OrphanedEnvelope;
 
 /// Internal struct for flat query results before grouping.
 ///
-/// Sync track only. It exists to hand diesel's `load_iter` a borrowed view of
+/// SQLite backend only. It exists to hand diesel's `load_iter` a borrowed view of
 /// SQLite's own memory so the row is copied exactly once; sqlx hands back owned
-/// rows, so the async track decodes straight into `Vec<u8>` and needs none of
+/// rows, so the Postgres backend decodes straight into `Vec<u8>` and needs none of
 /// this.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 #[derive(Debug)]
-#[cfg_attr(feature = "sync", derive(QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(QueryableByName))]
 pub(super) struct IceboxWithDep {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::BigInt))]
     pub originator_id: i64,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::BigInt))]
     pub sequence_id: i64,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Binary))]
     group_id: *const [u8],
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Binary))]
     envelope_payload: *const [u8],
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::BigInt))]
     pub dependency_originator_id: i64,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::BigInt))]
     pub dependency_sequence_id: i64,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl IceboxWithDep {
     pub(super) unsafe fn group_id(&self) -> Vec<u8> {
         let slice_ptr = unsafe { &*self.group_id };

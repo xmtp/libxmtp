@@ -1,4 +1,4 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::SqlKeyStoreError;
@@ -42,7 +42,7 @@ impl<T> TransactionOutcome<T> {
     }
 }
 
-/// Async-track helper bundling "an async closure over `&mut TxQ` whose returned
+/// Postgres-backend helper bundling "an async closure over `&mut TxQ` whose returned
 /// future is `Send`" into one method-friendly trait bound.
 ///
 /// The async `transaction`/`savepoint` impls await the closure's future *inside*
@@ -54,7 +54,7 @@ impl<T> TransactionOutcome<T> {
 /// lives here, on a blanket impl over a **generic** closure `F`, where it
 /// normalizes cleanly; the provider method then bounds only
 /// `F: TxFn<Self::TxQuery, T, E>` — a plain bound a concrete impl can satisfy.
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 pub trait TxFn<TxQ, T, E>: MaybeSend {
     fn run(
         self,
@@ -62,7 +62,7 @@ pub trait TxFn<TxQ, T, E>: MaybeSend {
     ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend;
 }
 
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 impl<TxQ, T, E, F> TxFn<TxQ, T, E> for F
 where
     F: MaybeSend
@@ -80,7 +80,6 @@ where
     }
 }
 
-
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
 /// This storage provider is likewise implemented on both &T and T references,
@@ -91,11 +90,11 @@ pub trait XmtpMlsStorageProvider:
     MaybeSend + MaybeSync + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
 {
     /// An Opaque Database connection type. Can be anything.
-    // On the sync track the connection is a diesel `ConnectionExt`; on the async
-    // track (sqlx/Postgres) there is no `ConnectionExt`, so the bound is dropped.
-    #[cfg(feature = "sync")]
+    // On the SQLite backend the connection is a diesel `ConnectionExt`; on the
+    // Postgres backend (sqlx) there is no `ConnectionExt`, so the bound is dropped.
+    #[cfg(feature = "sqlite")]
     type Connection: ConnectionExt;
-    #[cfg(not(feature = "sync"))]
+    #[cfg(not(feature = "sqlite"))]
     type Connection;
 
     // `MaybeSend` so a `&mut TxQuery` can be captured by the (Send) boxed
@@ -113,31 +112,31 @@ pub trait XmtpMlsStorageProvider:
     /// The closure returns `Ok(TransactionOutcome::Continue(v))` to persist or
     /// `Ok(TransactionOutcome::Rollback)` to roll back without an error.
     /// Returning `Err(e)` also rolls back and propagates `e` as a real error.
-    // The sync track rolls back via diesel's `RollbackTransaction` sentinel, so
-    // the caller's error must be `From<diesel::result::Error>`. The async track
+    // The SQLite backend rolls back via diesel's `RollbackTransaction` sentinel, so
+    // the caller's error must be `From<diesel::result::Error>`. The Postgres backend
     // drives a real sqlx transaction and needs no such bound.
-    // `async fn` on both tracks: the async (sqlx) impl genuinely awaits; the sync
-    // (SQLite) impl has a synchronous body under this async signature, returning a
-    // ready future. Callers `.await` on both tracks — consistent with the `Query*`
-    // traits, and no thread-hopping bridge on the async side.
+    // `async fn` on both backends: the sqlx impl genuinely awaits; the SQLite impl
+    // has a synchronous body under this async signature, returning an already-ready
+    // future. Callers `.await` on both — consistent with the `Query*` traits, and no
+    // thread-hopping bridge on the Postgres side.
     // Returns `impl Future + MaybeSend` rather than being a bare `async fn`:
     // async-fn-in-trait does NOT imply the returned future is `Send`, and these
     // futures flow into spawned stream/worker tasks that require `Send`. This is
     // the same shape the `Query*`/`Store`/`Fetch` traits use.
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     fn transaction<T, E, F>(
         &self,
         f: F,
     ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend
     where
         T: MaybeSend,
-        // Boxed closure (not `AsyncFnOnce`) so its returned future can be named
-        // and bounded `Send` on stable Rust: the async track awaits it inside the
-        // (Send) transaction future. `AsyncFnOnce::CallOnceFuture` is unnameable
-        // on stable, so callers pass `|conn| Box::pin(async move { .. })`.
+        // Plain `AsyncFnOnce` sugar, with no named `CallOnceFuture` bound: on the
+        // SQLite backend the body runs synchronously and is driven to completion in
+        // one poll, so it never suspends and needs no Send-across-await bound — it
+        // compiles on stable. (The Postgres variant below does need that bound.)
         F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E> + MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
-    #[cfg(not(feature = "sync"))]
+    #[cfg(not(feature = "sqlite"))]
     fn transaction<T, E, F>(
         &self,
         f: F,
@@ -162,20 +161,20 @@ pub trait XmtpMlsStorageProvider:
     // otherwise we run into sqlite race conditions b/c this does not
     // use BEGIN IMMEDIATE.
     // we can ensure this by checking sqlite transaction depth.
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     fn savepoint<T, E, F>(
         &self,
         f: F,
     ) -> impl std::future::Future<Output = Result<TransactionOutcome<T>, E>> + MaybeSend
     where
         T: MaybeSend,
-        // Boxed closure (not `AsyncFnOnce`) so its returned future can be named
-        // and bounded `Send` on stable Rust: the async track awaits it inside the
-        // (Send) transaction future. `AsyncFnOnce::CallOnceFuture` is unnameable
-        // on stable, so callers pass `|conn| Box::pin(async move { .. })`.
+        // Plain `AsyncFnOnce` sugar, with no named `CallOnceFuture` bound: on the
+        // SQLite backend the body runs synchronously and is driven to completion in
+        // one poll, so it never suspends and needs no Send-across-await bound — it
+        // compiles on stable. (The Postgres variant below does need that bound.)
         F: AsyncFnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E> + MaybeSend,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
-    #[cfg(not(feature = "sync"))]
+    #[cfg(not(feature = "sqlite"))]
     fn savepoint<T, E, F>(
         &self,
         f: F,

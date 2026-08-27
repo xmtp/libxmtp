@@ -1,5 +1,5 @@
 use self::transactions::MutableTransactionConnection;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 use bincode;
@@ -29,7 +29,7 @@ const DELETE_QUERY: &str = "DELETE FROM openmls_key_value WHERE key_bytes = ? AN
 
 #[cfg(feature = "test-utils")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "sync", derive(Selectable, Queryable, QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(Selectable, Queryable, QueryableByName))]
 #[diesel(table_name = crate::schema::openmls_key_value)]
 pub struct OpenMlsKeyValue {
     pub version: i32,
@@ -73,7 +73,7 @@ struct StorageData {
 
 /// Sync track only: `Store<'a>` must be an `XmtpMlsStorageProvider`, which
 /// `SqlKeyStore` only is on the diesel track.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl TransactionalKeyStore for diesel::SqliteConnection {
     type Store<'a>
         = SqlKeyStore<MutableTransactionConnection<'a>>
@@ -133,8 +133,8 @@ pub fn count_kv_reads<R>(f: impl FnOnce() -> R) -> (R, u64) {
 
 /// Async counterpart of [`count_kv_reads`]: awaits `f` inside the counting
 /// scope so the reads performed at its `.await` points are attributed to it.
-/// The metadata accessors are `async` on the sqlx/Postgres track (and return
-/// ready futures on the diesel track), so their reads happen when the future is
+/// The metadata accessors are `async` on the sqlx/Postgres backend (and return
+/// already-ready futures on the diesel/SQLite backend), so their reads happen when the future is
 /// polled, not when the closure that builds it runs.
 #[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
 pub async fn count_kv_reads_async<R>(f: impl std::future::Future<Output = R>) -> (R, u64) {
@@ -373,11 +373,10 @@ const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 // related to ApplicationExportTree
 const APPLICATION_EXPORT_TREE_LABEL: &[u8] = b"ApplicationExportTree";
 
-// `maybe_async(AFIT)` mirrors openmls' `StorageProvider` trait: under `blocking`
-// (is_sync ON) the `async` is stripped and these are ordinary blocking methods;
-// with the blocking shape OFF (the ready-future SQLite spike) they stay `async
-// fn` — the bodies are synchronous diesel calls, so each returns an already-ready
-// future, satisfying the async trait with zero runtime suspension.
+// `maybe_async(AFIT)` mirrors openmls' `StorageProvider` trait. These methods stay
+// `async fn`, but on the SQLite backend the bodies are synchronous diesel calls, so
+// each returns an already-ready future, satisfying the async trait with zero runtime
+// suspension.
 #[maybe_async::maybe_async(AFIT)]
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
@@ -651,7 +650,10 @@ where
     }
 
     #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
-    async fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
+    async fn psk<
+        PskBundle: traits::PskBundle<CURRENT_VERSION>,
+        PskId: traits::PskId<CURRENT_VERSION>,
+    >(
         &self,
         _psk_id: &PskId,
     ) -> Result<Option<PskBundle>, Self::Error> {
@@ -1251,7 +1253,6 @@ fn epoch_key_pairs_id(
     Ok(key)
 }
 
-
 #[cfg(any(test, feature = "test-utils"))]
 impl SqlKeyStore<crate::test_utils::MemoryStorage> {
     pub fn kv_pairs(&self) -> String {
@@ -1295,29 +1296,34 @@ pub(crate) mod tests {
         assert!(
             key_store
                 .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-                .await.unwrap()
+                .await
+                .unwrap()
                 .is_none()
         );
 
         key_store
             .write_signature_key_pair::<StorageId, SignatureKeyPair>(&public_key, &signature_keys)
-            .await.unwrap();
+            .await
+            .unwrap();
 
         assert!(
             key_store
                 .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-                .await.unwrap()
+                .await
+                .unwrap()
                 .is_some()
         );
 
         key_store
             .delete_signature_key_pair::<StorageId>(&public_key)
-            .await.unwrap();
+            .await
+            .unwrap();
 
         assert!(
             key_store
                 .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-                .await.unwrap()
+                .await
+                .unwrap()
                 .is_none()
         );
     }
@@ -1403,7 +1409,8 @@ pub(crate) mod tests {
                 )?;
                 Ok::<_, StorageError>(Continue(()))
             })
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(matches!(outcome, Continue(())));
         assert!(is_present(&committed_key), "commit must persist");
 
@@ -1417,13 +1424,15 @@ pub(crate) mod tests {
                 )?;
                 Ok::<TransactionOutcome<()>, StorageError>(Rollback)
             })
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(matches!(outcome, Rollback));
         assert!(!is_present(&rolled_back_key), "rollback must not persist");
 
         // Real error: a closure returning Err propagates as Err (and rolls back).
-        let result: Result<TransactionOutcome<()>, StorageError> =
-            key_store.transaction(async |_conn| Err(StorageError::DbSerialize)).await;
+        let result: Result<TransactionOutcome<()>, StorageError> = key_store
+            .transaction(async |_conn| Err(StorageError::DbSerialize))
+            .await;
         assert!(matches!(result, Err(StorageError::DbSerialize)));
     }
 
@@ -1447,7 +1456,8 @@ pub(crate) mod tests {
                     &ProposalRef(i),
                     proposal,
                 )
-                .await.expect("Failed to queue proposal");
+                .await
+                .expect("Failed to queue proposal");
         }
 
         tracing::trace!("Finished with queued proposals");
@@ -1455,15 +1465,19 @@ pub(crate) mod tests {
         let proposal_refs_read: Vec<ProposalRef> = provider
             .storage()
             .queued_proposal_refs(&group_id)
-            .await.expect("Failed to read proposal refs");
+            .await
+            .expect("Failed to read proposal refs");
         assert_eq!(
             (0..10).map(ProposalRef).collect::<Vec<_>>(),
             proposal_refs_read
         );
 
         // Read proposals
-        let proposals_read: Vec<(ProposalRef, Proposal)> =
-            provider.storage().queued_proposals(&group_id).await.unwrap();
+        let proposals_read: Vec<(ProposalRef, Proposal)> = provider
+            .storage()
+            .queued_proposals(&group_id)
+            .await
+            .unwrap();
         let proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1474,16 +1488,23 @@ pub(crate) mod tests {
         provider
             .storage()
             .remove_proposal(&group_id, &ProposalRef(5))
-            .await.unwrap();
+            .await
+            .unwrap();
 
-        let proposal_refs_read: Vec<ProposalRef> =
-            provider.storage().queued_proposal_refs(&group_id).await.unwrap();
+        let proposal_refs_read: Vec<ProposalRef> = provider
+            .storage()
+            .queued_proposal_refs(&group_id)
+            .await
+            .unwrap();
         let mut expected = (0..10).map(ProposalRef).collect::<Vec<_>>();
         expected.remove(5);
         assert_eq!(expected, proposal_refs_read);
 
-        let proposals_read: Vec<(ProposalRef, Proposal)> =
-            provider.storage().queued_proposals(&group_id).await.unwrap();
+        let proposals_read: Vec<(ProposalRef, Proposal)> = provider
+            .storage()
+            .queued_proposals(&group_id)
+            .await
+            .unwrap();
         let mut proposals_expected: Vec<(ProposalRef, Proposal)> = (0..10)
             .map(ProposalRef)
             .zip(proposals.clone().into_iter())
@@ -1495,7 +1516,8 @@ pub(crate) mod tests {
         provider
             .storage()
             .clear_proposal_queue::<GroupId, ProposalRef>(&group_id)
-            .await.unwrap();
+            .await
+            .unwrap();
         let proposal_refs_read: Result<Vec<ProposalRef>, SqlKeyStoreError> =
             provider.storage().queued_proposal_refs(&group_id).await;
         assert!(proposal_refs_read.unwrap().is_empty());
@@ -1523,10 +1545,12 @@ pub(crate) mod tests {
         provider
             .storage()
             .write_group_state(&group_id, &GroupState(77))
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Read group state
-        let group_state: Option<GroupState> = provider.storage().group_state(&group_id).await.unwrap();
+        let group_state: Option<GroupState> =
+            provider.storage().group_state(&group_id).await.unwrap();
         assert_eq!(GroupState(77), group_state.unwrap());
     }
 
@@ -1567,38 +1591,44 @@ pub(crate) mod tests {
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(result.is_none());
 
         // Write tree for group 1
         provider
             .storage()
             .write_application_export_tree(&group_id_1, &tree_1)
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Read back group 1
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(result.unwrap(), tree_1);
 
         // Group 2 should still be None
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(result.is_none());
 
         // Write tree for group 2
         provider
             .storage()
             .write_application_export_tree(&group_id_2, &tree_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(result.unwrap(), tree_2);
 
         // Overwrite group 1 with new data
@@ -1606,53 +1636,62 @@ pub(crate) mod tests {
         provider
             .storage()
             .write_application_export_tree(&group_id_1, &tree_1_updated)
-            .await.unwrap();
+            .await
+            .unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(result.unwrap(), tree_1_updated);
 
         // Group 2 should be unaffected
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(result.unwrap(), tree_2);
 
         // Delete group 1
         provider
             .storage()
             .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_1)
-            .await.unwrap();
+            .await
+            .unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_1)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(result.is_none());
 
         // Group 2 should still exist
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(result.unwrap(), tree_2);
 
         // Delete group 2
         provider
             .storage()
             .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         let result: Option<AppExportTree> = provider
             .storage()
             .application_export_tree(&group_id_2)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(result.is_none());
 
         // Deleting again should not error
         provider
             .storage()
             .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_1)
-            .await.unwrap();
+            .await
+            .unwrap();
     }
 }

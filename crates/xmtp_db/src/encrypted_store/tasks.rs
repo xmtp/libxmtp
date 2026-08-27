@@ -1,8 +1,8 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::tasks};
 use crate::StorageError;
 use derive_builder::Builder;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 use prost::Message;
 use xmtp_common::{NS_IN_DAY, NS_IN_SEC, time::now_ns};
@@ -10,9 +10,9 @@ use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind};
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
-#[cfg_attr(feature = "sync", diesel(table_name = tasks))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", derive(Queryable, Identifiable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = tasks))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "tasks")]
 pub struct Task {
@@ -33,8 +33,8 @@ pub struct Task {
 }
 
 #[derive(Debug, PartialEq, Clone, Builder)]
-#[cfg_attr(feature = "sync", derive(Insertable))]
-#[cfg_attr(feature = "sync", diesel(table_name = tasks))]
+#[cfg_attr(feature = "sqlite", derive(Insertable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = tasks))]
 #[builder(build_fn(skip))]
 pub struct NewTask {
     pub originating_message_sequence_id: i64,
@@ -250,7 +250,7 @@ impl<T: QueryTasks + xmtp_common::MaybeSync> QueryTasks for &T {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
     async fn create_task(&self, task: NewTask) -> Result<Task, StorageError> {
         self.raw_query(|conn| {
@@ -377,8 +377,8 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 pub(crate) mod pg {
     use super::*;
     use crate::pg::{PgDb, PgModel};

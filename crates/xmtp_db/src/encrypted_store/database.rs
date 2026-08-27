@@ -1,7 +1,7 @@
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod native;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::SqliteConnection;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native::*;
@@ -17,7 +17,7 @@ pub use wasm_exports::*;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native_exports::*;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -42,7 +42,7 @@ pub enum PersistentOrMem<P, S, M> {
 }
 
 // P, S and M must share connection & error types
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<P, S, M> ConnectionExt for PersistentOrMem<P, S, M>
 where
     P: ConnectionExt,
@@ -81,7 +81,7 @@ where
 /// `std::convert::Infallible` is used as the `Single` type parameter on targets
 /// (wasm) that have no single-connection mode. It is uninhabited, so the
 /// `Single` arm is statically impossible to construct.
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl ConnectionExt for std::convert::Infallible {
     fn raw_query<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where

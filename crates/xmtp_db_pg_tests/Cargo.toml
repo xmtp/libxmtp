@@ -9,16 +9,15 @@ publish = false
 # Deliberately NOT a member of the libxmtp workspace -- it is listed in the root
 # manifest's `exclude`.
 #
-# The two storage tracks are selected by cargo features, and `maybe-async/is_sync`
-# is a global switch: whenever `sync` is present in a graph it wins, and the
-# `Query*` traits collapse to their blocking shape, so the sqlx impls (gated
-# `not(feature = "sync")`) are compiled out. Every test target *inside* xmtp_db
-# has `sync` on, because xmtp_db self-dev-depends on itself to switch `test-utils`
+# The two storage backends are selected by cargo features, and `sqlite` is
+# dominant: whenever it is present in a graph the sqlx impls (gated
+# `not(feature = "sqlite")`) are compiled out. Every test target *inside* xmtp_db
+# has `sqlite` on, because xmtp_db self-dev-depends on itself to switch `test-utils`
 # on for `tests/` and its bench.
 #
 # Depending on xmtp_db from a separate crate sidesteps that entirely: a
-# dependency's dev-dependencies are never built, so no `sync` enters this graph
-# and these tests exercise the exact `--no-default-features --features async`
+# dependency's dev-dependencies are never built, so no `sqlite` enters this graph
+# and these tests exercise the exact `--no-default-features --features sqlx`
 # build that ships to servers.
 #
 # Being excluded (rather than a non-default member) also keeps it out of
@@ -37,7 +36,7 @@ sqlx = { version = "0.8.6", default-features = false, features = [
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
 xmtp_common = { path = "../xmtp_common" }
 xmtp_db = { path = "../xmtp_db", default-features = false, features = [
-  "async",
+  "sqlx",
 ] }
 xmtp_proto = { path = "../xmtp_proto", features = ["sqlx"] }
 

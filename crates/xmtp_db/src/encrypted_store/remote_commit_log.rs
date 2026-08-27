@@ -1,12 +1,12 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::RunQueryDsl;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{
     ConnectionExt, DbConnection, impl_store, schema::remote_commit_log,
     schema::remote_commit_log::dsl,
 };
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     Insertable, Queryable, deserialize::FromSqlRow, expression::AsExpression, prelude::*,
     sql_types::Integer,
@@ -18,8 +18,8 @@ use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 use xmtp_proto::types::GroupId;
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable))]
-#[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
+#[cfg_attr(feature = "sqlite", derive(Insertable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = remote_commit_log))]
 pub struct NewRemoteCommitLog {
     pub log_sequence_id: i64,
     pub group_id: GroupId,
@@ -29,13 +29,13 @@ pub struct NewRemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(NewRemoteCommitLog, remote_commit_log);
 
 #[derive(Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = remote_commit_log))]
-#[cfg_attr(feature = "sync", diesel(primary_key(rowid)))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = remote_commit_log))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(rowid)))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "remote_commit_log")]
 pub struct RemoteCommitLog {
@@ -55,13 +55,13 @@ pub struct RemoteCommitLog {
     pub applied_epoch_authenticator: Vec<u8>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(RemoteCommitLog, remote_commit_log);
 
 #[repr(i32)]
 #[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum CommitResult {
     Unknown = 0,
     Success = 1,
@@ -163,7 +163,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
     async fn get_latest_remote_log_for_group(
         &self,
@@ -207,8 +207,8 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -231,7 +231,7 @@ mod pg_impl {
                  VALUES ($1, $2, $3, $4, $5, $6)",
             )
             .bind(self.log_sequence_id)
-            .bind(&self.group_id)
+            .bind(self.group_id)
             .bind(self.commit_sequence_id)
             .bind(self.commit_result)
             .bind(self.applied_epoch_number)
@@ -267,7 +267,7 @@ mod pg_impl {
             order: RemoteCommitLogOrder,
         ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
             // `rowid` is a 32-bit serial, so a cursor past i32::MAX cannot name a
-            // real row. The sync track reports this as a query-builder error;
+            // real row. The SQLite backend reports this as a query-builder error;
             // there is no diesel error type here, so it surfaces as InvalidQuery.
             if after_cursor > i32::MAX as i64 {
                 return Err(crate::ConnectionError::InvalidQuery(

@@ -293,8 +293,8 @@ pub fn err_span(
 /// carrying the table name and column list, and a `sqlx::FromRow` that decodes
 /// **by column name**.
 ///
-/// The sync track gets the same information from `diesel::table!` and its
-/// `Queryable`/`Insertable` derives; the async track has no schema module, so
+/// The SQLite backend gets the same information from `diesel::table!` and its
+/// `Queryable`/`Insertable` derives; the Postgres backend has no schema module, so
 /// this supplies it. Both read the same struct fields, so the two column lists
 /// cannot drift — only the table name is restated.
 ///
@@ -311,7 +311,7 @@ pub fn err_span(
 /// }
 /// ```
 ///
-/// Generated items are gated on `all(feature = "async", not(feature = "sync"))`,
+/// Generated items are gated on `all(feature = "sqlx", not(feature = "sqlite"))`,
 /// so the derive is inert on the sync-only builds that wasm and mobile use (and
 /// under `--all-features`, where the dominant `sync` track wins).
 #[proc_macro_derive(PgModel, attributes(xmtp))]

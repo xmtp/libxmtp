@@ -1,9 +1,9 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::migration::{Migration, MigrationSource, MigrationVersion};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel_migrations::MigrationHarness;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{ConnectionExt, MIGRATIONS, Sqlite, db_connection::DbConnection};
 use crate::ConnectionError;
 
@@ -17,7 +17,7 @@ use crate::ConnectionError;
 /// proof higher-ranked over the `&self` lifetime, so rustc asks for
 /// `Executor<'1>` on `&'0 mut PgConnection` at *any* two lifetimes; sqlx
 /// implements it only with the two tied together (`impl<'c> Executor<'c> for
-/// &'c mut PgConnection`), so the async-track impl cannot satisfy it. Adding
+/// &'c mut PgConnection`), so the Postgres backend impl cannot satisfy it. Adding
 /// the bound fails to compile rather than costing anything at runtime.
 ///
 /// Losing it is affordable precisely here: migrations run once at startup on
@@ -66,13 +66,13 @@ pub trait QueryMigrations {
     ) -> impl std::future::Future<Output = Result<Vec<String>, ConnectionError>>;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> {
     MigrationSource::<Sqlite>::migrations(&MIGRATIONS)
         .map_err(|e| ConnectionError::Database(diesel::result::Error::QueryBuilderError(e)))
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     async fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
         let applied: Vec<MigrationVersion<'static>> = self.raw_query(|conn| {
@@ -182,11 +182,11 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
 /// The Postgres migration set, embedded at compile time.
 ///
-/// The sync track gets this from `diesel_migrations::embed_migrations!`, which
+/// The SQLite backend gets this from `diesel_migrations::embed_migrations!`, which
 /// is SQLite-only. There is deliberately no runtime directory scan: a server
 /// must carry its schema in its binary, so it cannot be pointed at a stale or
 /// hand-edited copy.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 pub mod pg {
     /// One embedded migration.
     ///
@@ -251,16 +251,16 @@ pub mod pg {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
+/// why this is gated `not(feature = "sqlite")`.
 ///
 /// This is the one trait whose async form is not a port of the diesel impl:
 /// every sync method delegates to diesel's embedded-migration machinery
 /// (`MigrationHarness`, `Migration<Sqlite>`), which has no Postgres analogue
 /// here. What it delegates *to* -- a tracking table plus apply/revert of
 /// embedded SQL -- is small enough to implement directly, and is what makes the
-/// async track's schema deployable at all rather than only creatable by a test
+/// Postgres backend's schema deployable at all rather than only creatable by a test
 /// fixture.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::PgDb;

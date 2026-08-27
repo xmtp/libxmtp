@@ -1,10 +1,10 @@
 use super::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use openmls::group::MlsGroup;
-use xmtp_db::group::StoredGroup;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use xmtp_db::group::GroupQueryArgs;
-#[cfg(feature = "sync")]
+use xmtp_db::group::StoredGroup;
+#[cfg(feature = "sqlite")]
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::{GroupMetadata, extract_group_metadata},
@@ -34,126 +34,124 @@ impl BackupRecordProvider for GroupSave {
         // provider, and herald runs no device-sync backups, so group backup is a
         // no-op there. TODO(async-backup): async MLS load + a track-agnostic
         // `mls_storage()` if server-side group backup is ever needed.
-        #[cfg(not(feature = "sync"))]
+        #[cfg(not(feature = "sqlite"))]
         {
             let _ = &state;
             Ok(Vec::new())
         }
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         {
-        let mut args = GroupQueryArgs::default();
+            let mut args = GroupQueryArgs::default();
 
-        if let Some(start_ns) = state.opts.start_ns {
-            args.created_after_ns = Some(start_ns);
-        }
-        if let Some(end_ns) = state.opts.end_ns {
-            args.created_before_ns = Some(end_ns);
-        }
+            if let Some(start_ns) = state.opts.start_ns {
+                args.created_after_ns = Some(start_ns);
+            }
+            if let Some(end_ns) = state.opts.end_ns {
+                args.created_before_ns = Some(end_ns);
+            }
 
-        args.limit = Some(Self::BATCH_SIZE);
+            args.limit = Some(Self::BATCH_SIZE);
 
-        let cursor = state.cursor.load(Ordering::SeqCst);
-        let batch = state.db.find_groups_by_id_paged(&args, cursor).await?;
-        let storage = SqlKeyStore::new(&state.db);
-        let records = batch
-            .into_iter()
-            .filter_map(|record| {
-                if record.conversation_type.is_virtual() {
-                    return None;
-                }
-                let group_id = record.id;
-                // `MlsGroup::load` is maybe_async: a plain `Result` under the
-                // blocking shape, a `Future` under the async (ready-future SQLite)
-                // shape. This `filter_map` closure is sync so it can't `.await`, but
-                // openmls is always async; on the diesel backend the load future is
-                // always ready, so drive it to completion with a single poll (this
-                // is a sync closure, so we can't await).
-                let loaded = futures::FutureExt::now_or_never(MlsGroup::load(
-                    &storage,
-                    &group_id.to_openmls(),
-                ))
-                .expect("diesel-backed MlsGroup::load resolves synchronously");
-                let mls_group = match loaded {
-                    Ok(Some(mls_group)) => mls_group,
-                    Ok(None) => {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            "skipping group in backup: no MLS group state found"
-                        );
+            let cursor = state.cursor.load(Ordering::SeqCst);
+            let batch = state.db.find_groups_by_id_paged(&args, cursor).await?;
+            let storage = SqlKeyStore::new(&state.db);
+            let records = batch
+                .into_iter()
+                .filter_map(|record| {
+                    if record.conversation_type.is_virtual() {
                         return None;
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            error = %e,
-                            "skipping group in backup: failed to load MLS group state"
-                        );
-                        return None;
-                    }
-                };
-                let extensions = mls_group.extensions();
+                    let group_id = record.id;
+                    // `MlsGroup::load` is async (openmls is always async), returning a
+                    // `Future`. This `filter_map` closure is sync so it can't `.await`, but
+                    // on the diesel/SQLite backend the load future is always ready, so drive
+                    // it to completion with a single poll.
+                    let loaded = futures::FutureExt::now_or_never(MlsGroup::load(
+                        &storage,
+                        &group_id.to_openmls(),
+                    ))
+                    .expect("diesel-backed MlsGroup::load resolves synchronously");
+                    let mls_group = match loaded {
+                        Ok(Some(mls_group)) => mls_group,
+                        Ok(None) => {
+                            tracing::warn!(
+                                group_id = %group_id,
+                                "skipping group in backup: no MLS group state found"
+                            );
+                            return None;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                group_id = %group_id,
+                                error = %e,
+                                "skipping group in backup: failed to load MLS group state"
+                            );
+                            return None;
+                        }
+                    };
+                    let extensions = mls_group.extensions();
 
-                // Capability-aware reads: migrated (post-bootstrap)
-                // groups no longer carry the legacy `ImmutableMetadata`
-                // / `GroupMutableMetadata` extensions — their metadata
-                // lives in the AppData dictionary. Reading the legacy
-                // extensions only would silently drop every migrated
-                // group from the backup (conversation loss on restore).
-                // Skips below are logged, never silent: a group that
-                // fails BOTH sources is corrupt and worth a log line.
-                let immutable_metadata = extract_group_metadata(extensions)
-                    .inspect_err(|e| {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            error = %e,
-                            "skipping group in backup: unreadable group metadata"
-                        );
-                    })
-                    .ok()?;
-                let mutable_metadata = if extensions_are_migrated(extensions) {
-                    let mut base = GroupMutableMetadata::new(
-                        std::collections::HashMap::new(),
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                    // Per-field degrade, never per-group: a malformed
-                    // component loses that one field, not the whole
-                    // group. Dropping the group here would orphan its
-                    // (unconditionally exported) messages, and the
-                    // restore's foreign-key check would abort the
-                    // entire import over one corrupt component.
-                    for e in merge_dict_into_mutable_metadata_lossy(&mut base, extensions) {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            error = %e,
-                            "skipping malformed metadata component in backup; \
-                             group still exported"
-                        );
-                    }
-                    base
-                } else {
-                    GroupMutableMetadata::try_from(&mls_group)
+                    // Capability-aware reads: migrated (post-bootstrap)
+                    // groups no longer carry the legacy `ImmutableMetadata`
+                    // / `GroupMutableMetadata` extensions — their metadata
+                    // lives in the AppData dictionary. Reading the legacy
+                    // extensions only would silently drop every migrated
+                    // group from the backup (conversation loss on restore).
+                    // Skips below are logged, never silent: a group that
+                    // fails BOTH sources is corrupt and worth a log line.
+                    let immutable_metadata = extract_group_metadata(extensions)
                         .inspect_err(|e| {
                             tracing::warn!(
                                 group_id = %group_id,
                                 error = %e,
-                                "skipping group in backup: unreadable legacy metadata"
+                                "skipping group in backup: unreadable group metadata"
                             );
                         })
-                        .ok()?
-                };
+                        .ok()?;
+                    let mutable_metadata = if extensions_are_migrated(extensions) {
+                        let mut base = GroupMutableMetadata::new(
+                            std::collections::HashMap::new(),
+                            Vec::new(),
+                            Vec::new(),
+                        );
+                        // Per-field degrade, never per-group: a malformed
+                        // component loses that one field, not the whole
+                        // group. Dropping the group here would orphan its
+                        // (unconditionally exported) messages, and the
+                        // restore's foreign-key check would abort the
+                        // entire import over one corrupt component.
+                        for e in merge_dict_into_mutable_metadata_lossy(&mut base, extensions) {
+                            tracing::warn!(
+                                group_id = %group_id,
+                                error = %e,
+                                "skipping malformed metadata component in backup; \
+                                 group still exported"
+                            );
+                        }
+                        base
+                    } else {
+                        GroupMutableMetadata::try_from(&mls_group)
+                            .inspect_err(|e| {
+                                tracing::warn!(
+                                    group_id = %group_id,
+                                    error = %e,
+                                    "skipping group in backup: unreadable legacy metadata"
+                                );
+                            })
+                            .ok()?
+                    };
 
-                Some(BackupElement {
-                    element: Some(Element::Group(GroupSave::new(
-                        record,
-                        immutable_metadata,
-                        mutable_metadata,
-                    ))),
+                    Some(BackupElement {
+                        element: Some(Element::Group(GroupSave::new(
+                            record,
+                            immutable_metadata,
+                            mutable_metadata,
+                        ))),
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        Ok(records)
+            Ok(records)
         }
     }
 }

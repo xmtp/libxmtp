@@ -1,4 +1,4 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
@@ -10,17 +10,17 @@ use super::{
 };
 use super::{group::ConversationType, group_message::StoredGroupMessage};
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{impl_store, impl_store_or_ignore};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{deserialize::FromSqlRow, expression::AsExpression, prelude::*, sql_types::Integer};
 use serde::{Deserialize, Serialize};
 
 /// The state of a device sync message processing
 #[repr(i32)]
 #[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum DeviceSyncProcessingState {
     /// Message is pending processing
     #[default]
@@ -38,9 +38,9 @@ crate::impl_sql_int_enum!(DeviceSyncProcessingState {
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = processed_device_sync_messages))]
-#[cfg_attr(feature = "sync", diesel(primary_key(message_id)))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = processed_device_sync_messages))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(message_id)))]
 pub struct StoredProcessedDeviceSyncMessages {
     pub message_id: Vec<u8>,
     /// Number of processing attempts remaining
@@ -60,12 +60,12 @@ impl StoredProcessedDeviceSyncMessages {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(
     StoredProcessedDeviceSyncMessages,
     processed_device_sync_messages
 );
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(
     StoredProcessedDeviceSyncMessages,
     processed_device_sync_messages
@@ -133,7 +133,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
     async fn unprocessed_sync_group_messages(
         &self,
@@ -236,8 +236,8 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -382,7 +382,9 @@ mod tests {
             assert_eq!(unprocessed.len(), 2);
 
             // Storing with Pending state still counts as unprocessed
-            StoredProcessedDeviceSyncMessages::new(message2.id.clone()).store(conn).await?;
+            StoredProcessedDeviceSyncMessages::new(message2.id.clone())
+                .store(conn)
+                .await?;
             let unprocessed = conn.unprocessed_sync_group_messages().await?;
             assert_eq!(unprocessed.len(), 2);
 
@@ -436,7 +438,9 @@ mod tests {
             message.store(conn).await?;
 
             // Store with Pending state
-            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn).await?;
+            StoredProcessedDeviceSyncMessages::new(message.id.clone())
+                .store(conn)
+                .await?;
 
             // Increment attempts a couple times
             conn.increment_device_sync_msg_attempt(&message.id, 3)
@@ -470,7 +474,9 @@ mod tests {
             message.store(conn).await?;
 
             // Store with default values (attempts = 0)
-            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn).await?;
+            StoredProcessedDeviceSyncMessages::new(message.id.clone())
+                .store(conn)
+                .await?;
 
             // Increment attempt 1
             let attempts = conn

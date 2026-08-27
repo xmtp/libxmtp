@@ -44,18 +44,16 @@ lint-rust: lint-rust-async
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
-# The async storage track, which the workspace lint above cannot reach:
-# `--all-features` turns `sync` on, and `maybe-async/is_sync` is a global switch,
-# so every sqlx impl (gated `not(feature = "sync")`) is compiled out of it. Left
-# unlinted this build accumulated ~30 real warnings behind 159 copies of
-# `async_fn_in_trait`.
+# The sqlx storage backend, which the workspace lint above cannot reach:
+# `--all-features` turns `sqlite` on, which is dominant, so every sqlx impl (gated
+# `not(feature = "sqlite")`) is compiled out of it.
 #
-# Lib target only, deliberately: xmtp_db's self dev-dependency pulls `sync` in,
-# so `--all-targets` would stop being an async-only build. The Postgres impls are
+# Lib target only, deliberately: xmtp_db's self dev-dependency pulls `sqlite` in,
+# so `--all-targets` would stop being a sqlx-only build. The Postgres impls are
 # exercised by `xmtp_db_pg_tests` instead, which is outside the workspace and so
 # needs its own invocation.
 lint-rust-async:
-    cargo clippy --locked -p xmtp_db --no-default-features --features async --no-deps -- -Dwarnings
+    cargo clippy --locked -p xmtp_db --no-default-features --features sqlx --no-deps -- -Dwarnings
     cargo clippy --locked --manifest-path crates/xmtp_db_pg_tests/Cargo.toml --all-targets --no-deps -- -Dwarnings
     cargo fmt --check --manifest-path crates/xmtp_db_pg_tests/Cargo.toml
 

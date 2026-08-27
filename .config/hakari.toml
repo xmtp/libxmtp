@@ -47,15 +47,14 @@ third-party = [
   # which would drag openssl-sys/openssl into builds (e.g. mls-validation-service)
   # that have no need for SQLite.
   { name = "libsqlite3-sys" },
-  # `maybe-async`'s `is_sync` feature selects xmtp_db's storage track. Unifying it
-  # into the workspace-hack would turn `is_sync` on for every member, collapsing
-  # the async track's traits to the blocking shape in every build -- the async
-  # track would silently cease to exist.
+  # `maybe-async` is only ever used in its async form. Excluded so the workspace-hack
+  # never unifies its `is_sync` feature on, which would rewrite the storage traits to
+  # be synchronous.
   { name = "maybe-async" },
-  # diesel is the sync track's driver. Unifying it into the workspace-hack puts
-  # it (and through it libsqlite3-sys) into *every* member's graph, which
-  # silently undoes `xmtp_db`'s `sync`-gating of diesel and puts a SQLite driver
-  # back into server builds. Same reasoning as libsqlite3-sys above.
+  # diesel is the SQLite backend's driver. Unifying it into the workspace-hack puts
+  # it (and through it libsqlite3-sys) into *every* member's graph, which silently
+  # undoes `xmtp_db`'s `sqlite`-gating of diesel and puts a SQLite driver back into
+  # server builds. Same reasoning as libsqlite3-sys above.
   # (git source must be spelled out -- these are patched to the ephemerahq fork)
   { name = "diesel", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
   { name = "diesel_derives", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
@@ -64,21 +63,15 @@ third-party = [
   # unifying it would compile a Postgres client into every native member,
   # including the mobile bindings, which have no use for it.
   { name = "sqlx" },
-  # openmls' `sync` feature is `maybe-async/is_sync` one level down, so it selects
-  # the storage track exactly the way `maybe-async` itself does. Left unified,
-  # hakari bakes `sync` into every member's graph and reaches `is_sync` *through
-  # openmls*, bypassing the `maybe-async` exclusion above -- the async track would
-  # silently collapse to the blocking shape, which is the same failure that
-  # exclusion exists to prevent.
-  # (git source must be spelled out, rev included -- hakari cannot resolve a bare
-  # name against a git-sourced package. The rev must be bumped here on every
-  # openmls repin; hakari errors out loudly if it goes stale.)
-  { name = "openmls", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_traits", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_basic_credential", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_rust_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_memory_storage", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_libcrux_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  # openmls carries backend-specific features (sqlx's `0-8-1-storage-format`, and
+  # `sync`/`is_sync`). Excluded so the workspace-hack can't unify those across every
+  # member and change the SQLite backend's on-disk format.
+  { name = "openmls", path = "../openmls-storage-send/openmls" },
+  { name = "openmls_traits", path = "../openmls-storage-send/traits" },
+  { name = "openmls_basic_credential", path = "../openmls-storage-send/basic_credential" },
+  { name = "openmls_rust_crypto", path = "../openmls-storage-send/openmls_rust_crypto" },
+  { name = "openmls_memory_storage", path = "../openmls-storage-send/memory_storage" },
+  { name = "openmls_libcrux_crypto", path = "../openmls-storage-send/libcrux_crypto" },
 ]
 
 [final-excludes]
@@ -96,15 +89,14 @@ third-party = [
   { name = "uniffi" },
   { name = "wasm-bindgen" },
   { name = "libsqlite3-sys" },
-  # `maybe-async`'s `is_sync` feature selects xmtp_db's storage track. Unifying it
-  # into the workspace-hack would turn `is_sync` on for every member, collapsing
-  # the async track's traits to the blocking shape in every build -- the async
-  # track would silently cease to exist.
+  # `maybe-async` is only ever used in its async form. Excluded so the workspace-hack
+  # never unifies its `is_sync` feature on, which would rewrite the storage traits to
+  # be synchronous.
   { name = "maybe-async" },
-  # diesel is the sync track's driver. Unifying it into the workspace-hack puts
-  # it (and through it libsqlite3-sys) into *every* member's graph, which
-  # silently undoes `xmtp_db`'s `sync`-gating of diesel and puts a SQLite driver
-  # back into server builds. Same reasoning as libsqlite3-sys above.
+  # diesel is the SQLite backend's driver. Unifying it into the workspace-hack puts
+  # it (and through it libsqlite3-sys) into *every* member's graph, which silently
+  # undoes `xmtp_db`'s `sqlite`-gating of diesel and puts a SQLite driver back into
+  # server builds. Same reasoning as libsqlite3-sys above.
   # (git source must be spelled out -- these are patched to the ephemerahq fork)
   { name = "diesel", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
   { name = "diesel_derives", git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" },
@@ -113,19 +105,13 @@ third-party = [
   # unifying it would compile a Postgres client into every native member,
   # including the mobile bindings, which have no use for it.
   { name = "sqlx" },
-  # openmls' `sync` feature is `maybe-async/is_sync` one level down, so it selects
-  # the storage track exactly the way `maybe-async` itself does. Left unified,
-  # hakari bakes `sync` into every member's graph and reaches `is_sync` *through
-  # openmls*, bypassing the `maybe-async` exclusion above -- the async track would
-  # silently collapse to the blocking shape, which is the same failure that
-  # exclusion exists to prevent.
-  # (git source must be spelled out, rev included -- hakari cannot resolve a bare
-  # name against a git-sourced package. The rev must be bumped here on every
-  # openmls repin; hakari errors out loudly if it goes stale.)
-  { name = "openmls", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_traits", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_basic_credential", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_rust_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_memory_storage", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
-  { name = "openmls_libcrux_crypto", git = "https://github.com/xmtp/openmls", rev = "19860a87b326cb1d6dae4ca15e25b08fd5825a55" },
+  # openmls carries backend-specific features (sqlx's `0-8-1-storage-format`, and
+  # `sync`/`is_sync`). Excluded so the workspace-hack can't unify those across every
+  # member and change the SQLite backend's on-disk format.
+  { name = "openmls", path = "../openmls-storage-send/openmls" },
+  { name = "openmls_traits", path = "../openmls-storage-send/traits" },
+  { name = "openmls_basic_credential", path = "../openmls-storage-send/basic_credential" },
+  { name = "openmls_rust_crypto", path = "../openmls-storage-send/openmls_rust_crypto" },
+  { name = "openmls_memory_storage", path = "../openmls-storage-send/memory_storage" },
+  { name = "openmls_libcrux_crypto", path = "../openmls-storage-send/libcrux_crypto" },
 ]

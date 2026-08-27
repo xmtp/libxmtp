@@ -26,10 +26,10 @@ use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpDb;
 use xmtp_db::{XmtpMlsStorageProvider, prelude::*};
-// Raw diesel/SQLite cleanup + the concrete diesel key store — sync track only.
-#[cfg(feature = "sync")]
+// Raw diesel/SQLite cleanup + the concrete diesel key store — SQLite backend only.
+#[cfg(feature = "sqlite")]
 use crate::utils::cleanup_duplicate_updates;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use xmtp_db::{DbConnection, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_macro::log_event;
@@ -481,8 +481,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         };
 
         // Cleanup old unstitched group updated messages. Raw diesel/SQLite work,
-        // sync track only.
-        #[cfg(feature = "sync")]
+        // SQLite backend only.
+        #[cfg(feature = "sqlite")]
         {
             let conn = DbConnection::new(client.db());
             let cancel = client.context.cancellation_token().clone();
@@ -539,8 +539,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    /// Use the default SQLite MLS Key-Value Store (sync/diesel track).
-    #[cfg(feature = "sync")]
+    /// Use the default SQLite MLS Key-Value Store (diesel/SQLite backend).
+    #[cfg(feature = "sqlite")]
     pub fn default_mls_store(
         self,
     ) -> Result<
@@ -561,7 +561,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     /// Use the default sqlx/Postgres MLS key store (async/server track).
-    #[cfg(not(feature = "sync"))]
+    #[cfg(not(feature = "sqlite"))]
     pub fn default_mls_store(
         self,
     ) -> Result<ClientBuilder<ApiClient, xmtp_db::PgKeyStore, Db>, ClientBuilderError>

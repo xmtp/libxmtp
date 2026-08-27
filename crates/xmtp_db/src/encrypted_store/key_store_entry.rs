@@ -1,27 +1,27 @@
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::openmls_key_store};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{Delete, impl_fetch, impl_store};
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = openmls_key_store))]
-#[cfg_attr(feature = "sync", diesel(primary_key(key_bytes)))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = openmls_key_store))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(key_bytes)))]
 pub struct StoredKeyStoreEntry {
     pub key_bytes: Vec<u8>,
     pub value_bytes: Vec<u8>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(StoredKeyStoreEntry, openmls_key_store);
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> Delete<StoredKeyStoreEntry> for DbConnection<C> {
     type Key = Vec<u8>;
     fn delete(&self, key: Vec<u8>) -> Result<usize, StorageError> where {
@@ -62,8 +62,8 @@ where
 }
 
 /// Diesel backend. `raw_query` hands out a blocking connection, so this impl
-/// only exists on the sync track; nothing in it ever awaits.
-#[cfg(feature = "sync")]
+/// only exists on the SQLite backend; nothing in it ever awaits.
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryKeyStoreEntry for DbConnection<C> {
     async fn insert_or_update_key_store_entry(
         &self,
@@ -87,11 +87,11 @@ impl<C: ConnectionExt> QueryKeyStoreEntry for DbConnection<C> {
 
 /// sqlx backend — Postgres only (see the `sqlx` dependency note in Cargo.toml:
 /// SQLite cannot be reached through sqlx in this workspace).
-// `not(feature = "sync")`: the two tracks are single-choice but not hard-exclusive
+// `not(feature = "sqlite")`: the two backends are single-choice but not hard-exclusive
 // -- cargo feature unification can hand a graph both (`--all-features` does), and
-// `maybe-async/is_sync` is global, so when both are on the trait has already
-// collapsed to the blocking shape and only the diesel impl can satisfy it.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+// `sqlite` is dominant, so when both are on the SQLite backend is selected and this
+// impl is compiled out.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl QueryKeyStoreEntry for crate::pg::PgDb {
     /// Postgres has no `REPLACE INTO`; `ON CONFLICT DO UPDATE` on the primary
     /// key is the equivalent upsert.

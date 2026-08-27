@@ -1,4 +1,4 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 use xmtp_common::ErrorCode;
@@ -18,13 +18,13 @@ pub enum StorageError {
     ///
     /// Failed to connect to SQLite. Retryable.
     #[error(transparent)]
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     DieselConnect(#[from] diesel::ConnectionError),
     /// Diesel result error.
     ///
     /// Database query returned an error. May be retryable.
     #[error(transparent)]
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     DieselResult(#[from] diesel::result::Error),
     /// Migration error.
     ///
@@ -45,7 +45,7 @@ pub enum StorageError {
     ///
     /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     OpenMlsStorage(#[from] SqlKeyStoreError),
     /// DB deserialization failed.
     ///
@@ -65,7 +65,7 @@ pub enum StorageError {
     /// Platform storage error.
     ///
     /// Platform-specific storage error. May be retryable.
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     #[error(transparent)]
     Platform(#[from] crate::database::PlatformStorageError),
     /// Protobuf decode error.
@@ -104,12 +104,12 @@ impl From<std::convert::Infallible> for StorageError {
 
 impl StorageError {
     // release conn is a noop in wasm
-    #[cfg(any(target_arch = "wasm32", not(feature = "sync")))]
+    #[cfg(any(target_arch = "wasm32", not(feature = "sqlite")))]
     pub fn db_needs_connection(&self) -> bool {
         false
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), feature = "sync"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "sqlite"))]
     pub fn db_needs_connection(&self) -> bool {
         use crate::PlatformStorageError::{Pool, PoolNeedsConnection};
         use StorageError::*;
@@ -240,7 +240,7 @@ impl RetryableError for DuplicateItem {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl RetryableError<Mls> for diesel::result::Error {
     fn is_retryable(&self) -> bool {
         use DatabaseErrorKind::*;
@@ -262,14 +262,14 @@ impl RetryableError<Mls> for diesel::result::Error {
 impl RetryableError for StorageError {
     fn is_retryable(&self) -> bool {
         match self {
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::DieselConnect(_) => true,
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::DieselResult(result) => retryable!(result),
             Self::Duplicate(d) => retryable!(d),
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::OpenMlsStorage(storage) => retryable!(storage),
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
             Self::GroupIntent(e) => retryable!(e),
@@ -310,9 +310,7 @@ impl RetryableError<Mls> for openmls::group::CreateCommitError {
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::treesync::LeafNodeUpdateError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::treesync::LeafNodeUpdateError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Storage(storage) => retryable!(storage),
@@ -348,9 +346,7 @@ impl RetryableError<Mls> for openmls::group::NewGroupError<SqlKeyStoreError> {
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::UpdateGroupMembershipError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::UpdateGroupMembershipError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(create_commit) => retryable!(create_commit),
@@ -391,9 +387,7 @@ impl RetryableError<Mls> for openmls::group::SelfUpdateError<SqlKeyStoreError> {
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::CommitBuilderStageError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::CommitBuilderStageError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::KeyStoreError(storage) => retryable!(storage),
@@ -402,9 +396,7 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::prelude::CreationFromExternalError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::prelude::CreationFromExternalError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::WriteToStorageError(storage) => retryable!(storage),
@@ -413,9 +405,7 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::ProposeAddMemberError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::ProposeAddMemberError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::GroupStateError(group_state) => retryable!(group_state),
@@ -425,9 +415,7 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::ProposeRemoveMemberError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::ProposeRemoveMemberError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::GroupStateError(group_state) => retryable!(group_state),
@@ -437,9 +425,7 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::ProposeSelfUpdateError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::ProposeSelfUpdateError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::LeafNodeUpdateError(leaf_node_update) => retryable!(leaf_node_update),
@@ -463,9 +449,7 @@ impl RetryableError<Mls> for openmls::group::ProposalError<SqlKeyStoreError> {
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::CommitToPendingProposalsError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::CommitToPendingProposalsError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
@@ -498,9 +482,7 @@ impl RetryableError<Mls> for openmls::group::MergeCommitError<SqlKeyStoreError> 
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::group::MergePendingCommitError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::group::MergePendingCommitError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::MlsGroupStateError(err) => retryable!(err),
@@ -509,9 +491,7 @@ impl RetryableError<Mls>
     }
 }
 
-impl RetryableError<Mls>
-    for openmls::prelude::ProcessMessageError<SqlKeyStoreError>
-{
+impl RetryableError<Mls> for openmls::prelude::ProcessMessageError<SqlKeyStoreError> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::GroupStateError(err) => retryable!(err),

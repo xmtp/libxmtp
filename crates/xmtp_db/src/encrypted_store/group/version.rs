@@ -1,4 +1,4 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::ConnectionExt;
 
 use super::*;
@@ -62,7 +62,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
     async fn set_group_paused(
         &self,
@@ -142,11 +142,11 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
     }
 }
 
-/// sqlx backend -- Postgres only. Gated `not(feature = "sync")` because the two
-/// tracks are single-choice but not hard-exclusive: cargo feature unification can
-/// hand a graph both, and `maybe-async/is_sync` is global, so when both are on
-/// the trait has already collapsed to the blocking shape.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// sqlx backend -- Postgres only. Gated `not(feature = "sqlite")` because the two
+/// backends are single-choice but not hard-exclusive: cargo feature unification
+/// can hand a graph both, and `sqlite` is dominant, so when both are on the
+/// SQLite backend is selected and this impl is compiled out.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl QueryGroupVersion for crate::pg::PgDb {
     async fn set_group_paused(
         &self,

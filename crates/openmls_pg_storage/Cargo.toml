@@ -1,11 +1,11 @@
 [package]
 name = "openmls_pg_storage"
 # This crate is EXCLUDED from the workspace (see the root `Cargo.toml`): its
-# async `StorageProvider` impl cannot compile under the sync track's unified
-# `openmls_traits/sync`. An excluded crate has no `workspace.package` /
+# async `StorageProvider` impl cannot compile in a build that unifies
+# `openmls_traits` to its blocking (`sync`) feature. An excluded crate has no `workspace.package` /
 # `workspace.dependencies` root to inherit from, so every field and dependency
 # below is spelled out literally instead of `x.workspace = true`. It is only
-# ever built as a path dependency of `xmtp_db`'s `async` feature, which resolves
+# ever built as a path dependency of `xmtp_db`'s `sqlx` feature, which resolves
 # it against the depending workspace's lockfile and `[patch]` -- so there is
 # still one shared `openmls_traits` instance and no separate `Cargo.lock`.
 # KEEP THESE LITERALS IN SYNC with `workspace.package` / `workspace.dependencies`
@@ -19,7 +19,7 @@ description = "An OpenMLS storage provider backed by sqlx + PostgreSQL."
 [dependencies]
 # Same path (canonicalizes to `~/dev/ephemera/openmls-storage-send/traits`) and
 # same features as the root's `workspace.dependencies.openmls_traits`, so the
-# async `xmtp_db` build unifies this to the exact same package instance.
+# `sqlx` `xmtp_db` build unifies this to the exact same package instance.
 openmls_traits = { path = "../../../openmls-storage-send/traits", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
@@ -37,7 +37,7 @@ futures-util = { version = "0.3", default-features = false, features = [
   "std",
 ] }
 # Postgres only, deliberately: sqlx-sqlite pins libsqlite3-sys ^0.30 which
-# collides with the diesel (sync) track's ^0.35, so SQLite must never enter the
+# collides with the diesel (`sqlite`) backend's ^0.35, so SQLite must never enter the
 # graph. The `macros` feature (needed for `sqlx::migrate!`) transitively pulls
 # sqlx-sqlite, so it stays off: migrations are embedded with `include_str!` and
 # applied by a hand-rolled runner instead. Matches the workspace's

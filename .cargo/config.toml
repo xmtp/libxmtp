@@ -1,3 +1,10 @@
+[env]
+# The `sqlx` backend of xmtp_db and xmtp_mls uses unstable rustc features
+# (`async_fn_traits` / `unboxed_closures`). Scope RUSTC_BOOTSTRAP to exactly those
+# crates so their `sqlx` build compiles on the stable toolchain with no setup. It is
+# inert everywhere else and in the `sqlite` build, where those features are gated off.
+RUSTC_BOOTSTRAP = "xmtp_db,xmtp_mls"
+
 [alias]
 xdbg = "run -p xdbg --"
 update-schema = "run --bin update-schema --features update-schema"

@@ -1,8 +1,8 @@
 //! Every `PgModel`'s column list, checked against the live Postgres catalog.
 //!
-//! This is the async track's substitute for `diesel::table!`. On the sync track
+//! This is the Postgres backend's substitute for `diesel::table!`. On the SQLite backend
 //! a column rename breaks the build, because `schema.rs` and the `Queryable`
-//! derives have to agree. The async track has no schema module, so until now
+//! derives have to agree. The Postgres backend has no schema module, so until now
 //! nothing connected a model's fields to the actual table — a renamed or
 //! retyped column would surface as a runtime decode error, in production, on
 //! whichever query happened to touch it first.

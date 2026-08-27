@@ -1,14 +1,14 @@
-// Inner attribute rather than `#[cfg(all(test, feature = "sync"))]` on the
+// Inner attribute rather than `#[cfg(all(test, feature = "sqlite"))]` on the
 // `mod` item: clippy keys `allow-unwrap-in-tests` off a literal
 // `#[cfg(test)]`, and compounding the cfg there makes it stop treating
 // this as test code, so every `unwrap()` here trips `-Dwarnings`.
-#![cfg(feature = "sync")]
+#![cfg(feature = "sqlite")]
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sql_types::Blob;
 
 use crate::XmtpTestDb;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::migration::MigrationSource;
 
 use super::*;

@@ -1,6 +1,6 @@
 //! SQLCipher-specific Connection
 use bon::Builder;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     connection::{LoadConnection, SimpleConnection},
     deserialize::FromSqlRow,
@@ -29,17 +29,17 @@ const SALT_FILE_NAME: &str = "sqlcipher_salt";
 
 // For PRAGMA query log statements
 #[derive(Debug)]
-#[cfg_attr(feature = "sync", derive(QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(QueryableByName))]
 struct CipherVersion {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Text))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Text))]
     cipher_version: String,
 }
 
 // For PRAGMA query log statements
 #[derive(Debug)]
-#[cfg_attr(feature = "sync", derive(QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(QueryableByName))]
 struct CipherProviderVersion {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Text))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Text))]
     cipher_provider_version: String,
 }
 

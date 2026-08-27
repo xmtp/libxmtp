@@ -1,10 +1,7 @@
-//! Spike: does "async everywhere, synchronous body on wasm" actually work?
-//!
-//! The proposal is to make every `Query*` method an unconditional `async fn` and
-//! let the wasm implementation keep diesel — its bodies are synchronous and
-//! never await, so the futures are always immediately `Ready`. That retires
-//! `maybe-async/is_sync`, which is the *global* switch forcing the two-track
-//! split.
+//! Verifies "async everywhere, synchronous body on wasm": every `Query*` method
+//! is an unconditional `async fn`, and the wasm implementation keeps diesel — its
+//! bodies are synchronous and never await, so the futures are always immediately
+//! `Ready`.
 //!
 //! Three things could break on wasm specifically, and none of them show up on a
 //! native test:

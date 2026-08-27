@@ -123,30 +123,31 @@ where
         // matching what this used to do. The run is always rolled back: several
         // benches write (delivery status, cursors, consent records).
         let storage = SqlKeyStore::new(self.store.conn());
-        storage.savepoint::<(), ConnectionError, _>(async |_txn| {
-            results.push(self.bench_group_queries().await);
-            results.push(self.bench_group_intent_queries().await);
-            results.push(self.bench_consent_queries().await);
-            results.push(self.bench_message_queries().await);
-            results.push(self.bench_association_state_queries().await);
-            results.push(self.bench_identity_update_queries().await);
-            results.push(self.bench_refresh_state_queries().await);
-            results.push(self.bench_key_package_history_queries().await);
-            results.push(self.bench_conversation_list_queries().await);
-            results.push(self.bench_commit_log_queries().await);
-            results.push(self.bench_dm_queries().await);
-            results.push(self.bench_message_deletion_queries().await);
-            results.push(self.bench_device_sync_queries().await);
-            results.push(self.bench_task_queries().await);
-            results.push(self.bench_icebox_queries().await);
-            results.push(self.bench_readd_status_queries().await);
-            results.push(self.bench_pending_remove_queries().await);
-            results.push(self.bench_identity_queries().await);
-            results.push(self.bench_group_version_queries().await);
+        storage
+            .savepoint::<(), ConnectionError, _>(async |_txn| {
+                results.push(self.bench_group_queries().await);
+                results.push(self.bench_group_intent_queries().await);
+                results.push(self.bench_consent_queries().await);
+                results.push(self.bench_message_queries().await);
+                results.push(self.bench_association_state_queries().await);
+                results.push(self.bench_identity_update_queries().await);
+                results.push(self.bench_refresh_state_queries().await);
+                results.push(self.bench_key_package_history_queries().await);
+                results.push(self.bench_conversation_list_queries().await);
+                results.push(self.bench_commit_log_queries().await);
+                results.push(self.bench_dm_queries().await);
+                results.push(self.bench_message_deletion_queries().await);
+                results.push(self.bench_device_sync_queries().await);
+                results.push(self.bench_task_queries().await);
+                results.push(self.bench_icebox_queries().await);
+                results.push(self.bench_readd_status_queries().await);
+                results.push(self.bench_pending_remove_queries().await);
+                results.push(self.bench_identity_queries().await);
+                results.push(self.bench_group_version_queries().await);
 
-            Ok(TransactionOutcome::Rollback)
-        })
-        .await?;
+                Ok(TransactionOutcome::Rollback)
+            })
+            .await?;
 
         self.print_results();
 

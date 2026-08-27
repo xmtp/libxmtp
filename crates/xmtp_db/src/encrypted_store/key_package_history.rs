@@ -1,16 +1,16 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{ConnectionExt, db_connection::DbConnection, schema::key_package_history};
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{StoreOrIgnore, impl_store_or_ignore};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::KEYS_EXPIRATION_INTERVAL_NS;
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable))]
-#[cfg_attr(feature = "sync", diesel(table_name = key_package_history))]
+#[cfg_attr(feature = "sqlite", derive(Insertable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = key_package_history))]
 pub struct NewKeyPackageHistoryEntry {
     pub key_package_hash_ref: Vec<u8>,
     pub post_quantum_public_key: Option<Vec<u8>>,
@@ -18,8 +18,8 @@ pub struct NewKeyPackageHistoryEntry {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Queryable, Selectable))]
-#[cfg_attr(feature = "sync", diesel(table_name = key_package_history))]
+#[cfg_attr(feature = "sqlite", derive(Queryable, Selectable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = key_package_history))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "key_package_history")]
 pub struct StoredKeyPackageHistoryEntry {
@@ -30,7 +30,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub post_quantum_public_key: Option<Vec<u8>>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
 pub trait QueryKeyPackageHistory {
@@ -135,7 +135,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     async fn store_key_package_history_entry(
         &self,
@@ -245,8 +245,8 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -284,7 +284,7 @@ mod pg_impl {
                     .map_err(crate::ConnectionError::from)?;
                 }
                 // Read back rather than using RETURNING: on a conflict the insert
-                // yields no row, and the sync track's contract is to return the
+                // yields no row, and the SQLite backend's contract is to return the
                 // *existing* entry in that case.
                 db.find_key_package_history_entry_by_hash_ref(key_package_hash_ref)
                     .await

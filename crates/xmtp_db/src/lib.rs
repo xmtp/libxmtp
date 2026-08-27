@@ -1,50 +1,43 @@
 #![warn(clippy::unwrap_used)]
-// Async-track only: naming an async closure's future type
-// (`<F as AsyncFnOnce<_>>::CallOnceFuture`) to bound it `Send` for the
-// `XmtpMlsStorageProvider::transaction`/`savepoint` closures needs these unstable
-// features. Gated to the async (Postgres/herald) build, which uses a nightly or
-// `RUSTC_BOOTSTRAP=1` toolchain; the stable sync track never enables them.
+// The sqlx backend names an async closure's `CallOnceFuture` to bound it `Send`
+// for the `XmtpMlsStorageProvider::transaction`/`savepoint` closures, which needs
+// these unstable features. `.cargo/config.toml` scopes `RUSTC_BOOTSTRAP` to this
+// crate so they work on the stable toolchain; they are gated off in the sqlite build.
 #![cfg_attr(
-    all(feature = "async", not(feature = "sync")),
+    all(feature = "sqlx", not(feature = "sqlite")),
     feature(async_fn_traits, unboxed_closures)
 )]
-// Every `Query*` trait is `#[maybe_async::maybe_async(AFIT)]`, which is the
-// whole design: one trait definition that collapses to blocking fns on the sync
-// track and stays async on the async track. `async fn` in a trait is therefore
-// not an oversight to fix here, and the lint's suggested remedy -- desugaring to
-// `-> impl Future + Send` -- is not available, because maybe_async rewrites
-// tokens and cannot rewrite a return-type bound. Firing 159 times, it would
-// otherwise bury every real warning on the async track.
-//
-// The cost is real and worth stating: callers get no `Send` bound on the
-// returned futures, so a caller that needs `Send` has to establish it itself.
+// The `Query*` traits use `async fn` in traits. The lint's suggested remedy
+// (`-> impl Future + Send`) is not available, so it is allowed crate-wide. The
+// returned futures carry no `Send` bound; a caller that needs `Send` establishes
+// it itself.
 #![allow(async_fn_in_trait)]
 
 pub mod encrypted_store;
 mod errors;
-/// The MLS key-store error type (`SqlKeyStoreError`), shared by both tracks.
+/// The MLS key-store error type (`SqlKeyStoreError`), shared by both backends.
 pub mod mls_store_error;
 pub use mls_store_error::SqlKeyStoreError;
-/// Async-track storage handle (sqlx + Postgres). Servers only; never wasm.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// The Postgres storage handle (sqlx). Servers only; never wasm.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 pub mod pg;
-/// Async-track OpenMLS key store (`PgKeyStore`). Servers only; never wasm.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// The Postgres OpenMLS key store (`PgKeyStore`). Servers only; never wasm.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_key_store;
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 pub use pg::PgDb;
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 pub use pg::PgMlsDb;
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 pub use pg_key_store::{CborCodec, PgKeyStore};
 pub mod serialization;
 pub use serialization::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub mod sql_key_store;
-// Async-track shim so `xmtp_mls` can name `xmtp_db::sql_key_store::{SqlKeyStoreError,
-// <key labels>}` on both tracks. On async the concrete diesel module is absent, so
-// re-export the track-agnostic error and mirror the pub openmls key labels here.
-#[cfg(not(feature = "sync"))]
+// Shim for the Postgres backend so `xmtp_mls` can name `xmtp_db::sql_key_store::{SqlKeyStoreError,
+// <key labels>}` on both backends. On the Postgres backend the concrete diesel module is absent, so
+// re-export the backend-agnostic error and mirror the pub openmls key labels here.
+#[cfg(not(feature = "sqlite"))]
 pub mod sql_key_store {
     pub use crate::SqlKeyStoreError;
     pub const KEY_PACKAGE_REFERENCES: &[u8] = b"KeyPackageReferences";
@@ -77,24 +70,24 @@ pub mod test_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub use test_utils::*;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub use diesel;
 pub use encrypted_store::*;
 pub use errors::*;
 pub use xmtp_proto as proto;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::connection::SimpleConnection;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::sql_key_store::SqlKeyStore;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 /// The default platform-specific store
 pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub type DefaultDbConnection = <DefaultStore as XmtpDb>::DbQuery;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 
 /// Placeholder default-store parameter for `async`-track generics such as
@@ -102,12 +95,12 @@ pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 /// built-in store — servers construct their own over [`PgDb`] and supply it
 /// explicitly — so this exists only so the generic default resolves to a name.
 /// It is never instantiated and intentionally implements no storage traits.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 #[derive(Debug, Clone, Copy)]
 pub struct DefaultStore;
 
 pub mod prelude {
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     pub use super::ReadOnly;
     pub use super::association_state::QueryAssociationStateCache;
     pub use super::consent_record::QueryConsentRecord;
@@ -126,7 +119,7 @@ pub mod prelude {
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::migrations::QueryMigrations;
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;
@@ -145,7 +138,7 @@ pub trait ReadOnly {
     fn disable_readonly(&self) -> Result<(), StorageError>;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError> {
@@ -188,7 +181,7 @@ fn test_setup() {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn init_sqlite() {}
 
-#[cfg(all(any(test, feature = "test-utils"), feature = "sync"))]
+#[cfg(all(any(test, feature = "test-utils"), feature = "sqlite"))]
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
 

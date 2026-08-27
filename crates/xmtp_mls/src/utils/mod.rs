@@ -4,8 +4,8 @@ use crate::groups::validated_commit::LibXMTPVersion;
 
 #[cfg(feature = "bench")]
 pub mod bench;
-// Raw diesel/SQLite migration cleanup — sync track only.
-#[cfg(feature = "sync")]
+// Raw diesel/SQLite migration cleanup — SQLite backend only.
+#[cfg(feature = "sqlite")]
 pub mod cleanup_duplicate_updates;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;

@@ -1,10 +1,10 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     ConnectionExt,
     schema::user_preferences::{self, dsl},
 };
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{insert_into, prelude::*};
 use xmtp_common::time::now_ns;
 
@@ -13,11 +13,11 @@ use xmtp_common::time::now_ns;
 #[derive(Debug, Clone, PartialEq, Eq, Default, xmtp_macro::PgModel)]
 #[xmtp(table = "user_preferences")]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Identifiable, Insertable, Queryable, AsChangeset)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = user_preferences))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = user_preferences))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 pub struct StoredUserPreferences {
     pub id: i32,
     /// HMAC key root
@@ -50,7 +50,7 @@ const SINGLETON_ID: i32 = 0;
 
 /// `user_preferences` was the one table of the 23 reached only through
 /// `raw_query`, with no `Query*` trait of its own. It needs one to exist on the
-/// async track at all, since `ConnectionExt` is sync-track-only.
+/// Postgres backend at all, since `ConnectionExt` is SQLite-only.
 pub trait QueryUserPreferences {
     /// The stored preferences, or their defaults when the row does not exist yet.
     fn load_user_preferences(
@@ -96,7 +96,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryUserPreferences for crate::DbConnection<C> {
     async fn load_user_preferences(&self) -> Result<StoredUserPreferences, StorageError> {
         let pref = self.raw_query(|conn| dsl::user_preferences.first(conn).optional())?;
@@ -155,8 +155,8 @@ impl<C: ConnectionExt> QueryUserPreferences for crate::DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -234,13 +234,13 @@ mod pg_impl {
     }
 }
 
-// Two separate outer attributes rather than `#[cfg(all(test, feature = "sync"))]`:
+// Two separate outer attributes rather than `#[cfg(all(test, feature = "sqlite"))]`:
 // clippy keys `allow-unwrap-in-tests` off a *literal* `#[cfg(test)]`, and folding
 // the track condition into it makes clippy stop treating this as test code, so
 // every `unwrap()` below would trip `-Dwarnings`. An inner `#![cfg(...)]` is not
 // an option either -- on an inline module that is `mixed_attributes_style`.
 #[cfg(test)]
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 mod tests {
     use super::*;
 

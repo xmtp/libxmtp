@@ -1,25 +1,25 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::schema::pending_remove::dsl;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{DbConnection, impl_fetch, impl_store_or_ignore, schema::pending_remove};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::dsl::exists;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::select;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::types::GroupId;
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = pending_remove))]
-#[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, group_id)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = pending_remove))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(inbox_id, group_id)))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "pending_remove")]
 pub struct PendingRemove {
@@ -31,14 +31,14 @@ pub struct PendingRemove {
     pub message_id: Vec<u8>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(PendingRemove, pending_remove);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(PendingRemove, pending_remove);
 
 /// sqlx backend -- Postgres only. Mirrors the diesel `impl_store_or_ignore!`/
 /// `impl_fetch!` above.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_store_impl {
     use super::*;
     use crate::pg::PgModel;
@@ -51,7 +51,7 @@ mod pg_store_impl {
                 "INSERT INTO pending_remove (group_id, inbox_id, message_id) \
                  VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
             )
-            .bind(&self.group_id)
+            .bind(self.group_id)
             .bind(&self.inbox_id)
             .bind(&self.message_id)
             .execute(&mut *c)
@@ -129,7 +129,7 @@ where
             .await
     }
 }
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
     async fn get_pending_remove_users(
         &self,
@@ -178,8 +178,8 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
     }
 }
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 impl QueryPendingRemove for crate::pg::PgDb {
     async fn get_pending_remove_users(
         &self,
@@ -248,7 +248,8 @@ mod tests {
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
             let users = conn.get_pending_remove_users(&GroupId::ONE).await.unwrap();
             assert_eq!(users.len(), 1);
             let users = conn.get_pending_remove_users(&GroupId::TWO).await.unwrap();
@@ -266,19 +267,22 @@ mod tests {
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
             PendingRemove {
                 inbox_id: "2".to_string(),
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
             PendingRemove {
                 inbox_id: "3".to_string(),
                 group_id: GroupId::ONE,
                 message_id: vec![1, 2, 3],
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
             let group_id = GroupId::ONE;
             let users = conn.get_pending_remove_users(&group_id).await.unwrap();
             assert_eq!(users.len(), 3);

@@ -3,17 +3,17 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::expression::AsExpression;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::serialize;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::serialize::Output;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::serialize::ToSql;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sql_types::Binary;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sqlite::Sqlite;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::GroupId;
@@ -27,8 +27,8 @@ pub struct IntentDependency {
 pub type PayloadHash = PayloadHashRef<'static>;
 
 #[derive(Hash, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Binary))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Binary))]
 pub struct PayloadHashRef<'a>(Cow<'a, [u8]>);
 
 impl Deref for PayloadHash {
@@ -48,7 +48,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl ToSql<Binary, Sqlite> for PayloadHashRef<'_> {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
         <Cow<'_, [u8]> as ToSql<Binary, Sqlite>>::to_sql(&self.0, out)

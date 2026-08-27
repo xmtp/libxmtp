@@ -62,10 +62,10 @@ toxiproxy_rust.workspace = true
 volumes = ["__LIB12_DEP=../"]
 
 [features]
-# Storage BACKEND (`sync` = diesel/SQLite). The client is unconditionally async
-# (ready-future SQLite); on SQLite the storage futures are always ready.
-default = ["sync"]
-sync = ["xmtp_mls/sync", "xmtp_db/sync"]
+# Storage BACKEND (`sqlite` = diesel/SQLite). The client is unconditionally async;
+# on the SQLite backend the storage futures are always ready.
+default = ["sqlite"]
+sqlite = ["xmtp_mls/sqlite", "xmtp_db/sqlite"]
 test-utils = [
   "dep:xmtp_api_grpc",
   "xmtp_api_grpc/test-utils",

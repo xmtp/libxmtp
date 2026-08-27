@@ -14,9 +14,9 @@ pub mod association_state;
 pub mod consent_record;
 pub mod conversation_list;
 pub mod d14n_migration_cutover;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub mod database;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -31,18 +31,18 @@ pub mod local_commit_log;
 pub mod message_deletion;
 pub mod migrations;
 pub mod pending_remove;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod readd_status;
 pub mod refresh_state;
 pub mod remote_commit_log;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub mod schema;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 mod schema_gen;
 pub mod sql_int_enum;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub mod store;
 pub mod tasks;
 pub mod user_preferences;
@@ -50,11 +50,11 @@ pub mod user_preferences;
 #[cfg(test)]
 mod migration_test;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub use self::db_connection::DbConnection;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{migration::Migration, result::DatabaseErrorKind};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub use diesel::{
     migration::MigrationSource,
     sqlite::{Sqlite, SqliteConnection},
@@ -66,26 +66,26 @@ use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::ConversionError;
 use zeroize::ZeroizeOnDrop;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::StorageError;
 use crate::SqlKeyStoreError;
-use crate::XmtpMlsStorageProvider;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::Store;
+use crate::XmtpMlsStorageProvider;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub use database::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub use store::*;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{prelude::*, sql_query};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::ops::Deref;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use std::sync::Arc;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 #[derive(ZeroizeOnDrop, Clone)]
@@ -135,11 +135,11 @@ impl TryFrom<&[u8]> for EncryptionKey {
 }
 
 // For PRAGMA query log statements
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 #[derive(Debug)]
-#[cfg_attr(feature = "sync", derive(QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(QueryableByName))]
 struct SqliteVersion {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Text))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Text))]
     version: String,
 }
 
@@ -164,10 +164,10 @@ pub enum ConnectionError {
     /// Database error.
     ///
     /// Diesel database query error. May be retryable.
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     #[error(transparent)]
     #[error_code(inherit)]
     Platform(#[from] PlatformStorageError),
@@ -194,13 +194,13 @@ pub enum ConnectionError {
     /// Postgres error from the async (sqlx) track.
     ///
     /// Retryability is classified by SQLSTATE -- see [`is_retryable_sqlx`].
-    #[cfg(all(feature = "async", not(feature = "sync")))]
+    #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
     /// A transaction could not be committed because a handle to it outlived the
     /// transaction closure. The transaction is rolled back. Not retryable --
     /// this is a programming error, not contention.
-    #[cfg(all(feature = "async", not(feature = "sync")))]
+    #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
     #[error("transaction handle escaped its closure; transaction rolled back")]
     TransactionHandleEscaped,
     /// Invalid version.
@@ -217,18 +217,18 @@ pub enum ConnectionError {
 impl RetryableError for ConnectionError {
     fn is_retryable(&self) -> bool {
         match self {
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::Database(d) => d.is_retryable(),
-            #[cfg(feature = "sync")]
+            #[cfg(feature = "sqlite")]
             Self::Platform(n) => n.is_retryable(),
             Self::DecodeError(_) => false,
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
             Self::InvalidQuery(_) => false,
             Self::InvalidVersion { .. } => false,
-            #[cfg(all(feature = "async", not(feature = "sync")))]
+            #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
             Self::Sqlx(e) => is_retryable_sqlx(e),
-            #[cfg(all(feature = "async", not(feature = "sync")))]
+            #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
             Self::TransactionHandleEscaped => false,
         }
     }
@@ -241,7 +241,7 @@ impl RetryableError for ConnectionError {
 /// connection is now a network socket — adds a class SQLite has no equivalent
 /// for: the round-trip itself failing. Both are retryable; a rejected statement
 /// is not.
-#[cfg(all(feature = "async", not(feature = "sync")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
 pub fn is_retryable_sqlx(e: &sqlx::Error) -> bool {
     use sqlx::error::DatabaseError;
     match e {
@@ -266,19 +266,19 @@ pub fn is_retryable_sqlx(e: &sqlx::Error) -> bool {
 impl ConnectionError {
     /// True when the pool can't currently hand out a connection. Mirrors
     /// [`StorageError::db_needs_connection`].
-    #[cfg(all(not(target_arch = "wasm32"), feature = "sync"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "sqlite"))]
     pub fn db_needs_connection(&self) -> bool {
         use PlatformStorageError::{Pool, PoolNeedsConnection};
         matches!(self, Self::Platform(PoolNeedsConnection | Pool(_)))
     }
 
-    #[cfg(any(target_arch = "wasm32", not(feature = "sync")))]
+    #[cfg(any(target_arch = "wasm32", not(feature = "sqlite")))]
     pub fn db_needs_connection(&self) -> bool {
         false
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub trait ConnectionExt: MaybeSend + MaybeSync {
     /// Run a scoped query against the underlying SQLite connection.
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
@@ -290,7 +290,7 @@ pub trait ConnectionExt: MaybeSend + MaybeSync {
     fn reconnect(&self) -> Result<(), ConnectionError>;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> ConnectionExt for &C
 where
     C: ConnectionExt + xmtp_common::MaybeSync,
@@ -312,7 +312,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> ConnectionExt for &mut C
 where
     C: ConnectionExt,
@@ -334,7 +334,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,
@@ -356,7 +356,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 pub type BoxedDatabase = Box<
     dyn XmtpDb<
             Connection = diesel::SqliteConnection,
@@ -365,22 +365,22 @@ pub type BoxedDatabase = Box<
 >;
 
 // Track-agnostic core (opts/conn/db/reconnect/disconnect). The SQLite-specific
-// bootstrap (`init`/`validate`, diesel migrations) is gated to the sync track;
+// bootstrap (`init`/`validate`, diesel migrations) is gated to the SQLite backend;
 // async stores run their own (e.g. sqlx) migrations outside this trait. The
 // automock names sync-only mock types, so mock generation stays sync-only.
-#[cfg_attr(all(feature = "sync", any(feature = "test-utils", test)), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery;))]
+#[cfg_attr(all(feature = "sqlite", any(feature = "test-utils", test)), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery;))]
 pub trait XmtpDb: MaybeSend + MaybeSync {
     /// The Connection type for this database
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     type Connection: ConnectionExt + MaybeSend + MaybeSync;
-    #[cfg(not(feature = "sync"))]
+    #[cfg(not(feature = "sqlite"))]
     type Connection: MaybeSend + MaybeSync;
 
     type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
     // SQLite bootstrap via diesel migrations. Sync-track only; async (sqlx) stores
     // run their own migrations before constructing the client.
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     fn init(&self) -> Result<(), ConnectionError> {
         self.conn().raw_query(|conn| {
             self.validate(conn).map_err(|e| {
@@ -417,7 +417,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
     fn opts(&self) -> &StorageOption;
 
     /// Validate a connection is as expected
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "sqlite")]
     fn validate(&self, _conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
         Ok(())
     }
@@ -444,7 +444,10 @@ macro_rules! impl_fetch {
             C: $crate::ConnectionExt,
         {
             type Key = ();
-            async fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+            async fn fetch(
+                &self,
+                _key: &Self::Key,
+            ) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
                 self.raw_query(|conn| $table.first(conn).optional())
                     .map_err(Into::into)
@@ -530,7 +533,7 @@ macro_rules! impl_store_or_ignore {
     };
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<T, C> Store<DbConnection<C>> for Vec<T>
 where
     T: Store<DbConnection<C>> + MaybeSync,
@@ -551,11 +554,11 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
     fn key_store(&self) -> &Self::XmtpStorage;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 trait EmbeddedMigrationsExt {
     fn final_migration(&self) -> String;
 }
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl EmbeddedMigrationsExt for EmbeddedMigrations {
     fn final_migration(&self) -> String {
         let migrations: Vec<Box<dyn Migration<Sqlite>>> = self
@@ -572,12 +575,12 @@ impl EmbeddedMigrationsExt for EmbeddedMigrations {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 trait MigrationHarnessExt {
     fn final_migration(&mut self) -> Result<String, diesel::result::Error>;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl MigrationHarnessExt for SqliteConnection {
     fn final_migration(&mut self) -> Result<String, diesel::result::Error> {
         let migration: String = self
@@ -605,9 +608,13 @@ pub(crate) mod tests {
         let inbox_id = "inbox_id";
         StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(&conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
-        let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
+        let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
@@ -621,9 +628,13 @@ pub(crate) mod tests {
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
-            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &()).await.unwrap().unwrap();
+            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &())
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -638,11 +649,16 @@ pub(crate) mod tests {
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn1)
-                .await.unwrap();
+                .await
+                .unwrap();
 
             let conn2 = &store.conn();
             tracing::info!("Getting conn 2");
-            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn2, &()).await.unwrap().unwrap();
+            let fetched_identity: StoredIdentity =
+                crate::Fetch::<StoredIdentity>::fetch(conn2, &())
+                    .await
+                    .unwrap()
+                    .unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -659,12 +675,14 @@ pub(crate) mod tests {
             let conn = store.conn();
 
             // Healthy pool: a query succeeds.
-            let ok: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
+            let ok: Result<Option<StoredIdentity>, _> =
+                crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             assert!(ok.is_ok());
 
             // Drop the pool, then run a real query against it.
             conn.disconnect().unwrap();
-            let res: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
+            let res: Result<Option<StoredIdentity>, _> =
+                crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             let err = res.expect_err("query against a disconnected pool should fail");
 
             assert!(

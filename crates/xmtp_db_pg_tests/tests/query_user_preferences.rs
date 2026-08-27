@@ -2,7 +2,7 @@
 //!
 //! `user_preferences` was the one table of the 23 with no `Query*` trait at all
 //! — it was reached directly through `ConnectionExt::raw_query`, which is
-//! sync-track-only — so the trait had to be written before it could be ported.
+//! SQLite-only — so the trait had to be written before it could be ported.
 //! It is a singleton row pinned to `id = 0` by a CHECK constraint on both
 //! backends.
 

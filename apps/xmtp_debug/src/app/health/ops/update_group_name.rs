@@ -17,7 +17,8 @@ impl HealthOp for UpdateGroupName {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
-                .group(&gid).await?
+                .group(&gid)
+                .await?
                 .update_group_name("healthcheck-name".into())
                 .await?;
             Ok(())

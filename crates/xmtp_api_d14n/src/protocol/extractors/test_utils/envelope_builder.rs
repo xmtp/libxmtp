@@ -157,10 +157,9 @@ impl TestEnvelopeBuilder {
             credential,
             signature_key: installation.public_bytes().to_vec().into(),
         };
-        // `build` rides the openmls storage shape: it returns a `Result` on the
-        // blocking (is_sync) track and a ready future on the async track. This is a
-        // sync fn, so on the async track we drive that ready future with one poll
-        // (memory provider → always ready) rather than making the builder async.
+        // `KeyPackage::build` is async (openmls storage is always async), returning
+        // a future. This is a sync fn, so we drive that future with one poll — the
+        // memory provider is always ready — rather than making the builder async.
         let build = KeyPackage::builder().build(
             xmtp_configuration::CIPHERSUITE,
             &provider,

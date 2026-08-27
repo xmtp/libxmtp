@@ -1,24 +1,24 @@
 use std::collections::HashMap;
 
 use derive_builder::Builder;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     connection::DefaultLoadingMode, deserialize::FromSqlRow, expression::AsExpression, prelude::*,
     sql_types::Integer,
 };
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
 use xmtp_proto::types::{Cursor, GroupId};
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
     schema::group_intents::{self, dsl},
 };
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{Delete, impl_fetch, impl_store};
 use crate::{NotFound, StorageError, group_message::QueryGroupMessage};
 
@@ -31,8 +31,8 @@ pub type ID = i32;
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::EnumIter)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum IntentKind {
     SendMessage = 1,
     KeyUpdate = 2,
@@ -111,8 +111,8 @@ impl std::fmt::Display for IntentKind {
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum IntentState {
     ToPublish = 1,
     Published = 2,
@@ -129,9 +129,9 @@ pub enum IntentState {
 
 #[derive(PartialEq, Clone, xmtp_macro::PgModel)]
 #[xmtp(table = "group_intents")]
-#[cfg_attr(feature = "sync", derive(Queryable, Identifiable))]
-#[cfg_attr(feature = "sync", diesel(table_name = group_intents))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", derive(Queryable, Identifiable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = group_intents))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 pub struct StoredGroupIntent {
     pub id: ID,
     pub kind: IntentKind,
@@ -188,10 +188,10 @@ impl std::fmt::Debug for StoredGroupIntent {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(StoredGroupIntent, group_intents, ID);
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
@@ -204,8 +204,8 @@ impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
 /// Do not use this struct directly outside of the storage module.
 /// Use the `queue_intent` method on `MlsGroup` instead.
 #[derive(Debug, PartialEq, Clone, Builder)]
-#[cfg_attr(feature = "sync", derive(Insertable))]
-#[cfg_attr(feature = "sync", diesel(table_name = group_intents))]
+#[cfg_attr(feature = "sqlite", derive(Insertable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = group_intents))]
 #[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct NewGroupIntent {
     pub kind: IntentKind,
@@ -216,7 +216,7 @@ pub struct NewGroupIntent {
     pub state: IntentState,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(NewGroupIntent, group_intents);
 
 impl NewGroupIntent {
@@ -429,7 +429,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     #[xmtp_common::db_span]
     async fn insert_group_intent(
@@ -780,7 +780,8 @@ pub(crate) mod tests {
             .build()
             .unwrap()
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
     }
 
     impl NewGroupIntent {
@@ -853,7 +854,8 @@ pub(crate) mod tests {
                 IntentState::ToPublish,
             )
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // A future-kind row (discriminant beyond every known
             // variant), inserted raw — exactly what a newer build
@@ -925,7 +927,10 @@ pub(crate) mod tests {
 
             let id = results[0].id;
 
-            let fetched: StoredGroupIntent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &id).await.unwrap().unwrap();
+            let fetched: StoredGroupIntent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &id)
+                .await
+                .unwrap()
+                .unwrap();
 
             assert_eq!(fetched.id, id);
         })
@@ -1033,7 +1038,8 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // Find the intent with the ID populated
             let intent = find_first_intent(conn, group_id);
@@ -1078,7 +1084,8 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             let mut intent = find_first_intent(conn, group_id);
 
@@ -1095,7 +1102,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
@@ -1104,7 +1114,10 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
             // Refresh from the DB
-            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(intent.state, IntentState::Committed);
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
@@ -1127,7 +1140,8 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             let mut intent = find_first_intent(conn, group_id);
 
@@ -1144,13 +1158,19 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
 
             // Now revert back to ToPublish
             conn.set_group_intent_to_publish(intent.id).await.unwrap();
-            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id).await.unwrap().unwrap();
+            intent = crate::Fetch::<StoredGroupIntent>::fetch(conn, &intent.id)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
@@ -1173,7 +1193,8 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             let intent = find_first_intent(conn, group_id);
 
@@ -1208,7 +1229,8 @@ pub(crate) mod tests {
                 false,
             )
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             let mut intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 0);
@@ -1237,7 +1259,8 @@ pub(crate) mod tests {
             insert_group(conn, group_id).await;
             NewGroupIntent::new(IntentKind::SendMessage, group_id, rand_vec::<24>(), false)
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
             let intent1 = find_first_intent(conn, group_id);
             conn.set_group_intent_published(intent1.id, &payload_hash1, None, None, 1)
@@ -1246,7 +1269,8 @@ pub(crate) mod tests {
 
             NewGroupIntent::new(IntentKind::KeyUpdate, group_id, rand_vec::<24>(), false)
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
             let intents = conn
                 .find_group_intents(&group_id, None, None)
                 .await
@@ -1316,8 +1340,8 @@ pub(crate) mod tests {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::encrypted_store::refresh_state::EntityKind;

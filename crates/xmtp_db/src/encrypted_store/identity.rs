@@ -1,12 +1,12 @@
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::encrypted_store::schema::identity;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::schema::identity::dsl;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionExt, DbConnection, impl_fetch, impl_store};
 use derive_builder::Builder;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
@@ -15,8 +15,8 @@ use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 /// Identity of this installation
 /// There can only be one.
 #[derive(Debug, Clone, Builder, Serialize, Deserialize)]
-#[cfg_attr(feature = "sync", derive(Insertable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = identity))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = identity))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "identity")]
 #[builder(setter(into), build_fn(error = "crate::StorageError"))]
@@ -33,15 +33,15 @@ pub struct StoredIdentity {
     pub registration_cursor_sequence_id: Option<i64>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(StoredIdentity, identity);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(StoredIdentity, identity);
 
 /// sqlx backend -- Postgres only. Mirrors the diesel `impl_store!`/`impl_fetch!`
 /// above: a plain insert (the identity table holds a single row) and a
 /// first-row read. `rowid` is DB-assigned, so it is omitted from the insert.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_store_impl {
     use super::*;
     use crate::pg::PgModel;
@@ -172,7 +172,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     async fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
@@ -311,8 +311,8 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::PgDb;
@@ -504,7 +504,8 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
             let seed = test_rotation_seed();
             let hash = crate::tasks::TaskDataHash::try_from(seed.data_hash.as_slice()).unwrap();
             conn.queue_key_rotation_with_nudge(&hash, seed)
@@ -528,7 +529,8 @@ pub(crate) mod tests {
         with_connection(async |conn| {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
             // Migrated DBs have NULL here; queueing must initialize it (5s
             // debounce) rather than skip the row.
@@ -558,11 +560,13 @@ pub(crate) mod tests {
 
         StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
-        let duplicate_insertion = StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
-            .store(conn)
-            .await;
+        let duplicate_insertion =
+            StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
+                .store(conn)
+                .await;
         assert!(duplicate_insertion.is_err());
     }
 }

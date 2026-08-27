@@ -6,7 +6,7 @@
 //! discriminant can never be reused.
 //!
 //! [`impl_sql_int_enum!`] emits the diesel and the sqlx codecs from a single
-//! list. That matters more on the async track than it looks: the async track
+//! list. That matters more on the Postgres backend than it looks: the Postgres backend
 //! has no `diesel::table!` schema, so nothing there checks a column mapping at
 //! compile time. Two hand-written copies of the mapping could drift silently in
 //! exactly the place where nothing would catch it.
@@ -50,7 +50,7 @@ macro_rules! impl_sql_int_enum {
             );
         )+
 
-        #[cfg(any(feature = "sync", feature = "async"))]
+        #[cfg(any(feature = "sqlite", feature = "sqlx"))]
         impl $ty {
             /// The stored integer form.
             const fn as_sql_int(self) -> i32 {
@@ -71,7 +71,7 @@ macro_rules! impl_sql_int_enum {
             }
         }
 
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         impl ::diesel::serialize::ToSql<::diesel::sql_types::Integer, ::diesel::sqlite::Sqlite>
             for $ty
         where
@@ -86,7 +86,7 @@ macro_rules! impl_sql_int_enum {
             }
         }
 
-        #[cfg(feature = "sync")]
+        #[cfg(feature = "sqlite")]
         impl ::diesel::deserialize::FromSql<::diesel::sql_types::Integer, ::diesel::sqlite::Sqlite>
             for $ty
         where
@@ -104,7 +104,7 @@ macro_rules! impl_sql_int_enum {
 
         // Postgres `INTEGER` is `int4`, so the codec delegates to `i32` rather
         // than restating the type mapping.
-        #[cfg(all(feature = "async", not(feature = "sync")))]
+        #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
         impl ::sqlx::Type<::sqlx::Postgres> for $ty {
             fn type_info() -> ::sqlx::postgres::PgTypeInfo {
                 <i32 as ::sqlx::Type<::sqlx::Postgres>>::type_info()
@@ -115,7 +115,7 @@ macro_rules! impl_sql_int_enum {
             }
         }
 
-        #[cfg(all(feature = "async", not(feature = "sync")))]
+        #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
         impl ::sqlx::Encode<'_, ::sqlx::Postgres> for $ty {
             fn encode_by_ref(
                 &self,
@@ -125,7 +125,7 @@ macro_rules! impl_sql_int_enum {
             }
         }
 
-        #[cfg(all(feature = "async", not(feature = "sync")))]
+        #[cfg(all(feature = "sqlx", not(feature = "sqlite")))]
         impl<'r> ::sqlx::Decode<'r, ::sqlx::Postgres> for $ty {
             fn decode(
                 value: ::sqlx::postgres::PgValueRef<'r>,

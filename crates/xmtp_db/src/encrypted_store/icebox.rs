@@ -1,17 +1,17 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{ConnectionExt, db_connection::DbConnection};
 use crate::icebox::types::IceboxOrphans;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::icebox::types::IceboxWithDep;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::schema::icebox::dsl;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::schema::icebox_dependencies;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{impl_store, schema::icebox};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::types::{
@@ -23,12 +23,12 @@ mod types;
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
 #[xmtp(table = "icebox")]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = icebox))]
-#[cfg_attr(feature = "sync", diesel(primary_key(originator_id, sequence_id)))]
-#[cfg_attr(feature = "sync", diesel(belongs_to(crate::group::StoredGroup, foreign_key = group_id)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = icebox))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(originator_id, sequence_id)))]
+#[cfg_attr(feature = "sqlite", diesel(belongs_to(crate::group::StoredGroup, foreign_key = group_id)))]
 pub struct Icebox {
     pub originator_id: i64,
     pub sequence_id: i64,
@@ -36,18 +36,18 @@ pub struct Icebox {
     pub envelope_payload: Vec<u8>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(Icebox, icebox);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, xmtp_macro::PgModel)]
 #[xmtp(table = "icebox_dependencies")]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Insertable, Identifiable, Queryable, QueryableByName)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = icebox_dependencies))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = icebox_dependencies))]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     diesel(primary_key(
         envelope_originator_id,
         envelope_sequence_id,
@@ -62,7 +62,7 @@ pub struct IceboxDependency {
     pub dependency_sequence_id: i64,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(IceboxDependency, icebox_dependencies);
 
 pub trait QueryIcebox {
@@ -128,7 +128,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> DbConnection<C> {
     fn do_icebox_query(
         &self,
@@ -186,7 +186,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
     async fn past_dependents(
         &self,
@@ -369,7 +369,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
+/// why this is gated `not(feature = "sqlite")`.
 ///
 /// The two things that made this trait "not a mechanical port" both dissolve
 /// here rather than needing a translation:
@@ -380,9 +380,9 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
 ///   is a constant and nothing is formatted into it.
 /// * `IceboxWithDep` reads `group_id` and `envelope_payload` through raw
 ///   pointers into SQLite's memory to avoid a copy inside diesel's `load_iter`.
-///   sqlx returns owned rows, so the async track decodes straight into
+///   sqlx returns owned rows, so the Postgres backend decodes straight into
 ///   `Vec<u8>` and the `unsafe` has nothing to buy.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::PgDb;
@@ -1027,7 +1027,8 @@ mod tests {
                 sequence_id: 20,
                 originator_id: 1,
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(
@@ -1081,7 +1082,8 @@ mod tests {
                 sequence_id: 40,
                 originator_id: 1,
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete any entries");
@@ -1118,7 +1120,8 @@ mod tests {
                 sequence_id: 100,
                 originator_id: 1,
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
@@ -1164,7 +1167,8 @@ mod tests {
                 sequence_id: 10,
                 originator_id: 1,
             }
-            .store_or_ignore(conn).await?;
+            .store_or_ignore(conn)
+            .await?;
 
             let deleted = conn.prune_icebox().await?;
             assert_eq!(deleted, 1, "Should delete the icebox entry");

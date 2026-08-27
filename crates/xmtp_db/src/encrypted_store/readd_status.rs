@@ -1,24 +1,24 @@
 use std::collections::HashSet;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     DbConnection,
     schema::readd_status::{self},
 };
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionExt, impl_store};
 
 use xmtp_proto::types::GroupId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Identifiable, Queryable, Selectable, Insertable)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = readd_status))]
-#[cfg_attr(feature = "sync", diesel(primary_key(group_id, installation_id)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = readd_status))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(group_id, installation_id)))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "readd_status")]
 pub struct ReaddStatus {
@@ -28,7 +28,7 @@ pub struct ReaddStatus {
     pub responded_at_sequence_id: Option<i64>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(ReaddStatus, readd_status);
 
 pub trait QueryReaddStatus {
@@ -85,7 +85,7 @@ pub trait QueryReaddStatus {
     + xmtp_common::MaybeSend;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
     async fn get_readd_status(
         &self,
@@ -595,7 +595,8 @@ mod tests {
                 responded_at_sequence_id: Some(5),
             }
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // Should return false when no request has been made
             let result = conn
@@ -621,7 +622,8 @@ mod tests {
                 responded_at_sequence_id: Some(5),
             }
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // Should return true when request is pending
             let result = conn
@@ -647,7 +649,8 @@ mod tests {
                 responded_at_sequence_id: Some(10),
             }
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // Should return false when request has been fulfilled
             let result = conn
@@ -673,7 +676,8 @@ mod tests {
                 responded_at_sequence_id: Some(10),
             }
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // Should return true when sequence IDs are equal.
             // The response to a readd request will always add a commit, which increases the sequence ID.
@@ -701,7 +705,8 @@ mod tests {
                 responded_at_sequence_id: None,
             }
             .store(conn)
-            .await.unwrap();
+            .await
+            .unwrap();
 
             // Should return true when requested_at > 0 (default responded_at)
             let result = conn
@@ -886,8 +891,8 @@ mod tests {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};

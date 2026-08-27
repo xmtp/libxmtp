@@ -50,12 +50,11 @@ bench = [
   "dep:alloy",
   "xmtp_common/bench",
 ]
-default = ["sync"]
-# Storage BACKEND selection (the client is unconditionally async / ready-future).
-# `sync` = diesel/SQLite backend; `async` = sqlx/Postgres. Forwarded through the
-# whole xmtp_db-dependent chain.
-sync = ["xmtp_db/sync", "xmtp_mls_common/sync", "xmtp_archive/sync"]
-async = ["xmtp_db/async", "xmtp_mls_common/async", "xmtp_archive/async"]
+default = ["sqlite"]
+# Storage backend selection, forwarded to xmtp_db and the rest of the chain.
+# `sqlite` = diesel/SQLite (mobile, node, wasm); `sqlx` = sqlx/Postgres (servers).
+sqlite = ["xmtp_db/sqlite", "xmtp_mls_common/sqlite", "xmtp_archive/sqlite"]
+sqlx = ["xmtp_db/sqlx", "xmtp_mls_common/sqlx", "xmtp_archive/sqlx"]
 d14n = ["xmtp_api_d14n/d14n"]
 v3 = ["xmtp_api_d14n/v3"]
 dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_d14n/dev"]

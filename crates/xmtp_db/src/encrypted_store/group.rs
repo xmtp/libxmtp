@@ -1,6 +1,6 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 use super::consent_record::ConsentState;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     ConnectionExt, Sqlite,
     db_connection::DbConnection,
@@ -8,10 +8,10 @@ use super::{
 };
 use crate::NotFound;
 use crate::{DuplicateItem, StorageError};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::{Builder, UninitializedFieldError};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     deserialize::FromSqlRow, dsl::sql, expression::AsExpression, prelude::*, sql_types::Integer,
 };
@@ -26,17 +26,17 @@ use xmtp_proto::types::{Cursor, GroupId};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[cfg_attr(
-    feature = "sync",
+    feature = "sqlite",
     derive(Insertable, Identifiable, Queryable, Selectable, QueryableByName)
 )]
-#[cfg_attr(feature = "sync", diesel(table_name = groups))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
-#[cfg_attr(feature = "sync", diesel(check_for_backend(Sqlite)))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = groups))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(Sqlite)))]
 #[builder(
     setter(into),
     build_fn(error = "StorageError", validate = "Self::validate")
 )]
-#[cfg_attr(feature = "sync", derive(AsChangeset))]
+#[cfg_attr(feature = "sqlite", derive(AsChangeset))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "groups")]
 /// A Unique group chat
@@ -135,8 +135,8 @@ impl StoredGroupBuilder {
 }
 
 /// A subset of the group table for fetching the commit log public key
-#[cfg_attr(feature = "sync", derive(Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = groups))]
+#[cfg_attr(feature = "sqlite", derive(Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = groups))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "groups")]
 pub struct StoredGroupCommitLogPublicKey {
@@ -150,37 +150,37 @@ pub struct StoredGroupCommitLogPublicKey {
 /// `remote_commit_log`, not a column of any one table, so there is no column
 /// list for a derive to emit or for `schema_check` to verify.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Queryable, QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(Queryable, QueryableByName))]
 pub struct StoredGroupForReaddRequest {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Binary))]
     pub group_id: GroupId,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>))]
     pub latest_commit_sequence_id: Option<i64>,
 }
 
 /// A struct for fetching groups that need to respond to readd requests
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Queryable, QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(Queryable, QueryableByName))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "groups")]
 pub struct StoredGroupForRespondingReadds {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Binary))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Binary))]
     #[xmtp(rename = "id")]
     pub group_id: GroupId,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>))]
     pub dm_id: Option<String>,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Integer))]
     pub conversation_type: ConversationType,
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::BigInt))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::BigInt))]
     pub created_at_ns: i64,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_fetch!(StoredGroup, groups, GroupId);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(StoredGroup, groups);
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store_or_ignore!(StoredGroup, groups);
 
 impl StoredGroupBuilder {
@@ -647,7 +647,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
@@ -1357,8 +1357,8 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
     /// User is allowed to interact with this Group
@@ -1383,8 +1383,8 @@ crate::impl_sql_int_enum!(GroupMembershipState {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[cfg_attr(feature = "sync", derive(AsExpression, FromSqlRow))]
-#[cfg_attr(feature = "sync", diesel(sql_type = Integer))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Integer))]
 pub enum ConversationType {
     Group = 1,
     Dm = 2,
@@ -1545,7 +1545,10 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Option<StoredGroup> = crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id).await.unwrap();
+            let fetched_group: Option<StoredGroup> =
+                crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id)
+                    .await
+                    .unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
         .await
@@ -1561,7 +1564,12 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
-            let updated_group: StoredGroup = crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id).await.ok().flatten().unwrap();
+            let updated_group: StoredGroup =
+                crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap();
             assert_eq!(
                 updated_group,
                 StoredGroup {
@@ -1693,7 +1701,12 @@ pub(crate) mod tests {
             assert_ok!(result.await);
 
             // Check that the latest installation list timestamp has been updated
-            let fetched_group: StoredGroup = crate::Fetch::<StoredGroup>::fetch(&conn, &test_group.id).await.ok().flatten().unwrap();
+            let fetched_group: StoredGroup =
+                crate::Fetch::<StoredGroup>::fetch(&conn, &test_group.id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap();
             assert_ne!(fetched_group.installations_last_checked, 0);
             assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
         })
@@ -1712,7 +1725,10 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-            let fetched_group: Option<StoredGroup> = crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id).await.unwrap();
+            let fetched_group: Option<StoredGroup> =
+                crate::Fetch::<StoredGroup>::fetch(conn, &test_group.id)
+                    .await
+                    .unwrap();
             assert_eq!(fetched_group, Some(test_group));
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
@@ -1871,7 +1887,11 @@ pub(crate) mod tests {
             conn.insert_or_replace_group(incoming).await.unwrap();
 
             // 3. The stored row must keep the invariant: seq set => originator set.
-            let stored: StoredGroup = crate::Fetch::<StoredGroup>::fetch(conn, &group.id).await.ok().flatten().unwrap();
+            let stored: StoredGroup = crate::Fetch::<StoredGroup>::fetch(conn, &group.id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap();
             assert_eq!(stored.sequence_id, Some(5));
             assert_eq!(
                 stored.originator_id,
@@ -1975,7 +1995,8 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(group1.id),
             )
-            .store(conn).await?;
+            .store(conn)
+            .await?;
             group2.should_publish_commit_log = true;
             group2.commit_log_public_key = Some(rand_vec::<32>());
 
@@ -1986,7 +2007,8 @@ pub(crate) mod tests {
                 ConsentState::Allowed,
                 hex::encode(group3.id),
             )
-            .store(conn).await?;
+            .store(conn)
+            .await?;
             group4.should_publish_commit_log = false;
             group1.store(conn).await?;
             group2.store(conn).await?;
@@ -2303,7 +2325,7 @@ pub(crate) mod tests {
             tracing::subscriber::with_default(capture.clone(), || {
                 // The span opens when the future is *polled*, so it has to be
                 // driven inside this scope -- awaiting outside would poll it
-                // after the guard dropped and capture nothing. The sync track's
+                // after the guard dropped and capture nothing. The SQLite backend's
                 // futures are await-free, so a single poll resolves it here.
                 use futures::FutureExt;
                 let _ = conn.find_group(&test_group.id).now_or_never();
@@ -2344,8 +2366,8 @@ pub(crate) mod tests {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -2410,7 +2432,7 @@ mod pg_impl {
         );
         let mut c = into.pg_conn().await?;
         sqlx::query(&sql)
-            .bind(&g.id)
+            .bind(g.id)
             .bind(g.created_at_ns)
             .bind(g.membership_state)
             .bind(g.installations_last_checked)

@@ -1,37 +1,31 @@
 [package]
 name = "xmtp_db_shape_bench"
-description = "Storage-shape A/B microbench: SqlKeyStore (openmls StorageProvider) over the same diesel/SQLite backend, blocking vs ready-future (is_sync-off) shape"
+description = "Microbench of the SqlKeyStore (openmls StorageProvider) storage path over the diesel/SQLite backend"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.0"
 publish = false
 
 # Deliberately NOT a member of the libxmtp workspace (listed in the root manifest's
-# `exclude`, like xmtp_mls_pg_tests / openmls_pg_storage). It toggles the client
-# SHAPE via the `blocking` feature, so as a member `clippy --all-features` would
-# enable `blocking` AND `async` at once (conflicting shapes) and fail to compile.
+# `exclude`, like xmtp_mls_pg_tests / openmls_pg_storage). It is its own workspace
+# root -- it depends on the openmls fork by path and restates the root `[patch]`
+# table below -- so it cannot be a member.
 #
-# It depends ONLY on xmtp_db, with NO test-utils -- so it never pulls
-# `openmls/test-utils` and builds under the async (is_sync-off) shape with zero
-# test-infrastructure threading. It isolates exactly the code the shape change
-# touches: openmls' `StorageProvider` methods on SqlKeyStore going `fn` ->
-# ready-future `async fn`. The timed loop drives the (always-ready, diesel-backed)
-# future with `now_or_never()` -- one poll, no runtime -- so the async arm carries
-# no executor overhead the blocking arm lacks; the two are a fair A/B.
+# It depends ONLY on xmtp_db (`sqlite`), with NO test-utils -- so it never pulls
+# `openmls/test-utils`. It isolates openmls' `StorageProvider` methods on
+# SqlKeyStore over the diesel/SQLite backend, where the bodies are synchronous and
+# each returns an already-ready future; the timed loop drives that future with
+# `now_or_never()` -- one poll, no runtime.
 #
-#   blocking (today's client):    cargo bench
-#   ready-future (is_sync off):   RUSTC_BOOTSTRAP=1 cargo bench --no-default-features
+#   cargo bench   (from the crate dir)
 
 [features]
-# Blocking is retired: the client is unconditionally async (ready-future). This
-# bench now measures the SqlKeyStore storage path on the single (async) shape; the
-# blocking-vs-ready-future A/B it was written for is recorded in the spike doc.
 default = []
 
 [dependencies]
-xmtp_db = { path = "../xmtp_db", default-features = false, features = ["sync"] }
+xmtp_db = { path = "../xmtp_db", default-features = false, features = ["sqlite"] }
 # Same path + features as the root's workspace.dependencies.openmls_traits, so the
-# async xmtp_db build unifies this to the exact same package instance (one shape).
+# xmtp_db build unifies this to the exact same package instance.
 openmls_traits = { path = "../../../openmls-storage-send/traits", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",

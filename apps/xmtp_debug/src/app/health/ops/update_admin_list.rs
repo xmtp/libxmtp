@@ -20,7 +20,8 @@ impl HealthOp for UpdateAdminList {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             let inbox = primary.inbox_id().to_string();
             primary
-                .group(&gid).await?
+                .group(&gid)
+                .await?
                 .update_admin_list(UpdateAdminListType::AddSuper, inbox)
                 .await?;
             Ok(())

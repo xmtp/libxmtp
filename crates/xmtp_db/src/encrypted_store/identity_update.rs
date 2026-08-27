@@ -1,24 +1,24 @@
 use std::collections::HashMap;
 
 use crate::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::impl_store;
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{
     ConnectionExt,
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
 use derive_builder::Builder;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{dsl::max, prelude::*};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Debug, Clone, PartialEq, Eq, Builder)]
-#[cfg_attr(feature = "sync", derive(Insertable, Identifiable, Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = identity_updates))]
-#[cfg_attr(feature = "sync", diesel(primary_key(inbox_id, sequence_id)))]
+#[cfg_attr(feature = "sqlite", derive(Insertable, Identifiable, Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = identity_updates))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(inbox_id, sequence_id)))]
 #[builder(setter(into), build_fn(error = "StorageError"))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "identity_updates")]
@@ -52,7 +52,7 @@ impl StoredIdentityUpdate {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(StoredIdentityUpdate, identity_updates);
 
 pub trait QueryIdentityUpdates {
@@ -136,7 +136,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
@@ -235,8 +235,8 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -281,7 +281,7 @@ mod pg_impl {
         ///
         /// The whole batch goes over as five parallel arrays zipped by `UNNEST`,
         /// so it stays one statement and one round trip no matter how many
-        /// updates there are — the sync track's multi-row `VALUES` would hit
+        /// updates there are — the SQLite backend's multi-row `VALUES` would hit
         /// Postgres' 65535-parameter ceiling at ~13k updates.
         async fn insert_or_ignore_identity_updates(
             &self,
@@ -413,8 +413,14 @@ pub(crate) mod tests {
             let update_2 = build_update(inbox_id, 2);
             let update_2_payload = update_2.payload.clone();
 
-            update_1.store(conn).await.expect("should store without error");
-            update_2.store(conn).await.expect("should store without error");
+            update_1
+                .store(conn)
+                .await
+                .expect("should store without error");
+            update_2
+                .store(conn)
+                .await
+                .expect("should store without error");
 
             let all_updates = conn
                 .get_identity_updates(inbox_id, None, None)
@@ -512,8 +518,14 @@ pub(crate) mod tests {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
             let update_2 = build_update(inbox_id, 2);
-            update.store(conn).await.expect("should store without error");
-            update_2.store(conn).await.expect("should store without error");
+            update
+                .store(conn)
+                .await
+                .expect("should store without error");
+            update_2
+                .store(conn)
+                .await
+                .expect("should store without error");
 
             let sequence_id = conn
                 .get_latest_sequence_id_for_inbox(inbox_id)

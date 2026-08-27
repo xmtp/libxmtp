@@ -1,4 +1,4 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::ConnectionExt;
 
 use super::*;
@@ -48,7 +48,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
     async fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
@@ -151,7 +151,8 @@ pub(super) mod tests {
                 .build()
                 .unwrap()
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
             StoredGroup::builder()
                 .id(GroupId::generate())
@@ -162,7 +163,8 @@ pub(super) mod tests {
                 .build()
                 .unwrap()
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
             let all_groups = conn.find_groups(&GroupQueryArgs::default()).await.unwrap();
 
             assert_eq!(all_groups.len(), 1);
@@ -290,12 +292,12 @@ pub(super) mod tests {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
+/// why this is gated `not(feature = "sqlite")`.
 ///
 /// `query_as` decodes straight into `StoredGroup` through the `FromRow` that
 /// `#[derive(PgModel)]` emits, so there is no row mapper here to fall out of
 /// step with the column list.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};

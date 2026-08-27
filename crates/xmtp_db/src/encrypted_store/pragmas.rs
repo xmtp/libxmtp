@@ -1,14 +1,14 @@
 //! Check that certain pragmas are set
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionExt, DbConnection};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::prelude::*;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "sync", derive(QueryableByName))]
+#[cfg_attr(feature = "sqlite", derive(QueryableByName))]
 struct BusyTimeout {
-    #[cfg_attr(feature = "sync", diesel(sql_type = diesel::sql_types::Integer))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Integer))]
     timeout: i32,
 }
 
@@ -32,7 +32,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> Pragmas for DbConnection<C> {
     fn busy_timeout(&self) -> Result<i32, crate::ConnectionError> {
         self.raw_query(|conn| {

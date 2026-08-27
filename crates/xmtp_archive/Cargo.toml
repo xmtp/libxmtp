@@ -12,9 +12,9 @@ workspace = true
 
 [features]
 # Storage-track selection, forwarded to xmtp_db + xmtp_mls_common.
-default = ["sync"]
-sync = ["xmtp_db/sync", "xmtp_mls_common/sync"]
-async = ["xmtp_db/async", "xmtp_mls_common/async"]
+default = ["sqlite"]
+sqlite = ["xmtp_db/sqlite", "xmtp_mls_common/sqlite"]
+sqlx = ["xmtp_db/sqlx", "xmtp_mls_common/sqlx"]
 test-utils = ["xmtp_common/test-utils"]
 
 [dependencies]

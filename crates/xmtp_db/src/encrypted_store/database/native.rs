@@ -4,12 +4,12 @@ mod sqlcipher_connection;
 use crate::StorageError;
 use crate::database::instrumentation::TestInstrumentation;
 /// Native SQLite connection using SqlCipher
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use arc_swap::ArcSwapOption;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sqlite::SqliteConnection;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     Connection,
     connection::SimpleConnection,
@@ -378,9 +378,9 @@ impl NativeDb {
 }
 
 /// `XmtpDb::DbQuery` is bound by `crate::DbQuery`, which `DbConnection` only
-/// satisfies on the sync track. The diesel database itself still compiles on the
-/// async track; only its role as *the* store is sync-track-only.
-#[cfg(feature = "sync")]
+/// satisfies on the SQLite backend. The diesel database itself still compiles on the
+/// Postgres backend; only its role as *the* store is SQLite-only.
+#[cfg(feature = "sqlite")]
 impl XmtpDb for NativeDb {
     type Connection =
         Arc<PersistentOrMem<NativeDbConnection, SingleDbConnection, EphemeralDbConnection>>;
@@ -416,7 +416,7 @@ pub struct EphemeralDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl std::fmt::Debug for EphemeralDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -427,7 +427,7 @@ impl std::fmt::Debug for EphemeralDbConnection {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl EphemeralDbConnection {
     pub fn new() -> Result<Self, PlatformStorageError> {
         let mut c = SqliteConnection::establish(":memory:")?;
@@ -452,7 +452,7 @@ impl EphemeralDbConnection {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl ConnectionExt for EphemeralDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -492,7 +492,7 @@ pub struct SingleDbConnection {
     customizer: Box<dyn XmtpConnection>,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl std::fmt::Debug for SingleDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Use `try_lock`: the mutex is non-reentrant, so formatting `{:?}` from
@@ -512,7 +512,7 @@ impl std::fmt::Debug for SingleDbConnection {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl SingleDbConnection {
     fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
         let StorageOption::Persistent(path) = customizer.options() else {
@@ -577,7 +577,7 @@ impl SingleDbConnection {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl ConnectionExt for SingleDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -611,7 +611,7 @@ pub struct NativeDbConnection {
     min_pool_size: u32,
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl std::fmt::Debug for NativeDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -623,7 +623,7 @@ impl std::fmt::Debug for NativeDbConnection {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl NativeDbConnection {
     fn new(
         customizer: Box<dyn XmtpConnection>,
@@ -662,7 +662,7 @@ impl NativeDbConnection {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl ConnectionExt for NativeDbConnection {
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -706,9 +706,13 @@ mod tests {
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
-            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &()).await.unwrap().unwrap();
+            let fetched_identity: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &())
+                .await
+                .unwrap()
+                .unwrap();
 
             assert_eq!(fetched_identity.inbox_id, inbox_id);
 
@@ -719,7 +723,11 @@ mod tests {
                 panic!("conn expected")
             }
             store.reconnect().unwrap();
-            let fetched_identity2: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(conn, &()).await.unwrap().unwrap();
+            let fetched_identity2: StoredIdentity =
+                crate::Fetch::<StoredIdentity>::fetch(conn, &())
+                    .await
+                    .unwrap()
+                    .unwrap();
 
             assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
@@ -747,7 +755,8 @@ mod tests {
                 rand_vec::<24>(),
             )
             .store(&db.conn())
-            .await.unwrap();
+            .await
+            .unwrap();
         } // Drop it
         enc_key[3] = 145; // Alter the enc_key
         let err = NativeDb::builder()
@@ -790,13 +799,20 @@ mod tests {
             let inbox_id = "single_conn_inbox";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(&conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
-            let fetched: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
+            let fetched: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &())
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(fetched.inbox_id, inbox_id);
 
             conn.reconnect().unwrap();
-            let fetched2: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
+            let fetched2: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &())
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(fetched2.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -825,10 +841,12 @@ mod tests {
             let inbox_id = "fd_release_inbox";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(&conn)
-                .await.unwrap();
+                .await
+                .unwrap();
 
             // Healthy connection: query succeeds.
-            let ok: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
+            let ok: Result<Option<StoredIdentity>, _> =
+                crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             assert!(ok.is_ok());
 
             // Disconnect drops the connection (releases the fd).
@@ -844,7 +862,8 @@ mod tests {
 
             // A query against the released connection reports needs-connection,
             // matching the pooled path's contract.
-            let res: Result<Option<StoredIdentity>, _> = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
+            let res: Result<Option<StoredIdentity>, _> =
+                crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await;
             let err = res.expect_err("query against a disconnected single connection should fail");
             assert!(
                 err.db_needs_connection(),
@@ -853,7 +872,10 @@ mod tests {
 
             // Reconnect restores service; data persisted on disk.
             conn.reconnect().unwrap();
-            let fetched: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &()).await.unwrap().unwrap();
+            let fetched: StoredIdentity = crate::Fetch::<StoredIdentity>::fetch(&conn, &())
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(fetched.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
@@ -874,7 +896,8 @@ mod tests {
             db.init().unwrap();
             StoredIdentity::new("addr".to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(&db.conn())
-                .await.unwrap();
+                .await
+                .unwrap();
         }
         let mut bad = [1u8; 32];
         bad[3] = 200;
@@ -940,24 +963,29 @@ mod tests {
                         rand_vec::<24>(),
                         rand_vec::<24>(),
                     )
-                    .store(&storage.db()).await?;
+                    .store(&storage.db())
+                    .await?;
 
                     // Nested write inside a SQLite savepoint, re-deriving the
                     // key store from the savepoint's `&mut SqliteConnection`.
-                    storage.savepoint(async |sp_conn| {
-                        let inner = sp_conn.key_store();
-                        RefreshState {
-                            entity_id: rand_vec::<24>(),
-                            entity_kind: EntityKind::Welcome,
-                            sequence_id: 1,
-                            originator_id: 0,
-                        }
-                        .store_or_ignore(&inner.db()).await?;
-                        Ok::<_, StorageError>(Continue(()))
-                    }).await?;
+                    storage
+                        .savepoint(async |sp_conn| {
+                            let inner = sp_conn.key_store();
+                            RefreshState {
+                                entity_id: rand_vec::<24>(),
+                                entity_kind: EntityKind::Welcome,
+                                sequence_id: 1,
+                                originator_id: 0,
+                            }
+                            .store_or_ignore(&inner.db())
+                            .await?;
+                            Ok::<_, StorageError>(Continue(()))
+                        })
+                        .await?;
                     Ok::<_, StorageError>(Continue(()))
                 })
-                .await.unwrap();
+                .await
+                .unwrap();
 
             // Reaching here means no deadlock. Confirm BOTH writes persisted:
             // the outer transaction's `identity` row and the nested savepoint's

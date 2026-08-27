@@ -10,9 +10,9 @@ use prost::Message;
 use std::sync::Arc;
 use xmtp_common::Event;
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use xmtp_db::StorageError;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use xmtp_db::diesel;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
@@ -291,7 +291,7 @@ where
                 // (past-due) row and hot-loop it.
                 match context.db().update_task(task.id, 0, now, t).await {
                     Ok(_) => {}
-                    #[cfg(feature = "sync")]
+                    #[cfg(feature = "sqlite")]
                     Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {
                         tracing::debug!("Task {} vanished before reschedule; skipping", task.id);
                     }
@@ -315,7 +315,7 @@ where
                     // The row was concurrently deleted (e.g. a dead-row cleanup in
                     // upsert_pending_self_remove_task crossed this retry). Nothing
                     // left to reschedule — don't abort the worker loop.
-                    #[cfg(feature = "sync")]
+                    #[cfg(feature = "sqlite")]
                     Err(StorageError::DieselResult(diesel::result::Error::NotFound)) => {
                         tracing::debug!("Task {} vanished before reschedule; skipping", task.id);
                     }

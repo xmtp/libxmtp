@@ -1,9 +1,9 @@
 use super::remote_commit_log::CommitResult;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::{DbConnection, schema::local_commit_log::dsl};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
@@ -43,8 +43,8 @@ impl std::fmt::Display for CommitType {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "sync", derive(Insertable))]
-#[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
+#[cfg_attr(feature = "sqlite", derive(Insertable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = local_commit_log))]
 pub struct NewLocalCommitLog {
     pub group_id: GroupId,
     pub commit_sequence_id: i64,
@@ -59,9 +59,9 @@ pub struct NewLocalCommitLog {
 }
 
 #[derive(Clone)]
-#[cfg_attr(feature = "sync", derive(Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = local_commit_log))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", derive(Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = local_commit_log))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 #[derive(xmtp_macro::PgModel)]
 #[xmtp(table = "local_commit_log")]
 pub struct LocalCommitLog {
@@ -113,7 +113,7 @@ impl From<CommitResult> for i32 {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl_store!(NewLocalCommitLog, local_commit_log);
 
 impl std::fmt::Debug for LocalCommitLog {
@@ -225,7 +225,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     async fn get_group_logs(
         &self,
@@ -309,8 +309,8 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};
@@ -334,7 +334,7 @@ mod pg_impl {
                   sender_inbox_id, sender_installation_id, commit_type) \
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
             )
-            .bind(&self.group_id)
+            .bind(self.group_id)
             .bind(self.commit_sequence_id)
             .bind(&self.last_epoch_authenticator)
             .bind(self.commit_result)
@@ -376,7 +376,7 @@ mod pg_impl {
             order: LocalCommitLogOrder,
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
             // The cursor is populated from an i32 rowid, so this is unreachable
-            // in practice; the sync track reports it as a query-builder error,
+            // in practice; the SQLite backend reports it as a query-builder error,
             // which has no equivalent here.
             if after_cursor > i32::MAX as i64 {
                 return Err(crate::ConnectionError::InvalidQuery(

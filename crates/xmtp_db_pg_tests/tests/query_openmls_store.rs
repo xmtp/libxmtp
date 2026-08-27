@@ -96,7 +96,11 @@ async fn typed_openmls_tables_match_the_storage_provider() {
 
     // The typed KV tables exist; neither the sync/SQLite key store nor the
     // (now-removed) generic openmls_key_value backup is in the async schema.
-    for typed in ["kp_references", "kp_wrapper_private_keys", "commit_log_signer_keys"] {
+    for typed in [
+        "kp_references",
+        "kp_wrapper_private_keys",
+        "commit_log_signer_keys",
+    ] {
         assert!(table_exists(&db, typed).await, "{typed} must exist");
     }
     assert!(
@@ -131,13 +135,15 @@ async fn typed_openmls_tables_match_the_storage_provider() {
     .await
     .expect("application_export_tree must be an accepted data_type");
 
-    sqlx::query("INSERT INTO openmls_proposal (group_id, proposal_ref, proposal) VALUES ($1, $2, $3)")
-        .bind(vec![1u8; 16])
-        .bind(vec![1u8; 4])
-        .bind(vec![0u8; 8])
-        .execute(&mut *c)
-        .await
-        .expect("openmls_proposal insert");
+    sqlx::query(
+        "INSERT INTO openmls_proposal (group_id, proposal_ref, proposal) VALUES ($1, $2, $3)",
+    )
+    .bind(vec![1u8; 16])
+    .bind(vec![1u8; 4])
+    .bind(vec![0u8; 8])
+    .execute(&mut *c)
+    .await
+    .expect("openmls_proposal insert");
 
     sqlx::query("INSERT INTO openmls_own_leaf_node (group_id, leaf_node) VALUES ($1, $2)")
         .bind(vec![1u8; 16])

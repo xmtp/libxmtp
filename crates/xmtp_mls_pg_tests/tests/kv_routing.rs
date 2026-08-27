@@ -66,10 +66,11 @@ async fn commit_log_key_lands_in_typed_table_keyed_by_raw_group_id() {
     );
 
     // 3. There is no generic backup table at all — data can't be stranded.
-    let kv_present: bool = sqlx::query_scalar("SELECT to_regclass('openmls_key_value') IS NOT NULL")
-        .fetch_one(&mut *c)
-        .await
-        .expect("to_regclass openmls_key_value");
+    let kv_present: bool =
+        sqlx::query_scalar("SELECT to_regclass('openmls_key_value') IS NOT NULL")
+            .fetch_one(&mut *c)
+            .await
+            .expect("to_regclass openmls_key_value");
     assert!(
         !kv_present,
         "the generic openmls_key_value backup table must not exist"

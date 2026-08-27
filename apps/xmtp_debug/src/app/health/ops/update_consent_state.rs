@@ -21,7 +21,8 @@ impl HealthOp for UpdateConsentState {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             primary
-                .group(&gid).await?
+                .group(&gid)
+                .await?
                 .update_consent_state(ConsentState::Allowed)
                 .await?;
             Ok(())
@@ -47,7 +48,8 @@ impl HealthOp for UpdateConsentStateQuiet {
         ctx.for_each_group(self.name(), |primary, gid| async move {
             let db = primary.db();
             primary
-                .group(&gid).await?
+                .group(&gid)
+                .await?
                 .quietly_update_consent_state(ConsentState::Allowed, &db)
                 .await?;
             Ok(())

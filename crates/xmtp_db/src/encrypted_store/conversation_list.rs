@@ -1,16 +1,16 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::ConnectionExt;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use super::schema::conversation_list::dsl::conversation_list;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use crate::DbConnection;
 use crate::StorageError;
 use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::dsl::sql;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
 };
@@ -18,9 +18,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, xmtp_macro::PgModel)]
 #[xmtp(table = "conversation_list")]
-#[cfg_attr(feature = "sync", derive(Queryable))]
-#[cfg_attr(feature = "sync", diesel(table_name = conversation_list))]
-#[cfg_attr(feature = "sync", diesel(primary_key(id)))]
+#[cfg_attr(feature = "sqlite", derive(Queryable))]
+#[cfg_attr(feature = "sqlite", diesel(table_name = conversation_list))]
+#[cfg_attr(feature = "sqlite", diesel(primary_key(id)))]
 /// Combined view of a group and its messages, now named `conversation_list`.
 pub struct ConversationListItem {
     /// group_id
@@ -92,7 +92,7 @@ where
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
     async fn fetch_conversation_list(
         &self,
@@ -257,8 +257,8 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
 }
 
 /// sqlx backend -- Postgres only. See the note on `QueryGroupVersion`'s impl for
-/// why this is gated `not(feature = "sync")`.
-#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
+/// why this is gated `not(feature = "sqlite")`.
+#[cfg(all(feature = "sqlx", not(feature = "sqlite"), not(target_arch = "wasm32")))]
 mod pg_impl {
     use super::*;
     use crate::pg::{PgDb, PgModel};

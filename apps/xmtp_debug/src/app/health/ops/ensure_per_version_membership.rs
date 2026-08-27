@@ -97,7 +97,8 @@ impl HealthOp for EnsurePerVersionMembership {
             let primary = ctx.primary()?;
             let group = primary
                 .group(&new_group_id)
-                .await.map_err(|e| eyre!("primary cannot load group: {e}"))?;
+                .await
+                .map_err(|e| eyre!("primary cannot load group: {e}"))?;
 
             if !to_add.is_empty() {
                 let hex_to_add: Vec<String> = to_add.iter().map(hex::encode).collect();

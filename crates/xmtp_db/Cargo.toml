@@ -23,15 +23,15 @@ ascii_table = { version = "5", optional = true, features = [
   "auto_table_width",
 ] }
 bincode.workspace = true
-# CBOR is the OpenMLS serialization on the async/Postgres track (self-describing,
-# unlike bincode, which some OpenMLS entities' serde shapes need). Async-only;
-# the sync/SQLite track stays on bincode until a dedicated migration moves it.
+# CBOR is the OpenMLS serialization for the `sqlx`/Postgres backend: it is
+# self-describing, which the `0-8-1-storage-format` enums rely on. The `sqlite`
+# backend serializes OpenMLS with bincode.
 ciborium = { version = "0.2", optional = true }
 bon.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
-# Sync track only. A server build must pull neither diesel nor -- more to the
-# point -- libsqlite3-sys below, which vendors SQLCipher and OpenSSL.
+# `sqlite` backend only. A server build must pull neither diesel nor -- more to
+# the point -- libsqlite3-sys below, which vendors SQLCipher and OpenSSL.
 diesel = { workspace = true, optional = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
@@ -71,7 +71,7 @@ zeroize.workspace = true
 # Postgres only, deliberately: sqlx-sqlite pins libsqlite3-sys ^0.30 while
 # diesel here needs ^0.35, and both set `links = "sqlite3"` — cargo permits only
 # one such package per graph. SQLite therefore stays exclusively on the diesel
-# (sync) track, which is also the only track wasm can use.
+# (`sqlite`) backend, which is also the only backend wasm can use.
 sqlx = { workspace = true, optional = true, features = [
   "postgres",
   "runtime-tokio",
@@ -85,8 +85,8 @@ sqlx = { workspace = true, optional = true, features = [
 # counter behind the metadata read-amplification test (already present
 # transitively via xmtp-workspace-hack, so it adds nothing to production builds).
 tokio = { workspace = true, optional = true }
-# Async-track only: the sqlx-Postgres OpenMLS crypto-store provider. Enabled by
-# the `async` feature; never in the graph on the sync/diesel track.
+# `sqlx` backend only: the sqlx-Postgres OpenMLS crypto-store provider. Enabled
+# by the `sqlx` feature; never in the graph on the diesel/`sqlite` backend.
 openmls_pg_storage = { path = "../openmls_pg_storage", optional = true }
 libsqlite3-sys = { version = "0.35", optional = true, features = [
   "bundled-sqlcipher-vendored-openssl",
@@ -98,8 +98,8 @@ dyn-clone.workspace = true
 sqlite-wasm-rs = { version = "0.5", default-features = false }
 sqlite-wasm-vfs = "0.2"
 # OpenMLS needs the `js` feature on wasm (secure randomness + current time via
-# web-time); the fork's build script hard-errors without it. Wired here so both
-# the sync and async(ready-future) SQLite wasm builds link it.
+# web-time); the fork's build script hard-errors without it. Wired here so the
+# wasm SQLite build links it.
 openmls = { workspace = true, features = ["js"] }
 tokio.workspace = true
 web-sys = { workspace = true, features = ["DomException"] }
@@ -119,7 +119,7 @@ xmtp_cryptography.workspace = true
 # Switches `test-utils` on for the test targets (needed by `tests/` and the
 # `db_init_latency` bench, which `cfg(test)` alone does not cover).
 #
-# Do NOT add `default-features = false` here to try to test the async track:
+# Do NOT add `default-features = false` here to try to test the `sqlx` backend:
 # differing features make cargo build a *second instance* of xmtp_db, and both
 # instances then define `impl RetryableError<Mls> for diesel::result::Error` on a
 # shared upstream type, so every `retryable!` call becomes ambiguous (E0283).
@@ -134,15 +134,12 @@ criterion = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [features]
-default = ["sync"]
-# Storage BACKEND selection. The client is unconditionally async (ready-future):
-# openmls and our maybe-async traits are always compiled async — nothing enables
-# `maybe-async/is_sync` / `openmls/sync` any more. `sync` selects the diesel/SQLite
-# backend (the ~530 `cfg(feature = "sync")` gates key on this); `async` selects the
-# sqlx/Postgres backend. wasm can only use the diesel backend (sqlx cannot target
-# wasm32). On SQLite the async storage futures are always ready (resolved with one
-# poll), so there is no runtime cost beyond that.
-sync = [
+default = ["sqlite"]
+# Storage backend selection. `sqlite` selects the diesel/SQLite backend (mobile,
+# node, wasm); `sqlx` selects the sqlx/Postgres backend (servers, cannot target
+# wasm32). Exactly one is active per build; `sqlite` is dominant, so a build with
+# both features (e.g. --all-features) compiles the SQLite backend.
+sqlite = [
   "dep:diesel",
   "dep:diesel_migrations",
   "dep:libsqlite3-sys",
@@ -152,10 +149,10 @@ sync = [
 # ExtensionType, ProposalType) to STANDARD serde derive, which is self-consistent
 # under any single format. Their default custom derive (integer `storage_tag`s)
 # assumes non-self-describing formats encode enum variants by index (true for
-# bincode, the sync track) — but CBOR encodes them by NAME, so ser writes a name
-# string while de expects the tag integer. Async/CBOR only; the sync/SQLite
-# (bincode) track keeps the custom format, so its on-disk data is unchanged.
-async = [
+# bincode, the `sqlite` backend) — but CBOR encodes them by NAME, so ser writes a
+# name string while de expects the tag integer. sqlx/CBOR only; the `sqlite`
+# (bincode) backend keeps the custom format, so its on-disk data is unchanged.
+sqlx = [
   "dep:sqlx",
   "dep:tokio",
   "dep:ciborium",

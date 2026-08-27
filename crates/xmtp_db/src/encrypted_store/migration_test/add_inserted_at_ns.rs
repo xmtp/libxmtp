@@ -1,6 +1,6 @@
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::QueryableByName;
-#[cfg(feature = "sync")]
+#[cfg(feature = "sqlite")]
 use diesel::sql_types::{BigInt, Blob, Integer, Nullable, Text};
 use std::time::Instant;
 
@@ -115,9 +115,9 @@ async fn migration_performance_10k_messages() {
     );
 
     // Verify the migration worked correctly by checking a few messages have inserted_at_ns
-    #[cfg_attr(feature = "sync", derive(QueryableByName))]
+    #[cfg_attr(feature = "sqlite", derive(QueryableByName))]
     struct CountResult {
-        #[cfg_attr(feature = "sync", diesel(sql_type = BigInt))]
+        #[cfg_attr(feature = "sqlite", diesel(sql_type = BigInt))]
         count: i64,
     }
 

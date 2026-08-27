@@ -44,7 +44,7 @@ async fn identity_cache_matches_identity_and_kind_as_a_pair() {
     assert!(empty.is_empty(), "no identifiers must not load the table");
 }
 
-/// The sync track uses a plain `store`, so re-caching the same identity is a
+/// The SQLite backend uses a plain `store`, so re-caching the same identity is a
 /// primary-key violation rather than a silent overwrite.
 #[tokio::test]
 async fn identity_cache_rejects_duplicates() {
@@ -128,7 +128,7 @@ async fn key_package_marking_is_idempotent_and_bounded_by_id() {
         db.find_key_package_history_entry_by_hash_ref(vec![1])
             .await
             .is_err(),
-        "a deleted entry is a not-found error, matching the sync track's first()"
+        "a deleted entry is a not-found error, matching the SQLite backend's first()"
     );
 
     db.delete_key_package_history_up_to_id(b.id).await.unwrap();

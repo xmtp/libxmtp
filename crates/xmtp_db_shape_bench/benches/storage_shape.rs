@@ -1,16 +1,14 @@
-//! Storage-shape A/B microbench.
+//! Microbench of the openmls `StorageProvider` storage path.
 //!
-//! Isolates the one thing the blocking-vs-ready-future change touches: openmls'
-//! `StorageProvider` methods on `SqlKeyStore` going `fn` -> ready-future `async fn`
-//! over the same diesel/SQLite backend. No network, no test-utils, no client.
+//! Isolates openmls' `StorageProvider` methods on `SqlKeyStore` over the
+//! diesel/SQLite backend. No network, no test-utils, no client. On the SQLite
+//! backend the bodies are synchronous, so each returns an already-ready future.
 //!
-//!   blocking (today):            cargo bench -p xmtp_db_shape_bench (from the crate dir)
-//!   ready-future (is_sync off):  RUSTC_BOOTSTRAP=1 cargo bench --no-default-features
+//!   cargo bench   (from the crate dir)
 //!
-//! Both arms are driven the same way -- a single poll of an always-ready future via
-//! `now_or_never()` on the async arm, a direct call on the blocking arm -- so the
-//! async arm carries no executor overhead the blocking arm lacks. Any delta is the
-//! ready-future construction + poll, which is what we want to measure.
+//! The timed loop drives that already-ready future with a single poll via
+//! `now_or_never()` -- one poll, no runtime -- so it measures the storage path
+//! plus the ready-future construction + poll, and nothing else.
 
 use std::hint::black_box;
 
@@ -21,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::{EncryptedMessageStore, NativeDb};
 
-// Resolve a StorageProvider call regardless of shape: a direct value on the blocking
-// shape, one poll of the already-ready future on the ready-future shape.
+// Resolve a StorageProvider call: one poll of the already-ready future (the SQLite
+// backend's bodies are synchronous, so the future is always ready).
 macro_rules! drive {
     ($e:expr) => {{
         futures::FutureExt::now_or_never($e)
@@ -64,8 +62,10 @@ fn bench_storage(c: &mut Criterion) {
     group.bench_function("write_signature_key_pair", |b| {
         b.iter(|| {
             drive!(
-                key_store
-                    .write_signature_key_pair::<PubKey, StoredKeyPair>(black_box(&pk), black_box(&kp))
+                key_store.write_signature_key_pair::<PubKey, StoredKeyPair>(
+                    black_box(&pk),
+                    black_box(&kp)
+                )
             )
             .expect("write");
         });

@@ -10,7 +10,7 @@
 //! create groups, add members, and exchange encrypted messages. That path is the
 //! one the async work most needed coverage on — welcome processing, key-package
 //! consumption and the commit-log key all run through the `XmtpMlsStorageProvider`
-//! KV that the async track re-implemented over sqlx, and none of it is exercised
+//! KV that the Postgres backend implements over sqlx, and none of it is exercised
 //! by the query-level tests.
 //!
 //! ## Running
@@ -20,7 +20,7 @@
 //! `cargo test` here is a clean no-op.
 //!
 //! ```text
-//! # local node (`just backend up`) + the async-track scratch Postgres:
+//! # local node (`just backend up`) + the scratch Postgres:
 //! XMTP_ASYNCDB_PG_URL=postgres://xmtp:xmtp@127.0.0.1:55432/xmtp_asyncdb \
 //!   cargo test -p xmtp_mls_pg_tests -- --nocapture
 //! ```
@@ -90,8 +90,7 @@ pub fn pg_url() -> Option<String> {
 /// The XMTP node gRPC endpoint. Defaults to the native local node
 /// (`just backend up`); override with `XMTP_MLS_PG_TEST_GRPC`.
 pub fn grpc_endpoint() -> String {
-    std::env::var("XMTP_MLS_PG_TEST_GRPC")
-        .unwrap_or_else(|_| "http://localhost:5556".to_string())
+    std::env::var("XMTP_MLS_PG_TEST_GRPC").unwrap_or_else(|_| "http://localhost:5556".to_string())
 }
 
 /// Initialize test logging once (idempotent).
@@ -178,7 +177,10 @@ fn build_api(db: &PgDb) -> Result<xmtp_mls::XmtpApiClient> {
 /// Resolve the inbox id for an identifier: ask the network first, fall back to
 /// generating one locally. Mirrors node-sdk `getInboxIdForIdentifier` →
 /// `generateInboxId`.
-async fn resolve_inbox_id(api: &xmtp_mls::XmtpApiClient, identifier: &Identifier) -> Result<String> {
+async fn resolve_inbox_id(
+    api: &xmtp_mls::XmtpApiClient,
+    identifier: &Identifier,
+) -> Result<String> {
     let wrapper = ApiClientWrapper::new(api.clone(), strategies::exponential_cooldown());
     let api_identifier: ApiIdentifier = identifier.clone().into();
     let known = wrapper

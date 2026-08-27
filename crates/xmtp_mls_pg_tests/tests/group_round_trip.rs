@@ -34,10 +34,7 @@ where
             })
             .await
             .expect("find_messages");
-        if msgs
-            .iter()
-            .any(|m| m.decrypted_message_bytes == expected)
-        {
+        if msgs.iter().any(|m| m.decrypted_message_bytes == expected) {
             return;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;

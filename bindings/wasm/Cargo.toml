@@ -75,10 +75,10 @@ xmtp_mls = { workspace = true, features = ["test-utils"] }
 owo-colors.workspace = true
 
 [features]
-# Storage BACKEND (`sync`=diesel/SQLite — the only wasm-capable one). The client is
-# unconditionally async (ready-future SQLite); sqlx cannot target wasm32.
-default = ["sync"]
-sync = ["xmtp_mls/sync", "xmtp_db/sync"]
+# Storage BACKEND (`sqlite` = diesel/SQLite — the only wasm-capable one). The client
+# is unconditionally async; sqlx cannot target wasm32.
+default = ["sqlite"]
+sqlite = ["xmtp_mls/sqlite", "xmtp_db/sqlite"]
 test-utils = [
   "dep:alloy",
   "dep:wasm-bindgen-test",

@@ -1,7 +1,7 @@
 //! Test harness for xmtp_db's async storage track.
 //!
 //! These tests run against a real PostgreSQL because that is the entire point of
-//! the async track: a query stops being an in-process call and becomes a network
+//! the Postgres backend: a query stops being an in-process call and becomes a network
 //! round-trip. The failure modes worth covering — contention, isolation,
 //! rollback, concurrency, retry classification — do not exist against SQLite and
 //! cannot be reproduced with a mock.

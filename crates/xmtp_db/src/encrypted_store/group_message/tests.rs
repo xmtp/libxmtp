@@ -562,7 +562,8 @@ async fn it_dedupes_group_updated_messages_from_dm_by_default() {
                 earlier_msg.clone(),
                 later_msg.clone()
             ]
-            .store(conn).await
+            .store(conn)
+            .await
         );
 
         // Default query: GroupUpdated messages are deduplicated for DMs
@@ -642,9 +643,12 @@ async fn test_inbound_relations_with_results() {
         group.store(conn).await.unwrap();
 
         // Create main messages
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
-        let msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
-        let msg3 = generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None).await;
+        let msg1 =
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let msg2 =
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
+        let msg3 =
+            generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None).await;
 
         // Create reactions referencing the main messages
         let _reaction1 = generate_message_with_reference(
@@ -653,21 +657,24 @@ async fn test_inbound_relations_with_results() {
             4000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        ).await;
+        )
+        .await;
         let _reaction2 = generate_message_with_reference(
             conn,
             &group.id,
             5000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        ).await;
+        )
+        .await;
         let _reaction3 = generate_message_with_reference(
             conn,
             &group.id,
             6000,
             ContentType::Reaction,
             Some(msg2.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Get the main messages (exclude reactions)
         let messages = conn
@@ -720,8 +727,10 @@ async fn test_relations_when_no_references_exist() {
         group.store(conn).await.unwrap();
 
         // Create messages without any references
-        let _msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
-        let _msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
+        let _msg1 =
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let _msg2 =
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
 
         // Get the messages
         let messages = conn
@@ -804,7 +813,8 @@ async fn test_inbound_relations_with_limit() {
         group.store(conn).await.unwrap();
 
         // Create a main message
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let msg1 =
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
 
         // Create many reactions to it
         for i in 0..10 {
@@ -814,7 +824,8 @@ async fn test_inbound_relations_with_limit() {
                 2000 + i * 100,
                 ContentType::Reaction,
                 Some(msg1.id.clone()),
-            ).await;
+            )
+            .await;
         }
 
         // Get the main message (exclude reactions)
@@ -861,7 +872,8 @@ async fn test_relations_with_content_type_filters() {
         let text_msg =
             generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
         let attachment_msg =
-            generate_message_with_reference(conn, &group.id, 2000, ContentType::Attachment, None).await;
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Attachment, None)
+                .await;
 
         // Create various types of references to text_msg
         let _reaction = generate_message_with_reference(
@@ -870,21 +882,24 @@ async fn test_relations_with_content_type_filters() {
             3000,
             ContentType::Reaction,
             Some(text_msg.id.clone()),
-        ).await;
+        )
+        .await;
         let _reply_to_text = generate_message_with_reference(
             conn,
             &group.id,
             4000,
             ContentType::Reply,
             Some(text_msg.id.clone()),
-        ).await;
+        )
+        .await;
         let _read_receipt = generate_message_with_reference(
             conn,
             &group.id,
             5000,
             ContentType::ReadReceipt,
             Some(text_msg.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Create a reply to attachment_msg
         let _reply_to_attachment = generate_message_with_reference(
@@ -893,7 +908,8 @@ async fn test_relations_with_content_type_filters() {
             6000,
             ContentType::Reply,
             Some(attachment_msg.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Test inbound filter: only reactions
         let msg_ids: Vec<&[u8]> = vec![text_msg.id.as_ref(), attachment_msg.id.as_ref()];
@@ -979,14 +995,16 @@ async fn test_outbound_relations_with_results() {
             3000,
             ContentType::Reply,
             Some(original_msg1.id.clone()),
-        ).await;
+        )
+        .await;
         let _reply2 = generate_message_with_reference(
             conn,
             &group.id,
             4000,
             ContentType::Reply,
             Some(original_msg2.id.clone()),
-        ).await;
+        )
+        .await;
         let _standalone =
             generate_message_with_reference(conn, &group.id, 5000, ContentType::Text, None).await;
 
@@ -1042,7 +1060,8 @@ async fn test_outbound_relations_no_main_query_results() {
             2000,
             ContentType::Reply,
             Some(original.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Query with time filter that excludes all messages
         let messages = conn
@@ -1089,7 +1108,8 @@ async fn test_outbound_relations_with_limit() {
                 1000 + i * 100,
                 ContentType::Text,
                 None,
-            ).await;
+            )
+            .await;
             original_ids.push(original.id.clone());
         }
 
@@ -1101,7 +1121,8 @@ async fn test_outbound_relations_with_limit() {
                 2000 + i as i64 * 100,
                 ContentType::Reply,
                 Some(original_id.clone()),
-            ).await;
+            )
+            .await;
         }
 
         // Query for replies
@@ -1152,7 +1173,8 @@ async fn test_both_inbound_and_outbound_relations() {
             2000,
             ContentType::Reply,
             Some(original.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Create reactions to the reply
         let _reaction1 = generate_message_with_reference(
@@ -1161,14 +1183,16 @@ async fn test_both_inbound_and_outbound_relations() {
             3000,
             ContentType::Reaction,
             Some(reply.id.clone()),
-        ).await;
+        )
+        .await;
         let _reaction2 = generate_message_with_reference(
             conn,
             &group.id,
             4000,
             ContentType::Reaction,
             Some(reply.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Query for the reply
         let messages = conn
@@ -1228,8 +1252,10 @@ async fn test_relation_filters_none_behavior() {
         group.store(conn).await.unwrap();
 
         // Create a complex message graph
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
-        let _msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
+        let msg1 =
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let _msg2 =
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
 
         // Create a reply to msg1
         let reply = generate_message_with_reference(
@@ -1238,7 +1264,8 @@ async fn test_relation_filters_none_behavior() {
             3000,
             ContentType::Reply,
             Some(msg1.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Create reactions
         let _reaction1 = generate_message_with_reference(
@@ -1247,14 +1274,16 @@ async fn test_relation_filters_none_behavior() {
             4000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        ).await;
+        )
+        .await;
         let _reaction2 = generate_message_with_reference(
             conn,
             &group.id,
             5000,
             ContentType::Reaction,
             Some(reply.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Test 1: Get messages without fetching any relations (exclude reactions)
         let messages = conn
@@ -1333,7 +1362,8 @@ async fn test_complex_relation_chain() {
         group.store(conn).await.unwrap();
 
         // Create a chain of messages referencing each other
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let msg1 =
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
 
         let reply_to_msg1 = generate_message_with_reference(
             conn,
@@ -1341,7 +1371,8 @@ async fn test_complex_relation_chain() {
             2000,
             ContentType::Reply,
             Some(msg1.id.clone()),
-        ).await;
+        )
+        .await;
 
         let _reaction_to_msg1 = generate_message_with_reference(
             conn,
@@ -1349,7 +1380,8 @@ async fn test_complex_relation_chain() {
             3000,
             ContentType::Reaction,
             Some(msg1.id.clone()),
-        ).await;
+        )
+        .await;
 
         let _reaction_to_reply = generate_message_with_reference(
             conn,
@@ -1357,7 +1389,8 @@ async fn test_complex_relation_chain() {
             4000,
             ContentType::Reaction,
             Some(reply_to_msg1.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Query for the original message
         let messages = conn
@@ -1408,9 +1441,12 @@ async fn test_inbound_relation_counts() {
         group.store(conn).await.unwrap();
 
         // Create main messages
-        let msg1 = generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
-        let msg2 = generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
-        let msg3 = generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None).await;
+        let msg1 =
+            generate_message_with_reference(conn, &group.id, 1000, ContentType::Text, None).await;
+        let msg2 =
+            generate_message_with_reference(conn, &group.id, 2000, ContentType::Text, None).await;
+        let msg3 =
+            generate_message_with_reference(conn, &group.id, 3000, ContentType::Text, None).await;
 
         // Create multiple reactions to msg1
         for i in 0..5 {
@@ -1420,7 +1456,8 @@ async fn test_inbound_relation_counts() {
                 4000 + i * 100,
                 ContentType::Reaction,
                 Some(msg1.id.clone()),
-            ).await;
+            )
+            .await;
         }
 
         // Create replies to msg2
@@ -1431,7 +1468,8 @@ async fn test_inbound_relation_counts() {
                 5000 + i * 100,
                 ContentType::Reply,
                 Some(msg2.id.clone()),
-            ).await;
+            )
+            .await;
         }
 
         // Create one reaction to msg2
@@ -1441,7 +1479,8 @@ async fn test_inbound_relation_counts() {
             6000,
             ContentType::Reaction,
             Some(msg2.id.clone()),
-        ).await;
+        )
+        .await;
 
         // Test getting all relation counts
         let message_ids: Vec<&[u8]> = vec![msg1.id.as_ref(), msg2.id.as_ref(), msg3.id.as_ref()];
@@ -2901,7 +2940,8 @@ async fn test_min_expire_at_ns() {
             Some(5_000),
             None,
         )
-        .store(conn).await?;
+        .store(conn)
+        .await?;
         generate_message(
             None,
             Some(&group.id),
@@ -2910,7 +2950,8 @@ async fn test_min_expire_at_ns() {
             Some(3_000),
             None,
         )
-        .store(conn).await?;
+        .store(conn)
+        .await?;
         generate_message(
             None,
             Some(&group.id),
@@ -2919,7 +2960,8 @@ async fn test_min_expire_at_ns() {
             None,
             None,
         )
-        .store(conn).await?;
+        .store(conn)
+        .await?;
 
         // Soonest expiry wins; the NULL-expiry row is excluded.
         assert_eq!(conn.min_expire_at_ns().await?, Some(3_000));
