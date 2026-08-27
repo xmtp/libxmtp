@@ -94,6 +94,15 @@ pub fn set_user_stable_id(id: Option<String>) {
     *USER_STABLE_ID.write().unwrap_or_else(|e| e.into_inner()) = id;
 }
 
+/// Test-only visibility into the user slot; not part of the public API.
+#[doc(hidden)]
+pub fn user_stable_id_is_set() -> bool {
+    USER_STABLE_ID
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
+}
+
 /// ERROR events from the mobile FFI crate become Sentry issues; every other
 /// ERROR/WARN/INFO event is context (breadcrumb). Interior `instrument(err)`
 /// frames therefore never file duplicate issues for one propagating error.

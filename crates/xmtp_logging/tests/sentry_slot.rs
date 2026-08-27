@@ -22,9 +22,16 @@ fn sentry_slot_lifecycle() {
 
     // disable_sentry before any enable_sentry is a no-op: it must not corrupt
     // slot state (asserted below by a subsequent enable_sentry succeeding).
+    // A user id staged before any successful enable must not survive disable
+    // (it would attribute a later session's events).
+    xmtp_logging::sentry::set_user_stable_id(Some("staged-user".into()));
     handle
         .disable_sentry()
         .expect("disable before enable is a no-op");
+    assert!(
+        !xmtp_logging::sentry::user_stable_id_is_set(),
+        "disable must clear a staged user id even when sentry was never enabled"
+    );
     assert!(
         main_client().is_some_and(|c| Arc::ptr_eq(&c, &host)),
         "the no-op disable took the host's client off the process hub"

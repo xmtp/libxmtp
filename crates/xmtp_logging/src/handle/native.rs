@@ -285,6 +285,10 @@ impl LoggingHandle {
         // drop) runs after the lock is released.
         let prev_guard = {
             let mut guards = self.guards.lock();
+            // The user id is our own global, independent of who owns the slot:
+            // clear it even on the no-op path so `set_sentry_user` before a failed
+            // or absent enable can never attribute a later session's events.
+            crate::sentry::set_user_stable_id(None);
             // No-op unless we own the telemetry slot: otherwise this would tear down
             // another owner's layer (e.g. OTLP's) without clearing its guard.
             if guards.sentry.is_none() {
