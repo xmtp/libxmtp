@@ -26,16 +26,16 @@ mod errors;
 pub mod mls_store_error;
 pub use mls_store_error::SqlKeyStoreError;
 /// Async-track storage handle (sqlx + Postgres). Servers only; never wasm.
-#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 pub mod pg;
 /// Async-track OpenMLS key store (`PgKeyStore`). Servers only; never wasm.
-#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 mod pg_key_store;
-#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 pub use pg::PgDb;
 #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 pub use pg::PgMlsDb;
-#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 pub use pg_key_store::{CborCodec, PgKeyStore};
 pub mod serialization;
 pub use serialization::*;
@@ -102,7 +102,7 @@ pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 /// built-in store — servers construct their own over [`PgDb`] and supply it
 /// explicitly — so this exists only so the generic default resolves to a name.
 /// It is never instantiated and intentionally implements no storage traits.
-#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 #[derive(Debug, Clone, Copy)]
 pub struct DefaultStore;
 

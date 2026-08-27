@@ -186,7 +186,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 /// is SQLite-only. There is deliberately no runtime directory scan: a server
 /// must carry its schema in its binary, so it cannot be pointed at a stale or
 /// hand-edited copy.
-#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))]
 pub mod pg {
     /// One embedded migration.
     ///

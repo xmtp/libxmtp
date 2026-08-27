@@ -112,9 +112,12 @@ pub fn derive_pg_model(input: TokenStream) -> syn::Result<TokenStream> {
         ));
     }
 
-    // Gated the same way as the hand-written sqlx impls: `async` brings sqlx in,
-    // and the async track never targets wasm.
-    let gate = quote! { #[cfg(all(feature = "async", not(target_arch = "wasm32")))] };
+    // Gated the same way as the hand-written sqlx impls and the `pg` module: the
+    // async (sqlx/Postgres) track is active only when `async` is on AND `sync` is
+    // off. `sync` is dominant, so `--all-features` builds the SQLite track and this
+    // impl (which names `crate::pg`) is compiled out with it. Never targets wasm.
+    let gate =
+        quote! { #[cfg(all(feature = "async", not(feature = "sync"), not(target_arch = "wasm32")))] };
 
     Ok(quote! {
         #gate

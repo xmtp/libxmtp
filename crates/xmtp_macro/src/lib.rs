@@ -311,8 +311,9 @@ pub fn err_span(
 /// }
 /// ```
 ///
-/// Generated items are gated on `feature = "async"`, so the derive is inert on
-/// the sync-only builds that wasm and mobile use.
+/// Generated items are gated on `all(feature = "async", not(feature = "sync"))`,
+/// so the derive is inert on the sync-only builds that wasm and mobile use (and
+/// under `--all-features`, where the dominant `sync` track wins).
 #[proc_macro_derive(PgModel, attributes(xmtp))]
 pub fn pg_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     pg_model::derive_pg_model(input.into())

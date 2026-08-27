@@ -64,7 +64,7 @@ async fn migration_client_delivers_a_group_message_on_the_d14n_backend() {
     group.send_message(MSG, SendMessageOpts::default()).await?;
 
     bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    let bo_group = bo.group(&group.group_id).await?;
     let last = bo_group.test_last_message_bytes().await?;
     assert_eq!(last.unwrap(), MSG);
 }

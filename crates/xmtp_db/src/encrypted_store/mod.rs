@@ -194,13 +194,13 @@ pub enum ConnectionError {
     /// Postgres error from the async (sqlx) track.
     ///
     /// Retryability is classified by SQLSTATE -- see [`is_retryable_sqlx`].
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", not(feature = "sync")))]
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
     /// A transaction could not be committed because a handle to it outlived the
     /// transaction closure. The transaction is rolled back. Not retryable --
     /// this is a programming error, not contention.
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", not(feature = "sync")))]
     #[error("transaction handle escaped its closure; transaction rolled back")]
     TransactionHandleEscaped,
     /// Invalid version.
@@ -226,9 +226,9 @@ impl RetryableError for ConnectionError {
             Self::ReconnectInTransaction => true,
             Self::InvalidQuery(_) => false,
             Self::InvalidVersion { .. } => false,
-            #[cfg(feature = "async")]
+            #[cfg(all(feature = "async", not(feature = "sync")))]
             Self::Sqlx(e) => is_retryable_sqlx(e),
-            #[cfg(feature = "async")]
+            #[cfg(all(feature = "async", not(feature = "sync")))]
             Self::TransactionHandleEscaped => false,
         }
     }
@@ -241,7 +241,7 @@ impl RetryableError for ConnectionError {
 /// connection is now a network socket — adds a class SQLite has no equivalent
 /// for: the round-trip itself failing. Both are retryable; a rejected statement
 /// is not.
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(feature = "sync")))]
 pub fn is_retryable_sqlx(e: &sqlx::Error) -> bool {
     use sqlx::error::DatabaseError;
     match e {

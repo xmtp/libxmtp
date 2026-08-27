@@ -104,7 +104,7 @@ macro_rules! impl_sql_int_enum {
 
         // Postgres `INTEGER` is `int4`, so the codec delegates to `i32` rather
         // than restating the type mapping.
-        #[cfg(feature = "async")]
+        #[cfg(all(feature = "async", not(feature = "sync")))]
         impl ::sqlx::Type<::sqlx::Postgres> for $ty {
             fn type_info() -> ::sqlx::postgres::PgTypeInfo {
                 <i32 as ::sqlx::Type<::sqlx::Postgres>>::type_info()
@@ -115,7 +115,7 @@ macro_rules! impl_sql_int_enum {
             }
         }
 
-        #[cfg(feature = "async")]
+        #[cfg(all(feature = "async", not(feature = "sync")))]
         impl ::sqlx::Encode<'_, ::sqlx::Postgres> for $ty {
             fn encode_by_ref(
                 &self,
@@ -125,7 +125,7 @@ macro_rules! impl_sql_int_enum {
             }
         }
 
-        #[cfg(feature = "async")]
+        #[cfg(all(feature = "async", not(feature = "sync")))]
         impl<'r> ::sqlx::Decode<'r, ::sqlx::Postgres> for $ty {
             fn decode(
                 value: ::sqlx::postgres::PgValueRef<'r>,
