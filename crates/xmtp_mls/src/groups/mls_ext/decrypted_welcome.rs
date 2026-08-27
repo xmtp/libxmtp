@@ -184,11 +184,8 @@ impl DecryptedWelcome {
         let join_config = build_group_join_config();
 
         let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-        let builder = maybe_await!(StagedWelcome::build_from_welcome(
-            &provider,
-            &join_config,
-            welcome.clone()
-        ))?;
+        let builder =
+            (StagedWelcome::build_from_welcome(&provider, &join_config, welcome.clone())).await?;
         let processed_welcome = builder.processed_welcome();
 
         let psks = processed_welcome.psks();
@@ -196,10 +193,11 @@ impl DecryptedWelcome {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = maybe_await!(builder
+        let staged_welcome = (builder
             .replace_old_group()
             .skip_lifetime_validation()
-            .build())?;
+            .build())
+        .await?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 
@@ -238,8 +236,7 @@ pub(super) async fn find_private_key(
 ) -> Result<Vec<u8>, GroupError> {
     match wrapper_ciphersuite {
         WrapperAlgorithm::Curve25519 => {
-            let key_package: Option<KeyPackageBundle> =
-                maybe_await!(provider.key_package(hash_ref))?;
+            let key_package: Option<KeyPackageBundle> = (provider.key_package(hash_ref)).await?;
             Ok(key_package
                 .map(|kp| kp.init_private_key().to_vec())
                 .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)

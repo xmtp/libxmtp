@@ -17,9 +17,11 @@ impl MlsGroupReload for OpenMlsGroup {
         &mut self,
         provider: &S,
     ) -> Result<(), GroupMessageProcessingError> {
-        *self = maybe_await!(OpenMlsGroup::load(provider, self.group_id()))?.ok_or(
-            StorageError::NotFound(NotFound::MlsGroup(GroupId::try_from(self.group_id())?)),
-        )?;
+        *self = (OpenMlsGroup::load(provider, self.group_id()))
+            .await?
+            .ok_or(StorageError::NotFound(NotFound::MlsGroup(
+                GroupId::try_from(self.group_id())?,
+            )))?;
         Ok(())
     }
 }

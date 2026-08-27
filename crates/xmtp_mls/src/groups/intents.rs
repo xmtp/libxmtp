@@ -1374,8 +1374,11 @@ pub(crate) mod tests {
         let decrypted_message = group
             .load_mls_group_with_lock_async(async |mut mls_group| {
                 Ok::<_, crate::groups::GroupError>(
-                    maybe_await!(mls_group
-                        .process_message(&XmtpOpenMlsProviderRef::new(storage), mls_message.clone()))
+                    (mls_group.process_message(
+                        &XmtpOpenMlsProviderRef::new(storage),
+                        mls_message.clone(),
+                    ))
+                    .await
                     .unwrap(),
                 )
             })

@@ -133,12 +133,12 @@ async fn force_add_member(
         .hpke_init_key()
         .as_slice()
         .to_vec();
-    let (commit, welcome, _) = maybe_await!(sender_mls_group
-        .add_members(
-            sender_provider,
-            &sender_client.identity().installation_keys,
-            &[key_package_result.key_package],
-        ))
+    let (commit, welcome, _) = (sender_mls_group.add_members(
+        sender_provider,
+        &sender_client.identity().installation_keys,
+        &[key_package_result.key_package],
+    ))
+    .await
     .unwrap();
     let serialized_commit = commit.tls_serialize_detached().unwrap();
     let serialized_welcome = welcome.tls_serialize_detached().unwrap();
@@ -396,14 +396,14 @@ fn test_create_from_welcome_validation() {
                     .add_or_replace(build_group_membership_extension(&group_membership))
                     .unwrap();
 
-                maybe_await!(mls_group
-                    .update_group_context_extensions(
-                        &provider,
-                        existing_extensions.clone(),
-                        &alix.identity().installation_keys,
-                    ))
+                (mls_group.update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                ))
+                .await
                 .unwrap();
-                maybe_await!(mls_group.merge_pending_commit(&provider)).unwrap();
+                (mls_group.merge_pending_commit(&provider)).await.unwrap();
 
                 Ok::<_, GroupError>(mls_group) // Return the updated group if necessary
             })
@@ -4115,7 +4115,8 @@ async fn test_validate_dm_group() {
         None,
         None,
     )
-    .await.unwrap();
+    .await
+    .unwrap();
     assert!(
         valid_dm_group
             .load_mls_group_with_lock_async(async |mls_group| {
@@ -4139,7 +4140,8 @@ async fn test_validate_dm_group() {
         None,
         None,
     )
-    .await.unwrap();
+    .await
+    .unwrap();
     let err = invalid_type_group.load_mls_group_with_lock_async(async |mls_group| {
         validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
     });
@@ -4165,7 +4167,8 @@ async fn test_validate_dm_group() {
         None,
         None,
     )
-    .await.unwrap();
+    .await
+    .unwrap();
     let err = mismatched_dm_members_group.load_mls_group_with_lock_async(async |mls_group| {
         validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
     });
@@ -4189,7 +4192,8 @@ async fn test_validate_dm_group() {
         None,
         None,
     )
-    .await.unwrap();
+    .await
+    .unwrap();
     assert!(matches!(
         non_empty_admin_list_group
             .load_mls_group_with_lock_async(async |mls_group| {
@@ -4218,7 +4222,8 @@ async fn test_validate_dm_group() {
         Some(invalid_permissions),
         None,
     )
-    .await.unwrap();
+    .await
+    .unwrap();
     assert!(matches!(
         invalid_permissions_group
             .load_mls_group_with_lock_async(async |mls_group| {
@@ -5173,12 +5178,12 @@ async fn own_message_without_intent_skips_and_increments_cursor() {
     let invalid_message_bytes = invalid_payload_message.encode_to_vec();
     let message = group
         .load_mls_group_with_lock_async(async |mut mls_group| {
-            let m = maybe_await!(mls_group
-                .create_message(
-                    &XmtpOpenMlsProviderRef::new(storage),
-                    &alice.context.identity().installation_keys,
-                    invalid_message_bytes.as_slice(),
-                ))
+            let m = (mls_group.create_message(
+                &XmtpOpenMlsProviderRef::new(storage),
+                &alice.context.identity().installation_keys,
+                invalid_message_bytes.as_slice(),
+            ))
+            .await
             .unwrap();
             Ok::<_, GroupError>(m)
         })
@@ -5258,11 +5263,12 @@ async fn test_generate_commit_with_rollback() {
                     use xmtp_db::MlsProviderExt;
                     *in_generate_commit_before_hash_mut =
                         provider.key_store().hash_all().map(hex::encode).ok();
-                    let result = maybe_await!(group.update_group_context_extensions(
+                    let result = (group.update_group_context_extensions(
                         provider,
                         extensions,
                         &installation_keys,
-                    ));
+                    ))
+                    .await;
                     *in_generate_commit_after_hash_mut =
                         provider.key_store().hash_all().map(hex::encode).ok();
                     result

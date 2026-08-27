@@ -148,10 +148,7 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
         .await
         .unwrap();
         let group_id = group.group_id().clone();
-        self.groups
-            .write()
-            .unwrap()
-            .insert(group_id.clone(), group);
+        self.groups.write().unwrap().insert(group_id.clone(), group);
         group_id
     }
 
@@ -161,21 +158,28 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
         // Own the group across the await so we do not hold the lock over it.
         let mut group = self.groups.write().unwrap().remove(group_id).unwrap();
         let (_commit, welcome, _group_info) = group
-            .add_members(&self.provider, &self.installation_key, std::slice::from_ref(&kp))
+            .add_members(
+                &self.provider,
+                &self.installation_key,
+                std::slice::from_ref(&kp),
+            )
             .await
             .unwrap();
-        self.groups
-            .write()
-            .unwrap()
-            .insert(group_id.clone(), group);
-        (kp, welcome.into_welcome().expect("expected a welcome message"))
+        self.groups.write().unwrap().insert(group_id.clone(), group);
+        (
+            kp,
+            welcome.into_welcome().expect("expected a welcome message"),
+        )
     }
 
     async fn join_group(&self) -> (KeyPackage, MlsMessageOut) {
         let anon = gen_client(&format!("anon-{}", xmtp_common::rand_string::<4>()));
         let inbox_id = String::from_utf8_lossy(&self.identity).to_string();
         let group_id = anon.create_mls_group(&[&inbox_id]).await;
-        tracing::info!("created anon mock mls group {}", hex::encode(group_id.as_slice()));
+        tracing::info!(
+            "created anon mock mls group {}",
+            hex::encode(group_id.as_slice())
+        );
         let kp = self.key_package().await;
 
         let mut group = anon.groups.write().unwrap().remove(&group_id).unwrap();

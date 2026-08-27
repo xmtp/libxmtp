@@ -43,8 +43,7 @@ async fn metadata_read_amplification() {
     let _ = group.permissions().await?;
 
     // Baseline: one metadata fetch via the old full `OpenMlsGroup::load`.
-    let (res, one_full_load) =
-        count_kv_reads_async(group.mutable_metadata_via_full_load()).await;
+    let (res, one_full_load) = count_kv_reads_async(group.mutable_metadata_via_full_load()).await;
     res?;
 
     // New snapshot: one context read yields every mutable-metadata field.

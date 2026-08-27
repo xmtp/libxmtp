@@ -143,10 +143,12 @@ impl Oneshot {
             return Ok(false);
         }
         // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
-        let Ok(Some(openmls_group)) = maybe_await!(openmls::group::MlsGroup::load(
+        let Ok(Some(openmls_group)) = (openmls::group::MlsGroup::load(
             storage,
             &openmls::group::GroupId::from_slice(group_id.as_slice()),
-        )) else {
+        ))
+        .await
+        else {
             tracing::warn!(
                 group_id = group_id.snippet(),
                 "Unable to load OpenMLS group for readd request"

@@ -90,14 +90,10 @@ pub(crate) async fn apply_update_admin_list_app_data_intent(
         storage,
         openmls_group,
         async move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                component_id,
-                payload,
+            Ok(
+                stage_app_data_propose_and_commit(group, provider, &signer, component_id, payload)
+                    .await?,
             )
-            .await?)
         },
     )
     .await?;
@@ -279,14 +275,10 @@ pub(crate) async fn apply_app_data_update_intent(
         storage,
         openmls_group,
         async move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                component_id,
-                payload,
+            Ok(
+                stage_app_data_propose_and_commit(group, provider, &signer, component_id, payload)
+                    .await?,
             )
-            .await?)
         },
     )
     .await?;

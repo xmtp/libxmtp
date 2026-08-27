@@ -239,7 +239,7 @@ pub(crate) async fn process_message_with_app_data<Provider: OpenMlsProvider>(
     message: impl Into<ProtocolMessage>,
     own: &LibXMTPVersion,
 ) -> Result<ProcessedMessage, ProcessMessageWithAppDataError<Provider::StorageError>> {
-    let processed = maybe_await!(mls_group.process_message(provider, message))?;
+    let processed = (mls_group.process_message(provider, message)).await?;
 
     // PAUSE BEFORE PARSE: every commit on a below-floor group must pause
     // (held cursor, `set_group_paused`), never process — above-floor
@@ -290,7 +290,7 @@ pub(crate) async fn process_message_with_app_data<Provider: OpenMlsProvider>(
     let iter = collected.iter().map(|(id, op)| (*id, op));
     let app_data_updates = accumulate_app_data_updates(mls_group, iter)?;
 
-    Ok(maybe_await!(mls_group.resolve_app_data_commit(provider, processed, app_data_updates))?)
+    Ok((mls_group.resolve_app_data_commit(provider, processed, app_data_updates)).await?)
 }
 
 /// Stage a standalone `AppDataUpdate(Update)` proposal AND a follow-up
@@ -339,9 +339,10 @@ pub(crate) async fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>
     // Step 1: publish a standalone proposal. This adds the proposal to
     // the local pending-proposal store AND returns the wire-form
     // MlsMessageOut for the proposal so the caller can broadcast it.
-    let (proposal_msg, _proposal_ref) =
-        maybe_await!(mls_group.propose_app_data_update(provider, signer, openmls_id, operation))
-            .map_err(GroupAppDataError::Propose)?;
+    let (proposal_msg, _proposal_ref) = (mls_group
+        .propose_app_data_update(provider, signer, openmls_id, operation))
+    .await
+    .map_err(GroupAppDataError::Propose)?;
 
     // Step 2: compute the per-component dict updates by sweeping every
     // `AppDataUpdate` proposal currently in the store. The store may
@@ -386,14 +387,15 @@ pub(crate) async fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>
     // the just-queued proposal). No `add_proposal` call — the proposal
     // is encoded as a `ProposalRef` because it comes from the store, not
     // from inline staging.
-    let mut stage = maybe_await!(mls_group
+    let mut stage = (mls_group
         .commit_builder()
         .consume_proposal_store(true)
-        .load_psks(provider.storage()))?;
+        .load_psks(provider.storage()))
+    .await?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
     let built = stage.build(provider.rand(), provider.crypto(), signer, |_| true)?;
-    let bundle = maybe_await!(built.stage_commit(provider))?;
+    let bundle = (built.stage_commit(provider)).await?;
 
     Ok((proposal_msg, bundle))
 }

@@ -599,10 +599,10 @@ async fn test_welcome_pointer_task_retry_resolution() {
             )?;
             let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
             let staged_commit = publish_intent_data.staged_commit().await.unwrap();
-            maybe_await!(openmls_group.merge_staged_commit(
+            (openmls_group.merge_staged_commit(
                 &xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage()),
                 crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
-            ))?;
+            )).await?;
 
             Ok::<_, crate::groups::GroupError>(action)
         })

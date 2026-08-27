@@ -283,7 +283,8 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store a GroupUpdated message
         create_and_store_message(
@@ -293,7 +294,8 @@ mod tests {
             TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
             1000,
             "sender2",
-        ).await;
+        )
+        .await;
 
         // Query with default args - should return both messages
         let messages = group
@@ -333,7 +335,8 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         create_and_store_message(
             &conn,
@@ -342,7 +345,8 @@ mod tests {
             TestContentGenerator::text_content("Another message"),
             1000,
             "sender2",
-        ).await;
+        )
+        .await;
 
         // Query and verify
         let messages = group
@@ -371,7 +375,8 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store reactions to the message
         create_and_store_message(
@@ -381,7 +386,8 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
             1000,
             "reactor1",
-        ).await;
+        )
+        .await;
 
         create_and_store_message(
             &conn,
@@ -390,7 +396,8 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "❤️", ReactionAction::Added),
             2000,
             "reactor2",
-        ).await;
+        )
+        .await;
 
         // Query messages
         let messages = group
@@ -423,7 +430,8 @@ mod tests {
             TestContentGenerator::text_content("Original message"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store a reply to the message
         let reply_id = create_and_store_message(
@@ -437,7 +445,8 @@ mod tests {
             ),
             1000,
             "replier1",
-        ).await;
+        )
+        .await;
 
         // Query messages
         let messages = group
@@ -475,7 +484,8 @@ mod tests {
             ),
             0,
             "replier1",
-        ).await;
+        )
+        .await;
 
         // Query messages - should still return the reply but with None in_reply_to
         let messages = group
@@ -508,7 +518,8 @@ mod tests {
             ),
             0,
             "replier1",
-        ).await;
+        )
+        .await;
 
         // Query messages - should still return the reply but with None in_reply_to
         let messages = group
@@ -536,7 +547,8 @@ mod tests {
             TestContentGenerator::text_content("Valid message"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store a message with invalid/malformed content (use Text type to avoid filtering)
         create_and_store_message(
@@ -546,7 +558,8 @@ mod tests {
             TestContentGenerator::malformed_content_with_type(TextCodec::content_type()),
             1000,
             "sender2",
-        ).await;
+        )
+        .await;
 
         // Store a message with unknown content type
         create_and_store_message(
@@ -556,7 +569,8 @@ mod tests {
             TestContentGenerator::invalid_content(),
             2000,
             "sender3",
-        ).await;
+        )
+        .await;
 
         // Query messages - malformed content still creates a message
         let messages = group
@@ -595,7 +609,8 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store a valid reaction
         create_and_store_message(
@@ -605,7 +620,8 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
             1000,
             "reactor1",
-        ).await;
+        )
+        .await;
 
         // Store an invalid reaction (malformed content)
         let reaction_type = xmtp_content_types::reaction::ReactionCodec::content_type();
@@ -650,7 +666,8 @@ mod tests {
             TestContentGenerator::text_content("Hello World"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store a reaction (should be hidden)
         let msg_id_hex = vec![1].encode_hex();
@@ -661,7 +678,8 @@ mod tests {
             TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
             1000,
             "reactor1",
-        ).await;
+        )
+        .await;
 
         // Store a read receipt (should be hidden)
         create_and_store_message(
@@ -671,7 +689,8 @@ mod tests {
             TestContentGenerator::read_receipt_content(),
             2000,
             "reader1",
-        ).await;
+        )
+        .await;
 
         // Store a delete message (should be hidden)
         create_and_store_message(
@@ -681,7 +700,8 @@ mod tests {
             TestContentGenerator::delete_message_content(&msg_id_hex),
             3000,
             "deleter1",
-        ).await;
+        )
+        .await;
 
         // Store another text message
         create_and_store_message(
@@ -691,7 +711,8 @@ mod tests {
             TestContentGenerator::text_content("Second message"),
             4000,
             "sender2",
-        ).await;
+        )
+        .await;
 
         // Query messages - should only return the 2 text messages
         // Reactions, ReadReceipt, and DeleteMessage should be filtered out
@@ -726,7 +747,8 @@ mod tests {
             TestContentGenerator::text_content("Original message"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Store first reply (reply to original)
         let msg2_id = vec![2];
@@ -742,7 +764,8 @@ mod tests {
             ),
             1000,
             "replier1",
-        ).await;
+        )
+        .await;
 
         // Store second reply (reply to first reply)
         let msg3_id = vec![3];
@@ -757,7 +780,8 @@ mod tests {
             ),
             2000,
             "replier2",
-        ).await;
+        )
+        .await;
 
         // Query messages
         let messages = group
@@ -824,7 +848,8 @@ mod tests {
             TestContentGenerator::text_content("Original message"),
             0,
             "sender1",
-        ).await;
+        )
+        .await;
 
         // Create a custom/unknown content type
         let custom_content_type = ContentTypeId {
@@ -846,7 +871,8 @@ mod tests {
             ),
             1000,
             "replier1",
-        ).await;
+        )
+        .await;
 
         // Query messages
         let messages = group

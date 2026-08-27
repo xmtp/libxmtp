@@ -415,7 +415,8 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
 
     // Into the sync group first — a leak would arrive ahead of the normal
     // message below.
-    alix.group(&sync_group.id).await?
+    alix.group(&sync_group.id)
+        .await?
         .send_msg(b"internal sync payload")
         .await;
     group.send_msg(b"a normal message").await;

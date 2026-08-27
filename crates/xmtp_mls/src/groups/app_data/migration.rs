@@ -426,7 +426,7 @@ pub async fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
         )));
     }
 
-    let mut stage = maybe_await!(builder.load_psks(provider.storage()))?;
+    let mut stage = (builder.load_psks(provider.storage())).await?;
 
     // The wire payload (above) is a delta; the dict stores the
     // materialized state (a snapshot). Sender and receiver must
@@ -464,7 +464,7 @@ pub async fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     stage.with_app_data_dictionary_updates(updater.changes());
 
     let built = stage.build(provider.rand(), provider.crypto(), signer, |_| true)?;
-    let bundle = maybe_await!(built.stage_commit(provider))?;
+    let bundle = (built.stage_commit(provider)).await?;
     Ok(bundle)
 }
 

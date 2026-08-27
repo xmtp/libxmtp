@@ -1238,22 +1238,24 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        let result = provider.key_store().transaction(async |conn| {
-            let storage = conn.key_store();
-            let provider = XmtpOpenMlsProvider::new(storage);
-            processed_message = Some(
-                super::app_data::process_message_with_app_data(
-                    mls_group,
-                    &provider,
-                    message.clone(),
-                    self.context.version_info().pkg_semver(),
-                )
-                .await,
-            );
-            // Roll back: sync with the server before committing.
-            Ok::<TransactionOutcome<()>, StorageError>(Rollback)
-        })
-        .await;
+        let result = provider
+            .key_store()
+            .transaction(async |conn| {
+                let storage = conn.key_store();
+                let provider = XmtpOpenMlsProvider::new(storage);
+                processed_message = Some(
+                    super::app_data::process_message_with_app_data(
+                        mls_group,
+                        &provider,
+                        message.clone(),
+                        self.context.version_info().pkg_semver(),
+                    )
+                    .await,
+                );
+                // Roll back: sync with the server before committing.
+                Ok::<TransactionOutcome<()>, StorageError>(Rollback)
+            })
+            .await;
         if !matches!(result, Ok(Rollback)) {
             result
                 .map(TransactionOutcome::into_continued)
@@ -1685,7 +1687,7 @@ where
                 // Explicitly persist the proposal to the key store so it survives group reloads.
                 // process_message() only stores proposals in-memory; without this call,
                 // they are lost when the group is reloaded from storage.
-                maybe_await!(mls_group.store_pending_proposal(storage, *proposal_ptr))?;
+                (mls_group.store_pending_proposal(storage, *proposal_ptr)).await?;
                 Ok(())
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
@@ -3353,11 +3355,12 @@ where
                 // Pending proposals are handled at the API level (in send_message)
                 // by committing them before creating the SendMessage intent
                 let group_epoch = openmls_group.epoch().as_u64();
-                let msg = maybe_await!(openmls_group.create_message(
+                let msg = (openmls_group.create_message(
                     &self.context.mls_provider(),
                     &self.context.identity().installation_keys,
                     intent_data.message.as_slice(),
-                ))?;
+                ))
+                .await?;
 
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![msg.tls_serialize_detached()?],
@@ -3369,15 +3372,14 @@ where
             }
             IntentKind::KeyUpdate => {
                 let keys = self.context.identity().installation_keys.clone();
-                let (bundle, staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
-                        maybe_await!(group.self_update(
-                            provider,
-                            &keys,
-                            LeafNodeParameters::default()
-                        ))
-                    })
-                    .await?;
+                let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    async |group, provider| {
+                        (group.self_update(provider, &keys, LeafNodeParameters::default())).await
+                    },
+                )
+                .await?;
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![bundle.commit().tls_serialize_detached()?],
                     staged_commit,
@@ -3414,7 +3416,10 @@ where
                             field = %metadata_intent.field_name,
                             "abandoning guarded metadata update: committed value no longer matches"
                         );
-                        self.context.db().set_group_intent_superseded(intent.id).await?;
+                        self.context
+                            .db()
+                            .set_group_intent_superseded(intent.id)
+                            .await?;
                         return Ok(None);
                     }
                 }
@@ -3510,15 +3515,19 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
-                        maybe_await!(group.update_group_context_extensions(
+                let ((commit, _, _), staged_commit, group_epoch) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    async |group, provider| {
+                        (group.update_group_context_extensions(
                             provider,
                             mutable_metadata_extensions.clone(),
                             &keys,
                         ))
-                    })
-                    .await?;
+                        .await
+                    },
+                )
+                .await?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -3575,15 +3584,19 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
-                        maybe_await!(group.update_group_context_extensions(
+                let ((commit, _, _), staged_commit, group_epoch) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    async |group, provider| {
+                        (group.update_group_context_extensions(
                             provider,
                             mutable_metadata_extensions.clone(),
                             &keys,
                         ))
-                    })
-                    .await?;
+                        .await
+                    },
+                )
+                .await?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -3634,15 +3647,19 @@ where
                 )?;
 
                 let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, async |group, provider| {
-                        maybe_await!(group.update_group_context_extensions(
+                let ((commit, _, _), staged_commit, group_epoch) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    async |group, provider| {
+                        (group.update_group_context_extensions(
                             provider,
                             group_permissions_extensions.clone(),
                             &keys,
                         ))
-                    })
-                    .await?;
+                        .await
+                    },
+                )
+                .await?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
@@ -3787,12 +3804,12 @@ where
 
                     // Generate add proposals for each key package
                     for key_package in &changes_with_kps.new_key_packages {
-                        let (proposal_msg, _proposal_ref) = maybe_await!(openmls_group
-                            .propose_add_member(
-                                &self.context.mls_provider(),
-                                signer,
-                                key_package
-                            ))
+                        let (proposal_msg, _proposal_ref) = (openmls_group.propose_add_member(
+                            &self.context.mls_provider(),
+                            signer,
+                            key_package,
+                        ))
+                        .await
                         .map_err(GroupError::ProposeAddMember)?;
                         proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                     }
@@ -3813,12 +3830,12 @@ where
 
                     // Generate remove proposals for collected members
                     for member_index in members_to_remove {
-                        let (proposal_msg, _proposal_ref) = maybe_await!(openmls_group
-                            .propose_remove_member(
-                                &self.context.mls_provider(),
-                                signer,
-                                member_index,
-                            ))
+                        let (proposal_msg, _proposal_ref) = (openmls_group.propose_remove_member(
+                            &self.context.mls_provider(),
+                            signer,
+                            member_index,
+                        ))
+                        .await
                         .map_err(GroupError::ProposeRemoveMember)?;
                         proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                     }
@@ -3855,16 +3872,16 @@ where
                         &old_group_membership,
                         &new_membership,
                     )?;
-                    let (proposal_msg, _) = maybe_await!(openmls_group
-                        .propose_app_data_update(
-                            &self.context.mls_provider(),
-                            signer,
-                            xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
-                                .as_u16(),
-                            openmls::messages::proposals::AppDataUpdateOperation::Update(
-                                payload.into(),
-                            ),
-                        ))
+                    let (proposal_msg, _) = (openmls_group.propose_app_data_update(
+                        &self.context.mls_provider(),
+                        signer,
+                        xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
+                            .as_u16(),
+                        openmls::messages::proposals::AppDataUpdateOperation::Update(
+                            payload.into(),
+                        ),
+                    ))
+                    .await
                     .map_err(GroupError::Proposal)?;
                     proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                 }
@@ -3901,12 +3918,13 @@ where
                     Extensions::tls_deserialize(&mut intent_data.extensions_bytes.as_slice())?;
 
                 let signer = &self.context.identity().installation_keys;
-                let (proposal_msg, _proposal_ref) = maybe_await!(openmls_group
+                let (proposal_msg, _proposal_ref) = (openmls_group
                     .propose_group_context_extensions(
                         &self.context.mls_provider(),
                         new_extensions,
                         signer,
                     ))
+                .await
                 .map_err(GroupError::Proposal)?;
 
                 Ok(Some(PublishIntentData {
@@ -4210,12 +4228,12 @@ where
                             openmls_group,
                             async |group, provider| -> Result<_, GroupError> {
                                 // Create GCE proposal locally
-                                let (gce_msg, _) = maybe_await!(group
-                                    .propose_group_context_extensions(
-                                        provider,
-                                        new_extensions.clone(),
-                                        &signer,
-                                    ))
+                                let (gce_msg, _) = (group.propose_group_context_extensions(
+                                    provider,
+                                    new_extensions.clone(),
+                                    &signer,
+                                ))
+                                .await
                                 .map_err(GroupError::Proposal)?;
                                 let gce_payload = gce_msg.tls_serialize_detached()?;
 
@@ -4438,7 +4456,8 @@ where
 
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -5115,17 +5134,19 @@ where
 {
     let app_data_updates = super::app_data::pending_app_data_updates(group)?;
 
-    let mut stage = maybe_await!(group
+    let mut stage = (group
         .commit_builder()
         .consume_proposal_store(true)
         .load_psks(provider.storage()))
+    .await
     .map_err(CommitToPendingProposalsError::from)?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
     let built = stage
         .build(provider.rand(), provider.crypto(), signer, proposal_filter)
         .map_err(CommitToPendingProposalsError::from)?;
-    let bundle = maybe_await!(built.stage_commit(provider))
+    let bundle = (built.stage_commit(provider))
+        .await
         .map_err(CommitToPendingProposalsError::from)?;
 
     Ok(bundle)

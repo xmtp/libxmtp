@@ -32,9 +32,9 @@ use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::TransactionOutcome::Continue;
 #[cfg(feature = "sync")]
 use xmtp_db::ConnectionExt;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     NotFound, StorageError, TransactionOutcome, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -1421,12 +1421,20 @@ pub(crate) mod tests {
         assert_eq!(kp1.len(), 1);
         let binding = kp1.remove(&installation_public_key).unwrap().unwrap();
         let init1 = binding.inner.hpke_init_key();
-        let fetched_identity: StoredIdentity = Fetch::<StoredIdentity>::fetch(&client.context.db(), &()).await.unwrap().unwrap();
+        let fetched_identity: StoredIdentity =
+            Fetch::<StoredIdentity>::fetch(&client.context.db(), &())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
         // Rotate and fetch again.
         client.queue_key_rotation().await.unwrap();
         //check the rotation value has been set
-        let fetched_identity: StoredIdentity = Fetch::<StoredIdentity>::fetch(&client.context.db(), &()).await.unwrap().unwrap();
+        let fetched_identity: StoredIdentity =
+            Fetch::<StoredIdentity>::fetch(&client.context.db(), &())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
 
         xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
@@ -1924,9 +1932,17 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let alix_fetched_identity: StoredIdentity = Fetch::<StoredIdentity>::fetch(&alix.context.db(), &()).await.unwrap().unwrap();
+        let alix_fetched_identity: StoredIdentity =
+            Fetch::<StoredIdentity>::fetch(&alix.context.db(), &())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(alix_fetched_identity.next_key_package_rotation_ns.is_some());
-        let bo_fetched_identity: StoredIdentity = Fetch::<StoredIdentity>::fetch(&bo.context.db(), &()).await.unwrap().unwrap();
+        let bo_fetched_identity: StoredIdentity =
+            Fetch::<StoredIdentity>::fetch(&bo.context.db(), &())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
         // Bo's original key should be deleted
         let bo_original_from_db = bo
@@ -1945,7 +1961,11 @@ pub(crate) mod tests {
         bo.sync_welcomes().await.unwrap();
 
         //check the rotation value has been set and less than Queue rotation interval
-        let bo_fetched_identity: StoredIdentity = Fetch::<StoredIdentity>::fetch(&bo.context.db(), &()).await.unwrap().unwrap();
+        let bo_fetched_identity: StoredIdentity =
+            Fetch::<StoredIdentity>::fetch(&bo.context.db(), &())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
         let updated_at = bo
             .context
@@ -1973,7 +1993,11 @@ pub(crate) mod tests {
             bo.context.db().is_identity_needs_rotation().await.unwrap();
         assert!(!bo_keys_queued_for_rotation);
 
-        let bo_fetched_identity: StoredIdentity = Fetch::<StoredIdentity>::fetch(&bo.context.db(), &()).await.unwrap().unwrap();
+        let bo_fetched_identity: StoredIdentity =
+            Fetch::<StoredIdentity>::fetch(&bo.context.db(), &())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(bo_fetched_identity.next_key_package_rotation_ns.unwrap() > 0);
 
         let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())

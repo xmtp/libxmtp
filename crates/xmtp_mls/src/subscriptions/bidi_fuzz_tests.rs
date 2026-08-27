@@ -443,7 +443,8 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
         let mut handles = Vec::new();
         for (group, _) in &groups {
             let handle = producer
-                .group(&group.group_id).await
+                .group(&group.group_id)
+                .await
                 .expect("producer missing a group it was added to");
             handle.send_msg(b"settle").await;
             handles.push(handle);
@@ -870,7 +871,8 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
         let mut handles = Vec::new();
         for (group, _) in &groups {
             let handle = producer
-                .group(&group.group_id).await
+                .group(&group.group_id)
+                .await
                 .expect("producer missing a group it was added to");
             handle.send_msg(b"settle").await;
             handles.push(handle);

@@ -117,7 +117,7 @@ pub(crate) async fn delete_key_package<Context: XmtpSharedContext>(
     let mls_provider = context.mls_provider();
     let key_store = mls_provider.key_store();
 
-    maybe_await!(key_store.delete_key_package(&openmls_hash_ref))?;
+    (key_store.delete_key_package(&openmls_hash_ref)).await?;
 
     if let Some(pq_pub_key) = pq_pub_key {
         key_store
@@ -125,9 +125,7 @@ pub(crate) async fn delete_key_package<Context: XmtpSharedContext>(
                 crate::identity::pq_key_package_references_key(&pq_pub_key)?.as_slice(),
             )
             .await?;
-        key_store
-            .delete_key_package_wrapper_key(&hash_ref)
-            .await?;
+        key_store.delete_key_package_wrapper_key(&hash_ref).await?;
     }
 
     Ok(())

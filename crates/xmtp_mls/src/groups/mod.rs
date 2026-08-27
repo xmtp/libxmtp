@@ -523,7 +523,8 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id).await;
 
         // Load the MLS group
-        let mls_group = maybe_await!(OpenMlsGroup::load(mls_storage, &self.group_id.to_openmls()))?
+        let mls_group = (OpenMlsGroup::load(mls_storage, &self.group_id.to_openmls()))
+            .await?
             .ok_or(StorageError::from(NotFound::GroupById(self.group_id)))?;
 
         // Perform the operation with the MLS group
@@ -1079,7 +1080,8 @@ where
                 .into();
             let min_version_intent = intents::QueueIntent::metadata_update()
                 .data(min_version_intent_data)
-                .queue(self).await?;
+                .queue(self)
+                .await?;
             self.sync_until_intent_resolved(min_version_intent.id)
                 .await?;
         }
@@ -1171,7 +1173,8 @@ where
         let intent_data = intents::ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
         let bootstrap_intent = intents::QueueIntent::bootstrap_migration()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         self.sync_until_intent_resolved(bootstrap_intent.id).await?;
 
@@ -1300,8 +1303,7 @@ where
             )
             .await?
         } else {
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)
-                .await?
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config).await?
         };
 
         let group_id: GroupId = mls_group.group_id().try_into()?;
@@ -1365,8 +1367,7 @@ where
             )
             .await?
         } else {
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)
-                .await?
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config).await?
         };
 
         let group_id: GroupId = mls_group.group_id().try_into()?;
@@ -1466,7 +1467,9 @@ where
             );
 
             // Queue a CommitPendingProposals intent and wait for it to resolve
-            let intent = intents::QueueIntent::commit_pending_proposals().queue(self).await?;
+            let intent = intents::QueueIntent::commit_pending_proposals()
+                .queue(self)
+                .await?;
             self.sync_until_intent_resolved(intent.id).await?;
         }
 
@@ -1609,7 +1612,8 @@ where
         QueueIntent::send_message()
             .data(intent_data)
             .should_push(message.should_push)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         // Publish
         self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
@@ -1757,7 +1761,8 @@ where
         QueueIntent::send_message()
             .data(intent_data)
             .should_push(stored_message.should_push)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         Ok(message_id)
     }
@@ -1916,7 +1921,8 @@ where
 
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         self.sync_until_intent_resolved(intent.id).await?;
         let epoch = self.epoch().await?;
@@ -1978,7 +1984,8 @@ where
         let intent_data = self.get_membership_update_intent(&[], inbox_ids).await?;
         let intent = QueueIntent::update_group_membership()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
@@ -2019,7 +2026,8 @@ where
         let intent_data: Vec<u8> = ReaddInstallationsIntentData::new(installations.clone()).into();
         let intent = QueueIntent::readd_installations()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
@@ -2295,7 +2303,8 @@ where
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2362,7 +2371,8 @@ where
                 .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         match self.sync_until_intent_resolved(intent.id).await {
             Ok(_) => Ok(()),
@@ -2497,7 +2507,8 @@ where
             .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2518,7 +2529,8 @@ where
             UpdateMetadataIntentData::new_update_commit_log_signer(commit_log_signer).into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2565,7 +2577,8 @@ where
 
         let intent = QueueIntent::update_permission()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2614,7 +2627,8 @@ where
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2656,7 +2670,8 @@ where
                 .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -2713,7 +2728,8 @@ where
             .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
@@ -2734,7 +2750,8 @@ where
                 .into();
         let intent = QueueIntent::metadata_update()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
@@ -2967,7 +2984,8 @@ where
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
         let intent = QueueIntent::update_admin_list()
             .data(intent_data)
-            .queue(self).await?;
+            .queue(self)
+            .await?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -3219,11 +3237,11 @@ where
         &self,
     ) -> Result<openmls::group::GroupContext, GroupError> {
         use openmls_traits::storage::StorageProvider as _;
-        maybe_await!(
-            self.context
-                .mls_storage()
-                .group_context::<_, openmls::group::GroupContext>(&self.group_id.to_openmls())
-        )
+        (self
+            .context
+            .mls_storage()
+            .group_context::<_, openmls::group::GroupContext>(&self.group_id.to_openmls()))
+        .await
         .map_err(GroupError::from)?
         .ok_or_else(|| GroupError::from(StorageError::from(NotFound::GroupById(self.group_id))))
     }

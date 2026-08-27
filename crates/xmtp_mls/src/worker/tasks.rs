@@ -10,12 +10,12 @@ use prost::Message;
 use std::sync::Arc;
 use xmtp_common::Event;
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
-use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
-use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
 #[cfg(feature = "sync")]
 use xmtp_db::StorageError;
 #[cfg(feature = "sync")]
 use xmtp_db::diesel;
+use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
+use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_macro::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},

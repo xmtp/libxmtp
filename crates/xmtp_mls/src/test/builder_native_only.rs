@@ -363,7 +363,10 @@ async fn test_invalid_scw_prevents_db_storage(#[future] docker_smart_wallet: Sma
     );
 
     // CRITICAL: Verify that the client was NOT stored in the database
-    let stored_identity: Option<StoredIdentity> = Fetch::<StoredIdentity>::fetch(&client.context.db(), &()).await.unwrap();
+    let stored_identity: Option<StoredIdentity> =
+        Fetch::<StoredIdentity>::fetch(&client.context.db(), &())
+            .await
+            .unwrap();
     assert!(
         stored_identity.is_none(),
         "Client should NOT be stored in DB after failed registration"
@@ -496,7 +499,10 @@ async fn test_invalid_scw_then_valid_scw_recovery(
     );
 
     // Verify that the client IS stored in the database
-    let stored_identity: Option<StoredIdentity> = Fetch::<StoredIdentity>::fetch(&client2.context.db(), &()).await.unwrap();
+    let stored_identity: Option<StoredIdentity> =
+        Fetch::<StoredIdentity>::fetch(&client2.context.db(), &())
+            .await
+            .unwrap();
     assert!(
         stored_identity.is_some(),
         "Client SHOULD be stored in DB after successful registration"

@@ -13,16 +13,6 @@
     feature(async_fn_traits, unboxed_closures)
 )]
 
-/// Awaits `expr`. openmls is now compiled unconditionally async (its maybe_async
-/// methods are always `async fn`), so awaiting is unconditional. Kept as a thin
-/// wrapper to leave call sites untouched by the blocking-feature removal; inlining
-/// the remaining `maybe_await!(x)` to `x.await` is a mechanical follow-up.
-macro_rules! maybe_await {
-    ($e:expr) => {{
-        $e.await
-    }};
-}
-
 pub mod builder;
 pub mod client;
 pub mod context;

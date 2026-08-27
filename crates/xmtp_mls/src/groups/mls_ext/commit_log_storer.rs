@@ -66,7 +66,7 @@ impl CommitLogStorer for MlsGroup {
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
     ) -> Result<Self, GroupError> {
-        let mls_group = maybe_await!(MlsGroup::new(
+        let mls_group = (MlsGroup::new(
             provider,
             &identity.installation_keys,
             group_config,
@@ -74,7 +74,8 @@ impl CommitLogStorer for MlsGroup {
                 credential: identity.credential(),
                 signature_key: identity.installation_keys.public_slice().into(),
             },
-        ))?;
+        ))
+        .await?;
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
@@ -90,7 +91,7 @@ impl CommitLogStorer for MlsGroup {
                 error_message: None,
             }
             .store(&provider.key_store().db())
-        .await?;
+            .await?;
         }
 
         Ok(mls_group)
@@ -102,7 +103,7 @@ impl CommitLogStorer for MlsGroup {
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
     ) -> Result<Self, GroupError> {
-        let mls_group = maybe_await!(MlsGroup::new_with_group_id(
+        let mls_group = (MlsGroup::new_with_group_id(
             provider,
             &identity.installation_keys,
             group_config,
@@ -111,7 +112,8 @@ impl CommitLogStorer for MlsGroup {
                 credential: identity.credential(),
                 signature_key: identity.installation_keys.public_slice().into(),
             },
-        ))?;
+        ))
+        .await?;
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             // It is safe to log this stubbed encryption state, because we will not upload anything
@@ -129,7 +131,7 @@ impl CommitLogStorer for MlsGroup {
                 error_message: None,
             }
             .store(&provider.key_store().db())
-        .await?;
+            .await?;
         }
 
         Ok(mls_group)
@@ -142,7 +144,7 @@ impl CommitLogStorer for MlsGroup {
         sender_installation_id: &[u8],
     ) -> Result<Self, GroupError> {
         // Failed welcomes do not need to be added to the commit log
-        let mls_group = maybe_await!(welcome.into_group(provider))?;
+        let mls_group = (welcome.into_group(provider)).await?;
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
@@ -159,7 +161,7 @@ impl CommitLogStorer for MlsGroup {
                 error_message: None,
             }
             .store(&provider.key_store().db())
-        .await?;
+            .await?;
         }
 
         Ok(mls_group)
@@ -178,7 +180,7 @@ impl CommitLogStorer for MlsGroup {
         let removed_us = staged_commit.self_removed();
         let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
-        maybe_await!(self.merge_staged_commit(provider, staged_commit))?;
+        (self.merge_staged_commit(provider, staged_commit)).await?;
         let applied_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
 
         if removed_us {
@@ -204,7 +206,7 @@ impl CommitLogStorer for MlsGroup {
                     error_message: None,
                 }
                 .store(&provider.key_store().db())
-        .await?;
+                .await?;
             }
             return Ok(());
         }
@@ -242,7 +244,7 @@ impl CommitLogStorer for MlsGroup {
                 error_message: None,
             }
             .store(&provider.key_store().db())
-        .await?;
+            .await?;
         }
 
         Ok(())

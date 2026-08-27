@@ -224,7 +224,8 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
         UpdateMetadataIntentData::new_update_app_data("from-alix".to_string(), None).into();
     QueueIntent::metadata_update()
         .data(intent_data)
-        .queue(&alix_group).await?;
+        .queue(&alix_group)
+        .await?;
     alix_group.publish_intents().await?;
 
     // First sync applies bo's commit and bounces the losing intent back to
@@ -287,7 +288,8 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
     .into();
     let queued = QueueIntent::metadata_update()
         .data(intent_data)
-        .queue(&alix_group).await?;
+        .queue(&alix_group)
+        .await?;
     alix_group.publish_intents().await?;
 
     alix_group.sync().await?;
@@ -365,7 +367,8 @@ async fn test_superseded_intent_resolves_promptly_as_an_error() {
     .into();
     let queued = QueueIntent::metadata_update()
         .data(intent_data)
-        .queue(&group).await?;
+        .queue(&group)
+        .await?;
 
     let result = group.sync_until_intent_resolved(queued.id).await;
     assert!(

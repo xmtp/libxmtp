@@ -24,8 +24,8 @@ use xmtp_api_d14n::{
 };
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::{XmtpMlsStorageProvider, prelude::*};
 use xmtp_db::XmtpDb;
+use xmtp_db::{XmtpMlsStorageProvider, prelude::*};
 // Raw diesel/SQLite cleanup + the concrete diesel key store — sync track only.
 #[cfg(feature = "sync")]
 use crate::utils::cleanup_duplicate_updates;
@@ -543,7 +543,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     #[cfg(feature = "sync")]
     pub fn default_mls_store(
         self,
-    ) -> Result<ClientBuilder<ApiClient, SqlKeyStore<<Db as XmtpDb>::DbQuery>, Db>, ClientBuilderError>
+    ) -> Result<
+        ClientBuilder<ApiClient, SqlKeyStore<<Db as XmtpDb>::DbQuery>, Db>,
+        ClientBuilderError,
+    >
     where
         Db: XmtpDb,
     {

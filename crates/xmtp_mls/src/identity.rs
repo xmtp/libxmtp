@@ -141,7 +141,7 @@ impl IdentityStrategy {
             Fetch::<StoredIdentity>::fetch(&mls_storage.db(), &())
                 .await?
                 .map(|i: StoredIdentity| i.try_into())
-            .transpose()?;
+                .transpose()?;
 
         debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
         match self {
@@ -741,7 +741,7 @@ impl Identity {
                         Ok::<_, StorageError>(Continue(()))
                     })
                     .await
-            .map(TransactionOutcome::into_continued)?;
+                    .map(TransactionOutcome::into_continued)?;
                 mls_storage
                     .db()
                     .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)
@@ -765,7 +765,9 @@ impl Identity {
         let NewKeyPackageResult {
             key_package: kp,
             pq_pub_key,
-        } = self.new_key_package(&provider, include_post_quantum).await?;
+        } = self
+            .new_key_package(&provider, include_post_quantum)
+            .await?;
 
         let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
         let history_id = provider
@@ -913,7 +915,7 @@ impl XmtpKeyPackageBuilder {
             }
         };
 
-        let kp = maybe_await!(kp_builder.build(
+        let kp = (kp_builder.build(
             CIPHERSUITE,
             provider,
             &this.installation_keys,
@@ -921,7 +923,8 @@ impl XmtpKeyPackageBuilder {
                 credential: this.credential,
                 signature_key: this.installation_keys.public_slice().into(),
             },
-        ))?;
+        ))
+        .await?;
 
         store_key_package_references(provider, kp.key_package(), &post_quantum_keypair).await?;
         Ok(NewKeyPackageResult {
@@ -1121,7 +1124,10 @@ mod tests {
             .unwrap()
     }
 
-    async fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
+    async fn get_pq_private_key(
+        provider: &impl MlsProviderExt,
+        hash_ref: &[u8],
+    ) -> Option<Vec<u8>> {
         let val: Option<Vec<u8>> = provider
             .key_store()
             .key_package_wrapper_key::<Vec<u8>>(hash_ref)
@@ -1171,11 +1177,11 @@ mod tests {
         let pq_hash_ref_inner = pq_hash_ref.unwrap();
 
         // Make sure we can find the key package based on the post quantum public key
-        let key_package_bundle: KeyPackageBundle = maybe_await!(provider
-            .storage()
-            .key_package(&pq_hash_ref_inner))
-        .unwrap()
-        .unwrap();
+        let key_package_bundle: KeyPackageBundle =
+            (provider.storage().key_package(&pq_hash_ref_inner))
+                .await
+                .unwrap()
+                .unwrap();
 
         // Make sure we can find the private key based on the init key
         let serialized_hash_ref = bincode::serialize(&init_key_hash_ref.unwrap()).unwrap();
@@ -1208,7 +1214,9 @@ mod tests {
         assert!(pq_private_key.is_none());
 
         let key_package_from_db: Option<KeyPackageBundle> =
-            maybe_await!(provider.storage().key_package(&pq_hash_ref_inner)).unwrap();
+            (provider.storage().key_package(&pq_hash_ref_inner))
+                .await
+                .unwrap();
         assert!(key_package_from_db.is_none());
     }
 

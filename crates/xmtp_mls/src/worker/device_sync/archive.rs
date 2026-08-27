@@ -534,7 +534,8 @@ mod tests {
         assert!(!alix2_group.is_active().await?);
 
         // Add the new inbox to the groups
-        alix.group(&old_group.id).await?
+        alix.group(&old_group.id)
+            .await?
             .add_members(&[alix2.inbox_id()])
             .await?;
         alix2.sync_welcomes().await?;
