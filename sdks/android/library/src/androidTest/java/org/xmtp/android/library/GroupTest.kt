@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -766,7 +767,7 @@ class GroupTest : BaseInstrumentedTest() {
             val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
             alixClient.conversations.sync()
             val alixGroup = alixClient.conversations.listGroups().first()
-            group.streamMessages().test {
+            group.streamMessages().filter { it.body.isNotEmpty() }.test {
                 alixGroup.send("hi")
                 assertEquals("hi", awaitItem().body)
                 alixGroup.send(
