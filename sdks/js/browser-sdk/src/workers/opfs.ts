@@ -1,4 +1,5 @@
 import init, {
+  checkDatabaseIntegrity,
   opfsClearAll,
   opfsDeleteFile,
   opfsExportDb,
@@ -114,6 +115,11 @@ self.onmessage = async (
       case "opfs.clearAll": {
         await opfsClearAll();
         postMessage({ id, action, result: undefined });
+        return;
+      }
+      case "opfs.checkDatabaseIntegrity": {
+        const result = await checkDatabaseIntegrity(data.path, data.level);
+        postMessage({ id, action, result });
         return;
       }
     }

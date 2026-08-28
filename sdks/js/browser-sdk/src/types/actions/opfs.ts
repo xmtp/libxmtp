@@ -1,3 +1,8 @@
+import type {
+  IntegrityCheckLevel,
+  IntegrityCheckOutcome,
+} from "@xmtp/wasm-bindings";
+
 export type OpfsAction =
   | {
       action: "opfs.init";
@@ -63,4 +68,13 @@ export type OpfsAction =
       id: string;
       result: undefined;
       data: undefined;
+    }
+  | {
+      action: "opfs.checkDatabaseIntegrity";
+      id: string;
+      result: IntegrityCheckOutcome;
+      data: {
+        path: string;
+        level?: IntegrityCheckLevel;
+      };
     };

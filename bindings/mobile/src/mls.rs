@@ -530,6 +530,73 @@ pub async fn create_client(
     }))
 }
 
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum FfiIntegrityCheckLevel {
+    Quick,
+    Full,
+}
+
+impl From<FfiIntegrityCheckLevel> for xmtp_db::prelude::IntegrityCheckLevel {
+    fn from(level: FfiIntegrityCheckLevel) -> Self {
+        match level {
+            FfiIntegrityCheckLevel::Quick => Self::Quick,
+            FfiIntegrityCheckLevel::Full => Self::Full,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiIntegrityCheckOutcome {
+    /// "ok" | "corrupt" | "unreadable" | "saltMissing" | "locked" | "failed"
+    pub outcome: String,
+    /// Row-level findings (corrupt) or the error/reason string (other
+    /// non-ok outcomes). Empty when ok.
+    pub findings: Vec<String>,
+}
+
+impl From<xmtp_db::prelude::IntegrityCheckResult> for FfiIntegrityCheckOutcome {
+    fn from(r: xmtp_db::prelude::IntegrityCheckResult) -> Self {
+        use xmtp_db::prelude::IntegrityCheckResult::*;
+        let (outcome, findings) = match r {
+            Ok => ("ok", vec![]),
+            Corrupt { findings } => ("corrupt", findings),
+            Unreadable { reason } => ("unreadable", vec![reason]),
+            SaltMissing => ("saltMissing", vec![]),
+            Locked => ("locked", vec![]),
+            Failed { error } => ("failed", vec![error]),
+        };
+        FfiIntegrityCheckOutcome {
+            outcome: outcome.into(),
+            findings,
+        }
+    }
+}
+
+/// Read-only integrity check of a database file by path, without a client.
+/// Runs on a blocking thread. For encrypted databases pass the same 32-byte
+/// encryption key used to create the client.
+#[uniffi::export(async_runtime = "tokio", default(encryption_key = None, level = None))]
+pub async fn check_database_integrity(
+    db_path: String,
+    encryption_key: Option<Vec<u8>>,
+    level: Option<FfiIntegrityCheckLevel>,
+) -> Result<FfiIntegrityCheckOutcome, FfiError> {
+    // Same 32-byte validation and error message as `create_client`'s key
+    // conversion.
+    let key = encryption_key
+        .map(|k| -> Result<EncryptionKey, String> {
+            k.try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())
+        })
+        .transpose()?;
+    let level = level.map(Into::into).unwrap_or_default();
+    let result = tokio::task::spawn_blocking(move || {
+        xmtp_db::prelude::check_database_integrity(&db_path, key.as_ref(), level)
+    })
+    .await?;
+    Ok(result.into())
+}
+
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 #[tracing::instrument(level = "debug", skip_all)]
@@ -768,6 +835,23 @@ impl FfiXmtpClient {
     #[tracing::instrument(skip_all)]
     pub async fn db_reconnect(&self) -> Result<(), FfiError> {
         Ok(self.inner_client.reconnect_db()?)
+    }
+
+    /// Read-only integrity check of this client's database. Uses a
+    /// blocking thread, never the async runtime. Persistent databases are
+    /// checked on a dedicated read-only connection without contending with
+    /// this client's DB operations; ephemeral in-memory databases use the
+    /// client's own connection.
+    #[tracing::instrument(skip_all)]
+    pub async fn db_integrity_check(
+        &self,
+        level: Option<FfiIntegrityCheckLevel>,
+    ) -> Result<FfiIntegrityCheckOutcome, FfiError> {
+        let client = self.inner_client.clone();
+        let level = level.map(Into::into).unwrap_or_default();
+        let result =
+            tokio::task::spawn_blocking(move || client.db_integrity_check(level)).await??;
+        Ok(result.into())
     }
 
     /// Cleanly shut down this client: cancel in-flight workers and detached
