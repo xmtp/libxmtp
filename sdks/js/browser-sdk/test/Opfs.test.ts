@@ -3,7 +3,13 @@ import { Opfs } from "@/Opfs";
 import { uuid } from "@/utils/uuid";
 import { createRegisteredClient, createSigner } from "./helpers";
 
-describe.skip("Opfs", () => {
+const hasOpfsSupport =
+  typeof globalThis.navigator !== "undefined" &&
+  typeof globalThis.navigator.storage?.getDirectory === "function";
+
+const describeOpfs = hasOpfsSupport ? describe : describe.skip;
+
+describeOpfs("Opfs", () => {
   describe.sequential("with no files", () => {
     let opfs: Opfs;
 
