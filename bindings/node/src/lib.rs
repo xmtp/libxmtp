@@ -15,6 +15,7 @@ pub mod hmac_key;
 mod identity;
 pub mod inbox_id;
 mod inbox_state;
+pub mod integrity;
 mod messages;
 mod permissions;
 mod signatures;

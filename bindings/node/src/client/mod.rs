@@ -101,6 +101,24 @@ impl Client {
     Ok(())
   }
 
+  /// Read-only integrity check of this client's database, run on a blocking
+  /// thread (never the JS event loop). Persistent databases are checked on a
+  /// dedicated read-only connection and don't contend with this client's DB
+  /// operations; ephemeral in-memory databases use the client's own connection.
+  #[napi]
+  pub async fn db_integrity_check(
+    &self,
+    level: Option<crate::integrity::IntegrityCheckLevel>,
+  ) -> Result<crate::integrity::IntegrityCheckOutcome> {
+    let client = self.inner_client.clone();
+    let level = level.map(Into::into).unwrap_or_default();
+    let result = tokio::task::spawn_blocking(move || client.db_integrity_check(level))
+      .await
+      .map_err(|e| Error::from_reason(e.to_string()))?
+      .map_err(ErrorWrapper::from)?;
+    Ok(result.into())
+  }
+
   /// Cleanly shut down this client: cancel in-flight workers and streams, then
   /// release the DB connection. Idempotent — a second call resolves to `Ok`.
   ///
