@@ -7,9 +7,11 @@ import {
   erc20Abi,
   getERC20Balance,
   getERC20Decimals,
+  getNativeBalance,
 } from "@/util/TransactionUtil";
 
 const mockReadContract = vi.fn();
+const mockGetBalance = vi.fn();
 
 vi.mock("viem", async () => {
   const actual = await vi.importActual("viem");
@@ -17,6 +19,7 @@ vi.mock("viem", async () => {
     ...actual,
     createPublicClient: vi.fn(() => ({
       readContract: mockReadContract,
+      getBalance: mockGetBalance,
     })),
   };
 });
@@ -29,6 +32,7 @@ const testTo = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" as const;
 describe("TransactionUtil", () => {
   beforeEach(() => {
     mockReadContract.mockReset();
+    mockGetBalance.mockReset();
   });
 
   describe("erc20Abi", () => {
@@ -203,6 +207,23 @@ describe("TransactionUtil", () => {
           functionName: "decimals",
         }),
       );
+    });
+  });
+
+  describe("getNativeBalance", () => {
+    it("reads native balance from the chain", async () => {
+      const expectedBalance = 1_500_000_000_000_000_000n; // 1.5 ETH
+      mockGetBalance.mockResolvedValue(expectedBalance);
+
+      const balance = await getNativeBalance({
+        chain: testChain,
+        address: testFrom,
+      });
+
+      expect(balance).toBe(expectedBalance);
+      expect(mockGetBalance).toHaveBeenCalledWith({
+        address: testFrom,
+      });
     });
   });
 });

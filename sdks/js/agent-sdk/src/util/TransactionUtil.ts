@@ -82,6 +82,15 @@ export type GetERC20DecimalsOptions = {
   transport?: Transport;
 };
 
+export type GetNativeBalanceOptions = {
+  /** The viem Chain object. */
+  chain: Chain;
+  /** The address to query the balance of. */
+  address: Hex;
+  /** Optional custom viem transport. Defaults to http(). */
+  transport?: Transport;
+};
+
 /**
  * Creates a WalletSendCalls payload for an ERC-20 token transfer.
  *
@@ -189,5 +198,26 @@ export async function getERC20Decimals(
     address: tokenAddress,
     abi: erc20Abi,
     functionName: "decimals",
+  });
+}
+
+/**
+ * Reads the native token balance (ETH, MATIC, etc.) for a given address from the blockchain.
+ *
+ * @param options - The query options including chain and wallet address
+ * @returns The native token balance in wei as a bigint
+ */
+export async function getNativeBalance(
+  options: GetNativeBalanceOptions,
+): Promise<bigint> {
+  const { chain, address, transport: customTransport } = options;
+
+  const client = createPublicClient({
+    chain,
+    transport: customTransport ?? http(),
+  });
+
+  return client.getBalance({
+    address,
   });
 }
