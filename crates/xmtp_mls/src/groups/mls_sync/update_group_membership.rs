@@ -79,35 +79,25 @@ pub(crate) fn strip_unverified_new_adds(
     }
 }
 
-/// Build the wire-level `TlsMapDelta<InboxId, VLBytes>` payload for an
-/// `AppDataUpdate(GROUP_MEMBERSHIP)` proposal from the diff between
-/// the old and new `GroupMembership` view. Shared between the commit-
-/// bundling `apply_update_group_membership_intent` flow and the
-/// propose-by-reference `IntentKind::ProposeMemberUpdate` flow so
-/// both emit byte-identical payloads for the same diff.
-///
-/// One mutation per affected inbox:
-/// - `Insert(inbox_id, encode(V1 { sequence_id, failed_installations: [] }))`
-///   for inboxes added.
-/// - `Update(inbox_id, encode(V1 { ... }))` for inboxes whose
-///   `sequence_id` changed.
-/// - `Delete(inbox_id)` for inboxes removed.
-///
-/// `failed_installations` is left empty here — per the proto comment
-/// it's a sender-authoritative retry-suppression hint and the
-/// per-inbox partitioning happens at bootstrap. Steady-state membership
-/// updates intentionally don't propagate failed_installations changes
-/// over the AppData path; the worst case is a slightly noisier retry
-/// loop. Future enhancement once a clearer attribution path exists.
+/// Build the `AppDataUpdate(GROUP_MEMBERSHIP)` payload for a membership diff.
+/// `failed_installations` is flat, but the wire form is per-inbox.
+/// `installation_owners` maps each id to its inbox. A failed installation has
+/// no key package, so it carries no credential. This code rewrites only the
+/// inboxes that get an Insert or an Update. Other inboxes keep their entry.
+/// If the map has no owner for an id, this code drops the id.
 pub(crate) fn build_group_membership_app_data_payload(
     old: &GroupMembership,
     new: &GroupMembership,
+    installation_owners: &HashMap<Vec<u8>, String>,
 ) -> Result<Vec<u8>, GroupError> {
     let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
+    let per_inbox_failed = partition_failed_installations(new, installation_owners);
+    let no_failures: Vec<Vec<u8>> = Vec::new();
 
     // Inserts and updates: walk new.members, classify against old.
     for (inbox_id_str, &sequence_id) in new.members.iter() {
-        let entry = encode_membership_entry(sequence_id)?;
+        let failed = per_inbox_failed.get(inbox_id_str).unwrap_or(&no_failures);
+        let entry = encode_membership_entry(sequence_id, failed)?;
         match old.members.get(inbox_id_str) {
             None => {
                 // New inbox: Insert.
@@ -143,14 +133,51 @@ pub(crate) fn build_group_membership_app_data_payload(
     })
 }
 
-/// Encode a per-inbox `GroupMembershipEntry::V1` value with the given
-/// `sequence_id` and an empty `failed_installations` list.
-fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
+/// Put each failed installation into a bucket for its owner inbox. If an
+/// inbox is not in `members`, skip it. This code deletes that inbox's entry,
+/// so the id has no place to go.
+fn partition_failed_installations(
+    membership: &GroupMembership,
+    installation_owners: &HashMap<Vec<u8>, String>,
+) -> HashMap<String, Vec<Vec<u8>>> {
+    let mut per_inbox: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+    let mut unattributed = 0usize;
+    for installation_id in &membership.failed_installations {
+        match installation_owners.get(installation_id) {
+            Some(inbox_id) if membership.members.contains_key(inbox_id) => per_inbox
+                .entry(inbox_id.clone())
+                .or_default()
+                .push(installation_id.clone()),
+            _ => unattributed += 1,
+        }
+    }
+    if unattributed > 0 {
+        // This is normal. An inbox that this update does not change keeps its
+        // entry. The receiver still rebuilds the complete list.
+        tracing::debug!(
+            unattributed,
+            total = membership.failed_installations.len(),
+            "some failed_installations were not attributable to an inbox in this membership update"
+        );
+    }
+    // Sort the ids. The same set must always encode to the same bytes.
+    for failed in per_inbox.values_mut() {
+        failed.sort_unstable();
+    }
+    per_inbox
+}
+
+/// Encode one `GroupMembershipEntry::V1` value for an inbox. It holds the
+/// inbox's `sequence_id` and the inbox's share of `failed_installations`.
+fn encode_membership_entry(
+    sequence_id: u64,
+    failed_installations: &[Vec<u8>],
+) -> Result<Vec<u8>, GroupError> {
     let entry = GroupMembershipEntry {
         version: Some(group_membership_entry::Version::V1(
             group_membership_entry::V1 {
                 sequence_id,
-                failed_installations: vec![],
+                failed_installations: failed_installations.to_vec(),
             },
         )),
     };
@@ -285,6 +312,7 @@ pub(crate) async fn apply_update_group_membership_intent(
             Some(build_group_membership_app_data_payload(
                 &old_group_membership,
                 &new_group_membership,
+                &changes_with_kps.installation_owners,
             )?)
         } else {
             None
@@ -699,5 +727,83 @@ mod tests {
         strip_unverified_new_adds(&mut new, &old, &[]);
         assert_eq!(new.get("alice"), Some(&5));
         assert!(!new.members.contains_key("bob"));
+    }
+
+    /// Make a hex inbox id with the length that `InboxId::from_hex` needs.
+    fn inbox_hex(byte: u8) -> String {
+        hex::encode([byte; 32])
+    }
+
+    /// Decode a payload into `inbox_id_hex -> (is_insert, sequence_id,
+    /// failed_installations)`.
+    #[allow(clippy::type_complexity)]
+    fn decode_payload(payload: &[u8]) -> HashMap<String, (bool, u64, Vec<Vec<u8>>)> {
+        use tls_codec::Deserialize as _;
+        use xmtp_mls_common::tls_map::TlsMapMutation;
+
+        let delta = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload).unwrap();
+        delta
+            .mutations
+            .into_iter()
+            .map(|mutation| {
+                let (key, value, is_insert) = match mutation {
+                    TlsMapMutation::Insert { key, value } => (key, value, true),
+                    TlsMapMutation::Update { key, value } => (key, value, false),
+                    TlsMapMutation::Delete { key } => {
+                        panic!("unexpected Delete for {}", key.to_hex())
+                    }
+                };
+                let entry = GroupMembershipEntry::decode(value.as_slice()).unwrap();
+                let Some(group_membership_entry::Version::V1(v1)) = entry.version else {
+                    panic!("expected a V1 entry");
+                };
+                (
+                    key.to_hex(),
+                    (is_insert, v1.sequence_id, v1.failed_installations),
+                )
+            })
+            .collect()
+    }
+
+    #[xmtp_common::test]
+    fn app_data_payload_partitions_failed_installations_per_inbox() {
+        let (alix, bo, caro) = (inbox_hex(0xAA), inbox_hex(0xBB), inbox_hex(0xCC));
+        let (bo_failed, caro_failed, orphan) = (vec![0x01; 32], vec![0x02; 32], vec![0x03; 32]);
+
+        let mut old = GroupMembership::new();
+        old.add(alix.clone(), 1);
+        old.add(bo.clone(), 1);
+
+        let mut new = old.clone();
+        // bo gains a failed installation. caro joins with one too.
+        new.add(bo.clone(), 2);
+        new.add(caro.clone(), 1);
+        new.failed_installations = vec![bo_failed.clone(), caro_failed.clone(), orphan];
+
+        let owners = HashMap::from([
+            (bo_failed.clone(), bo.clone()),
+            (caro_failed.clone(), caro.clone()),
+            // The map has no owner for `orphan`.
+        ]);
+
+        let decoded =
+            decode_payload(&build_group_membership_app_data_payload(&old, &new, &owners).unwrap());
+
+        assert_eq!(
+            decoded.get(&bo),
+            Some(&(false, 2, vec![bo_failed])),
+            "bo's bumped entry must carry only bo's failed installation"
+        );
+        assert_eq!(
+            decoded.get(&caro),
+            Some(&(true, 1, vec![caro_failed])),
+            "caro's new entry must carry only caro's failed installation"
+        );
+        assert!(
+            !decoded.contains_key(&alix),
+            "alix's sequence id is unchanged, so no mutation should be emitted"
+        );
+        // The code drops `orphan`. It does not guess an inbox.
+        assert_eq!(decoded.len(), 2);
     }
 }

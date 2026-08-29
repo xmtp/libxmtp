@@ -3629,6 +3629,9 @@ where
                 let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
                 let old_group_membership = extract_group_membership(&extensions)?;
                 let mut new_membership = old_group_membership.clone();
+                // The AppDataUpdate payload below uses this map to split
+                // `failed_installations`. Only the adds branch makes failures.
+                let mut installation_owners: HashMap<Vec<u8>, String> = HashMap::new();
 
                 // Handle adds
                 if !intent_data.add_inbox_ids.is_empty() {
@@ -3699,24 +3702,13 @@ where
                         new_membership.add(inbox_id.clone(), sequence_id as u64);
                     }
 
-                    // Carry forward the failed-installations set on
-                    // the local `new_membership`. On the legacy path
-                    // this drives the GCE proposal that
-                    // `CommitPendingProposals` emits against
-                    // GROUP_MEMBERSHIP_EXTENSION_ID, where
-                    // failed_installations is part of the wire form.
-                    // On the migrated path the AppDataUpdate payload
-                    // built by `build_group_membership_app_data_payload`
-                    // intentionally does NOT propagate
-                    // failed_installations (see that function's doc);
-                    // we still set it here so the equality check at
-                    // the AppDataUpdate emit site below
-                    // (`old_group_membership != new_membership`)
-                    // detects kp-failure-only deltas, and so the
-                    // unmigrated and migrated branches share one
-                    // `new_membership` value.
+                    // The legacy GCE proposal sends this list. The AppDataUpdate
+                    // payload below splits it per inbox. It also lets the
+                    // `old_group_membership != new_membership` check below see a
+                    // delta that holds only key package failures.
                     new_membership.failed_installations =
                         changes_with_kps.failed_installations.clone();
+                    installation_owners = changes_with_kps.installation_owners;
 
                     // Generate add proposals for each key package
                     for key_package in &changes_with_kps.new_key_packages {
@@ -3783,6 +3775,7 @@ where
                     let payload = build_group_membership_app_data_payload(
                         &old_group_membership,
                         &new_membership,
+                        &installation_owners,
                     )?;
                     let (proposal_msg, _) = openmls_group
                         .propose_app_data_update(
@@ -4804,6 +4797,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         new_key_packages,
         installation_diff.removed_installations,
         failed_installations,
+        installation_diff.installation_owners,
     ))
 }
 
