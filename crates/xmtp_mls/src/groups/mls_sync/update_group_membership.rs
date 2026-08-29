@@ -196,6 +196,8 @@ pub(crate) async fn apply_update_group_membership_intent(
 
     // Run this guard before the writeback below. A change that only moves
     // `failed_installations` must not make an empty commit.
+    // A dictionary entry can exist with no leaf in the tree. Adding or removing
+    // such an entry moves no leaf. The commit must still carry the change.
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()

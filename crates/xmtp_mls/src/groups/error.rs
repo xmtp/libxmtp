@@ -101,8 +101,10 @@ pub enum GroupError {
     UserLimitExceeded,
     /// Sequence ID not found.
     ///
-    /// No sequence ID for an inbox after an identity-update refresh —
-    /// its registration hasn't propagated yet. Retryable.
+    /// An inbox that the caller wants to add has no sequence id after an
+    /// identity-update refresh. Its registration is not visible yet. Retryable.
+    /// A member that the group already committed never raises this error. The
+    /// membership builders skip that member and keep its dictionary entry.
     #[error("SequenceId not found in local db")]
     MissingSequenceId,
     /// Addresses not found.
@@ -634,12 +636,10 @@ impl RetryableError for GroupError {
             Self::DeleteMessage(e) => e.is_retryable(),
             Self::DeviceSync(e) => e.is_retryable(),
             Self::MergePendingCommit(e) => e.is_retryable(),
-            // Only emitted when a fresh `load_identity_updates` network
-            // refresh still has no sequence id for an inbox — i.e. its
-            // registration hasn't propagated to reads yet. Retrying re-runs
-            // the fetch, so the miss is transient; classifying it
-            // non-retryable permanently failed sync-group membership adds
-            // that raced a new installation's identity propagation.
+            // Only an inbox that the caller wants to add raises this error. Its
+            // registration is not visible to reads yet, so a retry can succeed. An
+            // already committed member cannot reach here: the membership builders
+            // skip it. See `get_membership_update_intent`.
             Self::MissingSequenceId => true,
             Self::NotFound(_)
             | Self::UserLimitExceeded
@@ -693,10 +693,10 @@ mod tests {
 
     #[xmtp_common::test]
     fn missing_sequence_id_is_retryable() {
-        // Regression lock: while non-retryable, a membership add racing a
-        // new installation's identity propagation burned all publish
-        // attempts instantly and permanently failed the sync-group add
-        // (surfaced as the DeviceSync sendSyncRequest CI failures).
+        // Regression lock: while non-retryable, a membership add that raced a new
+        // installation's identity propagation burned all publish attempts at once.
+        // The add then failed for good. Only unregistered adds reach this error, so
+        // a retry is correct. See `get_membership_update_intent`.
         assert!(GroupError::MissingSequenceId.is_retryable());
     }
 
