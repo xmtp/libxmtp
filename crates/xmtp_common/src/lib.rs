@@ -10,6 +10,9 @@ pub use error_code::ErrorCode;
 #[doc(inline)]
 pub use xmtp_macro::ErrorCode;
 
+#[doc(inline)]
+pub use xmtp_macro::Retryable;
+
 #[cfg(any(test, feature = "test-utils"))]
 mod test;
 #[cfg(any(test, feature = "test-utils"))]

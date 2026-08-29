@@ -1,0 +1,5 @@
+error: `#[retry(inherit)]` requires exactly one field
+ --> tests/ui/retryable/inherit_arity.rs:7:5
+  |
+7 |     TwoFields(u32, u32),
+  |     ^^^^^^^^^

@@ -20,8 +20,15 @@ xmtp-workspace-hack.workspace = true
 [lib]
 proc-macro = true
 
+# `#[from]` is a thiserror helper attribute: the `Retryable` UI fixtures that
+# exercise `#[from]` rejection paths need a derive that declares it, otherwise
+# rustc adds an unrelated "cannot find attribute `from`" to the snapshot.
+[dev-dependencies]
+thiserror.workspace = true
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+trybuild = "1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
