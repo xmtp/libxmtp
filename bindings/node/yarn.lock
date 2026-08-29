@@ -1816,12 +1816,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^26.1.1":
-  version: 26.1.1
-  resolution: "@types/node@npm:26.1.1"
+"@types/node@npm:^26.3.0":
+  version: 26.3.0
+  resolution: "@types/node@npm:26.3.0"
   dependencies:
     undici-types: "npm:~8.3.0"
-  checksum: 10/df6555a94c6b4cf74e6238373e2881e72dc91058cf2ba173be77ea3974aaa8f459c2f10fbb7eb644fb1e5189dd8407097f5d39506fad39c89bde18acb3b90316
+  checksum: 10/77a9587a3c8ce2e4bf1547d70706f262ba6dca2a39012091df36f1729132c06485833fe6f74ffbd5271d12966d6b729f6343d5af95681b7a08d437115b125015
   languageName: node
   linkType: hard
 
@@ -1942,7 +1942,7 @@ __metadata:
   dependencies:
     "@ianvs/prettier-plugin-sort-imports": "npm:^4.7.0"
     "@napi-rs/cli": "npm:^3.8.2"
-    "@types/node": "npm:^26.1.1"
+    "@types/node": "npm:^26.3.0"
     "@types/uuid": "npm:^11.0.0"
     "@xmtp/content-type-remote-attachment": "npm:^2.0.3"
     fast-glob: "npm:^3.3.3"
