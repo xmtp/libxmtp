@@ -447,4 +447,40 @@ describe("createStream", () => {
 
     expect(onErrorSpy).toHaveBeenCalledWith(expect.any(StreamFailedError));
   });
+
+  it("should report item errors without ending the stream", async () => {
+    const itemError = new Error("message processing failed");
+    const onErrorSpy = vi.fn();
+    const onFailSpy = vi.fn();
+    const onValueSpy = vi.fn();
+    let emit!: StreamCallback<number>;
+
+    const mockStreamFunction = vi.fn(
+      async (callback: StreamCallback<number>) => {
+        emit = callback;
+        return {
+          end: vi.fn(),
+          endAndWait: vi.fn().mockResolvedValue(undefined),
+          isClosed: vi.fn().mockReturnValue(false),
+          waitForReady: vi.fn().mockResolvedValue(undefined),
+        };
+      },
+    );
+
+    const stream = await createStream<number>(mockStreamFunction, undefined, {
+      onError: onErrorSpy,
+      onFail: onFailSpy,
+      onValue: onValueSpy,
+    });
+
+    emit(itemError, undefined);
+    emit(null, 42);
+
+    expect(onErrorSpy).toHaveBeenCalledOnce();
+    expect(onErrorSpy).toHaveBeenCalledWith(itemError);
+    expect(onValueSpy).toHaveBeenCalledWith(42);
+    expect(onFailSpy).not.toHaveBeenCalled();
+
+    await stream.end();
+  });
 });
