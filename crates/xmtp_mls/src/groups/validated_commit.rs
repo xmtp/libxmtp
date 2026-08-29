@@ -2136,6 +2136,40 @@ pub fn validate_proposal(
                     );
                     return Err(CommitValidationError::InsufficientPermissions);
                 }
+
+                // The permission checks above only confirm the proposer is
+                // allowed to grant admin/super-admin rights — they say
+                // nothing about whether the inbox_id being promoted is
+                // actually part of the group. Without this, an admin add
+                // for a non-member inbox_id would pass validation and land
+                // in `admin_list`/`super_admin_list` with no member behind
+                // it. Mirror what `Remove` proposals already do via
+                // `openmls_group.member_at(...)` by requiring every
+                // newly-added admin/super-admin inbox_id to be a current
+                // member.
+                if !metadata_changes.admins_added.is_empty()
+                    || !metadata_changes.super_admins_added.is_empty()
+                {
+                    let current_member_inbox_ids = openmls_group
+                        .members()
+                        .map(|member| inbox_id_from_credential(&member.credential))
+                        .collect::<Result<HashSet<String>, _>>()?;
+
+                    for added in metadata_changes
+                        .admins_added
+                        .iter()
+                        .chain(metadata_changes.super_admins_added.iter())
+                    {
+                        if !current_member_inbox_ids.contains(&added.inbox_id) {
+                            tracing::warn!(
+                                proposer_inbox_id = %proposer.inbox_id,
+                                added_inbox_id = %added.inbox_id,
+                                "GCE proposal rejected: cannot grant admin rights to an inbox_id that is not a group member"
+                            );
+                            return Err(CommitValidationError::InsufficientPermissions);
+                        }
+                    }
+                }
             }
 
             // Check for permission changes (only super admin can
