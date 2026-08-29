@@ -75,8 +75,18 @@ impl Stream for ArchiveImporter {
                 return Poll::Ready(Some(element.map_err(ArchiveError::from)));
             }
 
-            if amount == 0 && this.decoded.is_empty() {
-                break;
+            if amount == 0 {
+                // Reader is exhausted. An empty buffer with no element in
+                // flight is a clean end of stream; anything left over is a
+                // partial element the archive promised but never delivered,
+                // and looping again would just re-read EOF forever.
+                if element_len == 0 && this.decoded.is_empty() {
+                    break;
+                }
+                return Poll::Ready(Some(Err(std::io::Error::from(
+                    std::io::ErrorKind::UnexpectedEof,
+                )
+                .into())));
             }
         }
 
@@ -117,5 +127,43 @@ impl ArchiveImporter {
 
     pub fn metadata(&self) -> &BackupMetadata {
         &self.metadata
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BACKUP_VERSION;
+    use async_compression::futures::write::ZstdEncoder;
+    use futures_util::AsyncWriteExt;
+
+    /// Header + a zstd payload whose length prefix promises far more bytes
+    /// than the stream actually carries -- i.e. an archive truncated
+    /// part-way through an element.
+    async fn truncated_archive() -> Vec<u8> {
+        let mut payload = 1024u32.to_le_bytes().to_vec();
+        payload.extend_from_slice(&[0u8; 8]);
+
+        let mut encoder = ZstdEncoder::new(Vec::new());
+        encoder.write_all(&payload).await.unwrap();
+        encoder.close().await.unwrap();
+
+        let mut archive = BACKUP_VERSION.to_le_bytes().to_vec();
+        archive.extend_from_slice(&[0u8; NONCE_SIZE]);
+        archive.extend_from_slice(&encoder.into_inner());
+        archive
+    }
+
+    /// A truncated archive must end the stream with an error. Before the
+    /// EOF check below, `poll_next` looped on `read() == 0` forever
+    /// without ever yielding, so this call never returned.
+    #[xmtp_common::test]
+    async fn truncated_archive_terminates_with_error() {
+        let reader: AsyncReader = Box::pin(futures::io::Cursor::new(truncated_archive().await));
+        let result = ArchiveImporter::load(reader, &[0u8; 32]).await;
+        assert!(
+            result.is_err(),
+            "a truncated archive must surface an error instead of spinning"
+        );
     }
 }
