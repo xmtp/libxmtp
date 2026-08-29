@@ -344,7 +344,7 @@ jobs:
       # copy is sufficient. Corollary: manifest edits only take effect once
       # merged to main — verify them locally with `updatecli pipeline diff`
       # (see docs/create-a-release.md).
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: matrix.version != ''
         with:
           ref: main
@@ -352,7 +352,7 @@ jobs:
       # The action tag pins the updatecli binary (v3.6.0 -> updatecli v0.120.1); bumping the tag bumps the binary.
       - uses: updatecli/updatecli-action@v3.6.0
         if: matrix.version != ''
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         if: matrix.version != ''
         id: app-token
         with:
@@ -380,7 +380,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Merge release PR
@@ -432,7 +432,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.ref }}
           fetch-depth: 0
@@ -558,7 +558,7 @@ jobs:
     if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - id: compute
         env:
           IOS_RESULT: ${{ needs.release-ios.result }}
