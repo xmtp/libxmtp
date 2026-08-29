@@ -106,9 +106,11 @@ export default tseslint.config(
     },
   },
   {
-    // agent-sdk's event-driven API passes async handlers into void-returning
-    // callbacks throughout; tightening this is tracked as a migration follow-up
-    files: ["agent-sdk/src/**/*.ts"],
+    // Demos illustrate the ergonomic public API of attaching async listeners to
+    // agent events (`agent.on("text", async (ctx) => ...)`); EventEmitter typing
+    // makes these void-return. Non-demo src routes every async stream handler
+    // deliberately, so the relaxation is confined here.
+    files: ["agent-sdk/src/demo/**/*.ts"],
     rules: {
       "@typescript-eslint/no-misused-promises": [
         "error",
