@@ -1,5 +1,6 @@
 import { type AgentMessageHandler, type AgentMiddleware } from "@/core/Agent";
-import type { MessageContext } from "@/core/MessageContext";
+import type { DecodedMessageWithContent } from "@/core/filter";
+import { MessageContext } from "@/core/MessageContext";
 
 /** Content type supported by the "CommandRouter" */
 type SupportedType = string;
@@ -107,8 +108,18 @@ export class CommandRouter<ContentTypes = unknown> {
       if (entry) {
         // Create a new context with modified content (everything after the command)
         const argsText = parts.slice(1).join(" ");
-        ctx.message.content = argsText;
-        await entry.handler(ctx);
+        const proto = Reflect.getPrototypeOf(ctx.message);
+        const commandMessage = Object.assign(
+          Object.create(proto),
+          ctx.message,
+          { content: argsText },
+        ) as DecodedMessageWithContent<SupportedType>;
+        const commandCtx = new MessageContext({
+          message: commandMessage,
+          conversation: ctx.conversation,
+          client: ctx.client,
+        });
+        await entry.handler(commandCtx);
         return true;
       }
     }
