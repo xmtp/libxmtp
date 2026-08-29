@@ -20,6 +20,7 @@ import {
   type RemoteAttachment,
   type Reply,
   type TransactionReference,
+  type SendOpts,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
 import { filter, type DecodedMessageWithContent } from "@/core/filter";
@@ -114,6 +115,14 @@ export class MessageContext<
 
   async sendTextReply(text: string) {
     await this.#sendReply(encodeText(text));
+  }
+
+  async sendReadReceipt(opts?: SendOpts) {
+    return this.conversation.sendReadReceipt(opts);
+  }
+
+  async markAsRead(opts?: SendOpts) {
+    return this.sendReadReceipt(opts);
   }
 
   async getSenderAddress() {
