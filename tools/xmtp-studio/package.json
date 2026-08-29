@@ -1,0 +1,32 @@
+{
+  "name": "xmtp-mls-studio",
+  "version": "1.0.0",
+  "description": "Interactive LibXMTP Messaging Layer Security (MLS) Encryption, Group Chat & XIP-46 Identity Studio.",
+  "main": "src/index.js",
+  "type": "module",
+  "bin": {
+    "xmtp-cli": "./bin/xmtp-cli.js"
+  },
+  "scripts": {
+    "start": "node src/server/app.js",
+    "cli": "node bin/xmtp-cli.js",
+    "test": "node tests/run-all.js"
+  },
+  "keywords": [
+    "xmtp",
+    "libxmtp",
+    "mls-encryption",
+    "web3-messaging",
+    "xip-46",
+    "group-chat",
+    "agent-messaging"
+  ],
+  "author": "XMTP Community",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5",
+    "express": "^4.21.2"
+  }
+}
