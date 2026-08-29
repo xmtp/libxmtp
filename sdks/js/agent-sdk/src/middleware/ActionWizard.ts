@@ -48,6 +48,8 @@ type ActionWizardCancelHandler<ContentTypes> = (
 export type ActionWizardCancelOptions = {
   /** Custom label for the cancel button (default: "Cancel") */
   label?: string;
+  /** Command string that cancels the wizard from text steps (e.g. "/cancel") */
+  command?: `/${string}`;
 };
 
 export type ActionWizardOptions = {
@@ -57,7 +59,7 @@ export type ActionWizardOptions = {
    * (e.g. API keys, passwords) to keep it out of group conversations.
    */
   dm?: boolean;
-  /** Enable a cancel button on each select step. Set to `true` for the default label, or pass options to customize. */
+  /** Enable a cancel button on each select step, and optionally a cancel command on text steps. */
   cancel?: boolean | ActionWizardCancelOptions;
 };
 
@@ -75,6 +77,7 @@ export class ActionWizard<ContentTypes = unknown> {
   #id: string;
   #dm: boolean;
   #cancelLabel: string | undefined;
+  #cancelCommand: string | undefined;
   #steps: ActionWizardStep[] = [];
   #sessions = new Map<string, ActionWizardSession>();
   #completeHandler?: ActionWizardCompleteHandler<ContentTypes>;
@@ -84,10 +87,12 @@ export class ActionWizard<ContentTypes = unknown> {
     this.#id = id;
     this.#dm = options?.dm ?? false;
     if (options?.cancel) {
-      this.#cancelLabel =
-        typeof options.cancel === "object"
-          ? (options.cancel.label ?? "Cancel")
-          : "Cancel";
+      if (typeof options.cancel === "object") {
+        this.#cancelLabel = options.cancel.label ?? "Cancel";
+        this.#cancelCommand = options.cancel.command;
+      } else {
+        this.#cancelLabel = "Cancel";
+      }
     }
   }
 
@@ -213,12 +218,21 @@ export class ActionWizard<ContentTypes = unknown> {
         ctx.conversation.id,
         ctx.message.senderInboxId,
       );
-      if (isText(ctx.message) && ctx.message.content === `/${this.#id}`) {
-        if (this.#sessions.has(key)) {
-          await this.#handleCancel(key, ctx);
+      if (isText(ctx.message) && ctx.message.content) {
+        if (ctx.message.content === `/${this.#id}`) {
+          if (this.#sessions.has(key)) {
+            await this.#handleCancel(key, ctx);
+          }
+          await this.start(ctx);
+          return;
         }
-        await this.start(ctx);
-        return;
+
+        if (this.#cancelCommand && ctx.message.content === this.#cancelCommand) {
+          if (this.#sessions.has(key)) {
+            await this.#handleCancel(key, ctx);
+            return;
+          }
+        }
       }
 
       const session = this.#sessions.get(key);
