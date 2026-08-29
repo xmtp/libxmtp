@@ -343,6 +343,52 @@ class GroupPermissionsTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
 	}
 
+	func testCanUpdateAppDataPermission() async throws {
+		let fixtures = try await fixtures()
+		let boGroup = try await fixtures.boClient.conversations.newGroup(
+			with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
+			permissions: .adminOnly
+		)
+		try await fixtures.alixClient.conversations.sync()
+		let alixGroup = try XCTUnwrap(fixtures.alixClient.conversations
+			.listGroups().first)
+
+		// Verify that alix cannot update app data
+		try await assertThrowsAsyncError(
+			await alixGroup.updateAppData(appData: "new app data")
+		)
+
+		try await alixGroup.sync()
+		try await boGroup.sync()
+		XCTAssertEqual(
+			try boGroup.permissionPolicySet().updateAppDataPolicy,
+			.admin
+		)
+
+		// Update app data permissions so alix can update
+		try await boGroup.updateAppDataPermission(
+			newPermissionOption: .allow
+		)
+		try await boGroup.sync()
+		try await alixGroup.sync()
+		XCTAssertEqual(
+			try boGroup.permissionPolicySet().updateAppDataPolicy,
+			.allow
+		)
+
+		// Verify that alix can now update app data
+		try await alixGroup.updateAppData(appData: "alix app data")
+		try await alixGroup.sync()
+		try await boGroup.sync()
+		XCTAssertEqual(
+			try boGroup.appData(), "alix app data"
+		)
+		XCTAssertEqual(
+			try alixGroup.appData(), "alix app data"
+		)
+		try fixtures.cleanUpDatabases()
+	}
+
 	func testCanCreateGroupWithCustomPermissions() async throws {
 		let fixtures = try await fixtures()
 		let permissionPolicySet = PermissionPolicySet(
