@@ -596,17 +596,18 @@ public struct Group: Identifiable, Equatable, Hashable {
 	/// Reactions, replies, and other associated metadata are returned as separate messages
 	/// and are not linked to their parent messages.
 	///
-	/// For UI rendering, consider using ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// For UI rendering, consider using ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	/// instead,
 	/// which provides messages with enriched metadata automatically included.
 	///
-	/// - SeeAlso: ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// - SeeAlso: ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func messages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
@@ -660,6 +661,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		options.direction = direction
+		options.contentTypes = contentTypes
 		options.excludeContentTypes = excludeContentTypes
 		options.excludeSenderInboxIds = excludeSenderInboxIds
 		options.sortBy = sortBy?.toFfi()
@@ -678,6 +680,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
@@ -731,6 +734,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		options.direction = direction
+		options.contentTypes = contentTypes
 		options.excludeContentTypes = excludeContentTypes
 		options.excludeSenderInboxIds = excludeSenderInboxIds
 		options.sortBy = sortBy?.toFfi()
@@ -753,20 +757,21 @@ public struct Group: Identifiable, Equatable, Hashable {
 	/// this information.
 	///
 	/// **Recommended for UI rendering.** This method provides better performance and
-	/// simpler code compared to ``messages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// simpler code compared to ``messages(beforeNs:afterNs:limit:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	/// when displaying conversations.
 	///
 	/// When handling content types, use the generic `content<T>()` method with the
 	/// appropriate type for reactions and replies.
 	///
 	/// - Returns: Array of `DecodedMessageV2` with enriched metadata.
-	/// - SeeAlso: ``messages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// - SeeAlso: ``messages(beforeNs:afterNs:limit:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func enrichedMessages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
@@ -820,6 +825,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		options.direction = direction
+		options.contentTypes = contentTypes
 		options.excludeContentTypes = excludeContentTypes
 		options.excludeSenderInboxIds = excludeSenderInboxIds
 		options.sortBy = sortBy?.toFfi()
@@ -834,6 +840,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func countMessages(
 		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		insertedAfterNs: Int64? = nil,
@@ -846,7 +853,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 				limit: nil,
 				deliveryStatus: deliveryStatus.toFfi(),
 				direction: .descending,
-				contentTypes: nil,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: nil,

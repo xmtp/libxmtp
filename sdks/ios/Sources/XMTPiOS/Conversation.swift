@@ -294,17 +294,18 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	/// Reactions, replies, and other associated metadata are returned as separate messages
 	/// and are not linked to their parent messages.
 	///
-	/// For UI rendering, consider using ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// For UI rendering, consider using ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	/// instead,
 	/// which provides messages with enriched metadata automatically included.
 	///
-	/// - SeeAlso: ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// - SeeAlso: ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func messages(
 		limit: Int? = nil,
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
@@ -316,6 +317,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await group.messages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
@@ -326,6 +328,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await dm.messages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
@@ -360,6 +363,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		afterNs: Int64? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
@@ -371,6 +375,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await group.messagesWithReactions(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
@@ -381,6 +386,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await dm.messagesWithReactions(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
@@ -397,20 +403,21 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	/// this information.
 	///
 	/// **Recommended for UI rendering.** This method provides better performance and
-	/// simpler code compared to ``messages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// simpler code compared to ``messages(limit:beforeNs:afterNs:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	/// when displaying conversations.
 	///
 	/// When handling content types, use the generic `content<T>()` method with the
 	/// appropriate type for reactions and replies.
 	///
 	/// - Returns: Array of `DecodedMessageV2` with enriched metadata.
-	/// - SeeAlso: ``messages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// - SeeAlso: ``messages(limit:beforeNs:afterNs:direction:deliveryStatus:contentTypes:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func enrichedMessages(
 		limit: Int? = nil,
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
@@ -422,6 +429,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await group.enrichedMessages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
@@ -432,6 +440,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await dm.enrichedMessages(
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
@@ -445,6 +454,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
 		deliveryStatus: MessageDeliveryStatus = .all,
+		contentTypes: [StandardContentType]? = nil,
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		insertedAfterNs: Int64? = nil,
@@ -454,6 +464,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		case let .group(group):
 			try group.countMessages(
 				beforeNs: beforeNs, afterNs: afterNs, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				insertedAfterNs: insertedAfterNs,
@@ -462,6 +473,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		case let .dm(dm):
 			try dm.countMessages(
 				beforeNs: beforeNs, afterNs: afterNs, deliveryStatus: deliveryStatus,
+				contentTypes: contentTypes,
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				insertedAfterNs: insertedAfterNs,
