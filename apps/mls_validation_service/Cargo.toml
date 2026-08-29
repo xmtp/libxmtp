@@ -21,9 +21,9 @@ vergen-gix = { workspace = true, features = ["build"] }
 [dependencies]
 alloy.workspace = true
 async-trait.workspace = true
-clap = { workspace = true, features = ["env"] }
 futures.workspace = true
 hex.workspace = true
+lexopt = "0.3.2"
 lru.workspace = true
 openmls.workspace = true
 openmls_rust_crypto.workspace = true
