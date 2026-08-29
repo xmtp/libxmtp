@@ -42,7 +42,7 @@ impl crate::ErrorCode for Expired {
 fn duration_since_epoch() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .unwrap_or_default()
 }
 
 pub fn now_ns() -> i64 {
