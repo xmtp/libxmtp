@@ -318,6 +318,26 @@ impl ValidatedLegacySignedPublicKey {
     }
 }
 
+fn flip_recovery_id_y_parity(recovery_id: u8) -> Result<u8, SignatureError> {
+    match recovery_id {
+        // Raw k256 recovery ids carry y parity in the low bit and may carry
+        // x-reduced state in the second bit.
+        0..=3 => Ok(recovery_id ^ 1),
+        // Ethereum legacy v values encode y parity as 27/28.
+        27 => Ok(28),
+        28 => Ok(27),
+        // EIP-155 values encode y parity as (v - 35) % 2.
+        35..=u8::MAX => {
+            if (recovery_id - 35) % 2 == 0 {
+                recovery_id.checked_add(1).ok_or(SignatureError::Invalid)
+            } else {
+                Ok(recovery_id - 1)
+            }
+        }
+        _ => Err(SignatureError::Invalid),
+    }
+}
+
 /// Converts a signature to use the lower-s value to prevent signature malleability
 pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
     // Check if we have a recovery id byte
@@ -331,9 +351,12 @@ pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
     let sig = K256Signature::try_from(sig_data)?;
 
     // If s is already normalized (lower-s), return the original bytes
-    let normalized = match sig.normalize_s() {
-        None => sig_data.to_vec(),
-        Some(normalized) => normalized.to_bytes().to_vec(),
+    let (normalized, recovery_id) = match sig.normalize_s() {
+        None => (sig_data.to_vec(), recovery_id),
+        Some(normalized) => (
+            normalized.to_bytes().to_vec(),
+            recovery_id.map(flip_recovery_id_y_parity).transpose()?,
+        ),
     };
 
     // Add back recovery id if it was present
@@ -421,6 +444,39 @@ mod tests {
         let recovered_sig = K256Signature::try_from(&normalized_high_s.as_slice()[..64]).unwrap();
         let is_high: bool = recovered_sig.s().is_high().into();
         assert!(!is_high, "Normalized signature should have low-s value");
+    }
+
+    #[xmtp_common::test]
+    fn test_to_lower_s_preserves_recoverable_ecdsa_signer() {
+        use crate::associations::verified_signature::VerifiedSignature;
+        use alloy::signers::k256::elliptic_curve::{Curve, bigint::Encoding};
+        use alloy::signers::k256::{Secp256k1, U256};
+
+        let signer = LocalSigner::random();
+        let message = "test message";
+        let signature = signer.sign_message_sync(message.as_bytes()).unwrap();
+        let low_s_sig: Vec<u8> = signature.into();
+
+        let s = U256::from_be_slice(&low_s_sig[32..64]);
+        let high_s = Secp256k1::ORDER.wrapping_sub(&s);
+        let high_s_bytes = high_s.to_be_bytes();
+
+        let mut high_s_sig = low_s_sig.clone();
+        high_s_sig[32..64].copy_from_slice(&high_s_bytes);
+        high_s_sig[64] = super::flip_recovery_id_y_parity(low_s_sig[64]).unwrap();
+
+        let normalized = to_lower_s(&high_s_sig).unwrap();
+        assert_eq!(
+            normalized[64], low_s_sig[64],
+            "normalizing s must flip the recovery id back to the original parity"
+        );
+
+        VerifiedSignature::from_recoverable_ecdsa_with_expected_address(
+            message,
+            &normalized,
+            signer.address().to_string().as_str(),
+        )
+        .expect("normalized high-s signature should recover the original signer");
     }
 
     #[wasm_bindgen_test(unsupported = test)]
