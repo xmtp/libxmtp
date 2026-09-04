@@ -68,7 +68,7 @@ Until Phase 5 the backend has no retained-floor signal and the client has no gap
 ### 5.1 Atomicity and idempotency
 
 - API-030: A publish request is atomic. Either every envelope in it is stored or none is.
-- API-031: A publish request must contain at most 50 envelopes and at most 25 MiB. A larger request fails with `INVALID_ARGUMENT` and no envelope is stored.
+- API-031: A publish request has no envelope count limit. It must be at most 25 MiB, and every envelope in it must be at most 1 MiB. A larger request or envelope fails with `INVALID_ARGUMENT` and no envelope is stored. One MLS commit and its proposals therefore stay in one atomic publish.
 - API-032: The response lists one metadata entry per envelope, in request order.
 - API-033: An envelope whose `(topic, message_hash)` is already stored is a duplicate. The backend must not store it again and must return the stored metadata as success.
 - API-034: Two identical envelopes in one request collapse to one stored row. Both response entries carry the same metadata.
@@ -82,7 +82,7 @@ Because the hash covers the whole envelope, a re-signed or re-encrypted copy of 
 - API-041: A group message must be a valid MLS protocol message. The backend derives the group id and `is_commit` from the parse. The backend does not verify group membership or the MLS signature; MLS confidentiality makes that impossible without the group key.
 - API-042: A key package must pass key-package validation. A failure is `INVALID_ARGUMENT`, reason `INVALID_KEY_PACKAGE`.
 - API-043: An identity update must apply cleanly to the inbox's current association state, read from the inbox's identity topic. A failure is `INVALID_ARGUMENT`, reason `INVALID_IDENTITY_UPDATE`. A signature failure is reason `INVALID_SIGNATURE`.
-- API-044: Smart-contract-wallet signatures inside an identity update are verified over chain RPC. A chain RPC failure is `UNAVAILABLE`, not `INVALID_ARGUMENT`.
+- API-044: Smart-contract-wallet signatures inside an identity update are verified over chain RPC. A chain RPC failure is `UNAVAILABLE`, not `INVALID_ARGUMENT`. An identity update carries at most 100 such signatures.
 - API-045: A welcome is stored without validation beyond parsing. The backend must not check that a welcome's installation key belongs to a registered installation; welcome pointers are addressed to random 32-byte values by design.
 - API-046: A commit-log entry must parse as a plaintext commit-log entry that carries a group id. Its signature is stored and returned, not verified.
 - API-047: The error detail for an `INVALID_ARGUMENT` names the index of the first failing envelope and a reason code. A request-level error carries no index.
@@ -110,7 +110,7 @@ Because the hash covers the whole envelope, a re-signed or re-encrypted copy of 
 ## 6. Query
 
 - API-070: A query names up to 1000 `(topic, cursor)` pairs and a `limit`. A request with more than 1000 pairs fails with `INVALID_ARGUMENT`.
-- API-071: `limit` is the total number of envelopes across all topics. The maximum and the default are 100. A larger value is clamped to 100.
+- API-071: `limit` is the total number of envelopes across all topics. The maximum is 1000 and the default is 100. A larger value is clamped to 1000.
 - API-072: The result is the union of all envelopes with `sequence_id > cursor` on their topic, ascending by sequence id within each topic, cut at `limit`. The order across topics carries no meaning.
 - API-073: `continuation.has_more` is true when more envelopes matched than `limit` allowed. The backend must compute it from the same read as the page.
 - API-074: Client rule: for each topic that returned rows, set its cursor to the highest sequence id returned for that topic. Leave every other cursor unchanged. When `has_more` is true, query again with the updated cursors.
@@ -134,7 +134,7 @@ The bidirectional stream follows XIP-83. Spec 004 states the full protocol. The 
 - API-090: The first frame on every stream is `Started`, carrying the server's keepalive interval and its capability list. In v1 the capability list is empty. A keepalive interval of 0 means the server advertises none and the client uses its own default.
 - API-091: A `Mutate` frame adds and removes topics atomically. Adds carry a cursor; the server replays every envelope above the cursor, then delivers live. Removes clear the topic's cursor floor.
 - API-092: A `Mutate` must carry at most 100,000 adds and at most 100,000 removes. A stream must hold at most 100,000 topics. A violation fails the stream with `INVALID_ARGUMENT`.
-- API-093: `mutate_id` must be nonzero when adds are present and must not equal the id of a wave still in flight. A violation fails the stream with `INVALID_ARGUMENT`. The number of waves in flight on one stream is unbounded in v1.
+- API-093: `mutate_id` must be nonzero when adds are present and must not equal the id of a wave still in flight. A violation fails the stream with `INVALID_ARGUMENT`. At most 256 waves may be in flight on one stream; a `Mutate` that would open the 257th fails the stream with `INVALID_ARGUMENT`.
 - API-094: Every `Mutate` is acknowledged with exactly one `CatchupComplete` carrying its `mutate_id`, including removes-only and no-op mutations.
 - API-095: A delivery frame belongs to exactly one wave or to live. The frame's `mutate_id` is the wave's id, or 0 for live. The server never mixes lanes in one frame.
 - API-096: Within a frame, envelopes of one topic are ascending by sequence id. Topics may interleave in any order.
@@ -152,61 +152,55 @@ The bidirectional stream follows XIP-83. Spec 004 states the full protocol. The 
 
 The static stream serves clients that cannot open a bidirectional stream.
 
-- API-110: A static subscription names a fixed list of up to 1000 `(topic, cursor)` pairs. Zero topics or more than 1000 fails with `INVALID_ARGUMENT`. A client with no topics opens no stream until it has one.
+- API-110: A static subscription names a fixed list of up to 10,000 `(topic, cursor)` pairs. Zero topics or more than 10,000 fails with `INVALID_ARGUMENT`. A client with no topics opens no stream until it has one.
 - API-111: The first frame is `Started`, carrying the keepalive interval.
 - API-112: The server replays every envelope above each cursor, sends one `CatchupComplete`, then delivers live until the client cancels.
 - API-113: `Keepalive` frames flow from server to client only and are never answered. The client reopens the stream after three keepalive intervals of silence.
-- API-114: To change its topic set, a client opens a new stream from its durable cursors and cancels the old one. A client with more than 1000 topics opens more than one stream.
+- API-114: To change its topic set, a client opens a new stream from its durable cursors and cancels the old one. A client with more than 10,000 topics opens more than one stream.
 
 ## 10. Identity reads
 
 - API-120: An inbox-id lookup names up to 250 identifiers, each with its kind. More than 250 fails with `INVALID_ARGUMENT`.
 - API-121: The response has one entry per request entry, in order, echoing the identifier and its kind. The inbox id is absent when the identifier has no association.
 - API-122: An identifier resolves to the inbox with the latest association. Revoked associations do not resolve.
-- API-123: Smart-contract-wallet signature verification takes a list of signatures and returns one result per signature, in order. A chain RPC failure is `UNAVAILABLE`.
+- API-123: Smart-contract-wallet signature verification takes a list of at most 100 signatures and returns one result per signature, in order. A chain RPC failure is `UNAVAILABLE`.
 
 ## 11. Limits
 
 | Limit | Value |
 | --- | --- |
 | Query topics per request | 1000 |
-| Query limit | max 100, default 100 |
+| Query limit | max 1000, default 100 |
 | Newest-envelope topics, metadata only | 1000 |
 | Newest-envelope topics, full envelopes | 100 |
-| Publish envelopes per request | 50 |
+| Publish envelopes per request | no count limit; bytes only |
+| Envelope bytes | 1 MiB |
 | Request and response bytes | 25 MiB |
 | Mutate adds per frame | 100,000 |
 | Mutate removes per frame | 100,000 |
 | Topics per bidirectional stream | 100,000 |
-| Static-subscription topics per request | 1000 |
+| Static-subscription topics per request | 10,000 |
+| Waves in flight per bidirectional stream | 256 |
 | Inbox-id lookup identifiers | 250 |
+| Signatures per smart-contract-wallet verify request | 100 |
+| Identity-update entries per inbox | 256 |
+| Concurrent requests per connection (HTTP/2 streams) | 100 |
 | Keepalive interval | 30 s |
 
 - API-130: The backend must reject a unary request above a limit with `INVALID_ARGUMENT` and must fail a stream above a limit with `INVALID_ARGUMENT`.
 - API-131: Every limit is one named configuration value. No limit is a literal in code.
-
-### 11.0 Limits under review
-
-A cross-check of the table against today's servers and clients (2026-09-04) found four values that a request working today would exceed. They stay in the table until the owner decides; the recommendation is in the questions plan.
-
-| Limit | Today | Client today | Recommendation |
-| --- | --- | --- | --- |
-| Publish envelopes per request, 50 | v3 and v4: no count cap | A membership update on a proposals-enabled group sends one proposal per installation plus the commit in one request; up to about 2,500 | Drop the count cap; keep the 25 MiB byte cap. A commit and its proposals then stay in one atomic publish |
-| Query limit, 100 rows across topics | v4: 1,000 rows; v3: full tail | Identity-update reads for 50 inboxes send no limit and have no paging loop | Raise the max to 1,000 rows and add the client paging loop |
-| Static-subscription topics, 1,000 | v3: no cap; v4: 10,000 | Every conversation in one request; the only path in browsers | Raise to 10,000 or keep 1,000 and make the client open one stream per 1,000 topics (API-144) |
-| Topics per bidirectional stream, 100,000 | v3: no cap; v4: 1,000,000 | One shared wire per process carries every client in the process | Keep 100,000 unless an agent host needs more |
-
-Limits that exist today and are absent here: per-envelope payload size (v4: 200,000 bytes for identity updates), signatures per smart-contract-wallet verify request, waves in flight per stream (v4: 256), publish concurrency, and rate limits (Phase 6).
+- API-132: The backend must advertise at most 100 concurrent HTTP/2 streams per connection. A client that exceeds it queues locally; the backend does not fail the request.
+- API-133: Rate limits are Phase 6 work. Until then the backend applies no per-caller rate limit.
 
 ### 11.1 Client chunking requirements
 
 - API-140: The client must chunk newest-envelope reads with full envelopes at 100 topics and must cap the number of chunks in flight.
 - API-141: The client must chunk inbox-id lookups at 250 identifiers.
-- API-142: The client must chunk publishes at 50 envelopes and must cap the number of chunks in flight. It must measure the encoded request size rather than estimate it, and it must re-chunk on a `TOO_LARGE` reason.
+- API-142: The client must chunk publishes by encoded size under 25 MiB and must cap the number of chunks in flight. It must measure the encoded request size rather than estimate it, and it must re-chunk on a `TOO_LARGE` reason. A commit and its proposals must stay in one chunk.
 - API-143: The client must chunk queries and metadata-only newest-envelope reads at 1000 topics.
-- API-144: The client must open a static subscription per 1000 topics.
+- API-144: The client must open a static subscription per 10,000 topics.
 - API-145: Phase 3 integration tests must cover every limit at the boundary and one past it.
-- API-146: Key-package reads, inbox-id lookups, query paging, static-subscription splitting, and proposal-bearing group publishes are unchunked in the client today. The chunking in API-140 to API-144 and a `has_more` paging loop for identity-update and commit-log reads are new client work that lands with this API.
+- API-146: Key-package reads, inbox-id lookups, query paging, and static-subscription splitting are unchunked in the client today. The chunking in API-140, API-141, and API-144 and a `has_more` paging loop for identity-update and commit-log reads are new client work that lands with this API.
 - API-148: The backend must reject an identity update for an inbox whose log already holds 256 entries with `INVALID_ARGUMENT` and reason `REASON_INVALID_IDENTITY_UPDATE`, as both existing backends do.
 - API-147: The client must add a fifth topic kind for the commit log and publish and read commit-log entries as envelopes.
 
@@ -246,3 +240,4 @@ Limits that exist today and are absent here: per-envelope payload size (v4: 200,
 | 2026-09-03 | Seeded from the Phase 0 proto review. Ordering model, wrappers, fresh payloads, idempotency, paging, `SubscribeStatic`, key-package retention, limits, and the error table were approved by the project owner in that review. Section 8 edge cases and the stream cap of 100,000 topics are carried from the review and await confirmation. A coverage check against the client caller and streaming catalogs added API-016, 023, 024, 045 (welcome keys), 063, 066 (drop rule), 067, 076, 090 (zero interval), 093 (waves), 100 (add plus remove), 103 to 105, 110 (no topics), 142 (measured size), 146, 147, and 153. |
 | 2026-09-04 | Owner decisions from the questions review: retention is per topic kind (API-021, API-062; identity updates never expire, `expiry_ns` is zero for them); no version or metadata endpoint in v1 (API-162, section 14); envelopes stay unsigned (API-163 confirmed); the stream cap of 100,000 topics and the `Mutate` adds cap of 100,000 are confirmed. Open: retention periods for welcome messages and commit-log entries. |
 | 2026-09-04 | Limits cross-check against the existing-behavior wiki and client code: added section 11.0, widened API-146, added API-148 (inbox log cap of 256). Four limits are under review by the owner. |
+| 2026-09-04 | Owner decisions on the limits cross-check: publish has no count cap (API-031, API-142); query limit max 1000 (API-071); static subscription 10,000 topics (API-110, API-114, API-144); API-148 confirmed; new limits for envelope bytes (1 MiB), smart-contract-wallet signatures (100, API-044, API-123), waves in flight (256, API-093), and concurrent streams per connection (API-132); rate limits stay Phase 6 (API-133). Section 11.0 removed. |

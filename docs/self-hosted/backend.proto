@@ -168,7 +168,7 @@ message ServerEnvelope {
 message QueryRequest {
   // Max 1000.
   repeated TopicQuery queries = 1;
-  // Total across all topics. Max and default 100.
+  // Total across all topics. Max 1000, default 100.
   uint32 limit = 2;
 }
 
@@ -212,7 +212,8 @@ message QueryNewestResponse {
 // Publish
 // ---------------------------------------------------------------------------
 
-// Atomic: every envelope is stored or none is. Max 50 envelopes and 25 MiB.
+// Atomic: every envelope is stored or none is. No envelope count limit; the
+// request is at most 25 MiB and each envelope at most 1 MiB.
 // At most one identity update per inbox per request. A repeat of an envelope
 // already stored on its topic (same MessageHash) is not an error: the stored
 // meta is returned as success.
@@ -266,6 +267,8 @@ message SubscribeRequest {
     bool history_only = 3;
     // Client-chosen correlation id. Nonzero when adds are present (0 is the
     // live tag). Must not match a wave still in flight on this stream.
+    // At most 256 waves may be in flight; the 257th fails the stream with
+    // INVALID_ARGUMENT.
     // Every Mutate is acknowledged with its own mutate_id, including
     // removes-only and no-op mutations.
     uint64 mutate_id = 4;
@@ -358,9 +361,9 @@ message SubscribeResponse {
 // Fixed topic list: catch up every topic above its cursor, then stay live
 // until the client cancels. To change topics, open a new stream from the
 // durable per-topic cursors and cancel the old one. Zero topics is
-// INVALID_ARGUMENT. A client with more than 1000 topics opens more streams.
+// INVALID_ARGUMENT. A client with more than 10,000 topics opens more streams.
 message SubscribeStaticRequest {
-  // Max 1000.
+  // Max 10,000.
   repeated TopicQuery topics = 1;
 }
 
@@ -418,6 +421,7 @@ message GetInboxIdsResponse {
 }
 
 message VerifySmartContractWalletSignaturesRequest {
+  // Max 100 signatures per request.
   message Signature {
     // CAIP-10 account id.
     string account_id = 1;
@@ -452,7 +456,7 @@ service QueryService {
 }
 
 service PublishService {
-  // Atomic, idempotent publish of up to 50 envelopes.
+  // Atomic, idempotent publish of a batch of envelopes (25 MiB cap).
   rpc Publish(PublishRequest) returns (PublishResponse) {}
 }
 
