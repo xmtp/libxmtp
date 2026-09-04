@@ -15,6 +15,7 @@ build_and_stage() {
   # Replace dist wholesale. Nix store files are read-only (mode 444), so a
   # plain cp over an existing dist fails on re-run; recreate it and drop the
   # read-only mode so later builds and tooling can overwrite.
+  [ -e "${dest}" ] && chmod -R u+w "${dest}"
   rm -rf "${dest}"
   mkdir -p "${dest}"
   cp -rL "${ROOT}/bindings/${dir}/.nix-dist/dist/." "${dest}/"
