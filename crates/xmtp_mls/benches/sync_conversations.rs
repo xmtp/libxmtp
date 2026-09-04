@@ -84,7 +84,7 @@ async fn setup_sync_conversations_bench(
         group.add_members(&[other_client.inbox_id()]).await.unwrap();
 
         all_groups.push(group.clone());
-        other_client_groups.push(group.group_id.clone());
+        other_client_groups.push(group.group_id);
 
         // Mark the first `groups_with_messages` groups as having new messages
         if i < groups_with_messages {

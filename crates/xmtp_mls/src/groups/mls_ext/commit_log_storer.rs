@@ -5,7 +5,6 @@ use crate::identity::Identity;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
-use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::{
@@ -15,6 +14,7 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
 };
 
+use xmtp_proto::types::GroupId;
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {
@@ -77,7 +77,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -104,7 +104,7 @@ impl CommitLogStorer for MlsGroup {
             provider,
             &identity.installation_keys,
             group_config,
-            group_id,
+            group_id.to_openmls(),
             CredentialWithKey {
                 credential: identity.credential(),
                 signature_key: identity.installation_keys.public_slice().into(),
@@ -115,7 +115,7 @@ impl CommitLogStorer for MlsGroup {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -143,7 +143,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().try_into()?,
                 // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
@@ -168,17 +168,69 @@ impl CommitLogStorer for MlsGroup {
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
     ) -> Result<(), GroupMessageProcessingError> {
+        // Whether this commit removes our own leaf (authored by anyone — an
+        // admin removal or our own leave request). Captured before the merge
+        // consumes the staged commit.
+        let removed_us = staged_commit.self_removed();
+        let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
+        let applied_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
+
+        if removed_us {
+            // A commit that removes us merges only the public diff (openmls
+            // `StagedCommitState::PublicState`): the group context epoch
+            // advances and the group becomes inactive, but a removed member
+            // cannot derive the new epoch's secrets. Record what is actually
+            // true — we processed the commit, remained at the pre-commit
+            // epoch, and exited — instead of claiming we applied the new
+            // epoch with a stale authenticator (which fork detection would
+            // misread as a fork; see commit-log fork investigation).
+            if xmtp_configuration::ENABLE_COMMIT_LOG {
+                NewLocalCommitLog {
+                    group_id: self.group_id().try_into()?,
+                    commit_sequence_id: sequence_id,
+                    last_epoch_authenticator: last_epoch_authenticator.clone(),
+                    commit_result: CommitResult::Success,
+                    applied_epoch_number: last_epoch_number,
+                    applied_epoch_authenticator: last_epoch_authenticator,
+                    sender_inbox_id: Some(validated_commit.actor_inbox_id()),
+                    sender_installation_id: Some(validated_commit.actor_installation_id()),
+                    commit_type: Some(format!("{}", CommitType::RemovedFromGroup)),
+                    error_message: None,
+                }
+                .store(&provider.key_store().db())?;
+            }
+            return Ok(());
+        }
+
+        // Invariant: a successful staged-commit merge by a member that
+        // remains in the group always advances the epoch and therefore
+        // changes the epoch authenticator. If it did not, the group state we
+        // merged onto was corrupt/torn (e.g. a cross-process race on a shared
+        // MLS DB handed us a reloaded group that already carried the
+        // post-commit epoch secrets). Recording a Success entry would persist
+        // a forked commit log. Refuse instead: the error is retryable, so the
+        // enclosing transaction (cursor advance + merge + log write) rolls
+        // back and the message is reprocessed against settled state.
+        if applied_epoch_authenticator == last_epoch_authenticator {
+            // No tracing here: the error carries the full context and is
+            // logged when it surfaces at its destination.
+            return Err(GroupMessageProcessingError::EpochAuthenticatorNotAdvanced {
+                group_id: self.group_id().try_into()?,
+                commit_sequence_id: sequence_id,
+                epoch: self.epoch().as_u64(),
+            });
+        }
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: self.group_id().to_vec(),
+                group_id: self.group_id().try_into()?,
                 commit_sequence_id: sequence_id,
                 last_epoch_authenticator,
                 commit_result: CommitResult::Success,
                 applied_epoch_number: self.epoch().as_u64() as i64,
-                applied_epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
+                applied_epoch_authenticator,
                 sender_inbox_id: Some(validated_commit.actor_inbox_id()),
                 sender_installation_id: Some(validated_commit.actor_installation_id()),
                 commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
@@ -200,7 +252,7 @@ impl CommitLogStorer for MlsGroup {
         if !xmtp_configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
-        let group_id = self.group_id().to_vec();
+        let group_id: GroupId = self.group_id().try_into()?;
         let last_epoch_number = self.epoch();
         let last_epoch_authenticator = self.epoch_authenticator();
         let conn = provider.key_store().db();
@@ -218,7 +270,7 @@ impl CommitLogStorer for MlsGroup {
         }
 
         NewLocalCommitLog {
-            group_id: group_id.to_vec(),
+            group_id,
             commit_sequence_id: commit_sequence_id as i64,
             last_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),
             commit_result: error.commit_result(),

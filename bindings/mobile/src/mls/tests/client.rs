@@ -15,11 +15,12 @@ async fn test_create_client_with_storage() {
 
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
+        None,
         None,
         None,
         None,
@@ -34,11 +35,12 @@ async fn test_create_client_with_storage() {
 
     let client_b = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
+        None,
         None,
         None,
         None,
@@ -69,11 +71,12 @@ async fn test_create_client_with_key() {
 
     let client_a = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), Some(key), None, None),
+        DbOptions::new(Some(path.clone()), Some(key), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
+        None,
         None,
         None,
         None,
@@ -89,11 +92,18 @@ async fn test_create_client_with_key() {
 
     let result_errored = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), Some(other_key.to_vec()), None, None),
+        DbOptions::new(
+            Some(path.clone()),
+            Some(other_key.to_vec()),
+            None,
+            None,
+            None,
+        ),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
+        None,
+        None,
         None,
         None,
         None,
@@ -119,11 +129,12 @@ async fn test_can_message() {
 
     let client_amal = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &amal_inbox_id,
         amal.identifier(),
         nonce,
+        None,
+        None,
         None,
         None,
         None,
@@ -159,11 +170,12 @@ async fn test_can_message() {
 
     let client_bola = create_client(
         connect_to_backend_test().await,
-        connect_to_backend_test().await,
-        DbOptions::new(Some(path.clone()), None, None, None),
+        DbOptions::new(Some(path.clone()), None, None, None, None),
         &bola_inbox_id,
         bola.identifier(),
         nonce,
+        None,
+        None,
         None,
         None,
         None,
@@ -290,4 +302,13 @@ async fn test_get_hmac_keys() {
         assert_eq!(value.key.len(), 42);
         assert!(value.epoch >= 1);
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_shutdown_is_idempotent() {
+    let client = new_test_client().await;
+    client.shutdown().await.unwrap();
+    // A second call must resolve to Ok(()) without panicking — consumers may
+    // call shutdown() defensively on a client they cannot prove is still open.
+    client.shutdown().await.unwrap();
 }

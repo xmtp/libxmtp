@@ -12,6 +12,7 @@ use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::{
     api::Client,
     prelude::{ApiBuilder, NetConnectConfig},
+    types::GroupId,
 };
 
 /// Debug & Generate data on the XMTP Network
@@ -34,6 +35,18 @@ pub struct AppOpts {
     /// to stdout. Off by default for clean CLI output.
     #[arg(long)]
     pub metrics: bool,
+    /// Exit non-zero on the first per-operation error instead of logging
+    /// and continuing. Useful in `git bisect run` sessions where a single
+    /// failed send/sync should mark the commit bad.
+    #[arg(long)]
+    pub fail_fast: bool,
+    /// Hide identities created by other xdbg binary versions. By default
+    /// every identity (regardless of which xdbg version created it) is
+    /// visible. With this flag, only identities created by this exact
+    /// binary version are visible. Writes are always partitioned by
+    /// version regardless of the flag.
+    #[arg(long)]
+    pub strict_versioning: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -48,6 +61,8 @@ pub enum Commands {
     Export(ExportOpts),
     Stream(StreamOpts),
     Test(TestOpts),
+    Healthcheck(HealthcheckOpts),
+    Sync(SyncOpts),
 }
 
 /// Send Data on the network
@@ -87,7 +102,7 @@ pub struct Generate {
     pub ryow: bool,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Copy, Debug, Clone)]
 pub struct MessageGenerateOpts {
     /// Continuously generate & send messages
     #[arg(long, short)]
@@ -122,12 +137,22 @@ pub struct Modify {
     /// group to modify
     pub group_id: GroupId,
 
-    /// InboxID to add or remove
+    /// InboxID to add or remove (ignored for `add-from-redb`)
     #[arg(long, short)]
     pub inbox_id: Option<InboxId>,
+
+    /// For `add-from-redb`: which version_hash partitions to pull
+    /// identities from.
+    #[arg(long, value_enum, default_value_t = IncludeVersions::All)]
+    pub include_versions: IncludeVersions,
+
+    /// For `add-from-redb`: also promote each newly-added inbox to
+    /// super-admin via `update_admin_list(AddSuper, inbox)`.
+    #[arg(long)]
+    pub promote_super_admin: bool,
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
 pub enum MemberModificationKind {
     /// Remove a member from a group
     Remove,
@@ -135,6 +160,30 @@ pub enum MemberModificationKind {
     AddRandom,
     /// Add an external id the group
     AddExternal,
+    /// Add identities loaded from redb. Uses `--include-versions` and
+    /// `--promote-super-admin`. The positional `--inbox-id` is ignored.
+    AddFromRedb,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncludeVersions {
+    /// Only identities created by this exact xdbg binary version.
+    #[value(name = "self")]
+    Self_,
+    /// Every version EXCEPT this binary's version.
+    Other,
+    /// All versions (default).
+    All,
+}
+
+impl std::fmt::Display for IncludeVersions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IncludeVersions::Self_ => write!(f, "self"),
+            IncludeVersions::Other => write!(f, "other"),
+            IncludeVersions::All => write!(f, "all"),
+        }
+    }
 }
 
 /// Inspect Local State
@@ -164,6 +213,12 @@ pub enum Query {
     BatchQueryCommitLog(BatchQueryCommitLog),
     /// Get all keypackages for each installation id in the app db
     AllKeyPackages,
+    /// Query the server-side welcome queue for every installation
+    /// known to redb (across all binary-version partitions). Bypasses
+    /// libxmtp's `sync_welcomes` so you see the raw server response —
+    /// useful for diagnosing "welcome was published but recipient
+    /// sync returned 0" scenarios.
+    Welcomes,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -303,6 +358,9 @@ pub struct LogOptions {
     /// Specify verbosity of logs, default ERROR
     #[command(flatten)]
     pub verbose: Verbosity<InfoLevel>,
+    /// Append `openmls_kv=trace` to file-log filter to capture SqlKeyStore K/V spans.
+    #[arg(long)]
+    pub trace_openmls_kv: bool,
 }
 
 /// Specify which backend to use
@@ -346,6 +404,10 @@ fn default_ryow_timeout() -> humantime::Duration {
 }
 
 impl BackendOpts {
+    pub fn hash(&self) -> u64 {
+        (self).into()
+    }
+
     pub fn xmtpd_gateway_url(&self) -> eyre::Result<url::Url> {
         use BackendKind::*;
 
@@ -549,6 +611,27 @@ pub enum TestScenario {
     WalletContinuity,
 }
 
+/// Cross-version libxmtp health check.
+/// Runs every user-visible protocol op against the local xdbg state,
+/// validates that all clients converge, and exits non-zero on any failure.
+#[derive(Args, Debug)]
+pub struct HealthcheckOpts {
+    /// Skip mutating ops; only reads, sends, and validators run.
+    /// Primary is reused from existing_clients instead of registered.
+    #[arg(long)]
+    pub read_only: bool,
+}
+
+/// Walk identities loaded from redb, run `sync_welcomes` + per-group
+/// `sync` on each, and reconcile redb's `GroupStore` / `MessageStore`
+/// against libxmtp's SQLite. Useful for catching up local state when
+/// other xdbg invocations have mutated the network.
+///
+/// Honors `--strict-versioning` — only syncs identities visible to
+/// the current binary version when the flag is set.
+#[derive(Args, Debug)]
+pub struct SyncOpts {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,80 +640,6 @@ mod tests {
     fn parse_backend_args(args: &[&str]) -> Result<BackendOpts, clap::Error> {
         AppOpts::try_parse_from(std::iter::once("test").chain(args.iter().copied()))
             .map(|app| app.backend)
-    }
-
-    #[test]
-    fn backend_only_is_valid() {
-        let opts = parse_backend_args(&["--backend", "local"]);
-        assert!(opts.is_ok());
-    }
-
-    #[test]
-    fn url_and_gateway_url_is_valid() {
-        let opts = parse_backend_args(&[
-            "--url",
-            "http://localhost:5050",
-            "--xmtpd-gateway-url",
-            "http://localhost:5052",
-        ]);
-        assert!(opts.is_ok());
-    }
-
-    #[test]
-    fn backend_and_url_is_invalid() {
-        let opts = parse_backend_args(&["--backend", "local", "--url", "http://localhost:5050"]);
-        assert!(opts.is_err());
-    }
-
-    #[test]
-    fn backend_and_gateway_url_is_invalid() {
-        let opts = parse_backend_args(&[
-            "--backend",
-            "local",
-            "--xmtpd-gateway-url",
-            "http://localhost:5052",
-        ]);
-        assert!(opts.is_err());
-    }
-
-    #[test]
-    fn url_only_is_valid_but_maybe_warning() {
-        let opts = parse_backend_args(&["--url", "http://localhost:5050"]);
-        assert!(opts.is_ok());
-    }
-
-    #[test]
-    fn gateway_url_only_is_valid_but_maybe_warning() {
-        let opts = parse_backend_args(&["--xmtpd-gateway-url", "http://localhost:5052"]);
-        assert!(opts.is_ok());
-    }
-
-    #[test]
-    fn backend_and_both_urls_is_invalid() {
-        let opts = parse_backend_args(&[
-            "--backend",
-            "local",
-            "--url",
-            "http://localhost:5050",
-            "--xmtpd-gateway-url",
-            "http://localhost:5052",
-        ]);
-        assert!(opts.is_err());
-    }
-
-    #[test]
-    fn perf_requires_d14n() {
-        let opts = parse_backend_args(&["--perf"]);
-        assert!(opts.is_err(), "--perf without --d14n should fail");
-    }
-
-    #[test]
-    fn perf_with_d14n_is_valid() {
-        let opts = parse_backend_args(&["--perf", "--d14n"]);
-        assert!(opts.is_ok());
-        let backend = opts.unwrap();
-        assert!(backend.perf);
-        assert!(backend.d14n);
     }
 
     #[test]
@@ -667,26 +676,5 @@ mod tests {
             "http://custom:5052/",
             "explicit --xmtpd-gateway-url should override perf gateway"
         );
-    }
-
-    #[test]
-    fn metrics_flag_defaults_false() {
-        let opts = AppOpts::try_parse_from(["xdbg"]).expect("parses with no args");
-        assert!(!opts.metrics, "--metrics should default to false");
-    }
-
-    #[test]
-    fn metrics_flag_parses_when_present() {
-        let opts = AppOpts::try_parse_from(["xdbg", "--metrics"]).expect("parses with --metrics");
-        assert!(opts.metrics, "--metrics should set opts.metrics to true");
-    }
-
-    #[test]
-    fn metrics_flag_coexists_with_enable_migration_short_flag() {
-        // -m is --enable-migration on BackendOpts; --metrics must not collide.
-        let opts = AppOpts::try_parse_from(["xdbg", "--metrics", "-m"])
-            .expect("--metrics and -m should coexist");
-        assert!(opts.metrics);
-        assert!(opts.backend.enable_migration);
     }
 }

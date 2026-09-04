@@ -1,0 +1,82 @@
+# Opens/updates the libxmtp dev-release bump PR in xmtplabs/convos-cli.
+# Invoked by the open-consumer-prs job in .github/workflows/release.yml with
+# VERSION, BINDING_VERSION, SOURCE_BRANCH, UPDATECLI_GITHUB_TOKEN in env.
+name: 'convos-cli: bump libxmtp to {{ requiredEnv "VERSION" }}'
+
+# One PR per libxmtp source branch: hash of the real branch name keys the
+# working branch, so feature/foo and feature-foo never collide and both ref
+# forms (refs/heads/x and x) key identically.
+pipelineid: '{{ requiredEnv "SOURCE_BRANCH" | trimPrefix "refs/heads/" | sha256sum | trunc 8 }}'
+
+scms:
+  consumer:
+    kind: github
+    spec:
+      owner: xmtplabs
+      repository: convos-cli
+      branch: main
+      username: x-access-token
+      token: '{{ requiredEnv "UPDATECLI_GITHUB_TOKEN" }}'
+      user: 'xmtp-dev-release[bot]'
+      email: '319876561+xmtp-dev-release[bot]@users.noreply.github.com'
+      workingbranchprefix: libxmtp-dev
+      force: true
+
+actions:
+  pr:
+    kind: github/pullrequest
+    scmid: consumer
+    spec:
+      title: 'chore(deps): bump libxmtp to {{ requiredEnv "VERSION" }}'
+      labels:
+        - dependencies
+      description: |
+        Automated dev-release bump from [xmtp/libxmtp](https://github.com/xmtp/libxmtp) branch `{{ requiredEnv "SOURCE_BRANCH" | trimPrefix "refs/heads/" }}`.
+
+        | Package | Version |
+        | --- | --- |
+        | `@xmtp/node-sdk` | `{{ requiredEnv "VERSION" }}` |
+        | `@xmtp/node-bindings` | `{{ requiredEnv "BINDING_VERSION" }}` |
+
+        Release run: {{ env "GITHUB_SERVER_URL" }}/{{ env "GITHUB_REPOSITORY" }}/actions/runs/{{ env "GITHUB_RUN_ID" }}
+
+        Re-running a dev release from the same branch updates this PR in place; close it if the branch is abandoned.
+
+targets:
+  node-sdk-pin:
+    name: 'pin @xmtp/node-sdk {{ requiredEnv "VERSION" }}'
+    kind: file
+    scmid: consumer
+    disablesourceinput: true
+    spec:
+      file: package.json
+      matchpattern: '("@xmtp/node-sdk"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly|pre)\.[^"]+(")'
+      replacepattern: '${1}{{ requiredEnv "VERSION" }}${2}'
+  node-bindings-pin:
+    name: 'pin @xmtp/node-bindings {{ requiredEnv "BINDING_VERSION" }}'
+    kind: file
+    scmid: consumer
+    disablesourceinput: true
+    spec:
+      file: package.json
+      matchpattern: '("@xmtp/node-bindings"\s*:\s*")\d+\.\d+\.\d+-(?:dev|nightly|pre)\.[^"]+(")'
+      replacepattern: '${1}{{ requiredEnv "BINDING_VERSION" }}${2}'
+  pnpm-lockfile:
+    name: refresh pnpm-lock.yaml
+    kind: shell
+    scmid: consumer
+    disablesourceinput: true
+    dependson:
+      - node-sdk-pin
+      - node-bindings-pin
+    spec:
+      # Retries absorb npm registry propagation lag right after publish.
+      command: 'ok=0; for attempt in 1 2 3; do COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --lockfile-only && { ok=1; break; }; [ "$attempt" = 3 ] || sleep 30; done; [ "$ok" = 1 ]'
+      environments:
+        - name: PATH
+        - name: HOME
+      changedif:
+        kind: file/checksum
+        spec:
+          files:
+            - pnpm-lock.yaml

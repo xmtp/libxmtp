@@ -16,12 +16,28 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 pub struct SendMessageOpts {
   pub should_push: bool,
   pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  pub idempotency_key: Option<String>,
+}
+
+/// Options for the top-level `send_*` convenience helpers. `should_push` is
+/// derived from the content type's codec, so callers only control optimistic
+/// delivery and the idempotency key.
+#[napi(object)]
+#[derive(Default)]
+pub struct SendOpts {
+  pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  pub idempotency_key: Option<String>,
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
       should_push: opts.should_push,
+      idempotency_key: opts.idempotency_key,
     }
   }
 }
@@ -29,6 +45,7 @@ impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageO
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send(
     &self,
     encoded_content: EncodedContent,
@@ -51,6 +68,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn publish_messages(&self) -> Result<()> {
     let group = self.create_mls_group();
     group.publish_messages().await.map_err(ErrorWrapper::from)?;
@@ -58,6 +76,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn list_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
@@ -73,6 +92,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
@@ -85,6 +105,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,
@@ -100,6 +121,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn list_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
@@ -117,6 +139,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn last_read_times(&self) -> Result<HashMap<String, i64>> {
     let group = self.create_mls_group();
     let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
@@ -126,21 +149,28 @@ impl Conversation {
   /// Prepare a message for later publishing.
   /// Stores the message locally without publishing. Returns the message ID.
   #[napi]
+  #[xmtp_common::err_span]
   pub fn prepare_message(
     &self,
     encoded_content: EncodedContent,
     should_push: bool,
+    idempotency_key: Option<String>,
   ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
     let message_id = group
-      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .prepare_message_for_later_publish(
+        encoded_content.encode_to_vec().as_slice(),
+        should_push,
+        idempotency_key,
+      )
       .map_err(ErrorWrapper::from)?;
     Ok(hex::encode(message_id))
   }
 
   /// Publish a previously prepared message by ID.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn publish_stored_message(&self, message_id: String) -> Result<()> {
     let group = self.create_mls_group();
     let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::from)?;

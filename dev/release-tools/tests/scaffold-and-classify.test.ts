@@ -9,9 +9,7 @@ describe("scaffold → classify end-to-end", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "release-tools-e2e-"),
-    );
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-e2e-"));
     // Create iOS SDK structure
     fs.mkdirSync(path.join(tmpDir, "sdks/ios"), { recursive: true });
     fs.writeFileSync(
@@ -109,7 +107,12 @@ describe("scaffold → classify end-to-end", () => {
 
   it("classifies a mix of empty and modified scaffolds across SDKs", () => {
     const iosPath = scaffoldNotes("ios", tmpDir, "1.9.0", "ios-1.9.0");
-    const androidPath = scaffoldNotes("android", tmpDir, "3.0.0", "android-3.0.0");
+    const androidPath = scaffoldNotes(
+      "android",
+      tmpDir,
+      "3.0.0",
+      "android-3.0.0",
+    );
 
     // Modify only the Android notes
     const androidContent = fs.readFileSync(androidPath, "utf-8");

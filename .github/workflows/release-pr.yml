@@ -1,0 +1,63 @@
+name: release-pr
+
+# Maintains the always-open "Release PR" on main. On every push to main,
+# git-cliff regenerates CHANGELOG.md and create-pull-request opens/updates a
+# single PR whose body/content is the accumulated changelog. The PR contains
+# ONLY changelog changes — NO version bump (the workspace version is the
+# runtime MLS protocol identity and is owned by xmtp-release). Merging this PR
+# is what signals "release" (handled in release.yml, PR 1c).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-pr-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changelog-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # full history required for git-cliff
+
+      # git-cliff --prepend reads the target before appending; it errors if the
+      # file is absent. The repo has no CHANGELOG.md yet, so the first run would
+      # fail. Ensure it exists (no-op once committed).
+      - name: Ensure CHANGELOG.md exists
+        run: touch CHANGELOG.md
+
+      - name: Generate CHANGELOG.md with git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased --prepend CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open/update the always-open Release PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: CHANGELOG.md
+          branch: release-plz/main
+          base: main
+          title: "chore(release): pending libxmtp release"
+          commit-message: "chore(release): update changelog [skip ci]"
+          body: |
+            ## Pending libxmtp release
+
+            Auto-generated changelog from conventional commits on `main`.
+            This PR is updated on every push and stays open. **Merging it is
+            the "release" signal** — the release workflow then strips `-dev`,
+            tags `vX.Y.Z`, creates the GitHub Release hub, and fans out to the
+            SDKs. This PR contains ONLY changelog changes; the workspace
+            version is intentionally NOT bumped here.
+
+            🤖 Generated with [Claude Code](https://claude.com/claude-code)

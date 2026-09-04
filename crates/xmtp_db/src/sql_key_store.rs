@@ -11,6 +11,7 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+use xmtp_configuration::OPENMLS_KV_TARGET;
 
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
@@ -86,6 +87,46 @@ pub struct SqlKeyStore<T> {
     conn: T,
 }
 
+// Test-only instrumentation (compiled out of release/production builds): counts
+// openmls KV read round-trips (`select_query`) so the metadata
+// read-amplification fix can be measured. Every `read`/`read_list`/
+// `group_context` bottoms out in `select_query`, so this is the single point
+// that observes an actual storage read.
+//
+// The counter is a **tokio task-local**, established for the duration of a
+// [`count_kv_reads`] call. Being task-scoped (not thread- or process-scoped) it
+// follows the measured work across `.await` points and across worker threads on
+// a multi-threaded runtime, and stays isolated from any other concurrently
+// running task. Reads performed outside a `count_kv_reads` scope — production
+// code and unrelated tests — are ignored, so the measurement is deterministic
+// regardless of runtime flavor or whether the measured accessors are sync or
+// async.
+// Native-only: the sole consumer is the native metadata read-amplification test,
+// and the task-local relies on the (native-only) `tokio` dep enabled by
+// `test-utils`.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+tokio::task_local! {
+    static KV_READS: std::cell::Cell<u64>;
+}
+
+/// Record one KV read round-trip against the enclosing [`count_kv_reads`] scope.
+/// Outside such a scope this is a no-op.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+fn record_kv_read() {
+    let _ = KV_READS.try_with(|c| c.set(c.get() + 1));
+}
+
+/// Run `f` with a fresh KV-read counter scoped to the current task and return
+/// its result together with the number of `select_query` round-trips it made.
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub fn count_kv_reads<R>(f: impl FnOnce() -> R) -> (R, u64) {
+    KV_READS.sync_scope(std::cell::Cell::new(0), || {
+        let result = f();
+        let count = KV_READS.with(|c| c.get());
+        (result, count)
+    })
+}
+
 impl<A> SqlKeyStore<A> {
     pub fn new(conn: A) -> Self {
         Self { conn }
@@ -111,6 +152,8 @@ where
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, crate::ConnectionError> {
+        #[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+        record_kv_read();
         self.conn.raw_query(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -171,16 +214,11 @@ where
 
         if let Some(entry) = data.into_iter().next() {
             // The value in the storage is an array of array of bytes
-            match bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes) {
-                Ok(mut deserialized) => {
-                    deserialized.push(value.to_vec());
-                    let modified_data = bincode::serialize(&deserialized)?;
-
-                    let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
-                    Ok(())
-                }
-                Err(_e) => Err(SqlKeyStoreError::SerializationError),
-            }
+            let mut deserialized = deserialize_bincode::<Vec<Vec<u8>>>(label, &entry.value_bytes)?;
+            deserialized.push(value.to_vec());
+            let modified_data = bincode::serialize(&deserialized)?;
+            let _ = self.update_query::<VERSION>(&storage_key, &modified_data)?;
+            Ok(())
         } else {
             // Add a first entry
             let value_bytes = &bincode::serialize(&vec![value])?;
@@ -203,8 +241,7 @@ where
 
         if let Some(entry) = data.into_iter().next() {
             // The value in the storage is an array of array of bytes.
-            let mut deserialized = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)
-                .map_err(|_| SqlKeyStoreError::SerializationError)?;
+            let mut deserialized = deserialize_bincode::<Vec<Vec<u8>>>(label, &entry.value_bytes)?;
             let vpos = deserialized.iter().position(|v| v == value);
 
             if let Some(pos) = vpos {
@@ -234,8 +271,7 @@ where
         let data = self.select_query::<VERSION>(&storage_key)?;
 
         if let Some(entry) = data.into_iter().next() {
-            let deserialized = bincode::deserialize::<V>(&entry.value_bytes)
-                .map_err(|_| SqlKeyStoreError::SerializationError)?;
+            let deserialized = deserialize_bincode::<V>(label, &entry.value_bytes)?;
 
             Ok(Some(deserialized))
         } else {
@@ -252,18 +288,12 @@ where
         let results = self.select_query::<VERSION>(&storage_key)?;
 
         if let Some(entry) = results.into_iter().next() {
-            let list = bincode::deserialize::<Vec<Vec<u8>>>(&entry.value_bytes)?;
+            let list = deserialize_bincode::<Vec<Vec<u8>>>(label, &entry.value_bytes)?;
 
             // Read the values from the bytes in the list
-            let mut deserialized_list = Vec::new();
+            let mut deserialized_list = Vec::with_capacity(list.len());
             for v in list {
-                match bincode::deserialize::<V>(&v) {
-                    Ok(deserialized_value) => deserialized_list.push(deserialized_value),
-                    Err(e) => {
-                        tracing::error!("Error occurred: {}", e);
-                        return Err(SqlKeyStoreError::SerializationError);
-                    }
-                }
+                deserialized_list.push(deserialize_bincode::<V>(label, &v)?);
             }
             Ok(deserialized_list)
         } else {
@@ -373,6 +403,7 @@ where
 {
     type Error = SqlKeyStoreError;
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), proposal_ref = %hex_kv(proposal_ref)), err)]
     fn queue_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
@@ -396,6 +427,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
@@ -409,6 +441,7 @@ where
         self.write::<CURRENT_VERSION>(TREE_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_interim_transcript_hash<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         InterimTranscriptHash: traits::InterimTranscriptHash<CURRENT_VERSION>,
@@ -424,6 +457,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), group_context = %hex_kv(group_context)), err)]
     fn write_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
@@ -438,6 +472,7 @@ where
         self.write::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_confirmation_tag<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ConfirmationTag: traits::ConfirmationTag<CURRENT_VERSION>,
@@ -452,6 +487,7 @@ where
         self.write::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
     fn write_signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
         SignatureKeyPair: traits::SignatureKeyPair<CURRENT_VERSION>,
@@ -469,6 +505,7 @@ where
         self.write::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn queued_proposal_refs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
@@ -480,6 +517,7 @@ where
         self.read_list(PROPOSAL_QUEUE_REFS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn queued_proposals<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
@@ -502,6 +540,7 @@ where
             .collect::<Result<Vec<_>, _>>()
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         TreeSync: traits::TreeSync<CURRENT_VERSION>,
@@ -514,6 +553,7 @@ where
         self.read(TREE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn group_context<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupContext: traits::GroupContext<CURRENT_VERSION>,
@@ -526,6 +566,7 @@ where
         self.read(GROUP_CONTEXT_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn interim_transcript_hash<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         InterimTranscriptHash: traits::InterimTranscriptHash<CURRENT_VERSION>,
@@ -538,6 +579,7 @@ where
         self.read(INTERIM_TRANSCRIPT_HASH_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn confirmation_tag<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ConfirmationTag: traits::ConfirmationTag<CURRENT_VERSION>,
@@ -550,6 +592,7 @@ where
         self.read(CONFIRMATION_TAG_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
     fn signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
         SignatureKeyPair: traits::SignatureKeyPair<CURRENT_VERSION>,
@@ -565,6 +608,7 @@ where
         self.read(SIGNATURE_KEY_PAIR_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref), key_package = %hex_kv(key_package)), err)]
     fn write_key_package<
         HashReference: traits::HashReference<CURRENT_VERSION>,
         KeyPackage: traits::KeyPackage<CURRENT_VERSION>,
@@ -580,6 +624,7 @@ where
         self.write::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
     fn write_psk<
         PskId: traits::PskId<CURRENT_VERSION>,
         PskBundle: traits::PskBundle<CURRENT_VERSION>,
@@ -591,6 +636,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
     fn write_encryption_key_pair<
         EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>,
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
@@ -609,6 +655,7 @@ where
         )
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref)), err)]
     fn key_package<
         HashReference: traits::HashReference<CURRENT_VERSION>,
         KeyPackage: traits::KeyPackage<CURRENT_VERSION>,
@@ -621,6 +668,7 @@ where
         self.read(KEY_PACKAGE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
     fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
         &self,
         _psk_id: &PskId,
@@ -628,6 +676,7 @@ where
         Ok(None)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
     fn encryption_key_pair<
         HpkeKeyPair: traits::HpkeKeyPair<CURRENT_VERSION>,
         EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>,
@@ -641,6 +690,7 @@ where
         self.read(ENCRYPTION_KEY_PAIR_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
     fn delete_signature_key_pair<
         SignaturePublicKey: traits::SignaturePublicKey<CURRENT_VERSION>,
     >(
@@ -655,6 +705,7 @@ where
         self.delete::<CURRENT_VERSION>(SIGNATURE_KEY_PAIR_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(public_key = %hex_kv(public_key)), err)]
     fn delete_encryption_key_pair<EncryptionKey: traits::EncryptionKey<CURRENT_VERSION>>(
         &self,
         public_key: &EncryptionKey,
@@ -665,6 +716,7 @@ where
         self.delete::<CURRENT_VERSION>(ENCRYPTION_KEY_PAIR_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(hash_ref = %hex_kv(hash_ref)), err)]
     fn delete_key_package<HashReference: traits::HashReference<CURRENT_VERSION>>(
         &self,
         hash_ref: &HashReference,
@@ -673,6 +725,7 @@ where
         self.delete::<CURRENT_VERSION>(KEY_PACKAGE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(_psk_id = %hex_kv(_psk_id)), err)]
     fn delete_psk<PskKey: traits::PskId<CURRENT_VERSION>>(
         &self,
         _psk_id: &PskKey,
@@ -680,6 +733,7 @@ where
         Err(SqlKeyStoreError::UnsupportedMethod)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn group_state<
         GroupState: traits::GroupState<CURRENT_VERSION>,
         GroupId: traits::GroupId<CURRENT_VERSION>,
@@ -692,6 +746,7 @@ where
         self.read(GROUP_STATE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_group_state<
         GroupState: traits::GroupState<CURRENT_VERSION>,
         GroupId: traits::GroupId<CURRENT_VERSION>,
@@ -705,6 +760,7 @@ where
         self.write::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key, &bincode::serialize(group_state)?)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_group_state<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -714,6 +770,7 @@ where
         self.delete::<CURRENT_VERSION>(GROUP_STATE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn message_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MessageSecrets: traits::MessageSecrets<CURRENT_VERSION>,
@@ -726,6 +783,7 @@ where
         self.read(MESSAGE_SECRETS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_message_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MessageSecrets: traits::MessageSecrets<CURRENT_VERSION>,
@@ -743,6 +801,7 @@ where
         )
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_message_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -752,6 +811,7 @@ where
         self.delete::<CURRENT_VERSION>(MESSAGE_SECRETS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn resumption_psk_store<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
@@ -762,6 +822,7 @@ where
         self.read(RESUMPTION_PSK_STORE_LABEL, &bincode::serialize(group_id)?)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_resumption_psk_store<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ResumptionPskStore: traits::ResumptionPskStore<CURRENT_VERSION>,
@@ -777,6 +838,7 @@ where
         )
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_all_resumption_psk_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -784,6 +846,7 @@ where
         self.delete::<CURRENT_VERSION>(RESUMPTION_PSK_STORE_LABEL, &bincode::serialize(group_id)?)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
@@ -795,6 +858,7 @@ where
         self.read(OWN_LEAF_NODE_INDEX_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), own_leaf_index = %hex_kv(own_leaf_index)), err)]
     fn write_own_leaf_index<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNodeIndex: traits::LeafNodeIndex<CURRENT_VERSION>,
@@ -811,6 +875,7 @@ where
         )
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_own_leaf_index<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -819,6 +884,7 @@ where
         self.delete::<CURRENT_VERSION>(OWN_LEAF_NODE_INDEX_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
@@ -830,6 +896,7 @@ where
         self.read(EPOCH_SECRETS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_group_epoch_secrets<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         GroupEpochSecrets: traits::GroupEpochSecrets<CURRENT_VERSION>,
@@ -846,6 +913,7 @@ where
         )
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_group_epoch_secrets<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -854,6 +922,7 @@ where
         self.delete::<CURRENT_VERSION>(EPOCH_SECRETS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), epoch = %hex_kv(epoch), leaf_index = %leaf_index), err)]
     fn write_encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
@@ -872,6 +941,7 @@ where
         self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), epoch = %hex_kv(epoch), leaf_index = %leaf_index), err)]
     fn encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
@@ -898,18 +968,13 @@ where
         })?;
 
         if let Some(entry) = data.into_iter().next() {
-            match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {
-                Ok(deserialized) => Ok(deserialized),
-                Err(e) => {
-                    eprintln!("Error occurred: {}", e);
-                    Err(SqlKeyStoreError::SerializationError)
-                }
-            }
+            deserialize_bincode::<Vec<HpkeKeyPair>>(EPOCH_KEY_PAIRS_LABEL, &entry.value_bytes)
         } else {
             Ok(vec![])
         }
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), epoch = %hex_kv(epoch), leaf_index = %leaf_index), err)]
     fn delete_encryption_epoch_key_pairs<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         EpochKey: traits::EpochKey<CURRENT_VERSION>,
@@ -924,6 +989,7 @@ where
         self.delete::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn clear_proposal_queue<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
@@ -944,6 +1010,7 @@ where
         self.delete::<CURRENT_VERSION>(PROPOSAL_QUEUE_REFS_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn mls_group_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
@@ -956,6 +1023,7 @@ where
         self.read(JOIN_CONFIG_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), config = %hex_kv(config)), err)]
     fn write_mls_join_config<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         MlsGroupJoinConfig: traits::MlsGroupJoinConfig<CURRENT_VERSION>,
@@ -970,6 +1038,7 @@ where
         self.write::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn own_leaf_nodes<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
@@ -977,12 +1046,12 @@ where
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
-        tracing::trace!("own_leaf_nodes");
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
 
         self.read_list(OWN_LEAF_NODES_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), leaf_node = %hex_kv(leaf_node)), err)]
     fn append_own_leaf_node<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         LeafNode: traits::LeafNode<CURRENT_VERSION>,
@@ -997,6 +1066,7 @@ where
         self.append::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key, &value)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_own_leaf_nodes<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1005,6 +1075,7 @@ where
         self.delete::<CURRENT_VERSION>(OWN_LEAF_NODES_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_group_config<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1013,6 +1084,7 @@ where
         self.delete::<CURRENT_VERSION>(JOIN_CONFIG_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_tree<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1022,6 +1094,7 @@ where
         self.delete::<CURRENT_VERSION>(TREE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_confirmation_tag<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1031,6 +1104,7 @@ where
         self.delete::<CURRENT_VERSION>(CONFIRMATION_TAG_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_context<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1040,6 +1114,7 @@ where
         self.delete::<CURRENT_VERSION>(GROUP_CONTEXT_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_interim_transcript_hash<GroupId: traits::GroupId<CURRENT_VERSION>>(
         &self,
         group_id: &GroupId,
@@ -1049,6 +1124,7 @@ where
         self.delete::<CURRENT_VERSION>(INTERIM_TRANSCRIPT_HASH_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id), proposal_ref = %hex_kv(proposal_ref)), err)]
     fn remove_proposal<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ProposalRef: traits::ProposalRef<CURRENT_VERSION>,
@@ -1067,6 +1143,7 @@ where
         self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn write_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
@@ -1083,6 +1160,7 @@ where
         )
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
@@ -1094,6 +1172,7 @@ where
         self.read(APPLICATION_EXPORT_TREE_LABEL, &key)
     }
 
+    #[tracing::instrument(skip_all, target = OPENMLS_KV_TARGET, fields(group_id = %hex_kv(group_id)), err)]
     fn delete_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
@@ -1104,6 +1183,11 @@ where
         let key = build_key::<CURRENT_VERSION, &GroupId>(APPLICATION_EXPORT_TREE_LABEL, group_id)?;
         self.delete::<CURRENT_VERSION>(APPLICATION_EXPORT_TREE_LABEL, &key)
     }
+}
+
+/// Hex bincode of `v` for tracing fields. Empty string on serialize fail (field exprs can't propagate).
+fn hex_kv<T: Serialize + ?Sized>(v: &T) -> String {
+    bincode::serialize(v).map(hex::encode).unwrap_or_default()
 }
 
 /// Build a key with version and label.
@@ -1121,6 +1205,57 @@ fn build_key<const V: u16, K: Serialize>(
 ) -> Result<Vec<u8>, SqlKeyStoreError> {
     let key_vec = bincode::serialize(&key)?;
     Ok(build_key_from_vec::<V>(label, key_vec))
+}
+
+/// Bincode decode → `SerializationError`. With `deserialize-paths` feature + `openmls_kv` target
+/// enabled, error path re-decodes via `serde_path_to_error` to log failing field path.
+fn deserialize_bincode<'de, T>(
+    #[cfg_attr(not(feature = "deserialize-paths"), allow(unused_variables))] label: &[u8],
+    bytes: &'de [u8],
+) -> Result<T, SqlKeyStoreError>
+where
+    T: serde::Deserialize<'de>,
+{
+    match bincode::deserialize::<T>(bytes) {
+        Ok(val) => Ok(val),
+        Err(_orig_err) => {
+            #[cfg(feature = "deserialize-paths")]
+            if tracing::event_enabled!(target: OPENMLS_KV_TARGET, tracing::Level::ERROR) {
+                use bincode::Options;
+                let opts = bincode::DefaultOptions::new()
+                    .with_fixint_encoding()
+                    .allow_trailing_bytes();
+                let mut de = bincode::de::Deserializer::from_slice(bytes, opts);
+                match serde_path_to_error::deserialize::<_, T>(&mut de) {
+                    Ok(_) => {
+                        // Second pass succeeded — bincode option mismatch; log err without path.
+                        tracing::error!(
+                            target: OPENMLS_KV_TARGET,
+                            label = %String::from_utf8_lossy(label),
+                            type_name = std::any::type_name::<T>(),
+                            bytes_len = bytes.len(),
+                            error = %_orig_err,
+                            "bincode deserialize failed (no path captured)",
+                        );
+                    }
+                    Err(e) => {
+                        let path = e.path().to_string();
+                        let inner = e.into_inner();
+                        tracing::error!(
+                            target: OPENMLS_KV_TARGET,
+                            label = %String::from_utf8_lossy(label),
+                            path = %path,
+                            type_name = std::any::type_name::<T>(),
+                            bytes_len = bytes.len(),
+                            error = %inner,
+                            "bincode deserialize failed",
+                        );
+                    }
+                }
+            }
+            Err(SqlKeyStoreError::SerializationError)
+        }
+    }
 }
 
 fn epoch_key_pairs_id(
@@ -1165,6 +1300,7 @@ pub(crate) mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::SqlKeyStore;
+    use crate::TransactionOutcome::{Continue, Rollback};
     use crate::encrypted_store::MlsProviderExt;
     use crate::{
         XmtpTestDb, sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -1253,6 +1389,65 @@ pub(crate) mod tests {
         );
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert_eq!(result.unwrap(), Some(raw_value));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn transaction_commit_persists_rollback_does_not_and_error_propagates() {
+        use crate::{
+            StorageError, TransactionOutcome, traits::TransactionalKeyStore,
+            xmtp_openmls_provider::XmtpMlsStorageProvider,
+        };
+
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
+        let key_store = SqlKeyStore::new(conn);
+
+        let committed_key = bincode::serialize(&[10u8; 32])?;
+        let rolled_back_key = bincode::serialize(&[11u8; 32])?;
+        let value = bincode::serialize(&vec![7u8; 16])?;
+
+        let is_present = |k: &[u8]| {
+            key_store
+                .read::<CURRENT_VERSION, Vec<u8>>(
+                    crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                    k,
+                )
+                .unwrap()
+                .is_some()
+        };
+
+        // Commit: a value written inside a committing transaction is visible after.
+        let outcome = key_store
+            .transaction(|conn| {
+                conn.key_store().write::<CURRENT_VERSION>(
+                    crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                    &committed_key,
+                    &value,
+                )?;
+                Ok::<_, StorageError>(Continue(()))
+            })
+            .unwrap();
+        assert!(matches!(outcome, Continue(())));
+        assert!(is_present(&committed_key), "commit must persist");
+
+        // Rollback: returns Ok(Rollback), NOT an Err, and the write is discarded.
+        let outcome = key_store
+            .transaction(|conn| {
+                conn.key_store().write::<CURRENT_VERSION>(
+                    crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                    &rolled_back_key,
+                    &value,
+                )?;
+                Ok::<TransactionOutcome<()>, StorageError>(Rollback)
+            })
+            .unwrap();
+        assert!(matches!(outcome, Rollback));
+        assert!(!is_present(&rolled_back_key), "rollback must not persist");
+
+        // Real error: a closure returning Err propagates as Err (and rolls back).
+        let result: Result<TransactionOutcome<()>, StorageError> =
+            key_store.transaction(|_conn| Err(StorageError::DbSerialize));
+        assert!(matches!(result, Err(StorageError::DbSerialize)));
     }
 
     #[xmtp_common::test]

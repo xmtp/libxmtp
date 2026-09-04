@@ -69,7 +69,7 @@ impl StoredConsentRecord {
             let cr = Self::new(
                 ConsentType::ConversationId,
                 last_consent.state,
-                hex::encode(&group.id),
+                hex::encode(group.id),
             );
             conn.insert_newer_consent_record(cr)?;
         }

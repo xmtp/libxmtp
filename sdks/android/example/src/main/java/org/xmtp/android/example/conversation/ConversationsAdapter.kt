@@ -37,11 +37,15 @@ class ConversationsAdapter(
                 val binding = ListItemConversationBinding.inflate(inflater, parent, false)
                 ConversationViewHolder(binding, clickListener)
             }
+
             MainViewModel.MainListItem.ITEM_TYPE_FOOTER -> {
                 val binding = ListItemConversationFooterBinding.inflate(inflater, parent, false)
                 ConversationFooterViewHolder(binding, clickListener)
             }
-            else -> throw IllegalArgumentException("Unsupported view type $viewType")
+
+            else -> {
+                throw IllegalArgumentException("Unsupported view type $viewType")
+            }
         }
     }
 
@@ -54,10 +58,14 @@ class ConversationsAdapter(
             is ConversationViewHolder -> {
                 holder.bind(item as MainViewModel.MainListItem.ConversationItem)
             }
+
             is ConversationFooterViewHolder -> {
                 holder.bind(item as MainViewModel.MainListItem.Footer)
             }
-            else -> throw IllegalArgumentException("Unsupported view holder")
+
+            else -> {
+                throw IllegalArgumentException("Unsupported view holder")
+            }
         }
     }
 

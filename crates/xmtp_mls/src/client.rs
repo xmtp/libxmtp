@@ -32,8 +32,9 @@ use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
-    ConnectionExt, NotFound, StorageError, XmtpDb,
+    ConnectionExt, NotFound, StorageError, TransactionOutcome, XmtpDb,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
@@ -65,6 +66,7 @@ use xmtp_proto::{
 };
 use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
+use xmtp_proto::types::GroupId;
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -180,12 +182,19 @@ pub enum ClientError {
     /// Registration envelopes haven't propagated to the node yet. Retryable.
     #[error("Envelopes not yet visible on node {node_id}")]
     EnvelopesNotYetVisible { node_id: u32 },
+    /// Client is closed.
+    ///
+    /// Operation was attempted on a client that has been shut down via
+    /// `Client::close`. Not retryable — build a new client instead.
+    #[error("client is closed")]
+    AlreadyClosed,
 }
 
 impl ClientError {
     pub fn db_needs_connection(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
             _ => false,
         }
     }
@@ -239,6 +248,17 @@ pub struct Client<Context> {
     pub installation_id: InstallationId,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
+    /// This client's router over the process-shared bidi wire (XIP-83
+    /// streaming path), created on first use. Shared across clones so one
+    /// client never runs two routers.
+    ///
+    /// Lifecycle rides the client's: `close()` ends the streams (their pumps
+    /// watch the cancellation token), after which the router task parks —
+    /// pending on an idle channel, holding no wire state — and exits when
+    /// the last client clone drops this cell.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) stream_router:
+        Arc<tokio::sync::OnceCell<crate::subscriptions::stream_router::StreamRouter<Context>>>,
 }
 
 impl<Context> Drop for Client<Context> {
@@ -260,6 +280,8 @@ impl<Context: Clone> Clone for Client<Context> {
             installation_id: self.installation_id,
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: self.stream_router.clone(),
         }
     }
 }
@@ -327,8 +349,36 @@ where
 {
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        if self.context.is_closed() {
+            return Err(ClientError::AlreadyClosed);
+        }
         self.context.db().reconnect().map_err(StorageError::from)?;
         self.workers.spawn(self.context.clone());
+        Ok(())
+    }
+
+    /// Cleanly shut down this client: cancel in-flight workers and streams,
+    /// then release the DB connection. Idempotent — a second call is `Ok(())`.
+    ///
+    /// Callers (notably the Node binding consumers) should `await` this before
+    /// deleting the SQLite file or dropping the client wrapper, to avoid late
+    /// log spew from detached workers/streams firing against a dead DB.
+    pub async fn close(&self) -> Result<(), ClientError> {
+        // `shutdown_complete` is distinct from `is_closed()` (which reflects
+        // cancellation): only set after the DB actually disconnects. If
+        // `disconnect()` errors below, callers can retry `close()` and we'll
+        // attempt disconnect again rather than silently short-circuiting.
+        if self.context.shutdown_complete() {
+            return Ok(());
+        }
+        self.context.cancellation_token().cancel();
+        self.workers.shutdown().await;
+        self.context
+            .db()
+            .disconnect()
+            .map_err(xmtp_db::StorageError::from)?;
+        self.context.mark_shutdown_complete();
+        log_event!(Event::ClientClosed, self.installation_id);
         Ok(())
     }
 
@@ -639,7 +689,7 @@ where
         // notify streams of our new group
         let _ = self
             .local_events
-            .send(LocalEvents::NewGroup(group.group_id.clone()));
+            .send(LocalEvents::NewGroup(group.group_id));
 
         Ok(group)
     }
@@ -658,6 +708,7 @@ where
         Ok(group)
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(size = inbox_ids.len()))]
     pub async fn create_group_with_members(
         &self,
         inbox_ids: &[impl AsIdRef],
@@ -673,6 +724,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn create_dm_by_inbox_id(
         &self,
         target_inbox_id: InboxId,
@@ -697,7 +749,7 @@ where
         // notify any streams of the new group
         let _ = self
             .local_events
-            .send(LocalEvents::NewGroup(group.group_id.clone()));
+            .send(LocalEvents::NewGroup(group.group_id));
 
         Ok(group)
     }
@@ -754,7 +806,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Context>, ClientError> {
+    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
         MlsStore::new(self.context.clone())
             .group(group_id)
             .map_err(Into::into)
@@ -764,7 +816,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
+    pub fn stitched_group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
         let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
@@ -777,14 +829,14 @@ where
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .ok_or(NotFound::GroupById(*group_id))
             .map_err(Into::into)
     }
 
     /// Find all the duplicate dms for this group
     pub fn find_duplicate_dms_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         group.find_duplicate_dms()
@@ -796,7 +848,7 @@ where
     /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
     pub fn group_disappearing_settings(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         Ok(group.disappearing_settings()?)
@@ -838,13 +890,14 @@ where
 
     /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
     /// Returns an error if the message is not found or if it cannot be decoded/enriched
+    #[xmtp_common::mls_span]
     pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
         let conn = self.context.db();
         let message = conn
             .get_group_message(&message_id)?
             .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
 
-        let group_id = message.group_id.clone();
+        let group_id = message.group_id;
 
         let enriched = enrich_messages(conn, &group_id, vec![message])?;
 
@@ -913,7 +966,7 @@ where
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
-                        group_id: conversation_item.id.clone(),
+                        group_id: conversation_item.id,
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
                         sent_at_ns: conversation_item.sent_at_ns?,
                         sender_installation_id: conversation_item.sender_installation_id?,
@@ -930,6 +983,9 @@ where
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
+                        // The conversation_list view does not carry the key; use
+                        // the timestamp proxy (display-only, never republished).
+                        idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
                     });
                     if msg.is_none() {
                         tracing::warn!("tried listing message, but message had missing fields so it was skipped");
@@ -954,6 +1010,7 @@ where
 
     /// Upload a Key Package to the network and publish the signed identity update
     /// from the provided SignatureRequest
+    #[xmtp_common::mls_span]
     pub async fn register_identity(
         &self,
         signature_request: SignatureRequest,
@@ -1006,12 +1063,15 @@ where
         )?;
 
         // Clean up old key packages
-        self.context.mls_storage().transaction(|conn| {
-            conn.key_store()
-                .db()
-                .mark_key_package_before_id_to_be_deleted(history_id)?;
-            Ok::<(), StorageError>(())
-        })?;
+        self.context
+            .mls_storage()
+            .transaction(|conn| {
+                conn.key_store()
+                    .db()
+                    .mark_key_package_before_id_to_be_deleted(history_id)?;
+                Ok::<_, StorageError>(Continue(()))
+            })
+            .map(TransactionOutcome::into_continued)?;
 
         self.context
             .mls_storage()
@@ -1030,11 +1090,8 @@ where
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub async fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        self.identity()
-            .queue_key_rotation(&self.context.db())
-            .await?;
-
+    pub fn queue_key_rotation(&self) -> Result<(), ClientError> {
+        crate::worker::key_package_maintenance::queue_key_rotation(&self.context)?;
         Ok(())
     }
 
@@ -1048,12 +1105,15 @@ where
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
             .await?;
+        // The rotation marked superseded KPs delete_at=now+grace; without this
+        // the parked KpDeletion task would sweep them up to ~30d late.
+        crate::worker::key_package_maintenance::nudge_deletion(&self.context)?;
 
         Ok(())
     }
 
     /// Fetches the current key package from the network for each of the `installation_id`s specified
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -1069,7 +1129,7 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
@@ -1079,6 +1139,7 @@ where
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
+    #[tracing::instrument(err, skip_all, fields(operation = "sync_all_groups"))]
     pub async fn sync_all_groups(
         &self,
         groups: Vec<MlsGroup<Context>>,
@@ -1091,6 +1152,7 @@ where
 
     /// Sync all unread welcome messages and then sync all groups.
     /// Returns the total number of active groups synced.
+    #[xmtp_common::mls_span]
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
@@ -1098,6 +1160,22 @@ where
         self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
+            .await
+    }
+
+    /// Sweep every group flagged `paused_for_version` and clear the
+    /// pause flag for any whose floor is now satisfied by this
+    /// client's `pkg_version`. Pure local-state operation — no
+    /// network calls. Returns the count of groups unstuck.
+    ///
+    /// `sync_all_welcomes_and_groups` already runs this sweep as a
+    /// preamble; the standalone entry point is for SDKs that want a
+    /// cheap "post-upgrade recovery" hook independent of the normal
+    /// sync flow.
+    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
+        self.ensure_identity_ready()?;
+        WelcomeService::new(self.context.clone())
+            .unstick_paused_groups()
             .await
     }
 
@@ -1308,7 +1386,7 @@ pub(crate) mod tests {
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
         // Rotate and fetch again.
-        client.queue_key_rotation().await.unwrap();
+        client.queue_key_rotation().unwrap();
         //check the rotation value has been set
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
@@ -1522,10 +1600,10 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        let bo_group1 = bo.group(&alix_bo_group1.clone().group_id).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
-        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
         alix_bo_group1
@@ -1542,7 +1620,7 @@ pub(crate) mod tests {
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 2);
-        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 2);
     }
@@ -1566,7 +1644,7 @@ pub(crate) mod tests {
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         // Verify Bo initially has no messages
-        let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
         assert_eq!(
             bo_group1
                 .find_messages(&MsgQueryArgs::default())
@@ -1574,7 +1652,7 @@ pub(crate) mod tests {
                 .len(),
             1
         );
-        let bo_group2 = bo.group(&alix_bo_group2.group_id.clone()).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
         assert_eq!(
             bo_group2
                 .find_messages(&MsgQueryArgs::default())
@@ -1946,7 +2024,7 @@ pub(crate) mod tests {
 
         // second is allowing consent for the group
         alix.set_consent_states(&[StoredConsentRecord {
-            entity: hex::encode(&group.group_id),
+            entity: hex::encode(group.group_id),
             state: ConsentState::Allowed,
             entity_type: ConsentType::ConversationId,
             consented_at_ns: now_ns(),
@@ -1970,13 +2048,13 @@ pub(crate) mod tests {
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Allowed);
 
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Denied);
 
         let item = stream.next().await??;
@@ -1992,12 +2070,21 @@ pub(crate) mod tests {
         assert_eq!(item[0].state, ConsentState::Allowed);
     }
 
-    #[xmtp_common::timeout(Duration::from_secs(50))]
+    #[xmtp_common::timeout(Duration::from_secs(100))]
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
-    // Set to 50 seconds to safely account for the 16 second keepalive interval and 10 second timeout
+    // Detection of the black-holed connection comes from the h2 transport keepalive.
+    // Pin it fast (5s ping / 5s ack) so the failure lands in seconds under nextest,
+    // whose process-per-test isolation guarantees the pin is read before the
+    // process-wide config latches. Under a plain `cargo test`, a sibling test may
+    // latch the library defaults (45s/20s) first and the pin becomes a no-op, so
+    // the timeout budget also covers their ~65s worst-case detection.
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
+        unsafe {
+            std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");
+            std::env::set_var("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "5");
+        }
         toxiproxy_test(async || {
             let alix = Tester::builder().proxy().build().await;
             let bo = Tester::builder().build().await;
@@ -2069,7 +2156,7 @@ pub(crate) mod tests {
                 )
                 .await
                 .unwrap();
-            all_group_ids.push(group.group_id.clone());
+            all_group_ids.push(group.group_id);
             group
                 .send_message(
                     TextCodec::encode("hello".to_string())
@@ -2100,7 +2187,7 @@ pub(crate) mod tests {
             }
             assert_eq!(results.len(), 5);
 
-            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id.clone()));
+            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id));
 
             before_ns = Some(
                 results
@@ -2168,6 +2255,108 @@ pub(crate) mod tests {
         assert_eq!(
             deleted_count, 0,
             "Deleting non-existent message should return 0"
+        );
+    }
+
+    // ============================================================
+    // Client::close coordinated-shutdown tests
+    // ============================================================
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn close_stops_workers() {
+        tester!(client);
+        assert!(
+            client.workers.is_running(),
+            "worker supervisor must be running before close"
+        );
+
+        client.close().await?;
+
+        assert!(
+            !client.workers.is_running(),
+            "supervisor handle should be taken after close"
+        );
+        assert!(
+            client.context.is_closed(),
+            "context closed flag must be set after close"
+        );
+        assert!(
+            client.context.cancellation_token().is_cancelled(),
+            "cancellation token must be cancelled after close"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn close_is_idempotent() {
+        tester!(client);
+        client.close().await?;
+        // second call must return Ok(()) without panic
+        client.close().await?;
+    }
+
+    // persistent_db: ephemeral in-memory stores no-op on disconnect, so the
+    // pool-released assertion only meaningfully tests against a real SQLite
+    // file. Skipped on WASM where file-backed test stores aren't wired in.
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn close_disconnects_db() {
+        use diesel::RunQueryDsl;
+        use diesel::sql_query;
+
+        tester!(client, persistent_db);
+        client.close().await?;
+
+        let conn = client.context.store().conn();
+        let result = conn.raw_query(|c| sql_query("SELECT 1").execute(c));
+        assert!(
+            result.is_err(),
+            "raw_query after close should surface a ConnectionError; got Ok"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn close_cancels_callback_stream() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        tester!(client);
+
+        let closed_flag = Arc::new(AtomicBool::new(false));
+        let flag_for_cb = closed_flag.clone();
+
+        let _handle = super::Client::stream_conversations_with_callback(
+            Arc::new((*client).clone()),
+            None,
+            move |_| {},
+            move || {
+                flag_for_cb.store(true, Ordering::SeqCst);
+            },
+            false,
+        );
+
+        client.close().await?;
+
+        xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
+            while !closed_flag.load(Ordering::SeqCst) {
+                xmtp_common::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("on_close must fire within 1s of Client::close");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reconnect_after_close_errors() {
+        tester!(client);
+        client.close().await?;
+
+        let err = client
+            .reconnect_db()
+            .expect_err("reconnect_db after close must fail");
+        assert!(
+            matches!(err, super::ClientError::AlreadyClosed),
+            "expected ClientError::AlreadyClosed, got {err:?}"
         );
     }
 }

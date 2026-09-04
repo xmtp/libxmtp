@@ -47,6 +47,7 @@ pub fn content_type_attachment() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_attachment(attachment: Attachment) -> Result<EncodedContent> {
   Ok(
     AttachmentCodec::encode(attachment.into())

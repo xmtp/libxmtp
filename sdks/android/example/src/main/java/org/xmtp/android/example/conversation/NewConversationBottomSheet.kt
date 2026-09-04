@@ -72,10 +72,12 @@ class NewConversationBottomSheet : BottomSheetDialogFragment() {
                 binding.progress.visibility = View.GONE
                 showError(uiState.message)
             }
+
             NewConversationViewModel.UiState.Loading -> {
                 binding.addressInput.isEnabled = false
                 binding.progress.visibility = View.VISIBLE
             }
+
             is NewConversationViewModel.UiState.Success -> {
                 startActivity(
                     ConversationDetailActivity.intent(
@@ -86,7 +88,10 @@ class NewConversationBottomSheet : BottomSheetDialogFragment() {
                 )
                 dismiss()
             }
-            NewConversationViewModel.UiState.Unknown -> Unit
+
+            NewConversationViewModel.UiState.Unknown -> {
+                Unit
+            }
         }
     }
 

@@ -27,7 +27,19 @@ echo $XMTP_DEV_SHELL   # "local", "android", "ios", or unset
 
 ### Rust Version is Pinned — Do Not Change
 
-**Rust 1.92.0** via `flake.nix` → `rust-manifest`. All shells use `xmtp.mkToolchain`. Never modify without project-wide coordination.
+Rust is pinned via `flake.nix` → `rust-manifest` (1.97.1 as of 2026-07; check with `nix develop .#rust -c rustc --version`). All shells use `xmtp.mkToolchain`. Never modify without project-wide coordination.
+
+### Playwright Versions Must Match EXACTLY
+
+The `playwright` pin in `bindings/wasm/package.json` (`=X.Y.Z`) must equal nixpkgs' playwright version. The js shell provides browsers via `PLAYWRIGHT_BROWSERS_PATH` (`nix/js.nix`), and npm playwright looks them up by its own per-version browser revisions — any skew fails WASM tests with `browserType.launch: Executable doesn't exist at .../chromium_headless_shell-NNNN/...`.
+
+After every nixpkgs (flake.lock) bump:
+
+```bash
+nix eval --raw .#devShells.x86_64-linux.js.PLAYWRIGHT_VERSION
+# If it differs from the package.json pin: update the pin, then
+# (cd bindings/wasm && yarn install)
+```
 
 ### iOS Shell is macOS Only
 

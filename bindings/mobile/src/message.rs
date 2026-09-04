@@ -1021,7 +1021,7 @@ impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
                 GroupMessageKind::MembershipChange => FfiGroupMessageKind::MembershipChange,
             },
             sender_installation_id: metadata.sender_installation_id,
-            conversation_id: metadata.group_id,
+            conversation_id: metadata.group_id.to_vec(),
             sender_inbox_id: metadata.sender_inbox_id,
             content_type: metadata.content_type.into(),
             inserted_at_ns: metadata.inserted_at_ns,

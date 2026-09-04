@@ -8,9 +8,16 @@ pub mod sql_key_store;
 mod traits;
 pub use traits::*;
 pub mod xmtp_openmls_provider;
-pub use xmtp_openmls_provider::*;
+pub use xmtp_openmls_provider::{
+    TransactionOutcome, XmtpMlsStorageProvider, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef,
+    XmtpOpenMlsProviderRefMut,
+};
 #[cfg(any(feature = "test-utils", test))]
 pub mod mock;
+
+/// Benchmark-only latency-injecting SQLite VFS. Native + `bench` feature only.
+#[cfg(all(not(target_arch = "wasm32"), feature = "bench"))]
+pub mod latency_vfs;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -100,7 +107,7 @@ where
 pub async fn init_sqlite() {
     // This is a no-op for wasm32
 }
-#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor(unsafe))]
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn test_setup() {
     xmtp_common::logger();
@@ -379,7 +386,7 @@ pub mod test_util {
                 .map(|m| {
                     vec![
                         hex::encode(&m.id)[..16].to_string(),
-                        hex::encode(&m.group_id)[..16].to_string(),
+                        hex::encode(m.group_id)[..16].to_string(),
                         m.sent_at_ns.to_string(),
                         format!("{:?}", m.kind),
                         m.sender_inbox_id.clone(),
@@ -438,7 +445,7 @@ pub mod test_util {
                     vec![
                         i.originator_id.to_string(),
                         i.sequence_id.to_string(),
-                        hex::encode(&i.group_id)[..16].to_string(),
+                        hex::encode(i.group_id)[..16].to_string(),
                         hex::encode(&i.envelope_payload)[..20.min(i.envelope_payload.len() * 2)]
                             .to_string(),
                     ]

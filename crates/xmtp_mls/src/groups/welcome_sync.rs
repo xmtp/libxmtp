@@ -9,18 +9,18 @@ use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use xmtp_common::Event;
-use xmtp_common::{Retry, retry_async};
+use xmtp_common::{Retry, RetryableError, retry_async};
+use xmtp_configuration::Originators;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
-use xmtp_proto::types::GlobalCursor;
-use xmtp_proto::types::GroupId;
-use xmtp_proto::types::GroupMessageMetadata;
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
 pub struct GroupSyncSummary {
@@ -35,6 +35,14 @@ impl GroupSyncSummary {
             num_synced,
         }
     }
+}
+
+// Outcome of span-instrumented welcome processing: the expected
+// already-processed duplicate is an `Ok` variant so it cannot mark the
+// `mls.process_new_welcome` span as status:error.
+enum WelcomeOutcome<Context> {
+    Processed(Option<MlsGroup<Context>>),
+    AlreadyProcessed(Cursor),
 }
 
 #[derive(Clone)]
@@ -55,12 +63,33 @@ where
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
     /// applies the update after the welcome processed successfully.
+    // Callers still receive `Err(WelcomeAlreadyProcessed)` for the routine
+    // duplicate-delivery case, but the span lives on the inner fn where that
+    // expected outcome exits as `Ok` — so it never flags span status:error.
     pub(crate) async fn process_new_welcome(
         &self,
         welcome: &xmtp_proto::types::WelcomeMessage,
         cursor_increment: bool,
         validator: impl ValidateGroupMembership,
     ) -> Result<Option<MlsGroup<Context>>, GroupError> {
+        match self
+            .process_new_welcome_spanned(welcome, cursor_increment, validator)
+            .await?
+        {
+            WelcomeOutcome::Processed(group) => Ok(group),
+            WelcomeOutcome::AlreadyProcessed(cursor) => Err(GroupError::ProcessIntent(
+                ProcessIntentError::WelcomeAlreadyProcessed(cursor),
+            )),
+        }
+    }
+
+    #[tracing::instrument(err, skip_all, fields(operation = "mls.process_new_welcome"))]
+    async fn process_new_welcome_spanned(
+        &self,
+        welcome: &xmtp_proto::types::WelcomeMessage,
+        cursor_increment: bool,
+        validator: impl ValidateGroupMembership,
+    ) -> Result<WelcomeOutcome<Context>, GroupError> {
         let result = XmtpWelcome::builder()
             .context(self.context.clone())
             .welcome(welcome)
@@ -91,7 +120,7 @@ where
                     }
                 }
 
-                Ok(mls_group)
+                Ok(WelcomeOutcome::Processed(mls_group))
             }
             Err(err) => {
                 use crate::DuplicateItem::*;
@@ -99,13 +128,26 @@ where
 
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
                     tracing::warn!(
-                        welcome_cursor = %welcome.cursor,
+                        welcome_id = %welcome.cursor,
                         "Welcome ID already stored: {}",
                         err
                     );
-                    return Err(GroupError::ProcessIntent(
-                        ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor),
-                    ));
+                    return Ok(WelcomeOutcome::AlreadyProcessed(welcome.cursor));
+                } else if let GroupError::ProcessIntent(
+                    ProcessIntentError::WelcomeAlreadyProcessed(cursor),
+                ) = err
+                {
+                    // Expected, non-retryable condition: the welcome was already
+                    // processed (e.g. duplicate delivery for a group we are already
+                    // in). It is handled gracefully upstream (cursor incremented,
+                    // welcome skipped), so log at warn rather than error to avoid
+                    // marking the span as status:error and inflating the error rate.
+                    tracing::warn!(
+                        welcome_id = %welcome.cursor,
+                        "welcome already processed, skipping: {}",
+                        err
+                    );
+                    return Ok(WelcomeOutcome::AlreadyProcessed(cursor));
                 } else {
                     tracing::error!(
                         "failed to create group from welcome={} created at {}: {}",
@@ -120,35 +162,78 @@ where
         }
     }
 
+    async fn process_welcomes_with<F, Fut>(
+        &self,
+        envelopes: Vec<xmtp_proto::types::WelcomeMessage>,
+        mut process: F,
+    ) -> Vec<MlsGroup<Context>>
+    where
+        F: FnMut(xmtp_proto::types::WelcomeMessage) -> Fut,
+        Fut: Future<Output = Result<Option<MlsGroup<Context>>, GroupError>>,
+    {
+        let mut groups = Vec::with_capacity(envelopes.len());
+
+        // Welcome commits advance the durable cursor. Stop after a retryable error
+        // so a later envelope cannot skip the failed welcome.
+        for welcome in envelopes {
+            let welcome_cursor = welcome.cursor;
+            let result = retry_async!(
+                Retry::default(),
+                ({
+                    let welcome = welcome.clone();
+                    process(welcome)
+                })
+            );
+
+            match result {
+                Ok(Some(group)) => groups.push(group),
+                Ok(None) => {}
+                Err(err) if err.is_retryable() => {
+                    tracing::warn!(
+                        welcome_id = %welcome_cursor,
+                        "stopping welcome sync after retryable failure: {err}"
+                    );
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        welcome_id = %welcome_cursor,
+                        "skipping welcome after non-retryable failure: {err}"
+                    );
+                }
+            }
+        }
+
+        groups
+    }
+
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::mls_span]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
-        let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages().await?;
         let num_envelopes = envelopes.len();
 
-        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
-        let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
-            .filter_map(|welcome| async move {
-                retry_async!(
-                    Retry::default(),
-                    (async {
-                        let validator = InitialMembershipValidator::new(&self.context);
-                        self.process_new_welcome(&welcome, true, validator).await
-                    })
-                )
-                .ok()?
+        let groups = self
+            .process_welcomes_with(envelopes, |welcome| async move {
+                let validator = InitialMembershipValidator::new(&self.context);
+                self.process_new_welcome(&welcome, true, validator).await
             })
-            .collect()
             .await;
 
         // Rotate the keys regardless of whether the welcomes failed or succeeded. It is better to over-rotate than
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
         if num_envelopes > 0 {
-            self.context.identity().queue_key_rotation(&db).await?;
+            // Atomic (column + pull-in commit together). Welcomes are already
+            // committed: don't discard `groups` over a failed queue — nothing
+            // half-landed, and the next welcome retries the whole thing.
+            if let Err(e) =
+                crate::worker::key_package_maintenance::queue_key_rotation(&self.context)
+            {
+                tracing::warn!("key rotation queue failed after welcome sync: {e}");
+            }
         }
 
         Ok(groups)
@@ -169,11 +254,7 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-                    tracing::info!(
-                        inbox_id = self.context.inbox_id(),
-                        "[{}] syncing group",
-                        self.context.inbox_id()
-                    );
+                    tracing::debug!(inbox_id = self.context.inbox_id(), "syncing group");
                     let is_active = group
                         .load_mls_group_with_lock_async(async |mls_group| {
                             Ok::<bool, GroupError>(mls_group.is_active())
@@ -209,12 +290,13 @@ where
         let db = self.context.db();
         let api = self.context.api();
 
-        let group_ids: Vec<&[u8]> = groups.iter().map(|group| group.group_id.as_ref()).collect();
+        let group_ids: Vec<GroupId> = groups.iter().map(|group| group.group_id).collect();
+        let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
         let last_synced_cursors = db.get_last_cursor_for_ids(
-            &group_ids,
+            &id_slices,
             &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
         )?;
-        let latest_message_metadata = api.get_newest_message_metadata(group_ids).await?;
+        let latest_message_metadata = api.get_newest_message_metadata(&group_ids).await?;
 
         let group_ids_needing_sync =
             filter_groups_with_new_messages(last_synced_cursors, latest_message_metadata);
@@ -247,6 +329,72 @@ where
         Ok(self.sync_all_groups(groups).await?)
     }
 
+    /// Sweep every paused group and clear the pause flag for any
+    /// whose `paused_for_version` is now satisfied by the client's
+    /// `pkg_version`. Pure local-state operation — no network calls.
+    ///
+    /// Returns the count of groups unstuck. Safe to call on any
+    /// installation regardless of whether any groups are paused
+    /// (a no-op on installations with none).
+    ///
+    /// This is the recovery path for the "user upgrades but didn't
+    /// touch a paused group" scenario: without this sweep a paused
+    /// group could stay paused indefinitely after the upgrade, since
+    /// `handle_group_paused` (which is the per-group re-evaluator)
+    /// only fires when the group is actively synced — and
+    /// `sync_all_welcomes_and_groups` filters out groups with no
+    /// new messages on the server.
+    pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
+        use crate::groups::validated_commit::LibXMTPVersion;
+
+        let paused = self.context.db().get_paused_groups_with_versions()?;
+        if paused.is_empty() {
+            return Ok(0);
+        }
+        // The client's own version is parsed once at `VersionInfo`
+        // construction; reuse it across every paused group.
+        let own_version_str = self.context.version_info().pkg_version().to_string();
+        let own_v = self.context.version_info().pkg_semver();
+
+        let mut unstuck = 0usize;
+        for (group_id, required_str) in paused {
+            // Lenient on malformed stored bytes — log and skip rather
+            // than fail the whole sweep (one corrupted row shouldn't
+            // brick recovery for all the others).
+            let Ok(required_v) = LibXMTPVersion::parse(&required_str) else {
+                tracing::warn!(
+                    group_id = hex::encode(group_id.as_ref()),
+                    required = %required_str,
+                    "skipping unparseable paused_for_version while sweeping"
+                );
+                continue;
+            };
+            if required_v <= *own_v {
+                // Same leniency as the parse-error branch above: a
+                // transient DB failure on one row shouldn't abort the
+                // sweep for the others. The next sync sweep will pick
+                // this row up again.
+                if let Err(err) = self.context.db().unpause_group(&group_id) {
+                    tracing::warn!(
+                        group_id = hex::encode(group_id.as_ref()),
+                        required = %required_str,
+                        error = %err,
+                        "failed to unpause group during sweep; will retry on next sync"
+                    );
+                    continue;
+                }
+                tracing::debug!(
+                    group_id = hex::encode(group_id.as_ref()),
+                    required = %required_str,
+                    own = %own_version_str,
+                    "unstuck previously paused group: client version now satisfies floor"
+                );
+                unstuck += 1;
+            }
+        }
+        Ok(unstuck)
+    }
+
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
     /// Returns number of active groups successfully synced.
     pub async fn sync_all_welcomes_and_groups(
@@ -255,8 +403,17 @@ where
     ) -> Result<GroupSyncSummary, GroupError> {
         let db = self.context.db();
 
+        // Recover any paused groups whose floor the current pkg_version
+        // now satisfies. Runs ahead of the activity filter (groups with
+        // no new server messages get filtered out below, so the per-
+        // group re-evaluation in `handle_group_paused` wouldn't fire
+        // for a quiet paused group).
+        if let Err(err) = self.unstick_paused_groups().await {
+            tracing::debug!(error = ?err, "unstick_paused_groups failed, continuing with sync");
+        }
+
         if let Err(err) = self.sync_welcomes().await {
-            tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
+            tracing::debug!(error = ?err, "sync_welcomes failed, continuing with group sync");
         }
         let query_args = GroupQueryArgs {
             consent_states,
@@ -306,7 +463,7 @@ where
                 let inbox_id = self.context.inbox_id();
 
                 async move {
-                    tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
+                    tracing::debug!(inbox_id, "syncing group");
 
                     let is_active_res = group
                         .load_mls_group_with_lock_async(async |mls_group| {
@@ -317,13 +474,13 @@ where
                     match is_active_res {
                         Ok(is_active) if is_active => {
                             if let Err(err) = group.sync_with_conn().await {
-                                tracing::warn!(?err, "sync_with_conn failed");
+                                tracing::warn!(error = ?err, "sync_with_conn failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
 
                             if let Err(err) = group.maybe_update_installations(None).await {
-                                tracing::warn!(?err, "maybe_update_installations failed");
+                                tracing::warn!(error = ?err, "maybe_update_installations failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
@@ -332,7 +489,7 @@ where
                         }
                         Ok(_) => { /* group inactive, skip */ }
                         Err(err) => {
-                            tracing::warn!(?err, "load_mls_group_with_lock_async failed");
+                            tracing::warn!(error = ?err, "load_mls_group_with_lock_async failed");
                             failed_group_count.fetch_add(1, Ordering::SeqCst);
                         }
                     }
@@ -349,22 +506,28 @@ where
 fn filter_groups_with_new_messages(
     last_synced_cursors: HashMap<Vec<u8>, GlobalCursor>,
     latest_messages: HashMap<GroupId, GroupMessageMetadata>,
-) -> HashSet<Vec<u8>> {
+) -> HashSet<GroupId> {
     let mut groups_with_unread_messages = HashSet::new();
     for (group_id, latest_message_metadata) in latest_messages {
         match last_synced_cursors.get(group_id.as_ref()) {
             Some(cursor) => {
-                // Get the database cursor for the originator ID
-                // or 0 if not found. Compare with the latest message.
-                if cursor.get(&latest_message_metadata.cursor.originator_id)
-                    < latest_message_metadata.cursor.sequence_id
-                {
-                    groups_with_unread_messages.insert(group_id.to_vec());
+                // Check whether the latest message from the server has been seen.
+                let has_unseen_latest = cursor.get(&latest_message_metadata.cursor.originator_id)
+                    < latest_message_metadata.cursor.sequence_id;
+
+                // Every MLS group must have at least one commit (creation commit).
+                // An absent commit cursor while app-message processing is already
+                // underway signals missed commits — trigger a sync to recover them.
+                let has_unsynced_commits = cursor.get(&Originators::APPLICATION_MESSAGES) > 0
+                    && cursor.get(&Originators::MLS_COMMITS) == 0;
+
+                if has_unseen_latest || has_unsynced_commits {
+                    groups_with_unread_messages.insert(group_id);
                 }
             }
             None => {
                 // No cursor found. Must have never been synced before.
-                groups_with_unread_messages.insert(group_id.to_vec());
+                groups_with_unread_messages.insert(group_id);
             }
         }
     }
@@ -375,7 +538,6 @@ fn filter_groups_with_new_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::mls_ext::wrap_welcome;
     use crate::groups::test::NoopValidator;
     use crate::test::mock::*;
     use derive_builder::Builder;
@@ -385,13 +547,17 @@ mod tests {
     use tls_codec::Serialize;
     use xmtp_common::Generate;
     use xmtp_configuration::Originators;
+    use xmtp_configuration::WELCOME_HPKE_LABEL;
     use xmtp_db::StorageError;
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_id::key_package::WrapperAlgorithm;
+    use xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke;
     use xmtp_proto::mls_v1::WelcomeMetadata;
-    use xmtp_proto::types::{Cursor, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1};
+    use xmtp_proto::types::{
+        Cursor, GroupId, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
+    };
 
     fn generate_welcome(
         id: u64,
@@ -399,7 +565,7 @@ mod tests {
         welcome: MlsMessageOut,
         message_cursor: Option<u64>,
     ) -> WelcomeMessage {
-        let (data, welcome_metadata) = wrap_welcome(
+        let (data, welcome_metadata) = wrap_payload_hpke(
             &welcome.tls_serialize_detached().unwrap(),
             &WelcomeMetadata {
                 message_cursor: message_cursor.unwrap_or(0),
@@ -407,6 +573,7 @@ mod tests {
             .encode_to_vec(),
             &public_key,
             WrapperAlgorithm::Curve25519,
+            WELCOME_HPKE_LABEL,
         )
         .unwrap();
 
@@ -618,6 +785,23 @@ mod tests {
         }
     }
 
+    struct SequenceValidator {
+        fail: bool,
+    }
+
+    impl ValidateGroupMembership for SequenceValidator {
+        async fn check_initial_membership(
+            &self,
+            _welcome: &openmls::prelude::StagedWelcome,
+        ) -> Result<(), GroupError> {
+            if self.fail {
+                Err(GroupError::LockUnavailable)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     #[rstest]
     #[xmtp_common::test]
     async fn increments_cursor_on_non_retryable_during_validation(context: NewMockContext) {
@@ -668,7 +852,7 @@ mod tests {
         );
 
         let (context, validator) = TestWelcomeSetup::builder()
-            .validator(NoopValidator)
+            .validator(SequenceValidator { fail: false })
             .context(context)
             .nested_transaction_calls(|db: &mut MockDbQuery| {
                 db.expect_find_group().returning(|_id| Ok(None));
@@ -751,6 +935,71 @@ mod tests {
         assert!(res.is_err(), "{}", res.unwrap_err());
     }
 
+    #[rstest]
+    #[xmtp_common::test]
+    async fn later_welcome_must_not_advance_cursor_past_retryable_failure(context: NewMockContext) {
+        let mem = Arc::new(SqlKeyStore::new(MemoryStorage::default()));
+        let client = create_mls_client(mem.as_ref());
+        let (first_kp, first_mls_welcome) = client.join_group();
+        let first_welcome = generate_welcome(
+            50,
+            first_kp.hpke_init_key().as_slice().to_vec(),
+            first_mls_welcome,
+            None,
+        );
+        let (second_kp, second_mls_welcome) = client.join_group();
+        let second_welcome = generate_welcome(
+            51,
+            second_kp.hpke_init_key().as_slice().to_vec(),
+            second_mls_welcome,
+            None,
+        );
+
+        let (context, _) = TestWelcomeSetup::builder()
+            .validator(NoopValidator)
+            .context(context)
+            .database_calls(|db: &mut MockDbQuery| {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
+                db.expect_find_group().returning(|_id| Ok(None));
+            })
+            .transaction_calls(|db: &mut MockDbQuery| {
+                db.expect_get_last_cursor_for_originators()
+                    .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
+            })
+            .nested_transaction_calls({
+                |db: &mut MockDbQuery| {
+                    db.expect_find_group().returning(|_id| Ok(None));
+                    db.expect_get_last_cursor_for_originators()
+                        .returning(|_id, _entity, _| Ok(vec![Cursor::v3_welcomes(0)]));
+                    db.expect_update_cursor().never();
+                    db.expect_update_responded_at_sequence_id()
+                        .returning(|_, _, _| Ok(()));
+                    db.expect_insert_or_replace_group().returning(Ok);
+                }
+            })
+            .mem(mem)
+            .build();
+
+        let service = WelcomeService::new(context);
+        let processing_service = service.clone();
+        let groups = service
+            .process_welcomes_with(vec![first_welcome, second_welcome], |welcome| {
+                let validator = SequenceValidator {
+                    fail: welcome.cursor.sequence_id == 50,
+                };
+                let processing_service = processing_service.clone();
+                async move {
+                    processing_service
+                        .process_new_welcome(&welcome, true, validator)
+                        .await
+                }
+            })
+            .await;
+
+        assert_eq!(groups.len(), 0);
+    }
+
     // Helper functions for filter_groups_with_new_messages tests
     fn make_cursor(originator_id: u32, sequence_id: u64) -> GlobalCursor {
         let mut map = GlobalCursor::default();
@@ -759,7 +1008,7 @@ mod tests {
     }
 
     fn make_message_metadata(
-        group_id: Vec<u8>,
+        group_id: GroupId,
         originator_id: u32,
         sequence_id: u64,
     ) -> GroupMessageMetadata {
@@ -774,22 +1023,22 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_with_new_messages_basic_behavior() {
-        let group_id_1 = vec![1, 2, 3];
-        let group_id_2 = vec![4, 5, 6];
+        let group_id_1 = GroupId::from([0x01u8; 16]);
+        let group_id_2 = GroupId::from([0x02u8; 16]);
         let originator = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_id_1.clone(), make_cursor(originator, 5));
-        last_synced.insert(group_id_2.clone(), make_cursor(originator, 10));
+        last_synced.insert(group_id_1.to_vec(), make_cursor(originator, 5));
+        last_synced.insert(group_id_2.to_vec(), make_cursor(originator, 10));
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id_1.clone().into(),
-            make_message_metadata(group_id_1.clone(), originator, 10), // New: 10 > 5
+            group_id_1,
+            make_message_metadata(group_id_1, originator, 10), // New: 10 > 5
         );
         latest.insert(
-            group_id_2.clone().into(),
-            make_message_metadata(group_id_2.clone(), originator, 8), // No new: 8 < 10
+            group_id_2,
+            make_message_metadata(group_id_2, originator, 8), // No new: 8 < 10
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -800,22 +1049,22 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_includes_never_synced_and_excludes_up_to_date() {
-        let group_synced = vec![1, 2, 3];
-        let group_never_synced = vec![4, 5, 6];
+        let group_synced = GroupId::from([0x01u8; 16]);
+        let group_never_synced = GroupId::from([0x02u8; 16]);
         let originator = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_synced.clone(), make_cursor(originator, 5));
+        last_synced.insert(group_synced.to_vec(), make_cursor(originator, 5));
         // group_never_synced has no entry
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_synced.clone().into(),
-            make_message_metadata(group_synced.clone(), originator, 3), // Already synced
+            group_synced,
+            make_message_metadata(group_synced, originator, 3), // Already synced
         );
         latest.insert(
-            group_never_synced.clone().into(),
-            make_message_metadata(group_never_synced.clone(), originator, 1),
+            group_never_synced,
+            make_message_metadata(group_never_synced, originator, 1),
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -826,7 +1075,7 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_handles_multiple_originators() {
-        let group_id = vec![1, 2, 3];
+        let group_id = GroupId::from([0x01u8; 16]);
         let orig_1 = 100;
         let orig_2 = 200;
 
@@ -834,12 +1083,12 @@ mod tests {
         let mut cursor_map = GlobalCursor::default();
         cursor_map.insert(orig_1, 10);
         cursor_map.insert(orig_2, 20);
-        last_synced.insert(group_id.clone(), cursor_map);
+        last_synced.insert(group_id.to_vec(), cursor_map);
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id.clone().into(),
-            make_message_metadata(group_id.clone(), orig_2, 25), // New from orig_2
+            group_id,
+            make_message_metadata(group_id, orig_2, 25), // New from orig_2
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -850,15 +1099,15 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_treats_unknown_originator_as_new() {
-        let group_id = vec![1, 2, 3];
+        let group_id = GroupId::from([0x01u8; 16]);
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_id.clone(), make_cursor(100, 10));
+        last_synced.insert(group_id.to_vec(), make_cursor(100, 10));
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id.clone().into(),
-            make_message_metadata(group_id.clone(), 200, 5), // Unknown originator defaults to 0
+            group_id,
+            make_message_metadata(group_id, 200, 5), // Unknown originator defaults to 0
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
@@ -873,11 +1122,12 @@ mod tests {
     #[case(HashMap::new(), HashMap::new())] // Empty inputs
     #[case({
         let mut m = HashMap::new();
-        m.insert(vec![1], make_cursor(100, 10));
+        m.insert(GroupId::from([0x01u8; 16]).to_vec(), make_cursor(100, 10));
         m
     }, {
         let mut m = HashMap::new();
-        m.insert(vec![1].into(), make_message_metadata(vec![1], 100, 10));
+        let gid = GroupId::from([0x01u8; 16]);
+        m.insert(gid, make_message_metadata(gid, 100, 10));
         m
     })] // Equal cursors
     #[xmtp_common::test]
@@ -891,35 +1141,23 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_comprehensive_mixed_states() {
-        let g1 = vec![1];
-        let g2 = vec![2];
-        let g3 = vec![3];
-        let g4 = vec![4];
+        let g1 = GroupId::from([0x01u8; 16]);
+        let g2 = GroupId::from([0x02u8; 16]);
+        let g3 = GroupId::from([0x03u8; 16]);
+        let g4 = GroupId::from([0x04u8; 16]);
         let orig = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(g1.clone(), make_cursor(orig, 5)); // Will have new
-        last_synced.insert(g2.clone(), make_cursor(orig, 15)); // Already synced
-        last_synced.insert(g3.clone(), make_cursor(orig, 10)); // Equal
+        last_synced.insert(g1.to_vec(), make_cursor(orig, 5)); // Will have new
+        last_synced.insert(g2.to_vec(), make_cursor(orig, 15)); // Already synced
+        last_synced.insert(g3.to_vec(), make_cursor(orig, 10)); // Equal
         // g4 never synced
 
         let mut latest = HashMap::new();
-        latest.insert(
-            g1.clone().into(),
-            make_message_metadata(g1.clone(), orig, 10),
-        );
-        latest.insert(
-            g2.clone().into(),
-            make_message_metadata(g2.clone(), orig, 12),
-        );
-        latest.insert(
-            g3.clone().into(),
-            make_message_metadata(g3.clone(), orig, 10),
-        );
-        latest.insert(
-            g4.clone().into(),
-            make_message_metadata(g4.clone(), orig, 1),
-        );
+        latest.insert(g1, make_message_metadata(g1, orig, 10));
+        latest.insert(g2, make_message_metadata(g2, orig, 12));
+        latest.insert(g3, make_message_metadata(g3, orig, 10));
+        latest.insert(g4, make_message_metadata(g4, orig, 1));
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 

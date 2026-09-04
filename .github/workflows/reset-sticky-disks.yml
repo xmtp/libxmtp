@@ -1,0 +1,69 @@
+name: Reset Sticky Disks
+# Sticky-disk Nix stores only grow, and CoW snapshots don't shrink on
+# file deletion. Drop disks periodically; next run repopulates from Cachix.
+on:
+  schedule:
+    # 1st of every month at 00:00 UTC
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+jobs:
+  # Disks are keyed per closure family (see setup-nix). Enumerate the keys
+  # from the workflow files themselves so new families are reset automatically.
+  enumerate:
+    name: Enumerate disk keys
+    runs-on: ubuntu-latest
+    outputs:
+      keys: ${{ steps.list.outputs.keys }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Collect disk-key values from workflows
+        id: list
+        run: |
+          # One-time: per-workflow keys from before the closure-family
+          # consolidation. Remove this list after one scheduled run.
+          legacy="cross-test ignored-tests-tracker lint-android lint-config
+            lint-js lint-node lint-wasm lint-workspace release-android
+            release-browser-sdk release-kotlin-bindings-nix release-node
+            release-node-sdk release-wasm test-android test-bindings-check
+            test-browser-sdk test-keepalive-probe test-node test-node-sdk
+            test-wasm test-workspace test-xdbg"
+          keys=$({ grep -rhoP 'disk-key:\s*\K[A-Za-z0-9_-]+' .github/workflows; printf '%s\n' $legacy; } | sort -u | jq -Rnc '[inputs]')
+          echo "keys=$keys" >> "$GITHUB_OUTPUT"
+          echo "Found nix disk keys: $keys"
+  reset-nix-disks:
+    name: Delete nix-${{ matrix.key }} (X64)
+    needs: enumerate
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        key: ${{ fromJSON(needs.enumerate.outputs.keys) }}
+    steps:
+      # Rarely-run workflows may have no disk yet; don't fail the reset on those.
+      - name: Delete ${{ github.repository }}-nix-${{ matrix.key }}-Linux-X64
+        uses: useblacksmith/stickydisk-delete@v1
+        continue-on-error: true
+        with:
+          delete-key: ${{ github.repository }}-nix-${{ matrix.key }}-Linux-X64
+  # Single repo-wide Gradle cache disk (see setup-nix gradle-disk input).
+  reset-gradle-disk:
+    name: Delete gradle disk (X64)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Delete ${{ github.repository }}-gradle-Linux-X64
+        uses: useblacksmith/stickydisk-delete@v1
+        continue-on-error: true
+        with:
+          delete-key: ${{ github.repository }}-gradle-Linux-X64
+  # Disk namespace is per-arch: deletion must run on a matching-arch runner.
+  # fh-cache is the only workflow with a Linux ARM job; extend this list if
+  # more workflows grow ARM jobs.
+  reset-nix-disks-arm:
+    name: Delete nix-fh-cache (ARM64)
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    steps:
+      - name: Delete ${{ github.repository }}-nix-fh-cache-Linux-ARM64
+        uses: useblacksmith/stickydisk-delete@v1
+        continue-on-error: true
+        with:
+          delete-key: ${{ github.repository }}-nix-fh-cache-Linux-ARM64

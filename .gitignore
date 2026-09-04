@@ -48,6 +48,11 @@ bower_components
 result/**
 result-*/**
 result-*
+**/result-*/**
+
+# JS SDK migration: nix-built binding artifacts staged into binding dirs
+bindings/*/.nix-dist
+bindings/*/dist/
 
 # node-waf configuration
 .lock-wscript
@@ -200,3 +205,7 @@ docs/plans
 
 # Firecrawl
 .firecrawl
+
+# Claude Code
+.claude/scheduled_tasks.lock
+/target-linux-amd64

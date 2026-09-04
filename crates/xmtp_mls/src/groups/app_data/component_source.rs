@@ -20,28 +20,38 @@
 //! the short version is `varint(version) || 32-byte payload`, with
 //! version 0 producing a 33-byte encoding.
 
-// Several helpers here are scaffolding for the migration PR that follows
-// this one (see `docs/plans/2026-04-10-app-data-migration-plan.md`). They
-// have no production callers yet but are referenced by tests and by the
-// follow-up PR's intent handlers. `expect` (not `allow`) so when the
-// migration lands and these go live, the compiler flags this attribute as
-// unfulfilled and we remember to drop it.
+// `ComponentMutation`, `component_type`, and the standalone
+// `expand_app_data_update_to_changes` entry point are scaffolding for
+// the standalone proposal-by-reference flow (`IntentKind::ProposeAppDataUpdate`)
+// described in XIP §1.5.2 / §3.4. They have unit-test coverage but no
+// production caller yet — the inline path goes through
+// `apply_app_data_update_payload` instead. `expect` (not `allow`) so the
+// compiler trips this when standalone-propose wiring lands, and we
+// either drop the attribute or trim whichever scaffolding the new path
+// supersedes.
 #![expect(dead_code)]
 
 use openmls::{
     extensions::Extensions,
-    group::{GroupContext, MlsGroup as OpenMlsGroup},
+    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::AppDataUpdateOperation,
 };
 use tls_codec::{Deserialize, Serialize};
 use xmtp_mls_common::{
-    app_data::{component_id::ComponentId, component_registry::ComponentOp},
+    app_data::{
+        component_id::ComponentId,
+        component_registry::ComponentRegistry,
+        components::type_dispatch::{apply_update_payload_for_type, expand_to_changes_for_type},
+        registry_table::lookup_component,
+        typed::ComponentTypedError,
+    },
     group_mutable_metadata::{
         GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
         find_mutable_metadata_extension,
     },
     inbox_id::{InboxId, InboxIdError},
-    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
+    tls_map::TlsMapError,
+    tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
@@ -54,7 +64,7 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 /// [`GroupError`]: super::super::error::GroupError
 #[derive(Debug, thiserror::Error)]
 pub enum ComponentSourceError {
-    /// The component is not in the well-known XMTP range that phase 1 handles.
+    /// The component id is outside the well-known XMTP range.
     #[error("unknown component {0}")]
     UnknownComponent(ComponentId),
 
@@ -113,6 +123,94 @@ pub enum ComponentSourceError {
     /// value of a collection component from an incoming delta.
     #[error("tls set apply error: {0}")]
     TlsSetApply(#[from] TlsSetError),
+
+    /// A `TlsMap::apply_delta` call failed while synthesizing the new full
+    /// value of a map component from an incoming delta.
+    #[error("tls map apply error: {0}")]
+    TlsMapApply(#[from] TlsMapError),
+}
+
+impl ComponentSourceError {
+    /// Best-effort `ComponentId` extraction for the variants that carry
+    /// one — so error-mapping shims can preserve structured context
+    /// across the crate boundary into
+    /// [`GroupMutableMetadataError::MalformedComponent`] without
+    /// stringifying.
+    pub(crate) fn component_id(&self) -> Option<ComponentId> {
+        match self {
+            Self::UnknownComponent(id)
+            | Self::NotImplemented(id)
+            | Self::ImmutableUpdate(id)
+            | Self::MismatchedMutation(id)
+            | Self::MalformedComponentValue {
+                component_id: id, ..
+            } => Some(*id),
+            _ => None,
+        }
+    }
+}
+
+impl From<ComponentTypedError> for ComponentSourceError {
+    /// Surface trait-layer errors at the dispatch boundary. The
+    /// dispatch layer adds `UnknownComponent` / `NotImplemented` /
+    /// `UnknownMetadataField` / `GroupMutableMetadata` for things the
+    /// trait can't see; the variants below are the trait's domain
+    /// and round-trip 1:1.
+    fn from(err: ComponentTypedError) -> Self {
+        match err {
+            ComponentTypedError::ImmutableUpdate(id) => Self::ImmutableUpdate(id),
+            ComponentTypedError::MismatchedMutation(id) => Self::MismatchedMutation(id),
+            ComponentTypedError::MalformedValue {
+                component_id,
+                reason,
+            } => Self::MalformedComponentValue {
+                component_id,
+                reason,
+            },
+            ComponentTypedError::InvalidInboxId(e) => Self::InvalidInboxId(e),
+            ComponentTypedError::TlsCodec(e) => Self::TlsCodec(e),
+            ComponentTypedError::TlsSetApply(e) => Self::TlsSetApply(e),
+            ComponentTypedError::TlsMapApply(e) => Self::TlsMapApply(e),
+            ComponentTypedError::UnspecifiedType(id) => Self::MalformedComponentValue {
+                component_id: id,
+                reason: "registered ComponentType is Unspecified".to_string(),
+            },
+            // A COMPONENT_REGISTRY delta that violates the registry's
+            // write invariants (reserved/hardcoded/out-of-space id,
+            // immutable overwrite, undecodable metadata). Structurally
+            // a malformed value for the registry component; the reason
+            // string carries the specific violation.
+            ComponentTypedError::RegistryMutation(e) => Self::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: e.to_string(),
+            },
+        }
+    }
+}
+
+impl From<ComponentSourceError> for GroupMutableMetadataError {
+    /// Preserve structure where possible. If the source already wraps a
+    /// `GroupMutableMetadataError` (e.g. `MissingExtension` raised by the
+    /// legacy `TryFrom<&OpenMlsGroup>` path on an unmigrated group),
+    /// unwrap and return that inner variant verbatim so callers can
+    /// match on `MissingExtension` / `MissingMetadataField` / etc.
+    ///
+    /// For every other variant, surface as `MalformedComponent` and
+    /// preserve the offending `component_id` when it's available so
+    /// downstream consumers (bindings, error-mapping) can match
+    /// structurally on it. Variants without one surface as
+    /// `component_id: None`; the display string stays the
+    /// authoritative diagnostic.
+    fn from(err: ComponentSourceError) -> Self {
+        if let ComponentSourceError::GroupMutableMetadata(inner) = err {
+            return inner;
+        }
+        let component_id = err.component_id();
+        GroupMutableMetadataError::MalformedComponent {
+            component_id,
+            reason: err.to_string(),
+        }
+    }
 }
 
 /// Describes a single, atomic mutation that a per-field intent handler wants
@@ -160,7 +258,7 @@ impl ComponentMutation<'_> {
 
 /// Hardcoded logical type of a well-known component. Returns `None` for
 /// app-range components (`0xC000-0xFEFF`) and for any well-known id that
-/// phase 1 has not yet mapped.
+/// is not yet wired into this match.
 pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
     match id {
         // Hardcoded registry / list components. ComponentRegistry itself is a
@@ -185,8 +283,8 @@ pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
         | ComponentId::MESSAGE_DISAPPEAR_IN_NS
         | ComponentId::COMMIT_LOG_SIGNER => Some(ComponentType::Bytes),
 
-        // Immutable metadata (not flowable through AppDataUpdate writes in
-        // phase 1, but we still advertise the type for completeness).
+        // Immutable metadata (not flowable through AppDataUpdate writes,
+        // but we still advertise the type for completeness).
         ComponentId::CONVERSATION_TYPE
         | ComponentId::CREATOR_INBOX_ID
         | ComponentId::ONESHOT_MESSAGE => Some(ComponentType::Bytes),
@@ -196,34 +294,10 @@ pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
     }
 }
 
-/// Single source of truth for the `MetadataField` ↔ `ComponentId` bijection
-/// over the Bytes-typed mutable-metadata family. Both lookup helpers below
-/// and `merge_app_data_into_mutable_metadata` derive from this table.
-const METADATA_FIELD_COMPONENT_MAP: &[(MetadataField, ComponentId)] = &[
-    (MetadataField::GroupName, ComponentId::GROUP_NAME),
-    (MetadataField::Description, ComponentId::GROUP_DESCRIPTION),
-    (
-        MetadataField::GroupImageUrlSquare,
-        ComponentId::GROUP_IMAGE_URL,
-    ),
-    (
-        MetadataField::MessageDisappearFromNS,
-        ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
-    ),
-    (
-        MetadataField::MessageDisappearInNS,
-        ComponentId::MESSAGE_DISAPPEAR_IN_NS,
-    ),
-    (
-        MetadataField::MinimumSupportedProtocolVersion,
-        ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
-    ),
-    (
-        MetadataField::CommitLogSigner,
-        ComponentId::COMMIT_LOG_SIGNER,
-    ),
-    (MetadataField::AppData, ComponentId::APP_DATA),
-];
+/// Re-export of the `MetadataField` ↔ `ComponentId` bijection, moved
+/// to `xmtp_mls_common` (single source of truth shared with the
+/// dict↔legacy merge and the archive exporter).
+pub(crate) use xmtp_mls_common::group_mutable_metadata::METADATA_FIELD_COMPONENT_MAP;
 
 /// Map a [`MetadataField`] string to its corresponding `ComponentId`.
 ///
@@ -255,14 +329,110 @@ pub(crate) fn component_id_to_metadata_field(id: ComponentId) -> Option<Metadata
 /// extensions (translated into the new app-data wire format on the fly).
 pub(crate) fn read_component_bytes(
     id: ComponentId,
-    mls_group: &OpenMlsGroup,
+    extensions: &Extensions<GroupContext>,
     proposals_enabled: bool,
 ) -> Result<Option<Vec<u8>>, ComponentSourceError> {
     if proposals_enabled {
-        Ok(read_from_app_data_dict(id, mls_group))
+        Ok(read_from_app_data_dict_from_extensions(id, extensions))
     } else {
-        read_from_legacy(id, mls_group.extensions())
+        read_from_legacy(id, extensions)
     }
+}
+
+/// Compute the post-commit value of a single component on a migrated group
+/// by overlaying the staged commit's `AppDataUpdate` proposals on top of
+/// the pre-commit dict. Last-write-wins matches the lazy-batching apply
+/// order in [`super::accumulate_app_data_updates`]: every `Update(payload)`
+/// is decoded against the running value (so collection deltas compose),
+/// and `Remove` collapses to `None`.
+///
+/// Returns `Ok(None)` when the component is absent both before and after
+/// the commit, or when it was explicitly removed. Returns `Err` only when
+/// an `Update` payload fails to decode against the running value — the
+/// same condition `validate_app_data_update_proposals_in_commit` would
+/// also reject upstream, so callers can treat decode failure here as
+/// "validator will surface the real error" and short-circuit.
+///
+/// Used by the commit validator to evaluate per-component invariants
+/// (notably `MIN_SUPPORTED_PROTOCOL_VERSION`) that need the post-commit
+/// view on migrated groups, where the legacy `GroupMutableMetadata`
+/// extension diff that drives the same check on unmigrated groups is
+/// unavailable.
+///
+/// # Registry semantics
+///
+/// `registry` is the **pre-commit** `COMPONENT_REGISTRY` (i.e. the state
+/// of the dictionary entry before the staged commit applies). Callers
+/// should load it once via [`super::load_component_registry`] on the
+/// live `mls_group` and reuse it across all validator helpers — same
+/// registry feeds [`super::validate_app_data_update_proposals_in_commit`]
+/// and any other per-component checks.
+///
+/// **Implication for commits that modify `COMPONENT_REGISTRY` in the
+/// same commit as a write to a newly-registered component**: such a
+/// write fails with `UnknownComponent` here because the new entry is
+/// not yet visible in the pre-commit registry. This matches what the
+/// receiver-side validator
+/// ([`super::validate_app_data_update_proposals_in_commit`]) enforces
+/// today and is the documented convention across the migrated commit
+/// path: registry mutations and writes that depend on those mutations
+/// MUST land in separate commits.
+///
+/// The bootstrap commit is the only legitimate "register + write in
+/// the same commit" pattern and is routed through a dedicated
+/// validator ([`super::bootstrap_validator::validate_bootstrap_commit`])
+/// that does not flow through this function.
+pub(crate) fn read_post_commit_component_bytes(
+    id: ComponentId,
+    mls_group: &OpenMlsGroup,
+    staged_commit: &StagedCommit,
+    registry: &ComponentRegistry,
+) -> Result<Option<Vec<u8>>, ComponentSourceError> {
+    let openmls_id: openmls::component::ComponentId = id.as_u16();
+
+    // Owned snapshot of operations targeting this specific component.
+    // Iterating `app_data_update_proposals()` yields short-lived
+    // `QueuedAppDataUpdateProposal` views that borrow into the staged
+    // commit — we can't hold their byte slices across iterations, so
+    // we materialize an owned form up front. `Update` payloads are
+    // typically tiny (version strings, single-key deltas), so the
+    // clone cost is negligible.
+    enum Op {
+        Update(Vec<u8>),
+        Remove,
+    }
+    let ops: Vec<Op> = staged_commit
+        .app_data_update_proposals()
+        .filter_map(|queued| {
+            let proposal = queued.app_data_update_proposal();
+            if proposal.component_id() != openmls_id {
+                return None;
+            }
+            Some(match proposal.operation() {
+                AppDataUpdateOperation::Update(payload) => Op::Update(payload.as_slice().to_vec()),
+                AppDataUpdateOperation::Remove => Op::Remove,
+            })
+        })
+        .collect();
+    if ops.is_empty() {
+        return Ok(read_from_app_data_dict(id, mls_group));
+    }
+
+    let mut current = read_from_app_data_dict(id, mls_group);
+    for op in &ops {
+        match op {
+            Op::Update(payload) => {
+                current = Some(apply_app_data_update_payload(
+                    id,
+                    payload,
+                    current.as_deref(),
+                    registry,
+                )?);
+            }
+            Op::Remove => current = None,
+        }
+    }
+    Ok(current)
 }
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.
@@ -272,17 +442,26 @@ pub(crate) fn read_component_bytes(
 /// into [`expand_app_data_update_to_changes`] as `old_value` — the
 /// validator uses that to resolve `RemoveByHash` mutations back to
 /// their underlying inbox id. The parent `app_data` module also uses
-/// it from `process_message_with_app_data`, `stage_inline_app_data_commit`,
+/// it from `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
 /// and `pending_app_data_updates`.
 pub(crate) fn read_from_app_data_dict(
     id: ComponentId,
     mls_group: &OpenMlsGroup,
 ) -> Option<Vec<u8>> {
-    let openmls_id: openmls::component::ComponentId = id.as_u16();
-    mls_group
-        .extensions()
+    read_from_app_data_dict_from_extensions(id, mls_group.extensions())
+}
+
+/// Extensions-only counterpart of [`read_from_app_data_dict`] — reads the
+/// component's bytes straight from a group's `GroupContext` extensions, with no
+/// full `OpenMlsGroup`. openmls keys the dictionary by its own `ComponentId`,
+/// which is just a `u16` alias, so `id.as_u16()` unwraps our newtype to the key.
+pub(crate) fn read_from_app_data_dict_from_extensions(
+    id: ComponentId,
+    extensions: &Extensions<GroupContext>,
+) -> Option<Vec<u8>> {
+    extensions
         .app_data_dictionary()
-        .and_then(|ext| ext.dictionary().get(&openmls_id))
+        .and_then(|ext| ext.dictionary().get(&id.as_u16()))
         .map(|bytes| bytes.to_vec())
 }
 
@@ -292,8 +471,15 @@ pub(crate) fn read_from_app_data_dict(
 /// For `GroupMutableMetadata`-backed bytes components this returns the
 /// attribute's UTF-8 bytes. For `ADMIN_LIST` / `SUPER_ADMIN_LIST` it
 /// re-encodes the legacy `Vec<String>` of hex inbox ids as a
-/// `TlsSet<InboxId>`. For `GROUP_MEMBERSHIP` this is currently a stub
-/// returning [`ComponentSourceError::NotImplemented`] — see §3 of the plan.
+/// `TlsSet<InboxId>`.
+///
+/// `GROUP_MEMBERSHIP` is intentionally unsupported here and returns
+/// [`ComponentSourceError::NotImplemented`]: unmigrated groups read
+/// membership via the dedicated `GROUP_MEMBERSHIP_EXTENSION_ID`
+/// GroupContext extension (see [`extract_group_membership`]), not as
+/// an AppData component. Migrated groups use the dict directly.
+///
+/// [`extract_group_membership`]: crate::groups::group_membership::extract_group_membership
 fn read_from_legacy(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
@@ -364,23 +550,11 @@ pub(crate) fn encode_app_data_update_payload(
     }
 }
 
-/// A single per-element view of an incoming `AppDataUpdate` proposal.
-///
-/// `Bytes` components produce exactly one entry; collection components
-/// produce one entry per delta mutation. The `op` mirrors the
-/// `ComponentOp` field on a [`ComponentChange`] so the validator can call
-/// `validate_component_write` directly.
-///
-/// `value` is `None` for `Delete` ops on collection components (the
-/// receiver removes the key without needing the new value), and `Some` for
-/// every other case.
-#[derive(Debug, Clone)]
-pub(crate) struct ExpandedComponentChange {
-    /// Whether this entry is an Insert, Update, or Delete.
-    pub(crate) op: ComponentOp,
-    /// The new value bytes for Insert/Update, or `None` for Delete.
-    pub(crate) value: Option<Vec<u8>>,
-}
+// `ExpandedComponentChange` lives in `xmtp_mls_common::app_data::typed`
+// so the `Component` trait there can return it. Re-exported here so
+// in-crate callers can construct the change list without pulling the
+// xmtp_mls_common path in directly.
+pub(crate) use xmtp_mls_common::app_data::typed::ExpandedComponentChange;
 
 /// Expand an `AppDataUpdate` proposal payload into the per-element changes
 /// that should be checked against the component registry.
@@ -405,230 +579,238 @@ pub(crate) struct ExpandedComponentChange {
 ///
 /// Used on the receiver side to feed `validate_component_write` for each
 /// distinct change inside a single `AppDataUpdate` proposal.
+///
+/// The steady-state validator dispatches through `lookup_component`
+/// directly so it can also call `Component::validate_invariant`
+/// without a second binary search. This wrapper is retained for
+/// callers that don't need the invariant hook.
 pub(crate) fn expand_app_data_update_to_changes(
     component_id: ComponentId,
     operation: &AppDataUpdateOperation,
     old_value: Option<&[u8]>,
+    registry: &ComponentRegistry,
 ) -> Result<Vec<ExpandedComponentChange>, ComponentSourceError> {
-    match operation {
-        AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
-            op: ComponentOp::Delete,
-            value: None,
-        }]),
-        AppDataUpdateOperation::Update(payload) => {
-            // Bytes-typed components: a single Update covering the whole value.
-            if component_id_to_metadata_field(component_id).is_some() {
-                return Ok(vec![ExpandedComponentChange {
-                    op: ComponentOp::Update,
-                    value: Some(payload.as_slice().to_vec()),
-                }]);
-            }
-
-            match component_id {
-                ComponentId::ADMIN_LIST | ComponentId::SUPER_ADMIN_LIST => {
-                    let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload.as_slice())?;
-
-                    // Lazily build a hash → InboxId index only if we
-                    // actually see a `RemoveByHash` in this delta. The
-                    // common case (Insert/Remove deltas) pays no decode
-                    // cost for the prior set, and the cost of the
-                    // deserialize + index build is paid once per
-                    // proposal, not per mutation.
-                    let needs_index = delta
-                        .mutations
-                        .iter()
-                        .any(|m| matches!(m, TlsSetMutation::RemoveByHash(_)));
-                    let hash_index: Option<std::collections::HashMap<TlsKeyHash, InboxId>> =
-                        if needs_index {
-                            match old_value {
-                                Some(bytes) => {
-                                    let prior = TlsSet::<InboxId>::tls_deserialize_exact(bytes)?;
-                                    let mut idx =
-                                        std::collections::HashMap::with_capacity(prior.len());
-                                    for key in prior.iter() {
-                                        // Defense-in-depth: a hash clash between two
-                                        // distinct keys in the prior set is cryptographically
-                                        // infeasible with SHA-256, but a bug in `Serialize`
-                                        // for `InboxId` (or a future key type) could produce
-                                        // the same bytes for distinct logical values. Refuse
-                                        // to build a silently-lossy index — this matches
-                                        // `TlsSet::apply_delta`'s `DuplicateHash` check at the
-                                        // apply step, so the expansion and apply paths agree
-                                        // on what constitutes a well-formed prior set.
-                                        if idx.insert(TlsKeyHash::of(key)?, *key).is_some() {
-                                            return Err(ComponentSourceError::TlsSetApply(
-                                                TlsSetError::DuplicateHash,
-                                            ));
-                                        }
-                                    }
-                                    Some(idx)
-                                }
-                                // No prior bytes → empty set → every
-                                // RemoveByHash trivially misses. Skip the
-                                // allocation and let each lookup return None.
-                                None => None,
-                            }
-                        } else {
-                            None
-                        };
-
-                    let mut out = Vec::with_capacity(delta.mutations.len());
-                    for mutation in delta.mutations {
-                        match mutation {
-                            TlsSetMutation::Insert(key) => out.push(ExpandedComponentChange {
-                                op: ComponentOp::Insert,
-                                value: Some(key.into_bytes().to_vec()),
-                            }),
-                            TlsSetMutation::Remove(key) => out.push(ExpandedComponentChange {
-                                op: ComponentOp::Delete,
-                                value: Some(key.into_bytes().to_vec()),
-                            }),
-                            // RemoveByHash carries a 32-byte hash of the
-                            // key's TLS encoding. Resolve it back to the
-                            // concrete InboxId via the prior-set index so
-                            // the validator sees the identity being
-                            // removed. A miss (or no prior set) leaves
-                            // `value: None` — the CRDT apply step will
-                            // fail with KeyNotFound in that case.
-                            TlsSetMutation::RemoveByHash(target) => {
-                                let resolved = hash_index
-                                    .as_ref()
-                                    .and_then(|idx| idx.get(&target))
-                                    .map(|id| id.as_bytes().to_vec());
-                                out.push(ExpandedComponentChange {
-                                    op: ComponentOp::Delete,
-                                    value: resolved,
-                                });
-                            }
-                        }
-                    }
-                    Ok(out)
-                }
-                ComponentId::GROUP_MEMBERSHIP => {
-                    Err(ComponentSourceError::NotImplemented(component_id))
-                }
-                _ => Err(ComponentSourceError::UnknownComponent(component_id)),
-            }
-        }
+    if let Some(component) = lookup_component(component_id) {
+        return component
+            .expand_to_changes(operation, old_value)
+            .map_err(Into::into);
     }
+
+    // No per-id [`Component`] impl on this client. Two type-resolution
+    // sources, tried in order:
+    //
+    // 1. In-code [`component_type`] mapping — covers well-known XMTP
+    //    ids whose type is known to this release but which have no
+    //    typed decoder (e.g. the immutable seeds CREATOR_INBOX_ID,
+    //    ONESHOT_MESSAGE — handled by bootstrap byte-compare, not by a
+    //    `Component` impl).
+    // 2. On-dict [`ComponentRegistry`] entry — covers components a
+    //    *newer* release ships that this client has never heard of;
+    //    the registry's `component_type` tag is the type oracle.
+    //
+    // Either way, the closed type universe (6 variants) means every
+    // shape — including `TlsSet` / `TlsMap` deltas — surfaces a proper
+    // per-element change list to the validator. Old and new clients
+    // converge on the same dict state for the same wire bytes.
+    let ty = component_type(component_id)
+        .map_or_else(|| registered_component_type(component_id, registry), Ok)?;
+    expand_to_changes_for_type(component_id, ty, operation, old_value).map_err(Into::into)
 }
 
-/// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload and
-/// compute the new *full* value of the component, given its prior stored
-/// bytes.
-///
-/// **This function is `Update`-only.** The `AppDataUpdateOperation::Remove`
-/// variant has no payload to decode and is handled directly by the caller
-/// via `AppDataDictionaryUpdater::remove(&id)` — see
-/// `process_message_with_app_data` and `pending_app_data_updates`. Calling
-/// this function for a `Remove` op is not necessary and not supported;
-/// the function only takes the `Update` payload bytes as input.
-///
-/// - `Bytes` components return the payload verbatim.
-/// - Collection components (`ADMIN_LIST`, `SUPER_ADMIN_LIST`) parse the
-///   payload as a `TlsSetDelta<InboxId>`, apply it to the old value
-///   (parsed as a `TlsSet<InboxId>`), and return the re-serialized set
-///   bytes.
+/// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload
+/// and produce the new full bytes of the component, given the prior
+/// stored bytes (if any). `Update`-only — `Remove` carries no payload
+/// and is handled directly by the caller.
 ///
 /// Immutable components are rejected with
-/// [`ComponentSourceError::ImmutableUpdate`] — the caller should not have
-/// sent an `Update` op for them in the first place.
+/// [`ComponentSourceError::ImmutableUpdate`] **only when a prior
+/// value already exists** — the bootstrap commit is the canonical
+/// first-insert path for immutable seeds, so this layer must allow
+/// an `Update` whose `old_value` is `None`. The bootstrap validator
+/// catches malicious initial values upstream via byte-compare.
 pub(crate) fn apply_app_data_update_payload(
     id: ComponentId,
     payload: &[u8],
     old_value: Option<&[u8]>,
+    registry: &ComponentRegistry,
 ) -> Result<Vec<u8>, ComponentSourceError> {
-    if id.is_immutable() {
+    // Immutability gate. Reject only on overwrite — a fresh insert
+    // (no prior value) is the bootstrap commit's first write of an
+    // immutable seed and must succeed for honest receivers to reach
+    // the migrated state. Steady-state immutables always have a prior
+    // (inserted at bootstrap), so a Byzantine peer trying to mutate
+    // them post-bootstrap still hits this branch and gets rejected.
+    if id.is_immutable() && old_value.is_some() {
         return Err(ComponentSourceError::ImmutableUpdate(id));
     }
 
-    // Bytes components are passed through — the old value doesn't matter.
-    if component_id_to_metadata_field(id).is_some() {
-        return Ok(payload.to_vec());
+    // Per-id `Component` impl on this client — handles all 13 well-
+    // known mutable components with a typed decoder.
+    if let Some(component) = lookup_component(id) {
+        return component
+            .apply_update_payload(payload, old_value)
+            .map_err(Into::into);
     }
 
-    match id {
-        ComponentId::ADMIN_LIST | ComponentId::SUPER_ADMIN_LIST => {
-            let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload)?;
-            let mut set: TlsSet<InboxId> = match old_value {
-                Some(bytes) => TlsSet::<InboxId>::tls_deserialize_exact(bytes)?,
-                None => TlsSet::new(),
-            };
-            set.apply_delta(delta)?;
-            Ok(set.tls_serialize_detached()?)
-        }
-        ComponentId::GROUP_MEMBERSHIP => Err(ComponentSourceError::NotImplemented(id)),
-        _ => Err(ComponentSourceError::UnknownComponent(id)),
-    }
+    // Two type-resolution sources for components without a per-id
+    // impl, tried in order:
+    //
+    // 1. In-code [`component_type`] mapping — covers well-known XMTP
+    //    ids whose type is known but which have no typed decoder
+    //    (immutable seeds like CREATOR_INBOX_ID — bootstrap-only
+    //    first-write path).
+    // 2. On-dict [`ComponentRegistry`] entry — covers components a
+    //    *newer* release ships that this client has never heard of;
+    //    the registry's `component_type` tag is the type oracle.
+    let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
+    apply_update_payload_for_type(id, ty, payload, old_value).map_err(Into::into)
 }
 
-/// Merge any well-known component values stored in the OpenMLS AppData
-/// dictionary into a base [`GroupMutableMetadata`] read from the legacy
-/// extension.
+/// Look up the [`ComponentType`] registered for a component id in the
+/// on-dict [`ComponentRegistry`]. Returns
+/// [`ComponentSourceError::UnknownComponent`] when no registry entry
+/// exists — the deny-by-default rule that keeps unrecognized payloads
+/// from being applied opaquely.
+fn registered_component_type(
+    id: ComponentId,
+    registry: &ComponentRegistry,
+) -> Result<ComponentType, ComponentSourceError> {
+    let meta = registry
+        .get(&id)
+        .map_err(|e| ComponentSourceError::MalformedComponentValue {
+            component_id: id,
+            reason: format!("registry lookup: {e}"),
+        })?
+        .ok_or(ComponentSourceError::UnknownComponent(id))?;
+    ComponentType::try_from(meta.component_type).map_err(|_| {
+        ComponentSourceError::MalformedComponentValue {
+            component_id: id,
+            reason: format!(
+                "registry entry has unknown component_type tag {}",
+                meta.component_type
+            ),
+        }
+    })
+}
+
+/// Overlay AppData-dict component values onto a base [`GroupMutableMetadata`]
+/// read from the legacy extension. On migrated groups the dict is
+/// authoritative; for unmigrated components the legacy GMM stays as the
+/// fallback, so callers always get a complete view.
 ///
-/// Used by the per-field read accessors (`group_name()`, `admin_list()`,
-/// etc.) so that a group with `proposals_enabled` sees AppData-dict writes
-/// take precedence over whatever the legacy GMM extension still says. The
-/// legacy extension stays as the fallback for components that have not
-/// been migrated yet, so callers always get a complete view.
+/// Gated on [`super::is_migrated_group`] (defense-in-depth) so a stray
+/// dict entry on a pre-bootstrap group can't shadow legacy GMM.
 ///
-/// This is a no-op when the AppData dictionary extension is absent or
-/// empty — the common case for unmigrated groups, where it preserves the
-/// exact bytes returned by [`GroupMutableMetadata::try_from`].
-///
-/// Wire format expectations (must match what the sender path emits via
+/// Wire formats (must match what the sender emits via
 /// [`encode_app_data_update_payload`] / [`apply_app_data_update_payload`]):
+/// - Bytes components: raw UTF-8 string bytes.
+/// - `ADMIN_LIST` / `SUPER_ADMIN_LIST`: TLS-serialized `TlsSet<InboxId>`,
+///   each id hex-encoded back to string form.
 ///
-/// - Bytes components: raw UTF-8 string bytes, written verbatim into the
-///   `attributes` map under the corresponding [`MetadataField`].
-/// - `ADMIN_LIST` / `SUPER_ADMIN_LIST`: a TLS-serialized `TlsSet<InboxId>`
-///   (each entry is `varint(version) || 32-byte payload`); each entry is
-///   hex-encoded back to its string form before being stored in
-///   `admin_list` / `super_admin_list`.
+/// ## Independence from `COMPONENT_REGISTRY` parseability
+///
+/// This function reads metadata field entries directly from the dict and
+/// **never** loads or validates the `COMPONENT_REGISTRY` payload — it
+/// only uses [`super::is_migrated_extensions`] (key-existence check) as
+/// the gate. So a malformed `COMPONENT_REGISTRY` blob does NOT cause
+/// metadata reads to drop authoritative data: as long as the individual
+/// metadata field bytes (`GROUP_NAME`, `ADMIN_LIST`, …) decode
+/// correctly, they round-trip into the returned GMM. Registry corruption
+/// is surfaced loudly on the *write* paths instead — the sender gate in
+/// `mls_sync.rs` and the commit validator in `validated_commit.rs` both
+/// call [`super::load_component_registry`] and propagate decode errors
+/// — so a corrupt registry blocks state changes without making readable
+/// data unreachable. See
+/// `merge_with_malformed_registry_returns_valid_field` for the test
+/// that pins this invariant.
 pub(crate) fn merge_app_data_into_mutable_metadata(
     base: &mut GroupMutableMetadata,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), ComponentSourceError> {
-    let Some(ext) = mls_group.extensions().app_data_dictionary() else {
-        return Ok(());
-    };
-    let dict = ext.dictionary();
+    merge_app_data_into_mutable_metadata_from_extensions(base, mls_group.extensions())
+}
 
-    for (field, id) in METADATA_FIELD_COMPONENT_MAP {
-        if let Some(bytes) = dict.get(&id.as_u16()) {
-            // Bytes-typed components store their value as raw UTF-8 over
-            // the wire. Anything non-UTF-8 here is a wire-format violation
-            // by the sender, so surface it as a `MalformedComponentValue`
-            // (NOT an inbox-id error — these aren't inbox ids).
-            let s = std::str::from_utf8(bytes).map_err(|e| {
-                ComponentSourceError::MalformedComponentValue {
-                    component_id: *id,
-                    reason: format!("non-UTF-8 bytes: {e}"),
-                }
-            })?;
-            base.attributes
-                .insert(field.as_str().to_string(), s.to_string());
-        }
+/// Capability-aware [`GroupMutableMetadata`] extractor.
+///
+/// On migrated groups the legacy `GroupMutableMetadata` group context
+/// extension is stripped by the bootstrap commit, so the static
+/// [`xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata`]
+/// returns `MissingExtension` and any caller that swallows the error
+/// with `.ok()` silently defaults every metadata field (notably:
+/// disappearing-message settings and `MinimumSupportedProtocolVersion`
+/// — the latter is what gates the XIP §3 pause-on-version-bump flow).
+///
+/// This helper returns the same `GroupMutableMetadata` shape but reads
+/// from the right source per migration state:
+///
+/// - **Migrated** ([`super::is_migrated_group`] returns `true`): starts
+///   from an empty composite and overlays every field from the AppData
+///   dictionary via [`merge_app_data_into_mutable_metadata`].
+/// - **Unmigrated**: parses the legacy GMM extension via
+///   `GroupMutableMetadata::try_from(&OpenMlsGroup)`, matching the
+///   legacy static helper byte-for-byte.
+pub(crate) fn extract_group_mutable_metadata_capability_aware(
+    mls_group: &OpenMlsGroup,
+) -> Result<GroupMutableMetadata, ComponentSourceError> {
+    if super::is_migrated_group(mls_group) {
+        let mut base =
+            GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
+        merge_app_data_into_mutable_metadata(&mut base, mls_group)?;
+        Ok(base)
+    } else {
+        Ok(GroupMutableMetadata::try_from(mls_group)?)
     }
+}
 
-    // ADMIN_LIST / SUPER_ADMIN_LIST are intentionally NOT merged in
-    // this PR. `IntentKind::UpdateAdminList` in `mls_sync.rs` stays
-    // unconditionally on the legacy GCE path — nothing in the
-    // production sender pipeline emits an `AppDataUpdate(ADMIN_LIST,…)`
-    // proposal, so the ADMIN_LIST dict entry is empty by construction.
-    //
-    // Merging a hypothetical dict entry here without also re-routing
-    // the sender path AND updating the `validated_commit.rs` admin-list
-    // validators (which currently treat the legacy GMM extension as
-    // source of truth) would put writers and readers out of sync, and
-    // would let a Byzantine peer shadow the validated GMM state via
-    // the un-validated dict.
-    //
-    // The overlay is re-enabled as Task 6 of the migration PR — see
-    // `docs/plans/2026-04-10-app-data-migration-plan.md`. That PR
-    // flips the sender path, the validator, and this merge in lockstep
-    // so all three layers agree.
-    Ok(())
+/// Same as [`extract_group_mutable_metadata_capability_aware`], but driven from
+/// the group's `GroupContext` extensions alone — no full `OpenMlsGroup::load`.
+/// The mutable metadata lives entirely in the context extensions, so a single
+/// `StorageProvider::group_context` read (one KV round-trip, no ratchet tree)
+/// is all this needs.
+pub(crate) fn extract_group_mutable_metadata_capability_aware_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<GroupMutableMetadata, ComponentSourceError> {
+    if super::is_migrated_extensions(extensions) {
+        let mut base =
+            GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
+        merge_app_data_into_mutable_metadata_from_extensions(&mut base, extensions)?;
+        Ok(base)
+    } else {
+        Ok(GroupMutableMetadata::try_from(extensions)?)
+    }
+}
+
+/// Extensions-only variant of [`merge_app_data_into_mutable_metadata`].
+/// Mirrors the [`super::is_migrated_group`] / [`super::is_migrated_extensions`]
+/// and [`super::load_component_registry`] /
+/// [`super::load_component_registry_from_extensions`] splits so unit
+/// tests can pin the merge contract without materializing an
+/// `OpenMlsGroup`.
+pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
+    base: &mut GroupMutableMetadata,
+    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
+) -> Result<(), ComponentSourceError> {
+    if !super::is_migrated_extensions(extensions) {
+        return Ok(());
+    }
+    // The merge body lives in `xmtp_mls_common` so crates below
+    // `xmtp_mls` in the dependency graph (the archive exporter) can
+    // reuse it; only the (test-override-aware) migration gate above
+    // stays here. Map the per-component error back to
+    // `MalformedComponentValue` so this function's error shape (which
+    // callers and tests match on, and `component_id()` extracts from)
+    // is unchanged by the move.
+    xmtp_mls_common::group_mutable_metadata::merge_dict_into_mutable_metadata(base, extensions)
+        .map_err(|e| match e {
+            GroupMutableMetadataError::MalformedComponent {
+                component_id: Some(component_id),
+                reason,
+            } => ComponentSourceError::MalformedComponentValue {
+                component_id,
+                reason,
+            },
+            other => ComponentSourceError::GroupMutableMetadata(other),
+        })
 }
 
 // ============================================================================
@@ -650,6 +832,249 @@ pub(crate) fn merge_app_data_into_mutable_metadata(
 /// inner variant.
 pub(crate) fn inbox_id_str_to_bytes(inbox_id: &str) -> Result<InboxId, ComponentSourceError> {
     InboxId::from_hex(inbox_id).map_err(Into::into)
+}
+
+/// Read the super-admin list from the AppData dictionary on a migrated
+/// group. Returns `Ok(None)` on unmigrated groups (or migrated groups
+/// that happen not to have written `SUPER_ADMIN_LIST` yet).
+///
+/// Gated on [`super::is_migrated_group`] for the same reason as
+/// [`merge_app_data_into_mutable_metadata`] — keep stray dict entries
+/// from shadowing the authoritative legacy path pre-bootstrap.
+pub(crate) fn read_super_admin_list_from_dict(
+    mls_group: &OpenMlsGroup,
+) -> Result<Option<Vec<String>>, ComponentSourceError> {
+    read_super_admin_list_from_extensions(mls_group.extensions())
+}
+
+/// Extensions-only variant of [`read_super_admin_list_from_dict`]. Use
+/// the shim above when an `OpenMlsGroup` is at hand; this form is
+/// available primarily for unit testing and for commit-validation
+/// paths that only carry an `Extensions` reference.
+pub(crate) fn read_super_admin_list_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<Option<Vec<String>>, ComponentSourceError> {
+    if !super::is_migrated_extensions(extensions) {
+        return Ok(None);
+    }
+    let Some(ext) = extensions.app_data_dictionary() else {
+        return Ok(None);
+    };
+    let Some(bytes) = ext
+        .dictionary()
+        .get(&ComponentId::SUPER_ADMIN_LIST.as_u16())
+    else {
+        return Ok(None);
+    };
+    let set = TlsSet::<InboxId>::tls_deserialize_exact(bytes).map_err(|e| {
+        ComponentSourceError::MalformedComponentValue {
+            component_id: ComponentId::SUPER_ADMIN_LIST,
+            reason: format!("invalid TlsSet<InboxId>: {e}"),
+        }
+    })?;
+    Ok(Some(set.iter().map(|id| id.to_hex()).collect()))
+}
+
+/// Synthesize a [`GroupMetadata`] from the AppData dictionary on a
+/// migrated group. Returns `Ok(None)` if the critical immutable seeds
+/// aren't present (unmigrated group).
+///
+/// Encoding mirrors the sender-side synthesis in
+/// [`xmtp_mls_common::app_data::migration::synthesize_canonical_subset_for_validation`]:
+/// - `CONVERSATION_TYPE`: 4 big-endian bytes of `ConversationType as i32`
+///   (see `encode_conversation_type` there).
+/// - `CREATOR_INBOX_ID`: the versioned `InboxId` TLS wire form
+///   (`varint(version) || 32-byte payload`) — the same shape every
+///   other inbox-id-bearing component on the new path uses. Reader
+///   hex-encodes the decoded id back into the legacy
+///   `GroupMetadata::creator_inbox_id: String` slot.
+/// - `DM_MEMBERS`: `TlsSet<InboxId>` with exactly two elements —
+///   matches the declared `ComponentType::TlsSetInboxId` and the
+///   sender's `encode_dm_members`. The writer rejects self-DMs
+///   (identical slots) up front; readers that see a 1-element set
+///   surface `MalformedComponentValue`.
+/// - `ONESHOT_MESSAGE`: prost-encoded `OneshotMessage`.
+pub(crate) fn read_group_metadata_from_dict(
+    mls_group: &OpenMlsGroup,
+) -> Result<Option<GroupMetadataReturn>, ComponentSourceError> {
+    read_group_metadata_from_extensions(mls_group.extensions())
+}
+
+/// Extensions-only variant of [`read_group_metadata_from_dict`]. Same
+/// rationale for the split as [`read_super_admin_list_from_extensions`].
+pub(crate) fn read_group_metadata_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<Option<GroupMetadataReturn>, ComponentSourceError> {
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        DmMembers as DmMembersProto, Inbox as InboxProto, OneshotMessage,
+    };
+
+    // Gated on the unified migration predicate — see
+    // `merge_app_data_into_mutable_metadata` for the rationale.
+    if !super::is_migrated_extensions(extensions) {
+        return Ok(None);
+    }
+
+    let Some(ext) = extensions.app_data_dictionary() else {
+        return Ok(None);
+    };
+    let dict = ext.dictionary();
+
+    let Some(ct_bytes) = dict.get(&ComponentId::CONVERSATION_TYPE.as_u16()) else {
+        return Ok(None);
+    };
+    let Some(creator_bytes) = dict.get(&ComponentId::CREATOR_INBOX_ID.as_u16()) else {
+        return Ok(None);
+    };
+
+    let ct_arr: [u8; 4] =
+        ct_bytes
+            .try_into()
+            .map_err(|_| ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::CONVERSATION_TYPE,
+                reason: format!("expected 4 bytes, got {}", ct_bytes.len()),
+            })?;
+    let conversation_type = i32::from_be_bytes(ct_arr);
+
+    let creator_inbox_id = InboxId::tls_deserialize_exact(creator_bytes)
+        .map_err(|e| ComponentSourceError::MalformedComponentValue {
+            component_id: ComponentId::CREATOR_INBOX_ID,
+            reason: format!("invalid InboxId TLS encoding: {e}"),
+        })?
+        .to_hex();
+
+    // `DM_MEMBERS` on the wire is `TlsSet<InboxId>`; re-shape to
+    // `DmMembersProto` so downstream `GroupMetadata::try_from` is unchanged.
+    let dm_members = match dict.get(&ComponentId::DM_MEMBERS.as_u16()) {
+        Some(b) => {
+            let set = TlsSet::<InboxId>::tls_deserialize_exact(b).map_err(|e| {
+                ComponentSourceError::MalformedComponentValue {
+                    component_id: ComponentId::DM_MEMBERS,
+                    reason: format!("invalid TlsSet<InboxId>: {e}"),
+                }
+            })?;
+            let ids: Vec<InboxId> = set.iter().copied().collect();
+            if ids.len() != 2 {
+                return Err(ComponentSourceError::MalformedComponentValue {
+                    component_id: ComponentId::DM_MEMBERS,
+                    reason: format!("expected 2 inbox ids, got {}", ids.len()),
+                });
+            }
+            Some(DmMembersProto {
+                dm_member_one: Some(InboxProto {
+                    inbox_id: ids[0].to_hex(),
+                }),
+                dm_member_two: Some(InboxProto {
+                    inbox_id: ids[1].to_hex(),
+                }),
+            })
+        }
+        None => None,
+    };
+
+    let oneshot = match dict.get(&ComponentId::ONESHOT_MESSAGE.as_u16()) {
+        Some(b) => Some(OneshotMessage::decode(b).map_err(|e| {
+            ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::ONESHOT_MESSAGE,
+                reason: format!("OneshotMessage prost decode: {e}"),
+            }
+        })?),
+        None => None,
+    };
+
+    Ok(Some(GroupMetadataReturn {
+        conversation_type,
+        creator_inbox_id,
+        dm_members,
+        oneshot,
+    }))
+}
+
+/// Intermediate proto-shaped result of [`read_group_metadata_from_extensions`].
+/// Caller converts to the final [`xmtp_mls_common::group_metadata::GroupMetadata`].
+#[derive(Debug)]
+pub(crate) struct GroupMetadataReturn {
+    pub conversation_type: i32,
+    pub creator_inbox_id: String,
+    pub dm_members: Option<xmtp_proto::xmtp::mls::message_contents::DmMembers>,
+    pub oneshot: Option<xmtp_proto::xmtp::mls::message_contents::OneshotMessage>,
+}
+
+/// Read the `GROUP_MEMBERSHIP` dict entry and decode it into the
+/// legacy `GroupMembership` proto shape. Returns `Ok(None)` for
+/// unmigrated groups. Used by `extract_group_membership` on the
+/// receive-side validator to bridge the dict-stored membership back
+/// into the existing `GroupMembership` Rust type without rewriting
+/// every caller.
+pub(crate) fn read_group_membership_from_dict(
+    extensions: &Extensions<GroupContext>,
+) -> Result<Option<xmtp_proto::xmtp::mls::message_contents::GroupMembership>, ComponentSourceError>
+{
+    use xmtp_mls_common::app_data::migration::decode_group_membership_dict;
+    use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
+
+    // Gate on the unified migration predicate so a stray
+    // `GROUP_MEMBERSHIP` dict entry on a pre-bootstrap group can't
+    // shadow the authoritative legacy extension. Matches the gating
+    // used by [`merge_app_data_into_mutable_metadata`] and the
+    // `mutable_metadata()` / `is_super_admin_without_lock` callers.
+    if !super::is_migrated_extensions(extensions) {
+        return Ok(None);
+    }
+
+    let Some(ext) = extensions.app_data_dictionary() else {
+        return Ok(None);
+    };
+    let Some(bytes) = ext
+        .dictionary()
+        .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
+    else {
+        return Ok(None);
+    };
+
+    let entries = decode_group_membership_dict(bytes).map_err(|e| {
+        ComponentSourceError::MalformedComponentValue {
+            component_id: ComponentId::GROUP_MEMBERSHIP,
+            reason: format!("TlsMap decode: {e}"),
+        }
+    })?;
+
+    // Flatten per-inbox GroupMembershipEntryV1 back into the legacy
+    // proto shape: members (inbox_id → sequence_id), failed_installations
+    // (flat Vec). The proto still has a flat failed_installations field
+    // for backward compat — we concatenate per-inbox failed lists for
+    // callers that still read the flat list.
+    //
+    // `decode_group_membership_dict` already rejects entries with
+    // `version: None` (`MigrationError::GroupMembershipEntryUnknownVersion`),
+    // so the only legal post-decode shape today is `Some(Version::V1(_))`.
+    // Anything else (a future Version variant we can't interpret) is a
+    // forward-compat hazard and surfaces as `MalformedComponentValue`.
+    use xmtp_proto::xmtp::mls::message_contents::group_membership_entry::Version as GroupMembershipEntryVersion;
+    let mut members: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut failed: Vec<Vec<u8>> = Vec::new();
+    for (inbox_id, entry) in entries {
+        let v1 = match entry.version {
+            Some(GroupMembershipEntryVersion::V1(v1)) => v1,
+            None => {
+                return Err(ComponentSourceError::MalformedComponentValue {
+                    component_id: ComponentId::GROUP_MEMBERSHIP,
+                    reason: format!(
+                        "GroupMembershipEntry for {} has no version",
+                        inbox_id.to_hex()
+                    ),
+                });
+            }
+        };
+        members.insert(inbox_id.to_hex(), v1.sequence_id);
+        failed.extend(v1.failed_installations);
+    }
+
+    Ok(Some(GroupMembershipProto {
+        members,
+        failed_installations: failed,
+    }))
 }
 
 /// Encode a list of hex inbox ids as a TLS-serialized `TlsSet<InboxId>`.
@@ -675,7 +1100,21 @@ fn encode_inbox_id_set_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xmtp_mls_common::inbox_id::INBOX_ID_BYTE_LEN;
+    use prost::Message;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::{
+            component_permissions::component_permissions,
+            component_registry::{ComponentOp, new_component_metadata},
+        },
+        inbox_id::INBOX_ID_BYTE_LEN,
+        tls_map::{TlsMap, TlsMapDelta},
+        tls_set::TlsKeyHash,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy as MetadataPolicyProto,
+        metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    };
 
     /// Build a deterministic 64-character hex inbox id from a tag byte. The
     /// tag is repeated 32 times, giving a unique inbox id per call without
@@ -687,6 +1126,34 @@ mod tests {
     /// Build the [`InboxId`] form of [`fake_inbox_id`] directly.
     fn fake_inbox(tag: u8) -> InboxId {
         InboxId::from_bytes([tag; INBOX_ID_BYTE_LEN])
+    }
+
+    /// Empty registry constant for tests that exercise known-id paths —
+    /// `lookup_component` resolves first, so the registry is never
+    /// consulted and an empty one is sufficient.
+    fn empty_registry() -> ComponentRegistry {
+        ComponentRegistry::new()
+    }
+
+    /// Build a single-entry registry for tests that exercise the
+    /// type-aware fallback on unknown ids. Permissions are `Allow` for
+    /// every op so the policy layer does not interfere with the
+    /// dispatch test under question.
+    fn registry_with(id: ComponentId, ty: ComponentType) -> ComponentRegistry {
+        fn allow() -> MetadataPolicyProto {
+            MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Allow as i32)),
+            }
+        }
+        let perms = component_permissions()
+            .insert(allow())
+            .update(allow())
+            .delete(allow())
+            .call();
+        let meta = new_component_metadata(perms, ty);
+        let mut reg = ComponentRegistry::new();
+        reg.set(id, meta).unwrap();
+        reg
     }
 
     // --- inbox-id helpers --------------------------------------------------
@@ -913,8 +1380,13 @@ mod tests {
     #[xmtp_common::test]
     fn test_apply_bytes_payload_returns_payload_verbatim() {
         let payload = b"new_name";
-        let new_value =
-            apply_app_data_update_payload(ComponentId::GROUP_NAME, payload, None).unwrap();
+        let new_value = apply_app_data_update_payload(
+            ComponentId::GROUP_NAME,
+            payload,
+            None,
+            &empty_registry(),
+        )
+        .unwrap();
         assert_eq!(new_value, payload);
     }
 
@@ -925,6 +1397,7 @@ mod tests {
             ComponentId::GROUP_DESCRIPTION,
             b"replacement",
             Some(b"old_description"),
+            &empty_registry(),
         )
         .unwrap();
         assert_eq!(new_value, b"replacement");
@@ -939,8 +1412,13 @@ mod tests {
             encode_app_data_update_payload(&ComponentMutation::AdminListAdd { inbox_id: &inbox })
                 .unwrap();
 
-        let new_bytes =
-            apply_app_data_update_payload(ComponentId::ADMIN_LIST, &insert_payload, None).unwrap();
+        let new_bytes = apply_app_data_update_payload(
+            ComponentId::ADMIN_LIST,
+            &insert_payload,
+            None,
+            &empty_registry(),
+        )
+        .unwrap();
 
         let set = TlsSet::<InboxId>::tls_deserialize_exact(&new_bytes).unwrap();
         assert_eq!(set.len(), 1);
@@ -959,9 +1437,13 @@ mod tests {
             encode_app_data_update_payload(&ComponentMutation::AdminListAdd { inbox_id: &bob })
                 .unwrap();
 
-        let new_bytes =
-            apply_app_data_update_payload(ComponentId::ADMIN_LIST, &insert_payload, Some(&prior))
-                .unwrap();
+        let new_bytes = apply_app_data_update_payload(
+            ComponentId::ADMIN_LIST,
+            &insert_payload,
+            Some(&prior),
+            &empty_registry(),
+        )
+        .unwrap();
 
         let set = TlsSet::<InboxId>::tls_deserialize_exact(&new_bytes).unwrap();
         assert_eq!(set.len(), 2);
@@ -980,9 +1462,13 @@ mod tests {
         })
         .unwrap();
 
-        let new_bytes =
-            apply_app_data_update_payload(ComponentId::ADMIN_LIST, &remove_payload, Some(&prior))
-                .unwrap();
+        let new_bytes = apply_app_data_update_payload(
+            ComponentId::ADMIN_LIST,
+            &remove_payload,
+            Some(&prior),
+            &empty_registry(),
+        )
+        .unwrap();
 
         let set = TlsSet::<InboxId>::tls_deserialize_exact(&new_bytes).unwrap();
         assert_eq!(set.len(), 1);
@@ -1005,6 +1491,7 @@ mod tests {
             ComponentId::SUPER_ADMIN_LIST,
             &add_payload,
             Some(&prior),
+            &empty_registry(),
         )
         .unwrap();
 
@@ -1022,9 +1509,13 @@ mod tests {
         // `process_message_with_app_data` propagates this through the new
         // GroupMessageProcessingError::OpenMlsProcessMessageWithAppData
         // variant rather than masking it as `FoundAppDataUpdateProposal`.
-        let err =
-            apply_app_data_update_payload(ComponentId::ADMIN_LIST, &[0xff, 0xff, 0xff, 0xff], None)
-                .unwrap_err();
+        let err = apply_app_data_update_payload(
+            ComponentId::ADMIN_LIST,
+            &[0xff, 0xff, 0xff, 0xff],
+            None,
+            &empty_registry(),
+        )
+        .unwrap_err();
         assert!(
             matches!(err, ComponentSourceError::TlsCodec(_)),
             "got {err:?}"
@@ -1043,6 +1534,7 @@ mod tests {
             ComponentId::ADMIN_LIST,
             &payload,
             Some(&[0xde, 0xad, 0xbe, 0xef]),
+            &empty_registry(),
         )
         .unwrap_err();
         assert!(
@@ -1052,25 +1544,294 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_apply_immutable_update_rejected() {
-        // An Update op against an immutable component must fail — the caller
-        // should be using Insert for first-write semantics.
-        let err = apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"junk", None)
-            .unwrap_err();
+    fn test_apply_immutable_first_insert_allowed() {
+        // Bootstrap-shape: an `Update(payload)` against an immutable
+        // component with no prior value is the bootstrap commit's
+        // first-write path. Apply must store the payload bytes
+        // verbatim — the bootstrap validator's byte-compare catches a
+        // peer that crafts a malicious initial value, so the apply
+        // layer doesn't need its own decode/check step.
+        let bytes = apply_app_data_update_payload(
+            ComponentId::CONVERSATION_TYPE,
+            b"seed",
+            None,
+            &empty_registry(),
+        )
+        .unwrap();
+        assert_eq!(bytes, b"seed");
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_immutable_overwrite_rejected() {
+        // Steady-state: an `Update(payload)` against an immutable
+        // component that already has a prior value must fail. This is
+        // the only path Byzantine peers have to mutate immutables
+        // post-bootstrap, and the apply layer is the gatekeeper.
+        let err = apply_app_data_update_payload(
+            ComponentId::CONVERSATION_TYPE,
+            b"junk",
+            Some(b"prior"),
+            &empty_registry(),
+        )
+        .unwrap_err();
         assert!(matches!(err, ComponentSourceError::ImmutableUpdate(_)));
     }
 
     #[xmtp_common::test]
-    fn test_apply_group_membership_not_implemented() {
-        let err =
-            apply_app_data_update_payload(ComponentId::GROUP_MEMBERSHIP, b"x", None).unwrap_err();
-        assert!(matches!(err, ComponentSourceError::NotImplemented(_)));
+    fn test_apply_component_registry_delta_against_empty() {
+        // Bootstrap shape: a `TlsMapDelta<ComponentId, VLBytes>` of
+        // all-`Insert` mutations applied against an empty map produces
+        // a materialized snapshot containing those entries. Values must
+        // be structurally valid `ComponentMetadata` — registry deltas
+        // are entry-validated at apply.
+        let id_a = ComponentId::GROUP_NAME;
+        let id_b = ComponentId::GROUP_DESCRIPTION;
+        let meta_a = registry_with(id_a, ComponentType::String)
+            .get(&id_a)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
+        let meta_b = registry_with(id_b, ComponentType::Bytes)
+            .get(&id_b)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
+            .insert(id_a, VLBytes::new(meta_a.clone()))
+            .insert(id_b, VLBytes::new(meta_b.clone()));
+        let payload = delta.tls_serialize_detached().unwrap();
+
+        let new_bytes = apply_app_data_update_payload(
+            ComponentId::COMPONENT_REGISTRY,
+            &payload,
+            None,
+            &empty_registry(),
+        )
+        .unwrap();
+        let map = TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(&new_bytes).unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(
+            map.get(&id_a).map(|v| v.as_slice()),
+            Some(meta_a.as_slice())
+        );
+        assert_eq!(
+            map.get(&id_b).map(|v| v.as_slice()),
+            Some(meta_b.as_slice())
+        );
     }
 
     #[xmtp_common::test]
-    fn test_apply_app_range_component_unknown() {
-        let err = apply_app_data_update_payload(ComponentId::new(0xC123), b"x", None).unwrap_err();
+    fn test_apply_group_membership_delta_against_existing_map() {
+        // Post-bootstrap shape: an `Update` mutation applied on top of
+        // a prior `TlsMap<InboxId, VLBytes>` snapshot produces a new
+        // snapshot with the updated value.
+        let alice = fake_inbox(0xAA);
+        let bob = fake_inbox(0xBB);
+        let mut prior: TlsMap<InboxId, VLBytes> = TlsMap::new();
+        prior.set(alice, VLBytes::new(vec![0x01]));
+        prior.set(bob, VLBytes::new(vec![0x02]));
+        let prior_bytes = prior.tls_serialize_detached().unwrap();
+
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new()
+            .update(alice, VLBytes::new(vec![0x99]))
+            .delete(bob);
+        let payload = delta.tls_serialize_detached().unwrap();
+
+        let new_bytes = apply_app_data_update_payload(
+            ComponentId::GROUP_MEMBERSHIP,
+            &payload,
+            Some(&prior_bytes),
+            &empty_registry(),
+        )
+        .unwrap();
+        let map = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(&new_bytes).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get(&alice).map(|v| v.as_slice()),
+            Some([0x99].as_slice())
+        );
+        assert!(!map.contains_key(&bob));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_map_component_malformed_delta_returns_codec_error() {
+        // Garbage bytes that aren't a valid TlsMapDelta surface as a
+        // TLS-codec error, same shape as the set-component path.
+        let err = apply_app_data_update_payload(
+            ComponentId::COMPONENT_REGISTRY,
+            &[0xff, 0xff, 0xff, 0xff],
+            None,
+            &empty_registry(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ComponentSourceError::TlsCodec(_)),
+            "got {err:?}"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_map_component_apply_failure_surfaces_apply_error() {
+        // A delta that updates a key not present in the prior snapshot
+        // fails at apply time — surfaced as `TlsMapApply(KeyNotFound)`.
+        let alice = fake_inbox(0x01);
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().update(alice, VLBytes::new(vec![0x42]));
+        let payload = delta.tls_serialize_detached().unwrap();
+        let err = apply_app_data_update_payload(
+            ComponentId::GROUP_MEMBERSHIP,
+            &payload,
+            None,
+            &empty_registry(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ComponentSourceError::TlsMapApply(TlsMapError::KeyNotFound)
+            ),
+            "got {err:?}"
+        );
+    }
+
+    // --- Unknown-component tolerance via type-aware dispatch ---------------
+    //
+    // No per-id `Component` impl exists for these ids on this client; the
+    // sender shipped a newer release. Old clients look up the
+    // `ComponentType` registered for the id in the on-dict
+    // [`ComponentRegistry`] and route the payload through the
+    // type-level decoder. The six `ComponentType` variants cover the
+    // wire-format universe, so any future well-known or
+    // application-range component lands convergently — including
+    // `TlsSet` / `TlsMap` deltas, which previously needed a per-id
+    // impl to apply correctly.
+
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_with_bytes_registry_entry_stores_payload() {
+        // Bytes shape: opaque passthrough, registry entry supplies the
+        // type tag so the dispatch knows *not* to try a TLS-delta
+        // decode (which would corrupt the bytes).
+        let id = ComponentId::new(0xC123);
+        let registry = registry_with(id, ComponentType::Bytes);
+        let new_value = apply_app_data_update_payload(id, b"opaque", None, &registry).unwrap();
+        assert_eq!(new_value, b"opaque");
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_with_string_registry_entry_validates_utf8() {
+        // String shape: payload must be valid UTF-8. Bad bytes surface
+        // as `MalformedComponentValue` rather than silently corrupting
+        // the dict.
+        let id = ComponentId::new(0xC222);
+        let registry = registry_with(id, ComponentType::String);
+        let ok = apply_app_data_update_payload(id, b"hello", None, &registry).unwrap();
+        assert_eq!(ok, b"hello");
+        let err = apply_app_data_update_payload(id, &[0xC3, 0x28], None, &registry).unwrap_err();
+        assert!(matches!(
+            err,
+            ComponentSourceError::MalformedComponentValue { .. }
+        ));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_with_tls_set_inbox_id_applies_delta() {
+        // The whole point of registry-typed dispatch: a new
+        // `TlsSet<InboxId>` component lands as a typed delta apply, not
+        // as an opaque blob replacement — old and new clients converge
+        // on the same `TlsSet` snapshot byte-for-byte.
+        let id = ComponentId::new(0xC333);
+        let registry = registry_with(id, ComponentType::TlsSetInboxId);
+        let bob = fake_inbox(0x02);
+        let delta = TlsSetDelta::<InboxId>::new().insert(bob);
+        let payload = delta.tls_serialize_detached().unwrap();
+        let new_bytes = apply_app_data_update_payload(id, &payload, None, &registry).unwrap();
+        let set = TlsSet::<InboxId>::tls_deserialize_exact(&new_bytes).unwrap();
+        assert_eq!(set.len(), 1);
+        assert!(set.contains(&bob));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_with_no_registry_entry_rejected() {
+        // Deny-by-default: no per-id impl AND no registry entry means
+        // we have no type to decode against. Reject rather than store
+        // bytes whose shape we can't reason about — the alternative
+        // would fork the dict the moment a typed client did know the
+        // shape.
+        let err =
+            apply_app_data_update_payload(ComponentId::new(0xC456), b"x", None, &empty_registry())
+                .unwrap_err();
         assert!(matches!(err, ComponentSourceError::UnknownComponent(_)));
+    }
+
+    /// Immutability is enforced range-by-id, not per-`Component`-impl,
+    /// so an unknown id sitting in the XMTP immutable range
+    /// (`0xBE00-0xBFFF`) still gets the bootstrap-style "first insert
+    /// allowed, subsequent overwrite rejected" contract — even when
+    /// the type-aware dispatcher (not a per-id `Component` impl) is
+    /// the path being exercised. Pins the reviewer's concern that the
+    /// tolerance branch might bypass immutability for newly-defined
+    /// immutable components that a NEWER release ships.
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_in_xmtp_immutable_range_first_write_allowed() {
+        let id = ComponentId::new(0xBE05); // XMTP immutable range
+        assert!(id.is_immutable());
+        let registry = registry_with(id, ComponentType::Bytes);
+        let new_value = apply_app_data_update_payload(id, b"seed", None, &registry).unwrap();
+        assert_eq!(new_value, b"seed");
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_in_xmtp_immutable_range_overwrite_rejected() {
+        let id = ComponentId::new(0xBE05);
+        assert!(id.is_immutable());
+        let registry = registry_with(id, ComponentType::Bytes);
+        let err = apply_app_data_update_payload(id, b"new", Some(b"old"), &registry).unwrap_err();
+        assert!(matches!(err, ComponentSourceError::ImmutableUpdate(_)));
+    }
+
+    /// Same contract for the application immutable range
+    /// (`0xFD00-0xFEFF`) — overwrites of an unknown immutable
+    /// application component are rejected even though no per-id impl
+    /// exists on this client.
+    #[xmtp_common::test]
+    fn test_apply_unknown_id_in_app_immutable_range_overwrite_rejected() {
+        let id = ComponentId::new(0xFD42); // app immutable range
+        assert!(id.is_immutable());
+        let registry = registry_with(id, ComponentType::Bytes);
+        let err = apply_app_data_update_payload(id, b"new", Some(b"old"), &registry).unwrap_err();
+        assert!(matches!(err, ComponentSourceError::ImmutableUpdate(_)));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_reserved_range_component_rejected_with_or_without_registry() {
+        // 0xFF00+ is the reserved range. `ComponentRegistry::set`
+        // refuses to insert reserved ids, so a registry entry can't
+        // even be constructed — the apply path falls through to
+        // `UnknownComponent`.
+        let err =
+            apply_app_data_update_payload(ComponentId::new(0xFF01), b"x", None, &empty_registry())
+                .unwrap_err();
+        assert!(matches!(err, ComponentSourceError::UnknownComponent(_)));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_out_of_range_component_rejected() {
+        // Ids below 0x8000 are outside the AppData address space.
+        let err =
+            apply_app_data_update_payload(ComponentId::new(0x0042), b"x", None, &empty_registry())
+                .unwrap_err();
+        assert!(matches!(err, ComponentSourceError::UnknownComponent(_)));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_unknown_xmtp_range_id_with_registry_dispatches() {
+        // Same path applies to the XMTP-defined range, not just the
+        // app range: any 0x8000-0xBFFF id that lacks a per-id impl
+        // routes through the registry.
+        let id = ComponentId::new(0x8FFF);
+        assert!(id.is_xmtp_range());
+        let registry = registry_with(id, ComponentType::Bytes);
+        let new_value = apply_app_data_update_payload(id, b"opaque", None, &registry).unwrap();
+        assert_eq!(new_value, b"opaque");
     }
 
     // --- expand_app_data_update_to_changes ---------------------------------
@@ -1087,9 +1848,13 @@ mod tests {
         let delta: TlsSetDelta<InboxId> = TlsSetDelta {
             mutations: vec![TlsSetMutation::Insert(alice)],
         };
-        let changes =
-            expand_app_data_update_to_changes(ComponentId::ADMIN_LIST, &update_op(delta), None)
-                .unwrap();
+        let changes = expand_app_data_update_to_changes(
+            ComponentId::ADMIN_LIST,
+            &update_op(delta),
+            None,
+            &empty_registry(),
+        )
+        .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].op, ComponentOp::Insert);
         assert_eq!(
@@ -1104,9 +1869,13 @@ mod tests {
         let delta: TlsSetDelta<InboxId> = TlsSetDelta {
             mutations: vec![TlsSetMutation::Remove(alice)],
         };
-        let changes =
-            expand_app_data_update_to_changes(ComponentId::ADMIN_LIST, &update_op(delta), None)
-                .unwrap();
+        let changes = expand_app_data_update_to_changes(
+            ComponentId::ADMIN_LIST,
+            &update_op(delta),
+            None,
+            &empty_registry(),
+        )
+        .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].op, ComponentOp::Delete);
         assert_eq!(
@@ -1133,6 +1902,7 @@ mod tests {
             ComponentId::ADMIN_LIST,
             &update_op(delta),
             Some(&old_bytes),
+            &empty_registry(),
         )
         .unwrap();
         assert_eq!(changes.len(), 1);
@@ -1161,6 +1931,7 @@ mod tests {
             ComponentId::ADMIN_LIST,
             &update_op(delta),
             Some(&old_bytes),
+            &empty_registry(),
         )
         .unwrap();
         assert_eq!(changes.len(), 1);
@@ -1179,6 +1950,7 @@ mod tests {
             ComponentId::SUPER_ADMIN_LIST,
             &update_op(delta),
             None,
+            &empty_registry(),
         )
         .unwrap();
         assert_eq!(changes.len(), 1);
@@ -1199,12 +1971,103 @@ mod tests {
             ComponentId::ADMIN_LIST,
             &update_op(delta),
             Some(&[0xde, 0xad, 0xbe, 0xef]),
+            &empty_registry(),
         )
         .unwrap_err();
         assert!(
             matches!(err, ComponentSourceError::TlsCodec(_)),
             "got {err:?}"
         );
+    }
+
+    /// XIP §2.2: an unknown component id with `Update(payload)` and a
+    /// registered [`ComponentType::Bytes`] expands to a single Update
+    /// change carrying the payload, so registry-policy validation runs
+    /// against bytes a typed client would also accept opaquely.
+    #[xmtp_common::test]
+    fn test_expand_unknown_component_bytes_typed_emits_single_update() {
+        let id = ComponentId::new(0x80FF);
+        let registry = registry_with(id, ComponentType::Bytes);
+        let changes = expand_app_data_update_to_changes(
+            id,
+            &AppDataUpdateOperation::Update(b"opaque".to_vec().into()),
+            None,
+            &registry,
+        )
+        .unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].op, ComponentOp::Update);
+        assert_eq!(changes[0].value.as_deref(), Some(b"opaque".as_slice()));
+    }
+
+    /// Unknown id with `Remove` and any registered type expands to a
+    /// single Delete change — the wipe semantics are type-agnostic.
+    #[xmtp_common::test]
+    fn test_expand_unknown_component_remove_emits_single_delete() {
+        let id = ComponentId::new(0x80FF);
+        let registry = registry_with(id, ComponentType::Bytes);
+        let changes =
+            expand_app_data_update_to_changes(id, &AppDataUpdateOperation::Remove, None, &registry)
+                .unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].op, ComponentOp::Delete);
+        assert!(changes[0].value.is_none());
+    }
+
+    /// Type-aware dispatch is the whole point: an unknown
+    /// `TlsSet<InboxId>` component expands to a per-element change
+    /// list, not a single opaque blob — so the validator policy loop
+    /// inspects each `Insert` individually, the same as it would for a
+    /// known set-shaped component.
+    #[xmtp_common::test]
+    fn test_expand_unknown_component_tls_set_inbox_id_emits_per_element_changes() {
+        let id = ComponentId::new(0x80FE);
+        let registry = registry_with(id, ComponentType::TlsSetInboxId);
+        let alice = fake_inbox(0x11);
+        let bob = fake_inbox(0x22);
+        let delta = TlsSetDelta::<InboxId>::new().insert(alice).insert(bob);
+        let payload = delta.tls_serialize_detached().unwrap();
+        let changes = expand_app_data_update_to_changes(
+            id,
+            &AppDataUpdateOperation::Update(payload.into()),
+            None,
+            &registry,
+        )
+        .unwrap();
+        assert_eq!(changes.len(), 2);
+        assert!(changes.iter().all(|c| c.op == ComponentOp::Insert));
+    }
+
+    /// Reserved-range ids are not tolerated. `ComponentRegistry::set`
+    /// rejects reserved ids at construction time, so a registry entry
+    /// can't even be built — the dispatcher falls through to the
+    /// `UnknownComponent` rejection.
+    #[xmtp_common::test]
+    fn test_expand_reserved_range_id_still_rejected() {
+        let err = expand_app_data_update_to_changes(
+            ComponentId::new(0xFF02),
+            &AppDataUpdateOperation::Update(b"x".to_vec().into()),
+            None,
+            &empty_registry(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ComponentSourceError::UnknownComponent(_)));
+    }
+
+    /// Deny-by-default: an unknown id with no registry entry is
+    /// rejected. Without a type tag we have no idea how to decode the
+    /// payload, and storing it opaquely would diverge from any future
+    /// typed client that DID know the shape.
+    #[xmtp_common::test]
+    fn test_expand_unknown_component_no_registry_entry_rejected() {
+        let err = expand_app_data_update_to_changes(
+            ComponentId::new(0x80FF),
+            &AppDataUpdateOperation::Update(b"opaque".to_vec().into()),
+            None,
+            &empty_registry(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ComponentSourceError::UnknownComponent(_)));
     }
 
     #[xmtp_common::test]
@@ -1219,9 +2082,443 @@ mod tests {
             ComponentId::ADMIN_LIST,
             &update_op(delta),
             Some(&[0xff, 0xff, 0xff]), // intentionally malformed
+            &empty_registry(),
         )
         .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].op, ComponentOp::Insert);
+    }
+
+    // ========================================================================
+    // Dict-reader helpers — happy path / unmigrated / malformed coverage
+    // ========================================================================
+    //
+    // The three `read_*_from_dict` helpers execute before bootstrap is
+    // wired end-to-end; the unit tests below pin the wire-format
+    // contract so a decoder drift can't silently ship a broken read path.
+
+    use openmls::extensions::{
+        AppDataDictionary, AppDataDictionaryExtension, Extension as OpenMlsExtension, Extensions,
+    };
+
+    /// Build a synthetic `Extensions<GroupContext>` that carries only
+    /// an `AppDataDictionary`. `migrated=true` seeds
+    /// `COMPONENT_REGISTRY` with placeholder bytes so
+    /// `is_migrated_extensions` returns true; `migrated=false` leaves
+    /// the marker absent.
+    fn extensions_with_entries(
+        migrated: bool,
+        entries: &[(u16, Vec<u8>)],
+    ) -> Extensions<openmls::group::GroupContext> {
+        let mut dict = AppDataDictionary::new();
+        if migrated {
+            let _ = dict.insert(ComponentId::COMPONENT_REGISTRY.as_u16(), vec![0xCA; 4]);
+        }
+        for (id, bytes) in entries {
+            let _ = dict.insert(*id, bytes.clone());
+        }
+        Extensions::from_vec(vec![OpenMlsExtension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dict),
+        )])
+        .expect("valid group-context extension set")
+    }
+
+    // --- read_super_admin_list_from_extensions ------------------------------
+
+    #[xmtp_common::test]
+    fn read_super_admin_list_unmigrated_returns_none() {
+        // No COMPONENT_REGISTRY marker => unmigrated, overlay stays off
+        // even if SUPER_ADMIN_LIST bytes happen to exist.
+        let exts = extensions_with_entries(
+            false,
+            &[(
+                ComponentId::SUPER_ADMIN_LIST.as_u16(),
+                encode_inbox_id_set(&[fake_inbox_id(0x11)]).unwrap(),
+            )],
+        );
+        assert!(
+            read_super_admin_list_from_extensions(&exts)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn read_super_admin_list_migrated_absent_returns_none() {
+        // Migrated group but the dict has no SUPER_ADMIN_LIST entry —
+        // `Ok(None)` rather than surfacing a malformed-value error.
+        let exts = extensions_with_entries(true, &[]);
+        assert!(
+            read_super_admin_list_from_extensions(&exts)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn read_super_admin_list_migrated_happy_path() {
+        let ids = vec![fake_inbox_id(0xAA), fake_inbox_id(0xBB)];
+        let bytes = encode_inbox_id_set(&ids).unwrap();
+        let exts =
+            extensions_with_entries(true, &[(ComponentId::SUPER_ADMIN_LIST.as_u16(), bytes)]);
+        let got = read_super_admin_list_from_extensions(&exts)
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.len(), 2);
+        // TlsSet sorts by value so 0xAA sorts before 0xBB.
+        assert_eq!(got[0], fake_inbox_id(0xAA));
+        assert_eq!(got[1], fake_inbox_id(0xBB));
+    }
+
+    #[xmtp_common::test]
+    fn read_super_admin_list_malformed_bytes_surface_error() {
+        let exts = extensions_with_entries(
+            true,
+            &[(
+                ComponentId::SUPER_ADMIN_LIST.as_u16(),
+                vec![0x00, 0xDE, 0xAD],
+            )],
+        );
+        let err = read_super_admin_list_from_extensions(&exts).unwrap_err();
+        assert!(matches!(
+            err,
+            ComponentSourceError::MalformedComponentValue {
+                component_id,
+                ..
+            } if component_id == ComponentId::SUPER_ADMIN_LIST
+        ));
+    }
+
+    // --- read_group_metadata_from_extensions --------------------------------
+
+    fn encode_conv_type_bytes(value: i32) -> Vec<u8> {
+        value.to_be_bytes().to_vec()
+    }
+
+    fn encode_dm_pair(tag_a: u8, tag_b: u8) -> Vec<u8> {
+        encode_inbox_id_set(&[fake_inbox_id(tag_a), fake_inbox_id(tag_b)]).unwrap()
+    }
+
+    /// Encode a single tagged inbox id in the `CREATOR_INBOX_ID` wire
+    /// form (versioned `InboxId` TLS encoding).
+    fn encode_creator_bytes(tag: u8) -> Vec<u8> {
+        fake_inbox(tag).tls_serialize_detached().unwrap()
+    }
+
+    #[xmtp_common::test]
+    fn read_group_metadata_unmigrated_returns_none() {
+        let exts = extensions_with_entries(
+            false,
+            &[
+                (
+                    ComponentId::CONVERSATION_TYPE.as_u16(),
+                    encode_conv_type_bytes(1),
+                ),
+                (
+                    ComponentId::CREATOR_INBOX_ID.as_u16(),
+                    encode_creator_bytes(0x11),
+                ),
+            ],
+        );
+        assert!(
+            read_group_metadata_from_extensions(&exts)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn read_group_metadata_missing_required_seeds_returns_none() {
+        // Migrated group but CONVERSATION_TYPE is absent — treat as
+        // "seeds not ready yet" (Ok(None)) rather than malformed.
+        let exts = extensions_with_entries(true, &[]);
+        assert!(
+            read_group_metadata_from_extensions(&exts)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[xmtp_common::test]
+    fn read_group_metadata_happy_path_non_dm() {
+        let exts = extensions_with_entries(
+            true,
+            &[
+                (
+                    ComponentId::CONVERSATION_TYPE.as_u16(),
+                    encode_conv_type_bytes(1),
+                ),
+                (
+                    ComponentId::CREATOR_INBOX_ID.as_u16(),
+                    encode_creator_bytes(0x11),
+                ),
+            ],
+        );
+        let got = read_group_metadata_from_extensions(&exts).unwrap().unwrap();
+        assert_eq!(got.conversation_type, 1);
+        assert_eq!(got.creator_inbox_id, fake_inbox_id(0x11));
+        assert!(got.dm_members.is_none());
+        assert!(got.oneshot.is_none());
+    }
+
+    #[xmtp_common::test]
+    fn read_group_metadata_dm_happy_path() {
+        // DM group — DM_MEMBERS decodes as TlsSet<InboxId>, re-shaped
+        // to the proto's two-slot form.
+        let exts = extensions_with_entries(
+            true,
+            &[
+                (
+                    ComponentId::CONVERSATION_TYPE.as_u16(),
+                    encode_conv_type_bytes(2),
+                ),
+                (
+                    ComponentId::CREATOR_INBOX_ID.as_u16(),
+                    encode_creator_bytes(0x22),
+                ),
+                (ComponentId::DM_MEMBERS.as_u16(), encode_dm_pair(0x22, 0x33)),
+            ],
+        );
+        let got = read_group_metadata_from_extensions(&exts).unwrap().unwrap();
+        let dm = got.dm_members.unwrap();
+        assert_eq!(dm.dm_member_one.unwrap().inbox_id, fake_inbox_id(0x22));
+        assert_eq!(dm.dm_member_two.unwrap().inbox_id, fake_inbox_id(0x33));
+    }
+
+    #[xmtp_common::test]
+    fn read_group_metadata_dm_wrong_cardinality_errors() {
+        // A 1-element TlsSet<InboxId> is invalid for DM_MEMBERS —
+        // surfaces `MalformedComponentValue`.
+        let one_element = encode_inbox_id_set(&[fake_inbox_id(0x44)]).unwrap();
+        let exts = extensions_with_entries(
+            true,
+            &[
+                (
+                    ComponentId::CONVERSATION_TYPE.as_u16(),
+                    encode_conv_type_bytes(2),
+                ),
+                (
+                    ComponentId::CREATOR_INBOX_ID.as_u16(),
+                    encode_creator_bytes(0x44),
+                ),
+                (ComponentId::DM_MEMBERS.as_u16(), one_element),
+            ],
+        );
+        let err = read_group_metadata_from_extensions(&exts).unwrap_err();
+        assert!(matches!(
+            err,
+            ComponentSourceError::MalformedComponentValue {
+                component_id,
+                ..
+            } if component_id == ComponentId::DM_MEMBERS
+        ));
+    }
+
+    #[xmtp_common::test]
+    fn read_group_metadata_malformed_creator_errors() {
+        // CREATOR_INBOX_ID is the versioned `InboxId` TLS encoding —
+        // a few stray bytes won't satisfy the varint length prefix
+        // plus 32-byte payload, so deserialization must fail loud as
+        // `MalformedComponentValue` rather than silently producing
+        // a phantom inbox id.
+        let exts = extensions_with_entries(
+            true,
+            &[
+                (
+                    ComponentId::CONVERSATION_TYPE.as_u16(),
+                    encode_conv_type_bytes(1),
+                ),
+                (
+                    ComponentId::CREATOR_INBOX_ID.as_u16(),
+                    vec![0xFF, 0xFE, 0xFD],
+                ),
+            ],
+        );
+        let err = read_group_metadata_from_extensions(&exts).unwrap_err();
+        assert!(matches!(
+            err,
+            ComponentSourceError::MalformedComponentValue {
+                component_id,
+                ..
+            } if component_id == ComponentId::CREATOR_INBOX_ID
+        ));
+    }
+
+    // --- read_group_membership_from_dict ------------------------------------
+
+    #[xmtp_common::test]
+    fn read_group_membership_unmigrated_returns_none() {
+        use std::collections::BTreeMap;
+        use xmtp_mls_common::app_data::migration::encode_group_membership_dict;
+        use xmtp_proto::xmtp::mls::message_contents::{
+            GroupMembershipEntry,
+            group_membership_entry::{V1 as GroupMembershipEntryV1, Version},
+        };
+        let mut entries: BTreeMap<InboxId, GroupMembershipEntry> = BTreeMap::new();
+        entries.insert(
+            InboxId::from_bytes([0x11; INBOX_ID_BYTE_LEN]),
+            GroupMembershipEntry {
+                version: Some(Version::V1(GroupMembershipEntryV1 {
+                    sequence_id: 1,
+                    failed_installations: vec![],
+                })),
+            },
+        );
+        let bytes = encode_group_membership_dict(&entries).unwrap();
+        let exts =
+            extensions_with_entries(false, &[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
+        assert!(read_group_membership_from_dict(&exts).unwrap().is_none());
+    }
+
+    #[xmtp_common::test]
+    fn read_group_membership_happy_path_flattens_per_inbox() {
+        use std::collections::BTreeMap;
+        use xmtp_mls_common::app_data::migration::encode_group_membership_dict;
+        use xmtp_proto::xmtp::mls::message_contents::{
+            GroupMembershipEntry,
+            group_membership_entry::{V1 as GroupMembershipEntryV1, Version},
+        };
+        let mut entries: BTreeMap<InboxId, GroupMembershipEntry> = BTreeMap::new();
+        entries.insert(
+            InboxId::from_bytes([0x11; INBOX_ID_BYTE_LEN]),
+            GroupMembershipEntry {
+                version: Some(Version::V1(GroupMembershipEntryV1 {
+                    sequence_id: 7,
+                    failed_installations: vec![vec![0xA1; 16]],
+                })),
+            },
+        );
+        entries.insert(
+            InboxId::from_bytes([0x22; INBOX_ID_BYTE_LEN]),
+            GroupMembershipEntry {
+                version: Some(Version::V1(GroupMembershipEntryV1 {
+                    sequence_id: 42,
+                    failed_installations: vec![vec![0xB1; 16]],
+                })),
+            },
+        );
+        let bytes = encode_group_membership_dict(&entries).unwrap();
+        let exts =
+            extensions_with_entries(true, &[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
+
+        let proto = read_group_membership_from_dict(&exts).unwrap().unwrap();
+        // `members` is flat <hex_inbox_id, seq>
+        assert_eq!(proto.members.len(), 2);
+        assert_eq!(proto.members.get(&fake_inbox_id(0x11)), Some(&7));
+        assert_eq!(proto.members.get(&fake_inbox_id(0x22)), Some(&42));
+        // `failed_installations` concatenates the per-inbox lists.
+        assert_eq!(proto.failed_installations.len(), 2);
+    }
+
+    #[xmtp_common::test]
+    fn read_group_membership_malformed_bytes_surface_error() {
+        let exts = extensions_with_entries(
+            true,
+            &[(
+                ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                vec![0xDE, 0xAD, 0xBE, 0xEF],
+            )],
+        );
+        let err = read_group_membership_from_dict(&exts).unwrap_err();
+        assert!(matches!(
+            err,
+            ComponentSourceError::MalformedComponentValue {
+                component_id,
+                ..
+            } if component_id == ComponentId::GROUP_MEMBERSHIP
+        ));
+    }
+
+    // ========================================================================
+    // merge_app_data_into_mutable_metadata_from_extensions —
+    //   independence from COMPONENT_REGISTRY parseability
+    // ========================================================================
+    //
+    // These pin the call-graph invariant that a malformed
+    // `COMPONENT_REGISTRY` does **not** cause `mutable_metadata()` to
+    // drop authoritative dict-backed fields. The migration-marker check
+    // (`is_migrated_extensions`) uses key existence; the merge function
+    // reads each metadata field directly from the dict; nothing on this
+    // read path calls `load_component_registry`. Registry corruption is
+    // surfaced loudly on the *write* paths (sender gate in `mls_sync.rs`
+    // and the commit validator in `validated_commit.rs`), where it
+    // belongs.
+    //
+    // Note: the existing `extensions_with_entries(migrated=true, …)`
+    // helper already seeds `COMPONENT_REGISTRY` with placeholder bytes
+    // (`vec![0xCA; 4]`) that don't decode as a valid registry, so every
+    // migrated-test in this file already exercises the malformed-
+    // registry branch implicitly. The tests below pin it explicitly so
+    // a reviewer doesn't have to chase the helper to verify.
+
+    use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
+
+    fn empty_base_gmm() -> GroupMutableMetadata {
+        GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new())
+    }
+
+    #[xmtp_common::test]
+    fn merge_with_malformed_registry_returns_valid_field() {
+        // Reviewer's alleged "data loss" scenario: COMPONENT_REGISTRY
+        // contains malformed bytes, but a metadata field (GROUP_NAME)
+        // is present and valid. The merge function does NOT validate
+        // the registry — it reads GROUP_NAME directly — so the result
+        // must contain "My Group" with no error.
+        let exts = extensions_with_entries(
+            true, // seeds COMPONENT_REGISTRY with non-decodable 0xCA bytes
+            &[(ComponentId::GROUP_NAME.as_u16(), b"My Group".to_vec())],
+        );
+        let mut base = empty_base_gmm();
+        merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts)
+            .expect("merge ignores registry parseability and reads field directly");
+        assert_eq!(
+            base.attributes
+                .get(MetadataField::GroupName.as_str())
+                .map(String::as_str),
+            Some("My Group"),
+        );
+    }
+
+    #[xmtp_common::test]
+    fn merge_unmigrated_is_noop() {
+        // Sanity: pre-migration, the merge gate stays closed — even
+        // if a stray dict entry exists, the base GMM is left untouched
+        // so legacy GMM remains authoritative.
+        let exts = extensions_with_entries(
+            false,
+            &[(ComponentId::GROUP_NAME.as_u16(), b"Stray".to_vec())],
+        );
+        let mut base = empty_base_gmm();
+        merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts).unwrap();
+        assert!(
+            !base
+                .attributes
+                .contains_key(MetadataField::GroupName.as_str()),
+            "merge must be a no-op on unmigrated extensions"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn merge_with_malformed_field_surfaces_error_not_silent_loss() {
+        // The other half of the invariant: when a metadata field's bytes
+        // ARE malformed, the merge fails loudly with
+        // `MalformedComponentValue` carrying the offending component id —
+        // it never silently swallows the value. Pairs with the test
+        // above to disprove "all metadata may be lost" framings.
+        let exts = extensions_with_entries(
+            true,
+            &[(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff])],
+        );
+        let mut base = empty_base_gmm();
+        let err =
+            merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ComponentSourceError::MalformedComponentValue { component_id, .. }
+                    if component_id == ComponentId::ADMIN_LIST
+            ),
+            "expected MalformedComponentValue for ADMIN_LIST, got: {err:?}"
+        );
     }
 }

@@ -57,6 +57,14 @@ impl<T: Client> MultiNodeClient<T> {
 /// This allows the MultiNodeClient to be used as a Client for any endpoint.
 #[xmtp_common::async_trait]
 impl<T: Client> Client for MultiNodeClient<T> {
+    // The gateway, always: `host()` is a connection identity and must not
+    // change over the client's lifetime, while the resolved node is a
+    // transient the gateway can re-issue. The gateway URL is the stable
+    // name for "this multi-node backend".
+    fn host(&self) -> &str {
+        self.gateway_client.host()
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,
@@ -78,6 +86,17 @@ impl<T: Client> Client for MultiNodeClient<T> {
 
         inner.stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let inner = self.init_inner().await?;
+
+        inner.bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -90,6 +109,9 @@ impl<T: IsConnectedCheck> IsConnectedCheck for MultiNodeClient<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xmtp_common::Generate;
+    use xmtp_proto::types::GroupId;
+
     use crate::middleware::multi_node_client::client::MultiNodeClientBuilder;
     use crate::{
         ReadWriteClient,
@@ -101,7 +123,6 @@ mod tests {
     use xmtp_proto::api::Query;
     use xmtp_proto::api_client::{ApiBuilder, NetConnectConfig};
     use xmtp_proto::prelude::XmtpMlsClient;
-    use xmtp_proto::types::GroupId;
 
     fn create_in_memory_cursor_store() -> Arc<InMemoryCursorStore> {
         Arc::new(InMemoryCursorStore::default())
@@ -203,7 +224,7 @@ mod tests {
     #[xmtp_common::test]
     async fn d14n_request_latest_group_message() {
         let client = create_d14n_client();
-        let id: GroupId = GroupId::from(vec![]);
+        let id = GroupId::generate();
         let response = client.query_latest_group_message(id).await;
         match response {
             Err(e) => {

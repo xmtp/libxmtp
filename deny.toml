@@ -1,17 +1,9 @@
 [advisories]
 ignore = [
-  { id = "RUSTSEC-2024-0384", reason = "need to upgrade openmls" },
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
-  { id = "RUSTSEC-2021-0139", reason = "ansi_term is only used in tests" },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
-  # libcrux-ed25519 0.0.6 and libcrux-poly1305 0.0.4 are pinned by openmls_libcrux_crypto
-  # in the xmtp/openmls fork (rev 42f1479c). Upstream openmls fixed this in commit 68bd8b282a.
-  # Remove these ignores once the xmtp/openmls fork merges upstream.
-  { id = "RUSTSEC-2026-0075", reason = "libcrux-ed25519 0.0.6 pinned by xmtp/openmls fork; upstream fix in openmls/openmls@68bd8b28" },
-  { id = "RUSTSEC-2026-0073", reason = "libcrux-poly1305 0.0.4 pinned by xmtp/openmls fork; upstream fix in openmls/openmls@68bd8b28" },
-  { id = "RUSTSEC-2025-0134", reason = "used in temporary xnet-gui" },
-  { id = "RUSTSEC-2025-0052", reason = "used in temporary xnet-gui" },
-  { id = "RUSTSEC-2026-0105", reason = "core2 reached only via image/rav1e pulled in by log_parser and xnet-gui tooling" },
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },
+  { id = "RUSTSEC-2026-0258", reason = "h2 empty DATA frames DoS. The production stack (hyper 1.x) is patched to h2 0.4.16; the only residual is h2 0.3.x, pulled solely by the test-only toxiproxy_rust via reqwest 0.11, which has no 0.3.x fix. Not reachable in shipped code." },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests

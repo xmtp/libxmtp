@@ -49,12 +49,12 @@ mod tests {
         tester!(alix);
 
         let g = alix.create_group(None, None)?;
-        disable_groups(&alix.db(), &[&g.group_id])?;
+        disable_groups(&alix.db(), &[g.group_id.as_slice()])?;
 
         let g = alix.group(&g.group_id)?;
         assert_eq!(g.consent_state()?, ConsentState::Denied);
 
-        enable_groups(&alix.db(), &[&g.group_id])?;
+        enable_groups(&alix.db(), &[g.group_id.as_slice()])?;
 
         let g = alix.group(&g.group_id)?;
         assert_eq!(g.consent_state()?, ConsentState::Allowed);

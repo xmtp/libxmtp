@@ -18,7 +18,7 @@ derive_builder.workspace = true
 ed25519-dalek.workspace = true
 futures.workspace = true
 hex.workspace = true
-http = "1.2"
+http = "1.4"
 openmls.workspace = true
 openmls_traits.workspace = true
 pbjson.workspace = true
@@ -37,6 +37,7 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 
 # optional
+diesel = { workspace = true, optional = true, features = ["sqlite"] }
 mockall = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 xmtp-workspace-hack.workspace = true
@@ -51,6 +52,7 @@ tonic = { workspace = true, features = ["channel", "codegen"] }
 wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
+bincode.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 tokio = { workspace = true }
@@ -75,6 +77,7 @@ tonic = { workspace = true, features = ["codegen"] }
 
 [features]
 default = []
+diesel = ["dep:diesel"]
 dev = ["xmtp_configuration/dev"]
 test-utils = [
   "xmtp_common/test-utils",

@@ -23,6 +23,18 @@ describe("SDK configs", () => {
     expect(wasm.name).toBe("WASM");
     expect(wasm.tagPrefix).toBe("wasm-bindings-");
 
+    const browserSdk = getSdkConfig("browser-sdk");
+    expect(browserSdk.name).toBe("Browser SDK");
+    expect(browserSdk.tagPrefix).toBe("browser-sdk-");
+
+    const nodeSdk = getSdkConfig("node-sdk");
+    expect(nodeSdk.name).toBe("Node SDK");
+    expect(nodeSdk.tagPrefix).toBe("node-sdk-");
+
+    const agentSdk = getSdkConfig("agent-sdk");
+    expect(agentSdk.name).toBe("Agent SDK");
+    expect(agentSdk.tagPrefix).toBe("agent-sdk-");
+
     const libxmtp = getSdkConfig("libxmtp");
     expect(libxmtp.name).toBe("Libxmtp");
     expect(libxmtp.tagPrefix).toBe("v");
@@ -30,7 +42,7 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, node-bindings, wasm-bindings, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, node-bindings, wasm-bindings, browser-sdk, node-sdk, agent-sdk, libxmtp",
     );
   });
 
@@ -138,5 +150,30 @@ describe("SDK configs", () => {
       config.manifest.writeVersion(tmpDir, "4.10.0-dev.abc1234");
       expect(config.manifest.readVersion(tmpDir)).toBe("4.10.0-dev.abc1234");
     });
+  });
+
+  it("declares a version track for every SDK", () => {
+    expect(getSdkConfig("node-bindings").versionTrack).toBe("follows-libxmtp");
+    expect(getSdkConfig("wasm-bindings").versionTrack).toBe("follows-libxmtp");
+    expect(getSdkConfig("ios").versionTrack).toBe("independent");
+    expect(getSdkConfig("android").versionTrack).toBe("independent");
+    expect(getSdkConfig("browser-sdk").versionTrack).toBe("independent");
+    expect(getSdkConfig("node-sdk").versionTrack).toBe("independent");
+    expect(getSdkConfig("libxmtp").versionTrack).toBe("follows-libxmtp");
+  });
+
+  it("declares a release workflow and channels for shippable SDKs", () => {
+    const ios = getSdkConfig("ios");
+    expect(ios.releaseWorkflow).toBe("release-ios.yml");
+    expect(ios.channels).toContain("nightly");
+  });
+
+  it("declares notes globs for every SDK", () => {
+    for (const sdk of Object.values(Sdk)) {
+      const cfg = SDK_CONFIGS[sdk];
+      expect(Array.isArray(cfg.notesIncludeGlobs)).toBe(true);
+      expect(cfg.notesIncludeGlobs.length).toBeGreaterThan(0);
+      expect(Array.isArray(cfg.notesExcludeGlobs)).toBe(true);
+    }
   });
 });

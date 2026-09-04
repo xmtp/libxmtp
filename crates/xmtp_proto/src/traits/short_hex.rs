@@ -1,4 +1,4 @@
-use crate::types::InstallationId;
+use crate::types::{GroupId, InstallationId};
 
 const SHORT_LEN: usize = 4;
 
@@ -12,6 +12,11 @@ impl ShortHex for &[u8] {
     }
 }
 impl ShortHex for InstallationId {
+    fn short_hex(&self) -> String {
+        self.as_slice().short_hex()
+    }
+}
+impl ShortHex for GroupId {
     fn short_hex(&self) -> String {
         self.as_slice().short_hex()
     }
@@ -39,5 +44,13 @@ mod tests {
 
         assert_eq!(short_hex.len(), SHORT_LEN * 2);
         assert_eq!(hex[..short_hex.len()], short_hex);
+    }
+
+    #[test]
+    fn test_short_hex_group_id() {
+        let hex = "5bf078bd83995fe83092d93c5655f059";
+        let bytes = hex::decode(hex).unwrap();
+        let group_id = GroupId::try_from(bytes).unwrap();
+        assert_eq!(group_id.short_hex(), &hex[..SHORT_LEN * 2]);
     }
 }

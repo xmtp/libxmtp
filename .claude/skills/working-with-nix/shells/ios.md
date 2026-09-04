@@ -31,8 +31,7 @@ Note: `SDKROOT` is explicitly **unset** so xcrun discovers the right SDK per tar
 
 ## Rust Targets
 
-- `x86_64-apple-darwin` — macOS Intel (universal binary)
-- `aarch64-apple-darwin` — macOS Apple Silicon (universal binary)
+- `aarch64-apple-darwin` — macOS Apple Silicon
 - `aarch64-apple-ios` — iOS device (arm64)
 - `aarch64-apple-ios-sim` — iOS simulator on Apple Silicon
 

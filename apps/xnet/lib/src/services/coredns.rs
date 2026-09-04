@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use bollard::{
     Docker,
-    models::{ContainerCreateBody, HostConfig, Mount, MountTypeEnum},
+    models::{ContainerCreateBody, HostConfig, Mount, MountType},
     query_parameters::CreateContainerOptionsBuilder,
 };
 use bon::Builder;
@@ -183,7 +183,7 @@ impl CoreDns {
                 mounts: Some(vec![Mount {
                     target: Some("/etc/coredns/Corefile".to_string()),
                     source: Some(self.corefile_path.clone()),
-                    typ: Some(MountTypeEnum::BIND),
+                    typ: Some(MountType::BIND),
                     read_only: Some(true),
                     ..Default::default()
                 }]),

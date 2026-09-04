@@ -9,7 +9,7 @@ use super::{
     sql_key_store::{self, SqlKeyStoreError},
 };
 use xmtp_common::{BoxDynError, RetryableError, retryable};
-use xmtp_proto::types::{Cursor, InstallationId};
+use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
 pub struct Mls;
 
@@ -45,11 +45,6 @@ pub enum StorageError {
     /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
-    /// Intentional rollback.
-    ///
-    /// Transaction was intentionally rolled back. Not retryable.
-    #[error("Transaction was intentionally rolled back")]
-    IntentionalRollback,
     /// DB deserialization failed.
     ///
     /// Failed to deserialize data from database. Not retryable.
@@ -113,12 +108,15 @@ impl StorageError {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn db_needs_connection(&self) -> bool {
+        use crate::PlatformStorageError::{Pool, PoolNeedsConnection};
         use StorageError::*;
+        // A pool-acquisition failure (`Pool`) is treated like `PoolNeedsConnection`: the
+        // worker drops and restarts on reconnect instead of logging on every poll.
         matches!(
             self,
-            Platform(crate::PlatformStorageError::PoolNeedsConnection)
+            Platform(PoolNeedsConnection | Pool(_))
                 | Connection(crate::ConnectionError::Platform(
-                    crate::PlatformStorageError::PoolNeedsConnection,
+                    PoolNeedsConnection | Pool(_),
                 ))
         )
     }
@@ -135,13 +133,13 @@ pub enum NotFound {
     /// Group with ID not found.
     ///
     /// Group does not exist in local DB. Retryable.
-    #[error("group with id {id} not found", id = hex::encode(_0))]
-    GroupById(Vec<u8>),
+    #[error("group with id {0} not found")]
+    GroupById(GroupId),
     /// Installation time for group not found.
     ///
     /// Missing installation timestamp. Retryable.
-    #[error("installation time for group {id}", id = hex::encode(_0))]
-    InstallationTimeForGroup(Vec<u8>),
+    #[error("installation time for group {0}")]
+    InstallationTimeForGroup(GroupId),
     /// Inbox ID for address not found.
     ///
     /// Address has no associated inbox. Retryable.
@@ -200,8 +198,8 @@ pub enum NotFound {
     /// MLS group not found.
     ///
     /// OpenMLS group not in local state. Retryable.
-    #[error("MLS Group Not Found")]
-    MlsGroup,
+    #[error("MLS Group {0} Not Found")]
+    MlsGroup(GroupId),
     /// Post-quantum private key not found.
     ///
     /// PQ key pair not in store. Retryable.
@@ -270,7 +268,6 @@ impl RetryableError for StorageError {
             Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
-            | Self::IntentionalRollback
             | Self::DbDeserialize
             | Self::DbSerialize
             | Self::Builder(_)

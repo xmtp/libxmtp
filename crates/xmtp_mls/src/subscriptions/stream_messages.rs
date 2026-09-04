@@ -13,7 +13,7 @@ use xmtp_macro::log_event;
 
 use super::{
     Result, SubscribeError,
-    process_message::{ProcessFutureFactory, ProcessMessageFuture},
+    process_message::{Prepared, ProcessFutureFactory, ProcessMessageFuture, finish, prepare},
 };
 use crate::{
     context::XmtpSharedContext,
@@ -188,7 +188,11 @@ where
         // to populate seen messages
         let seen_cursors_vec = db.messages_newer_than(&cursors_by_group)?;
 
-        let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec.into_iter().collect();
+        // Identity dedup is exact, so the flattened set is safe across groups.
+        let seen_cursors: std::collections::HashSet<_> = seen_cursors_vec
+            .into_iter()
+            .map(|(_, cursor)| cursor)
+            .collect();
 
         let mut topic_cursor = TopicCursor::default();
         for group_id in &groups {
@@ -196,7 +200,7 @@ where
                 .get(group_id.as_slice())
                 .cloned()
                 .unwrap_or_default();
-            topic_cursor.add(Topic::new_group_message(group_id.clone()), cursor);
+            topic_cursor.add(Topic::new_group_message(*group_id), cursor);
         }
 
         let groups_list = GroupList::new(topic_cursor, seen_cursors.clone());
@@ -235,13 +239,13 @@ where
     /// The actual subscription update happens when the stream is polled.
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         if self.add_queue.iter().any(|g| g.group_id == group.group_id) {
-            tracing::debug!("group {} already queued", hex::encode(&group.group_id));
+            tracing::debug!("group {} already queued", hex::encode(group.group_id));
             return;
         }
         tracing::debug!(
             "queuing group {} for {}",
-            hex::encode(&group.group_id),
-            if self.groups.contains(&group.group_id) {
+            hex::encode(group.group_id),
+            if self.groups.contains(group.group_id) {
                 "re-subscription"
             } else {
                 "add"
@@ -276,12 +280,12 @@ where
     /// # Errors
     /// May return errors if:
     /// - Creating the new subscription fails
-    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
+    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = %new_group))]
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
         topic_cursor: TopicCursor,
-        new_group: Vec<u8>,
+        new_group: xmtp_proto::types::GroupId,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
@@ -294,7 +298,7 @@ where
             .await?;
         Ok((
             stream,
-            new_group,
+            new_group.to_vec(),
             Some(Cursor::new(1 as SequenceId, 0 as OriginatorId)),
         ))
     }
@@ -309,7 +313,15 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
-    #[tracing::instrument(level = "trace", skip_all, name = "poll_next_message")]
+    // Per-poll span: must stay TRACE and carry no sentry.op, or every poll
+    // becomes a Sentry span candidate (span_filter passes DEBUG-or-more-severe
+    // spans on level alone, and any span with sentry.op regardless of level).
+    // `operation` still feeds the Collector.
+    #[tracing::instrument(
+        level = "trace",
+        skip_all,
+        fields(operation = "stream.poll_next_message")
+    )]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -430,30 +442,39 @@ where
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
-        if let Some(stored) = self.factory.retrieve(&next_msg)? {
-            tracing::debug!(
-                "msg @cursor[{:?}] for group_id@[{}] is available locally",
-                next_msg.cursor,
-                next_msg.group_id
-            );
-            let this = self.as_mut().project();
-            this.groups.set(next_msg.group_id, next_msg.cursor);
-            return Poll::Ready(Some(Ok(stored)));
+        match prepare(&self.factory, next_msg)? {
+            Prepared::Ready {
+                message,
+                group_id,
+                cursor,
+            } => {
+                // Already stored locally — surface it without decrypting.
+                tracing::debug!(
+                    "msg @cursor[{:?}] for group_id@[{}] is available locally",
+                    cursor,
+                    hex::encode(group_id),
+                );
+                let this = self.as_mut().project();
+                this.groups.set(group_id.as_slice(), cursor);
+                Poll::Ready(Some(Ok(message)))
+            }
+            Prepared::NeedsProcessing(msg) => {
+                tracing::debug!(
+                    "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
+                    msg.group_id,
+                    msg.cursor
+                );
+                let msg_cursor = msg.cursor;
+                let future = self.factory.create(msg);
+                let mut this = self.as_mut().project();
+                this.state.set(State::Processing {
+                    future,
+                    message: msg_cursor,
+                });
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
         }
-        tracing::info!(
-            "group_id@[{}] encountered newly unprocessed message @cursor=[{}]",
-            next_msg.group_id,
-            next_msg.cursor
-        );
-        let future = self.factory.create(next_msg.clone());
-        let msg_cursor = next_msg.cursor;
-        let mut this = self.as_mut().project();
-        this.state.set(State::Processing {
-            future,
-            message: msg_cursor,
-        });
-        cx.waker().wake_by_ref();
-        Poll::Pending
     }
 
     /// Add the group to the group list
@@ -461,11 +482,11 @@ where
     fn resolve_group_additions(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         tracing::debug!(
             "begin establishing new message stream to include group_id={}",
-            hex::encode(&group.group_id)
+            hex::encode(group.group_id)
         );
         let this = self.as_mut().project();
-        if !this.groups.contains(&group.group_id) {
-            this.groups.add(&group.group_id, GlobalCursor::default());
+        if !this.groups.contains(group.group_id) {
+            this.groups.add(group.group_id, GlobalCursor::default());
         }
         let groups_with_positions = self.groups.groups_with_positions().clone();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
@@ -505,7 +526,7 @@ where
             this.got.push(envelope.cursor);
             tracing::trace!(
                 "got new message for group=[{}] @cursor=[{}] from network, total messages=[{}]",
-                xmtp_common::fmt::debug_hex(&envelope.group_id),
+                xmtp_common::fmt::debug_hex(envelope.group_id),
                 envelope.cursor,
                 this.got.len()
             );
@@ -537,10 +558,8 @@ where
         if let Processing { future, .. } = self.as_mut().project().state.project() {
             let processed = ready!(future.poll(cx))
                 .inspect_err(|_| self.as_mut().project().state.set(State::Waiting))?;
-            tracing::trace!(
-                "message @cursor=[{}] finished processing",
-                processed.tried_to_process
-            );
+            let processed = finish(processed);
+            tracing::trace!("message @cursor=[{}] finished processing", processed.tried);
             let this = self.as_mut().project();
             if let Some(msg) = processed.message {
                 this.returned.push(Cursor::new(
@@ -548,23 +567,23 @@ where
                     msg.originator_id as OriginatorId,
                 ));
                 self.as_mut()
-                    .set_cursor(msg.group_id.as_slice(), processed.next_message);
+                    .set_cursor(msg.group_id.as_slice(), processed.next_cursor);
                 tracing::trace!(
                     "returning new message for group=[{}] @cursor=[{:?}], total messages={}",
                     xmtp_common::fmt::debug_hex(msg.group_id.as_slice()),
-                    processed.tried_to_process,
+                    processed.tried,
                     self.returned.len()
                 );
                 self.as_mut().project().state.set(State::Waiting);
                 return Poll::Ready(Some(Ok(msg)));
             } else {
                 self.as_mut()
-                    .set_cursor(processed.group_id.as_slice(), processed.next_message);
+                    .set_cursor(processed.group_id.as_slice(), processed.next_cursor);
                 tracing::trace!(
                     "skipping message for group=[{}] @cursor=[{}], setting cursor to [{:?}]",
-                    xmtp_common::fmt::debug_hex(&processed.group_id),
-                    processed.tried_to_process,
-                    processed.next_message
+                    xmtp_common::fmt::debug_hex(processed.group_id),
+                    processed.tried,
+                    processed.next_cursor
                 );
                 self.as_mut().project().state.set(State::Waiting);
                 cx.waker().wake_by_ref();
@@ -596,6 +615,7 @@ pub mod tests {
     use crate::tester;
     use futures::stream::StreamExt;
     use rstest::*;
+    use xmtp_db::group_message::GroupMessageKind;
 
     #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
     #[rstest]
@@ -606,22 +626,28 @@ pub mod tests {
         tester!(bob, with_name: "bob");
 
         let alice_group = alice.create_group(None, None).unwrap();
-        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
+        tracing::info!("Group Id = [{}]", hex::encode(alice_group.group_id));
 
         alice_group.add_members(&[bob.inbox_id()]).await.unwrap();
         let bob_groups = bob.sync_welcomes().await.unwrap();
         let bob_group = bob_groups.first().unwrap();
         alice_group.sync().await.unwrap();
 
-        let stream = alice_group.stream().await.unwrap();
+        // Filter to application messages: the `group_updated` commit from
+        // `add_members` can race the stream ahead of them, making this flaky (#3765).
+        let stream = alice_group.stream().await.unwrap().filter(|msg| {
+            futures::future::ready(
+                msg.as_ref()
+                    .map(|m| m.kind == GroupMessageKind::Application)
+                    .unwrap_or(true),
+            )
+        });
         futures::pin_mut!(stream);
         bob_group
             .send_message(b"hello", SendMessageOpts::default())
             .await
             .unwrap();
 
-        // group updated msg/bob is added
-        // assert_msg_exists!(stream);
         assert_msg!(stream, "hello");
 
         bob_group

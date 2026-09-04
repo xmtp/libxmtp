@@ -129,6 +129,13 @@ impl Stream for BytesStream {
 /// an http response is easily derived from a grpc, jsonrpc or rest api.
 #[xmtp_common::async_trait]
 pub trait Client: MaybeSend + MaybeSync {
+    /// The URL this transport dials — its connection identity. Two clients
+    /// share process-level connection state (the XIP-83 shared bidi wire)
+    /// exactly when their hosts match, so this must name where the bytes
+    /// actually go: a client behind a proxy reports the proxy's URL, keeping
+    /// it a separate failure domain from a direct client to the same backend.
+    fn host(&self) -> &str;
+
     async fn request(
         &self,
         request: request::Builder,
@@ -142,6 +149,22 @@ pub trait Client: MaybeSend + MaybeSync {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError>;
+
+    /// Open a bidirectional stream (XIP-83). `body` is the outbound stream of
+    /// encoded protobuf messages (one `Bytes` item per message); the response
+    /// carries the inbound message stream. Transports without full-duplex
+    /// support (e.g. gRPC-Web in the browser) keep this default and error.
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let _ = (request, path, body);
+        Err(ApiClientError::OtherUnretryable(
+            "bidirectional streaming is not supported by this transport".into(),
+        ))
+    }
 
     /// start a "fake" stream that does not create a TCP connection and will always be pending
     fn fake_stream(&self) -> http::Response<BytesStream> {
@@ -162,6 +185,10 @@ impl<T: MaybeSend + MaybeSync + ?Sized> Client for &T
 where
     T: Client,
 {
+    fn host(&self) -> &str {
+        (**self).host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -178,6 +205,15 @@ where
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         (**self).stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        (**self).bidi_stream(request, path, body).await
     }
 }
 
@@ -186,6 +222,10 @@ impl<T: MaybeSend + MaybeSync + ?Sized> Client for Box<T>
 where
     T: Client,
 {
+    fn host(&self) -> &str {
+        (**self).host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -203,6 +243,15 @@ where
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         (**self).stream(request, path, body).await
     }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        (**self).bidi_stream(request, path, body).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -210,6 +259,10 @@ impl<T: MaybeSend + MaybeSync + ?Sized> Client for Arc<T>
 where
     T: Client,
 {
+    fn host(&self) -> &str {
+        (**self).host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -226,6 +279,15 @@ where
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         (**self).stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        (**self).bidi_stream(request, path, body).await
     }
 }
 

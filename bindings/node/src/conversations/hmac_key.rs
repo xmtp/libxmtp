@@ -9,6 +9,7 @@ use xmtp_db::group::GroupQueryArgs;
 #[napi]
 impl Conversations {
   #[napi]
+  #[xmtp_common::err_span]
   pub fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let inner = self.inner_client.as_ref();
     let conversations = inner
@@ -20,7 +21,7 @@ impl Conversations {
 
     let mut hmac_map = HashMap::new();
     for conversation in conversations {
-      let id = hex::encode(&conversation.group_id);
+      let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
         .map_err(ErrorWrapper::from)?

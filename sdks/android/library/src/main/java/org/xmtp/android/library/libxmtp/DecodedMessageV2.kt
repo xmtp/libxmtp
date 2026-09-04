@@ -255,28 +255,64 @@ class DecodedMessageV2 private constructor(
          */
         internal fun decodeContent(content: FfiDecodedMessageContent): Any? =
             when (content) {
-                is FfiDecodedMessageContent.Text -> content.v1.content
-                is FfiDecodedMessageContent.Reaction -> mapReaction(content.v1)
-                is FfiDecodedMessageContent.Reply -> Reply.create(content.v1)
-                is FfiDecodedMessageContent.Attachment -> mapAttachment(content.v1)
-                is FfiDecodedMessageContent.RemoteAttachment -> mapRemoteAttachment(content.v1)
-                is FfiDecodedMessageContent.MultiRemoteAttachment ->
+                is FfiDecodedMessageContent.Text -> {
+                    content.v1.content
+                }
+
+                is FfiDecodedMessageContent.Reaction -> {
+                    mapReaction(content.v1)
+                }
+
+                is FfiDecodedMessageContent.Reply -> {
+                    Reply.create(content.v1)
+                }
+
+                is FfiDecodedMessageContent.Attachment -> {
+                    mapAttachment(content.v1)
+                }
+
+                is FfiDecodedMessageContent.RemoteAttachment -> {
+                    mapRemoteAttachment(content.v1)
+                }
+
+                is FfiDecodedMessageContent.MultiRemoteAttachment -> {
                     mapMultiRemoteAttachment(
                         content.v1,
                     )
+                }
 
-                is FfiDecodedMessageContent.TransactionReference -> mapTransactionReference(content.v1)
-                is FfiDecodedMessageContent.WalletSendCalls -> content.v1
-                is FfiDecodedMessageContent.GroupUpdated -> mapGroupUpdated(content.v1)
-                is FfiDecodedMessageContent.ReadReceipt -> ReadReceipt
-                is FfiDecodedMessageContent.LeaveRequest -> mapLeaveRequest(content.v1)
-                is FfiDecodedMessageContent.DeletedMessage -> mapDeletedMessage(content.v1)
+                is FfiDecodedMessageContent.TransactionReference -> {
+                    mapTransactionReference(content.v1)
+                }
+
+                is FfiDecodedMessageContent.WalletSendCalls -> {
+                    content.v1
+                }
+
+                is FfiDecodedMessageContent.GroupUpdated -> {
+                    mapGroupUpdated(content.v1)
+                }
+
+                is FfiDecodedMessageContent.ReadReceipt -> {
+                    ReadReceipt
+                }
+
+                is FfiDecodedMessageContent.LeaveRequest -> {
+                    mapLeaveRequest(content.v1)
+                }
+
+                is FfiDecodedMessageContent.DeletedMessage -> {
+                    mapDeletedMessage(content.v1)
+                }
+
                 is FfiDecodedMessageContent.Custom -> {
                     val encodedContent = encodedContentFromFfi(content.v1)
                     encodedContent.decoded<Any>()
                 }
 
-                else -> null
+                else -> {
+                    null
+                }
             }
 
         /**
@@ -284,22 +320,54 @@ class DecodedMessageV2 private constructor(
          */
         internal fun decodeBodyContent(body: FfiDecodedMessageBody): Any? =
             when (body) {
-                is FfiDecodedMessageBody.Text -> body.v1.content
-                is FfiDecodedMessageBody.Reaction -> mapReaction(body.v1)
-                is FfiDecodedMessageBody.Attachment -> mapAttachment(body.v1)
-                is FfiDecodedMessageBody.RemoteAttachment -> mapRemoteAttachment(body.v1)
-                is FfiDecodedMessageBody.MultiRemoteAttachment -> mapMultiRemoteAttachment(body.v1)
-                is FfiDecodedMessageBody.TransactionReference -> mapTransactionReference(body.v1)
-                is FfiDecodedMessageBody.WalletSendCalls -> body.v1
-                is FfiDecodedMessageBody.GroupUpdated -> mapGroupUpdated(body.v1)
-                is FfiDecodedMessageBody.LeaveRequest -> mapLeaveRequest(body.v1)
-                is FfiDecodedMessageBody.DeletedMessage -> mapDeletedMessage(body.v1)
+                is FfiDecodedMessageBody.Text -> {
+                    body.v1.content
+                }
+
+                is FfiDecodedMessageBody.Reaction -> {
+                    mapReaction(body.v1)
+                }
+
+                is FfiDecodedMessageBody.Attachment -> {
+                    mapAttachment(body.v1)
+                }
+
+                is FfiDecodedMessageBody.RemoteAttachment -> {
+                    mapRemoteAttachment(body.v1)
+                }
+
+                is FfiDecodedMessageBody.MultiRemoteAttachment -> {
+                    mapMultiRemoteAttachment(body.v1)
+                }
+
+                is FfiDecodedMessageBody.TransactionReference -> {
+                    mapTransactionReference(body.v1)
+                }
+
+                is FfiDecodedMessageBody.WalletSendCalls -> {
+                    body.v1
+                }
+
+                is FfiDecodedMessageBody.GroupUpdated -> {
+                    mapGroupUpdated(body.v1)
+                }
+
+                is FfiDecodedMessageBody.LeaveRequest -> {
+                    mapLeaveRequest(body.v1)
+                }
+
+                is FfiDecodedMessageBody.DeletedMessage -> {
+                    mapDeletedMessage(body.v1)
+                }
+
                 is FfiDecodedMessageBody.Custom -> {
                     val encodedContent = encodedContentFromFfi(body.v1)
                     encodedContent.decoded<Any>()
                 }
 
-                else -> null
+                else -> {
+                    null
+                }
             }
     }
 }

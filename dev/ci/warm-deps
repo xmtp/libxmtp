@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Warm the /nix sticky disk with the build-time dep closure of the given
+# flake attrs. When a PR already built and pushed a derivation to Cachix,
+# the later main run substitutes just the goal output, so the deps (cargo
+# artifacts, toolchains) never land in the local store — and trusted runs
+# are the only ones that commit the disk (see .github/actions/setup-nix).
+# Realizing the closure keeps the disk hot for the next real rebuild.
+set -euo pipefail
+
+# Mirror the setup-nix commit gate: only trusted (non-PR) CI events commit
+# the disk. Locally GITHUB_EVENT_NAME is unset — nothing to warm.
+case "${GITHUB_EVENT_NAME:-}" in
+"" | pull_request*)
+    echo "warm-deps: sticky disk will not commit on this run; skipping"
+    exit 0
+    ;;
+esac
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "warm-deps: no sticky disk on $(uname -s); skipping"
+    exit 0
+fi
+
+for attr in "$@"; do
+    echo "warm-deps: realizing dep closure of ${attr}"
+    drv="$(nix path-info --derivation "${attr}")"
+    nix-store --query --requisites --include-outputs "${drv}" \
+        | xargs nix-store --realise >/dev/null
+done

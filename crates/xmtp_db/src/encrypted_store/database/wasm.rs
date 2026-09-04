@@ -44,7 +44,7 @@ impl xmtp_common::RetryableError for PlatformStorageError {
 
 #[derive(Clone)]
 pub struct WasmDb {
-    conn: Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>,
+    conn: Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>,
     opts: StorageOption,
 }
 
@@ -217,7 +217,8 @@ impl ConnectionExt for WasmDbConnection {
 }
 
 impl XmtpDb for WasmDb {
-    type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
+    type Connection =
+        Arc<PersistentOrMem<WasmDbConnection, std::convert::Infallible, WasmDbConnection>>;
     type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {

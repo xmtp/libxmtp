@@ -1,0 +1,464 @@
+# @xmtp/agent-sdk
+
+## 2.3.0
+
+### Minor Changes
+
+- 3557ccb: Added restart on error for streams in Agent SDK
+
+## 2.2.1
+
+### Patch Changes
+
+- 4f801a9: Added Wizard middleware for multi-step setup flows
+
+## 2.2.0
+
+### Minor Changes
+
+- da8658f: Added transaction utility functions
+
+## 2.1.0
+
+### Minor Changes
+
+- 126833a: Added PerformanceMonitor middleware
+
+## 2.0.2
+
+### Patch Changes
+
+- a87b56b: Added help command configuration to CommandRouter middleware
+
+## 2.0.1
+
+### Patch Changes
+
+- e100655: Added native events from Node SDK
+
+## 2.0.0
+
+This release includes major improvements and breaking changes to align with Node SDK 5.x. The SDK is now simpler to use with unified exports and cleaner APIs.
+
+### Breaking Changes
+
+The Agent SDK now depends on `@xmtp/node-sdk` v5.2.0, which includes significant API changes.
+
+#### Removed `sendText` and `sendMarkdown` from `ConversationContext`
+
+Use `conversation.sendText()` and `conversation.sendMarkdown()` directly instead:
+
+```ts
+// Before
+await ctx.sendText("Hello");
+await ctx.sendMarkdown("**Hello**");
+
+// After
+await ctx.conversation.sendText("Hello");
+await ctx.conversation.sendMarkdown("**Hello**");
+```
+
+#### Built-in content types
+
+The Node SDK now includes built-in support for all standard content types. These content types can be sent using dedicated methods on `conversation`:
+
+```ts
+await ctx.conversation.sendText("Hello!");
+await ctx.conversation.sendMarkdown("**Bold** and _italic_");
+await ctx.conversation.sendReaction(reaction);
+await ctx.conversation.sendReply(reply);
+await ctx.conversation.sendReadReceipt();
+await ctx.conversation.sendAttachment(attachment);
+await ctx.conversation.sendRemoteAttachment(remoteAttachment);
+await ctx.conversation.sendMultiRemoteAttachment(attachments);
+await ctx.conversation.sendTransactionReference(txRef);
+await ctx.conversation.sendWalletSendCalls(walletCalls);
+```
+
+#### Content type filters moved to Node SDK
+
+The following filters have been removed from `filter.*` and are now exported directly from the SDK:
+
+- `isGroupUpdated` (renamed from `isGroupUpdate`)
+- `isMarkdown`
+- `isReaction`
+- `isReadReceipt`
+- `isRemoteAttachment`
+- `isReply`
+- `isText`
+- `isTextReply`
+- `isTransactionReference`
+- `isWalletSendCalls`
+
+```ts
+// Before
+import { filter } from "@xmtp/agent-sdk";
+if (filter.isText(message)) { ... }
+
+// After
+import { isText } from "@xmtp/agent-sdk";
+if (isText(message)) { ... }
+```
+
+#### `downloadRemoteAttachment` API simplified
+
+The function no longer requires an agent parameter:
+
+```ts
+// Before
+const attachment = await downloadRemoteAttachment(remoteAttachment, agent);
+
+// After
+const attachment = await downloadRemoteAttachment(remoteAttachment);
+```
+
+#### Attachment `data` property renamed to `content`
+
+The `Attachment` type now uses `content` instead of `data` for the payload.
+
+#### `consentState` is now a method
+
+```ts
+// Before
+const state = conversation.consentState;
+
+// After
+const state = conversation.consentState();
+```
+
+#### Debug environment variable changes
+
+`XMTP_FORCE_DEBUG` has been removed. Use `XMTP_FORCE_DEBUG_LEVEL` to enable debug logging:
+
+```bash
+XMTP_FORCE_DEBUG_LEVEL=Debug
+```
+
+### New Features
+
+#### Gateway host configuration
+
+Added support for `XMTP_GATEWAY_HOST` environment variable to configure the gateway host.
+
+#### Unified exports
+
+All utilities are now exported from the main entry point. Subpackage imports are no longer needed:
+
+```ts
+// Before
+import { Agent } from "@xmtp/agent-sdk";
+import { CommandRouter } from "@xmtp/agent-sdk/middleware";
+import { createUser, createSigner } from "@xmtp/agent-sdk/user";
+import { getTestUrl, logDetails } from "@xmtp/agent-sdk/debug";
+
+// After
+import {
+  Agent,
+  CommandRouter,
+  createUser,
+  createSigner,
+  getTestUrl,
+  logDetails,
+} from "@xmtp/agent-sdk";
+```
+
+#### Improved default app version
+
+The SDK now uses the agent SDK version as the default `appVersion` instead of `"agent-sdk/alpha"`.
+
+## 1.2.4
+
+### Patch Changes
+
+- 1f7e6ed: Exposed command list in CommandRouter middleware
+
+## 1.2.3
+
+### Patch Changes
+
+- d655457: Added support for encrypted file attachments
+
+## 1.2.2
+
+Upgraded Node SDK to `4.6.0`
+
+## 1.2.1
+
+### Patch Changes
+
+- 1f737c5: Fixed LibXMTP version reporting
+
+## 1.2.0
+
+This release includes a new property, performance optimizations and bug fixes. If you've been building on a previous release, this one should be a **drop-in replacement**. Update as soon as possible to take advantage of these optimizations and fixes.
+
+### New `libxmtpVersion` property
+
+The `libxmtpVersion` property can be useful for debugging or ensuring compatibility with the underlying XMTP APIs.
+
+For more information on these updates, see these [release notes](https://github.com/xmtp/xmtp-js/releases/tag/%40xmtp%2Fnode-sdk%404.5.0) for the Node SDK.
+
+## 1.1.16
+
+### Patch Changes
+
+- f3017b3: Disabled device sync by default
+
+## 1.1.15
+
+### Patch Changes
+
+- cddbb41: Made streaming options configurable
+
+## 1.1.14
+
+### Patch Changes
+
+- 8e6c633: Strip the command token in the message context of `CommandRouter`
+- 1fe5810: Pinned Node.js SDK version
+
+## 1.1.13
+
+### Patch Changes
+
+- 24c866e: Exported `usesCodec` in `filter`
+
+## 1.1.12
+
+### Patch Changes
+
+- 13a14ba:
+  - Update xmtp.chat URLs
+  - Updated dependencies
+    - @xmtp/node-sdk@4.2.6
+
+## 1.1.11
+
+### Patch Changes
+
+- e01f21b: Add AgentStreamingError
+
+## 1.1.10
+
+### Patch Changes
+
+- 594dd71: Re-export `isHexString` and discriminating content types in `CommandRouter` handlers
+
+## 1.1.9
+
+### Patch Changes
+
+- bde0bfb: Expose `XMTP_DB_DIRECTORY` for `Agent.createFromEnv`
+
+## 1.1.8
+
+### Patch Changes
+
+- 9003bb9: Enable hex strings as database encryption keys
+- Updated dependencies [9003bb9]
+  - @xmtp/node-sdk@4.2.4
+
+## 1.1.7
+
+### Patch Changes
+
+- 8279497: Added warning about installation limit
+
+## 1.1.6
+
+### Patch Changes
+
+- 932f01d: - Fixed an issue where duplicate welcome errors were fired erroneously
+  - Fixed a bug where building a client did a network request when not needed
+
+## 1.1.5
+
+### Patch Changes
+
+- d0798bc: Updated `@xmtp/node-sdk` dependency to `^4.2.2`
+
+## 1.1.4
+
+### Patch Changes
+
+- 45160dc: Added `MessageContext.useCodec` to identify custom content types
+
+## 1.1.3
+
+### Patch Changes
+
+- 3c28612: Added XMTP_FORCE_DEBUG_LEVEL env variable
+
+## 1.1.2
+
+### Patch Changes
+
+- 9538002: Added ENS name resolution
+
+## 1.1.1
+
+### Patch Changes
+
+- a0b5d11: Updated Node SDK in Agent SDK
+
+## 1.1.0
+
+### Minor Changes
+
+- 70d1a21: Added listening to conversation events
+
+## 1.0.1
+
+### Patch Changes
+
+- 54577da: Added "group-update" events
+
+## 1.0.0
+
+### Major Changes
+
+- 5b0c9f8: Removed Beta label
+
+## 0.0.17
+
+### Patch Changes
+
+- e0b035c: - Added conversation creation
+
+## 0.0.16
+
+### Patch Changes
+
+- 07ea5c3: - Exposed `debug`, `middleware`, and `user` packages
+  - Passed `ClientContext` to `start` and `stop` event listeners
+
+## 0.0.15
+
+### Patch Changes
+
+- 07fa1c3: Implemented message streaming with callbacks
+
+## 0.0.14
+
+### Patch Changes
+
+- 4da121f: Remove listening to `'dm'` and `'group'` events
+
+## 0.0.13
+
+### Patch Changes
+
+- b4f86cc: - Simplified filter usage with parameter-based API
+  - Removed `withFilter`
+  - Changed all interface definitions to type definitions
+  - Updated `ConversationContext` to use new filter methods
+  - Introduced unified context types in `AgentContext`
+
+## 0.0.12
+
+### Patch Changes
+
+- 2bcf5ee: - Renamed `ctx.getOwnAddress()` to `ctx.getClientAddress()`
+  - Added `AgentError` class with `cause` attribute (keeping the originating error)
+  - Introduced error `code` values for programmatic handling of `AgentError` instances
+  - Added Context hierarchy: `ClientContext` → client, `ConversationContext` → client, conversation, `MessageContext` → client, conversation, message
+  - Added `AgentContext` union type for all contexts
+  - Error middleware now receives `AgentErrorContext` (holds client, conversation, message if available)
+
+## 0.0.11
+
+### Patch Changes
+
+- 7e0c321: - Removed "crypto" and "message" utils
+  - Removed `filter.notFromSelf` in favor of `!filter.fromSelf`
+  - Added `filter.hasDefinedContent`
+  - Added `filter.isDM`
+  - Added `filter.isGroup`
+  - Added `filter.isReaction`
+  - Added `filter.isRemoteAttachment`
+  - Added `filter.isReply`
+  - Added `filter.isTextReply`
+  - Allowed async filters
+  - Added tests to verify typed message content in event callbacks
+
+## 0.0.10
+
+### Patch Changes
+
+- 20d64c3: Skipped messages from agent itself in middleware
+
+## 0.0.9
+
+### Patch Changes
+
+- 854a9d1: - Renamed `filter.textOnly` to `filter.isText`
+  - Renamed `AgentContext` to `MessageContext`
+  - Renamed event `on("message")` to `on("unhandledMessage")`
+  - Added `on("dm")` for direct messages
+  - Added `on("attachment")` for remote attachments
+  - Added `on("group")` for group messages
+  - Added `on("reaction")` for reactions
+  - Added `on("reply")` for replies
+  - Introduced `ConversationContext` for handling new conversations
+
+## 0.0.8
+
+### Patch Changes
+
+- 0857103: - Forced middleware to call `next` to execute the next middleware or `return` to break the middleware chain
+  - Made `use` accept an array of middlewares
+  - Forwarded options to `streamAllMessages`
+  - Replaced `generatePrivateKey` with implementation from `viem/accounts`
+  - Removed `@noble/curves` package
+  - Renamed `AgentEventHandler` to `AgentMessageHandler`
+  - Introduced error-handling middleware chain (`agent.errors.on`)
+
+## 0.0.7
+
+### Patch Changes
+
+- b296a2a: - Exposed default middleware
+  - Exposed debug utils
+  - Added default Reaction schema
+
+## 0.0.6
+
+### Patch Changes
+
+- 8277202: Locked dependency versions
+
+## 0.0.5
+
+### Patch Changes
+
+- 071aed4: - Made `signer` optional in `Agent.create` to allow Agent configuration via env variables
+  - Introduced `crypto` utils
+  - Exposed `filter` with `f` alias
+  - Introduced `XMTP_FORCE_REVOKE_INSTALLATIONS` and `XMTP_FORCE_DEBUG`
+  - Removed `Agent.build`
+  - Added `gen:keys` command for agent contributors
+  - Added `CommandRouter` middleware
+  - Added `startsWith` filter
+  - Added codecs for `Reaction` and `RemoteAttachment`
+  - Added `sendReaction` functionality through `AgentContext`
+  - Added `getOwnAddress()` in `AgentContext`
+  - Added `debug` util with `logDetails()` functionality
+  - Added `message` utils with type guards for different content types
+
+## 0.0.4
+
+### Patch Changes
+
+- 880f8f2: Added path alias resolution
+
+## 0.0.3
+
+### Patch Changes
+
+- f83dcf9: Fixed module resolution for ESM
+
+## 0.0.2
+
+### Patch Changes
+
+- 5a2bd1e: Fixed dist reference in Agent SDK

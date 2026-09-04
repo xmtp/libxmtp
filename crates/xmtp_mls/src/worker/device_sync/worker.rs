@@ -9,7 +9,8 @@ use crate::{
     groups::GroupError,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
+        WorkerKind, WorkerResult,
         device_sync::{AvailableArchive, archive::insert_importer},
         metrics::WorkerMetrics,
     },
@@ -24,6 +25,7 @@ use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
 use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_macro::log_event;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::{
     ConversionError,
     xmtp::{
@@ -133,44 +135,72 @@ where
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
-        while let Ok(event) = self.receiver.recv().await {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            let event = match self.receiver.recv().await {
+                Ok(event) => event,
+                Err(RecvError::Lagged(skipped)) => {
+                    // The skipped events may have included NewSyncGroupFromWelcome,
+                    // whose durable task rows were never created. Re-scheduling is
+                    // cheap and deduped, so recover level-triggered instead of
+                    // losing the edge; a Tick-equivalent sweep covers skipped
+                    // NewSyncGroupMsg events the same way.
+                    tracing::warn!(
+                        skipped,
+                        "sync worker receiver lagged; re-scheduling installation reconciliation"
+                    );
+                    self.client.schedule_add_installations_to_groups()?;
+                    self.evt_new_sync_group_msg(true).await?;
+                    continue;
+                }
+                Err(RecvError::Closed) => break,
+            };
+
+            // Tick is the internal timer heartbeat (every 20s): no real work, so
+            // dispatch it directly without opening a worker_turn span.
             if matches!(event, SyncWorkerEvent::Tick) {
-                tracing::debug!(
-                    "[{}] New event: {event:?}",
-                    self.client.context.installation_id()
-                );
-            } else {
-                tracing::info!(
-                    "[{}] New event: {event:?}",
-                    self.client.context.installation_id()
-                );
+                self.evt_new_sync_group_msg(true).await?;
+                continue;
             }
 
-            match event {
-                SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                    self.evt_new_sync_group_from_welcome().await?;
-                }
-                SyncWorkerEvent::NewSyncGroupMsg => {
-                    self.evt_new_sync_group_msg(false).await?;
-                }
-                SyncWorkerEvent::Tick => {
-                    self.evt_new_sync_group_msg(true).await?;
-                }
-                SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                    self.evt_sync_preferences(preference_updates).await?;
-                }
-                SyncWorkerEvent::CycleHMAC => {
-                    self.evt_cycle_hmac().await?;
-                }
-            }
+            tracing::info!(
+                installation_id = %self.client.context.installation_id(),
+                "new sync worker event: {event:?}",
+            );
+            self.handle_event(event).await?;
         }
         Ok(())
     }
 
-    async fn tick(ctx: Context) {
-        loop {
-            xmtp_common::time::sleep(Duration::from_secs(20)).await;
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    async fn handle_event(&mut self, event: SyncWorkerEvent) -> Result<(), DeviceSyncError> {
+        match event {
+            SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                self.evt_new_sync_group_from_welcome().await
+            }
+            SyncWorkerEvent::NewSyncGroupMsg => self.evt_new_sync_group_msg(false).await,
+            SyncWorkerEvent::SyncPreferences(preference_updates) => {
+                self.evt_sync_preferences(preference_updates).await
+            }
+            SyncWorkerEvent::CycleHMAC => self.evt_cycle_hmac().await,
+            // Tick is intentionally filtered out in `run_internal` before reaching
+            // here, so it never opens a worker_turn span.
+            SyncWorkerEvent::Tick => unreachable!("Tick is handled before dispatch"),
+        }
+    }
 
+    async fn tick(ctx: Context) {
+        use futures::StreamExt;
+        let (base, jitter) = ctx.worker_interval(
+            crate::worker::WorkerKind::DeviceSync,
+            Duration::from_secs(20),
+        );
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        // The interval stream yields immediately on its first poll; skip that
+        // so the first Tick is sent only after a full interval, preserving the
+        // original sleep-then-send cadence.
+        let _ = intervals.next().await;
+        while intervals.next().await.is_some() {
             // We don't need to worry about a mutex lock for device sync
             // to ensure that a sync payload is not being processed by two
             // threads at once because there should only ever be one sync worker
@@ -221,8 +251,9 @@ where
         tracing::info!("New sync group from welcome detected.");
 
         // A new sync group from a welcome indicates a new installation.
-        // We need to add that installation to the groups.
-        self.client.add_new_installation_to_groups().await?;
+        // Schedule durable per-group reconciliation on the TaskRunner —
+        // a one-shot inline add here is lost forever if it fails once.
+        self.client.schedule_add_installations_to_groups()?;
 
         self.metrics
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
@@ -293,16 +324,21 @@ where
                 self.context.installation_id(),
                 msg_type,
                 external = is_external,
-                msg_id = #msg.id,
+                message_id = #msg.id,
                 group_id = msg.group_id
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
+                // A failed message is non-fatal (log + bump attempt), but a
+                // dropped pool must stop the worker; bubble it.
+                if err.needs_db_reconnect() {
+                    return Err(err);
+                }
                 log_event!(
                     Event::DeviceSyncMessageProcessingError,
                     self.context.installation_id(),
-                    err = %err,
-                    msg_id = #msg.id
+                    error = %err,
+                    message_id = #msg.id
                 );
                 self.context
                     .db()
@@ -347,7 +383,7 @@ where
                                     SendSyncArchive {
                                         options: request.options,
                                         pin: Some(request.pin),
-                                        sync_group_id: msg.group_id.clone(),
+                                        sync_group_id: msg.group_id.to_vec(),
                                         server_url: request.server_url,
                                     },
                                 ),
@@ -370,7 +406,7 @@ where
 
                 if self.is_reply_requested_by_installation(&reply).await? {
                     self.process_archive(msg, reply).await.inspect_err(
-                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
+                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), error = %err),
                                     )?;
                 } else {
                     log_event!(
@@ -409,7 +445,7 @@ where
     pub(crate) async fn send_archive(
         &self,
         options: &ArchiveOptions,
-        sync_group_id: &Vec<u8>,
+        sync_group_id: &GroupId,
         pin: &str,
         server_url: &str,
     ) -> Result<(), DeviceSyncError>
@@ -573,7 +609,7 @@ where
             }
         }
 
-        Err(DeviceSyncError::MissingPayload(pin.map(str::to_string)))
+        Err(DeviceSyncError::MissingPayload(pin.is_some()))
     }
 
     pub fn list_available_archives(
@@ -630,7 +666,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveProcessingStart,
             self.context.installation_id(),
-            msg_id = #msg.id,
+            message_id = #msg.id,
             group_id = msg.group_id
         );
         if reply.kind() != BackupElementSelectionProto::Unspecified {
@@ -646,13 +682,13 @@ where
             Event::DeviceSyncArchiveDownloading,
             self.context.installation_id()
         );
-        let response = reqwest::Client::new().get(reply.url).send().await?;
+        let response = xmtp_common::http::client()?.get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             log_event!(
                 Event::DeviceSyncPayloadDownloadFailure,
                 self.context.installation_id(),
                 status = %response.status(),
-                err = %err
+                error = %err
             );
             return Err(DeviceSyncError::Reqwest(err));
         }

@@ -142,6 +142,33 @@ where
     }
 }
 
+xmtp_common::if_native! {
+    // Same erasure for the XIP-83 bidi stream (native-only, like the trait):
+    // pin the concrete subscribe stream behind `BoxedSubscribeS` so the
+    // boxed client can flow into `dyn` full-API objects.
+    #[xmtp_common::async_trait]
+    impl<C> xmtp_proto::api_client::XmtpMlsBidiStreams for BoxedStreamsClient<C>
+    where
+        C: xmtp_proto::api_client::XmtpMlsBidiStreams,
+        C::SubscribeStream: 'static,
+    {
+        type SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<Self::Error>;
+        type Error = <C as xmtp_proto::api_client::XmtpMlsBidiStreams>::Error;
+
+        fn host(&self) -> &str {
+            self.inner.host()
+        }
+
+        async fn subscribe_bidi(
+            &self,
+            requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            let s = self.inner.subscribe_bidi(requests).await?;
+            Ok(Box::pin(s) as Pin<Box<_>>)
+        }
+    }
+}
+
 #[xmtp_common::async_trait]
 impl<C> XmtpMlsStreams for BoxedStreamsClient<C>
 where

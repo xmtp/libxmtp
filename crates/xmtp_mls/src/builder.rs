@@ -2,33 +2,35 @@ use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
+    groups::change_callbacks::UnstableChangeCallbacks,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     utils::{VersionInfo, cleanup_duplicate_updates},
     worker::{WorkerRunner, tasks::TaskWorker},
-    worker::{
-        device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
-        key_package_cleaner::KeyPackagesCleanerWorker,
-        pending_self_remove::PendingSelfRemoveWorker,
-    },
+    worker::{device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker},
 };
 use futures::FutureExt;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
-use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
+use xmtp_api::ApiClientWrapper;
 use xmtp_api_d14n::{
     TrackedStatsClient,
     protocol::{CursorStore, XmtpQuery},
 };
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::{DbConnection, XmtpMlsStorageProvider};
+use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_macro::log_event;
+use xmtp_proto::xmtp::mls::database::{
+    ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind,
+};
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
@@ -99,13 +101,15 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync_worker_mode: DeviceSyncMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
+    /// Unstable: group-change callbacks the host registered at construction.
+    pub(crate) change_callbacks: UnstableChangeCallbacks,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
-    pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
+    pub(crate) worker_config: crate::worker::WorkerConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,13 +162,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: None,
             device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
+            change_callbacks: UnstableChangeCallbacks::default(),
             version_info: VersionInfo::default(),
             allow_offline: false,
             disable_commit_log_worker: false,
             mls_storage: None,
-            sync_api_client: None,
             cursor_store: None,
             disable_workers: false,
+            worker_config: crate::worker::WorkerConfig::default(),
         }
     }
 }
@@ -180,7 +185,6 @@ where
         client: Client<ContextParts<ApiClient, S, Db>>,
     ) -> ClientBuilder<ApiClient, S, Db> {
         let cloned_api: ApiClient = client.context.api_client.clone().api_client;
-        let cloned_sync_api: ApiClient = client.context.sync_api_client.clone().api_client;
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
@@ -189,15 +193,54 @@ where
             scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
+            change_callbacks: client.context.change_callbacks.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
-            sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
             disable_workers: false,
+            worker_config: client.context.worker_config.clone(),
         }
     }
+}
+
+/// One-time backfill of `ProcessPendingSelfRemove` tasks for groups that already
+/// had pending leave requests before self-removal became event-driven. Such rows
+/// have no incoming LeaveRequest to re-fire, so without this they'd only be
+/// processed if a new one arrived. Best-effort and idempotent (deduped per group).
+///
+/// TODO(#3748): removable once every client has shipped a release that enqueues
+/// these tasks inline — safe to delete by the next-next stable release.
+fn backfill_pending_self_remove_tasks<C>(context: &C) -> Result<(), StorageError>
+where
+    C: XmtpSharedContext,
+{
+    let db = context.db();
+    for raw_id in db.get_groups_have_pending_leave_request()? {
+        let Ok(group_id) = xmtp_proto::types::GroupId::try_from(raw_id.as_slice()) else {
+            continue;
+        };
+        let now = xmtp_common::time::now_ns();
+        let proto = TaskProto {
+            task: Some(TaskKind::ProcessPendingSelfRemove(
+                ProcessPendingSelfRemove {
+                    group_id: group_id.to_vec(),
+                },
+            )),
+        };
+        let task = xmtp_db::tasks::NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .created_at_ns(now)
+            .next_attempt_at_ns(now)
+            .build(proto)?;
+        // Insert-if-absent per group: leaves any live retrying task (and its
+        // backoff) untouched, only replacing dead rows. Safe to call on every
+        // startup without resurrecting exhausted tasks.
+        db.upsert_pending_self_remove_task(&group_id, task)?;
+    }
+    Ok(())
 }
 
 // TODO: the return type is temp and
@@ -217,6 +260,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .flatten()
     }
 
+    #[tracing::instrument(err, skip_all, fields(operation = "mls.build_client"))]
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
         ApiClient: XmtpApi + XmtpQuery + 'static,
@@ -232,13 +276,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_worker_mode,
             fork_recovery_opts,
+            change_callbacks,
             version_info,
             allow_offline,
             disable_commit_log_worker,
             mut mls_storage,
-            mut sync_api_client,
             // cursor_store,
             disable_workers,
+            worker_config,
             ..
         } = self;
 
@@ -247,13 +292,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
-
-        let sync_api_client =
-            sync_api_client
-                .take()
-                .ok_or(ClientBuilderError::MissingParameter {
-                    parameter: "sync_api_client",
-                })?;
 
         let scw_verifier = scw_verifier
             .take()
@@ -272,7 +310,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             })?;
 
         let api_client = ApiClientWrapper::new(api_client, Retry::default());
-        let sync_api_client = ApiClientWrapper::new(sync_api_client, Retry::default());
         let conn = store.db();
         let identity = if let Some(identity) = identity {
             identity
@@ -297,6 +334,35 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .await?;
         }
 
+        // Fold the legacy single-worker toggles into the unified enable map so
+        // there is one source of truth for "is worker X enabled" that code paths
+        // (e.g. the disappearing-message store site) can consult before nudging a
+        // worker's channel. The old fields keep working; they just write here.
+        let mut worker_config = worker_config;
+        if disable_workers {
+            // Global kill-switch: nothing runs, so mark every worker disabled.
+            for kind in [
+                crate::worker::WorkerKind::DeviceSync,
+                crate::worker::WorkerKind::DisappearingMessages,
+                crate::worker::WorkerKind::CommitLog,
+                crate::worker::WorkerKind::TaskRunner,
+            ] {
+                worker_config.enabled.insert(kind, false);
+            }
+        }
+        if matches!(device_sync_worker_mode, DeviceSyncMode::Disabled) {
+            worker_config
+                .enabled
+                .entry(crate::worker::WorkerKind::DeviceSync)
+                .or_insert(false);
+        }
+        if disable_commit_log_worker {
+            worker_config
+                .enabled
+                .entry(crate::worker::WorkerKind::CommitLog)
+                .or_insert(false);
+        }
+
         let (local_events, _) = broadcast::channel(32);
         let (worker_tx, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
@@ -315,41 +381,72 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 mode: device_sync_worker_mode,
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
+            change_callbacks,
+            worker_config,
 
-            sync_api_client,
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
+            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
+            ),
+            cancellation_token: CancellationToken::new(),
+            shutdown_complete: Arc::new(AtomicBool::new(false)),
         });
 
         // register workers
         if !disable_workers {
-            if context.device_sync_worker_enabled() {
+            use crate::worker::WorkerKind;
+            // One source of truth for enablement: the folded WorkerConfig map.
+            let enabled = |k| context.worker_config().worker_enabled(k);
+
+            // Keep the original `device_sync_worker_enabled()` AND-check to
+            // preserve the exact legacy semantics alongside the map gate.
+            if enabled(WorkerKind::DeviceSync) && context.device_sync_worker_enabled() {
                 workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
             }
-            workers
-                .register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
-            workers
-                .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
-            workers
-                .register_new_worker::<PendingSelfRemoveWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
+            if enabled(WorkerKind::DisappearingMessages) {
+                workers
+                    .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
+                        context.clone(),
+                    );
+            }
             // Enable CommitLogWorker based on configuration
-            if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
+            if enabled(WorkerKind::CommitLog)
+                && xmtp_configuration::ENABLE_COMMIT_LOG
+                && !disable_commit_log_worker
+            {
                 workers.register_new_worker::<
                 crate::groups::commit_log::CommitLogWorker<ContextParts<ApiClient, S, Db>>,
                 _,
                 >(context.clone());
             }
-            workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
-                context.clone(),
-            );
+            if enabled(WorkerKind::TaskRunner) {
+                workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
+                    context.clone(),
+                );
+                // KP maintenance is deliberately coupled to the TaskRunner (no
+                // standalone fallback): disabling the TaskRunner — per-kind via
+                // WorkerConfig or globally via disable_workers — disables KP
+                // rotation/deletion with it. Seeding failure is fatal to the
+                // build: the DB was already opened/migrated above, so an error
+                // here means it is broken; building a client whose critical
+                // maintenance silently never got seeded would be worse.
+                crate::worker::key_package_maintenance::seed_and_reconcile_kp_tasks(&context)?;
+                // One-time backfill: pending self-removes recorded before the
+                // worker became event-driven have no LeaveRequest to re-fire, so
+                // seed a ProcessPendingSelfRemove task for each already-flagged
+                // group. Best-effort (logged, never fails the build).
+                //
+                // TODO: remove this migration once all clients have shipped a
+                // release that enqueues these tasks inline — safe to delete by the
+                // next-next stable release.
+                if let Err(e) = backfill_pending_self_remove_tasks(&context) {
+                    tracing::warn!(
+                        "pending-self-remove backfill failed (will rely on next sync): {e}"
+                    );
+                }
+            }
         }
 
         let workers = Arc::new(workers);
@@ -373,11 +470,19 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             installation_id,
             local_events,
             workers,
+            #[cfg(not(target_arch = "wasm32"))]
+            stream_router: Default::default(),
         };
 
         // Cleanup old unstitched group updated messages.
         let conn = DbConnection::new(client.db());
-        xmtp_common::spawn(None, cleanup_duplicate_updates::perform(conn));
+        let cancel = client.context.cancellation_token().clone();
+        xmtp_common::spawn(None, async move {
+            tokio::select! {
+                _ = cancel.cancelled() => {}
+                _ = cleanup_duplicate_updates::perform(conn) => {}
+            }
+        });
 
         Ok(client)
     }
@@ -385,6 +490,21 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn identity(self, identity: Identity) -> Self {
         Self {
             identity: Some(identity),
+            ..self
+        }
+    }
+
+    /// Unstable: register callbacks notified when group state changes.
+    ///
+    /// Registration is construction-time by necessity — the changes these
+    /// report arrive from the stream and sync paths, where no SDK call is on
+    /// the stack. Passing [`UnstableChangeCallbacks::default`] (nothing set)
+    /// is equivalent to not calling this at all.
+    ///
+    /// See [`crate::groups::change_callbacks`] for the delivery contract.
+    pub fn unstable_change_callbacks(self, change_callbacks: UnstableChangeCallbacks) -> Self {
+        Self {
+            change_callbacks,
             ..self
         }
     }
@@ -398,13 +518,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -425,6 +546,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -437,9 +559,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .db(),
             )),
             store: self.store,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         })
     }
 
@@ -452,13 +574,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(mls_storage),
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -488,10 +611,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
-        // let api_retry = Retry::builder().build();
-        // let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
-        // let sync_api_client = ApiClientWrapper::new(sync_api_client, api_retry.clone());
+    /// Configure background-worker intervals, jitter, and per-worker
+    /// enablement. See [`crate::worker::WorkerConfig`].
+    pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
+        self.worker_config = cfg;
+        self
+    }
+
+    pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, S, Db> {
         ClientBuilder {
             api_client: Some(api_client),
             identity: self.identity,
@@ -500,13 +627,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -570,44 +698,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
-    /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
-    /// Requires the api client to be set in the builder.
-    pub fn enable_api_debug_wrapper(
-        self,
-    ) -> Result<ClientBuilder<ApiDebugWrapper<ApiClient>, S, Db>, ClientBuilderError> {
-        if self.api_client.is_none() || self.sync_api_client.is_none() {
-            return Err(ClientBuilderError::MissingParameter {
-                parameter: "api_client",
-            });
-        }
-
-        Ok(ClientBuilder {
-            api_client: Some(ApiDebugWrapper::new(
-                self.api_client.expect("checked for none"),
-            )),
-            identity: self.identity,
-            identity_strategy: self.identity_strategy,
-            scw_verifier: self.scw_verifier,
-            store: self.store,
-
-            device_sync_worker_mode: self.device_sync_worker_mode,
-            fork_recovery_opts: self.fork_recovery_opts,
-            version_info: self.version_info,
-            allow_offline: self.allow_offline,
-            disable_commit_log_worker: self.disable_commit_log_worker,
-            mls_storage: self.mls_storage,
-            sync_api_client: Some(ApiDebugWrapper::new(
-                self.sync_api_client.expect("checked for none"),
-            )),
-            cursor_store: self.cursor_store,
-            disable_workers: self.disable_workers,
-        })
-    }
-
     pub fn enable_api_stats(
         self,
     ) -> Result<ClientBuilder<TrackedStatsClient<ApiClient>, S, Db>, ClientBuilderError> {
-        if self.api_client.is_none() || self.sync_api_client.is_none() {
+        if self.api_client.is_none() {
             return Err(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             });
@@ -624,15 +718,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: Some(TrackedStatsClient::new(
-                self.sync_api_client.expect("checked for none"),
-            )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         })
     }
 
@@ -649,13 +742,14 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         }
     }
 
@@ -681,13 +775,38 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
         })
+    }
+}
+
+#[cfg(test)]
+mod worker_registration_tests {
+    use crate::tester;
+    use crate::worker::{WorkerConfig, WorkerKind};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn disabled_worker_is_not_registered() {
+        let mut cfg = WorkerConfig::default();
+        cfg.enabled.insert(WorkerKind::DisappearingMessages, false);
+        tester!(alix, worker_config: cfg);
+
+        let kinds = alix.client.workers.registered_kinds();
+        assert!(
+            !kinds.contains(&WorkerKind::DisappearingMessages),
+            "disabled worker must not be registered, got {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&WorkerKind::TaskRunner),
+            "un-disabled worker must still be registered, got {kinds:?}"
+        );
     }
 }

@@ -155,6 +155,7 @@ pub fn content_type_actions() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_actions(actions: Actions) -> Result<EncodedContent> {
   Ok(
     ActionsCodec::encode(actions.into())

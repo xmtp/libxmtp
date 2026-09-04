@@ -1,9 +1,10 @@
 const LOCAL_DOMAIN: &str = "xmtpd.local";
 
 /// Determines how xnet constructs service hostnames.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AddressMode {
     /// Local mode: hostnames like `{name}.xmtpd.local`
+    #[default]
     Local,
     /// Remote domain mode: hostnames like `{name}.{domain}`
     RemoteDomain(String),
@@ -31,12 +32,6 @@ impl AddressMode {
 
     pub fn is_remote(&self) -> bool {
         matches!(self, Self::RemoteDomain(_))
-    }
-}
-
-impl Default for AddressMode {
-    fn default() -> Self {
-        Self::Local
     }
 }
 

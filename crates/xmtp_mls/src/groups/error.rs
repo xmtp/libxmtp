@@ -1,5 +1,4 @@
 use super::group_permissions::GroupMutablePermissionsError;
-use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
@@ -28,6 +27,18 @@ use xmtp_db::NotFound;
 use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
+use xmtp_mls_common::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
+
+/// Installation IDs that failed key package verification during a membership update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedInstallationIds(pub Vec<Vec<u8>>);
+
+impl std::fmt::Display for FailedInstallationIds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let encoded: Vec<String> = self.0.iter().map(hex::encode).collect();
+        write!(f, "{}", encoded.join(","))
+    }
+}
 
 /// Wraps multiple message processing errors from a single receive operation.
 ///
@@ -90,7 +101,8 @@ pub enum GroupError {
     UserLimitExceeded,
     /// Sequence ID not found.
     ///
-    /// Missing sequence ID in local database. Not retryable.
+    /// No sequence ID for an inbox after an identity-update refresh —
+    /// its registration hasn't propagated yet. Retryable.
     #[error("SequenceId not found in local db")]
     MissingSequenceId,
     /// Addresses not found.
@@ -256,6 +268,58 @@ pub enum GroupError {
     /// Encountered a proposal when our client does not support proposals. Not retryable.
     #[error("Proposals not supported: {0}")]
     ProposalsNotSupported(String),
+    /// Caller asked to set `MIN_SUPPORTED_PROTOCOL_VERSION` to a value
+    /// the caller's own client does not satisfy. Refusing prevents the
+    /// caller from immediately pausing themselves (and every peer at or
+    /// below their version) the moment the bump lands. Not retryable.
+    #[error("min_version {requested} exceeds own pkg_version {own}")]
+    MinVersionExceedsOwnVersion { requested: String, own: String },
+    /// Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the
+    /// floor already on the group. Monotonic-only: a downgrade would
+    /// silently unpause peers between the old and new floors, defeating
+    /// the gate. Not retryable.
+    #[error("min_version {requested} would downgrade existing floor {current}")]
+    MinVersionDowngrade { requested: String, current: String },
+    /// Caller passed a `min_version` string that doesn't parse as
+    /// semver. Surfaces from the send-side paths
+    /// (`enable_proposals`, `update_group_min_version`) so SDK
+    /// consumers can `match`-handle malformed input without parsing
+    /// string-flattened wrappers. Not retryable.
+    #[error("invalid min_version {value:?}: {reason}")]
+    InvalidMinVersion { value: String, reason: String },
+    /// Component source error.
+    ///
+    /// Failed to encode, decode, or look up a well-known component during the
+    /// AppDataUpdate path. Not retryable.
+    #[error("component source error: {0}")]
+    ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+    /// AppData commit error.
+    ///
+    /// Failed to build or stage a commit that bundles an inline AppDataUpdate
+    /// proposal. Wraps the structured `GroupAppDataError` from
+    /// [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage
+    /// failure is preserved instead of being string-flattened.
+    #[error("app data commit error: {0}")]
+    AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
+    /// Bootstrap synthesis failure — sender-side couldn't build the
+    /// complete set of initial component values for the migration
+    /// commit. Includes identity-update lookup failures.
+    ///
+    /// Conditionally retryable: delegates to the wrapped
+    /// [`BootstrapSynthesisError`], which retries only when an inner
+    /// identity-update API error is itself retryable. Decode/registry-shape
+    /// failures are deterministic and not retryable.
+    #[error("bootstrap synthesis error: {0}")]
+    BootstrapSynthesis(#[from] super::app_data::migration::BootstrapSynthesisError),
+    /// Bootstrap commit-build failure.
+    ///
+    /// Not retryable: every variant of [`BootstrapCommitError`] is a
+    /// deterministic OpenMLS commit failure, a TLS codec error, or a
+    /// caller-side precondition violation.
+    #[error("bootstrap commit error: {0}")]
+    BootstrapCommit(
+        #[from] super::app_data::migration::BootstrapCommitError<sql_key_store::SqlKeyStoreError>,
+    ),
     /// Credential error.
     ///
     /// MLS credential validation failed. Not retryable.
@@ -284,7 +348,7 @@ pub enum GroupError {
     /// Sync failed to wait.
     ///
     /// Waiting for intent sync failed. Retryable.
-    #[error("Sync failed to wait for intent")]
+    #[error("Sync failed to wait for intent: {}", _0)]
     SyncFailedToWait(Box<SyncSummary>),
     /// Missing pending commit.
     ///
@@ -306,6 +370,16 @@ pub enum GroupError {
     /// Field value exceeds character limit. Not retryable.
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    /// A guarded metadata update was abandoned because another member changed
+    /// the field first.
+    ///
+    /// Not retryable as-is: the value was derived from state that no longer
+    /// exists. Re-derive it from `actual` and queue a new update. Distinct
+    /// from a sync failure — nothing went wrong, the write is just stale.
+    #[error(
+        "app data update was superseded; expected {expected:?} but the committed value is {actual:?}"
+    )]
+    AppDataSuperseded { expected: String, actual: String },
     /// Group paused until update.
     ///
     /// Group is paused until a newer version is available. Not retryable.
@@ -339,8 +413,8 @@ pub enum GroupError {
     /// Failed to verify installations.
     ///
     /// Installation verification failed. Not retryable.
-    #[error("Failed to verify all installations")]
-    FailedToVerifyInstallations,
+    #[error("Failed to verify all installations: failedInstallations={0}")]
+    FailedToVerifyInstallations(FailedInstallationIds),
     /// No welcomes to send.
     ///
     /// No welcome messages to send to new members. Not retryable.
@@ -355,12 +429,12 @@ pub enum GroupError {
     ///
     /// Failed to wrap welcome message. Not retryable.
     #[error(transparent)]
-    WrapWelcome(#[from] WrapWelcomeError),
+    WrapWelcome(#[from] WrapPayloadError),
     /// Unwrap welcome error.
     ///
     /// Failed to unwrap welcome message. Not retryable.
     #[error(transparent)]
-    UnwrapWelcome(#[from] UnwrapWelcomeError),
+    UnwrapWelcome(#[from] UnwrapPayloadError),
     /// Welcome data not found.
     ///
     /// Welcome data missing from topic. Not retryable.
@@ -445,6 +519,13 @@ pub enum MetadataPermissionsError {
     DmValidation(#[from] DmValidationError),
     #[error("Invalid extension: {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    /// Failed to decode a well-known component value from the
+    /// AppData dictionary on a migrated group. Surfaces
+    /// [`ComponentSourceError`] via `#[from]` so callers (e.g.
+    /// `mutable_metadata()`, `metadata()`) preserve the structured
+    /// source.
+    #[error(transparent)]
+    ComponentSource(#[from] crate::groups::app_data::component_source::ComponentSourceError),
 }
 
 impl RetryableError for MetadataPermissionsError {
@@ -524,6 +605,17 @@ impl RetryableError for GroupError {
             Self::Proposal(e) => e.is_retryable(),
             Self::CommitToPendingProposals(e) => e.is_retryable(),
             Self::ProposalsNotSupported(_) => false,
+            Self::MinVersionExceedsOwnVersion { .. } => false,
+            Self::MinVersionDowngrade { .. } => false,
+            Self::InvalidMinVersion { .. } => false,
+            Self::ComponentSource(_) => false,
+            Self::AppDataCommit(e) => e.is_retryable(),
+            // Bootstrap synthesis can fail on a transient identity-update
+            // API blip — delegate to the inner error so we retry on
+            // network errors and stay non-retryable on deterministic
+            // wire-format / registry-shape failures.
+            Self::BootstrapSynthesis(e) => e.is_retryable(),
+            Self::BootstrapCommit(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
@@ -542,13 +634,19 @@ impl RetryableError for GroupError {
             Self::DeleteMessage(e) => e.is_retryable(),
             Self::DeviceSync(e) => e.is_retryable(),
             Self::MergePendingCommit(e) => e.is_retryable(),
+            // Only emitted when a fresh `load_identity_updates` network
+            // refresh still has no sequence id for an inbox — i.e. its
+            // registration hasn't propagated to reads yet. Retrying re-runs
+            // the fetch, so the miss is transient; classifying it
+            // non-retryable permanently failed sync-group membership adds
+            // that raced a new installation's identity propagation.
+            Self::MissingSequenceId => true,
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)
             | Self::CreateMessage(_)
             | Self::TlsError(_)
-            | Self::MissingSequenceId
             | Self::AddressNotFound(_)
             | Self::InvalidExtension(_)
             | Self::Signature(_)
@@ -561,13 +659,57 @@ impl RetryableError for GroupError {
             | Self::ConversionError(_)
             | Self::CryptoError(_)
             | Self::TooManyCharacters { .. }
+            | Self::AppDataSuperseded { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
-            | Self::FailedToVerifyInstallations
+            | Self::FailedToVerifyInstallations(_)
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
         }
+    }
+}
+
+impl crate::worker::NeedsDbReconnect for GroupError {
+    /// Forwards a dropped-pool signal from storage-bearing variants so a worker
+    /// catching `GroupError`s per item can stop on disconnect; else `false`.
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Client(c) => c.db_needs_connection(),
+            Self::Db(c) => c.db_needs_connection(),
+            Self::MlsStore(s) => s.needs_db_reconnect(),
+            Self::Identity(i) => i.needs_db_reconnect(),
+            Self::DeviceSync(d) => d.needs_db_reconnect(),
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn missing_sequence_id_is_retryable() {
+        // Regression lock: while non-retryable, a membership add racing a
+        // new installation's identity propagation burned all publish
+        // attempts instantly and permanently failed the sync-group add
+        // (surfaced as the DeviceSync sendSyncRequest CI failures).
+        assert!(GroupError::MissingSequenceId.is_retryable());
+    }
+
+    #[xmtp_common::test]
+    fn failed_to_verify_installations_includes_hex_ids() {
+        let err = GroupError::FailedToVerifyInstallations(FailedInstallationIds(vec![
+            vec![0xAB; 32],
+            vec![0xCD; 32],
+        ]));
+        let message = err.to_string();
+        assert!(message.contains("failedInstallations="));
+        assert!(message.contains(&hex::encode([0xAB; 32])));
+        assert!(message.contains(&hex::encode([0xCD; 32])));
+        assert!(!err.is_retryable());
     }
 }
