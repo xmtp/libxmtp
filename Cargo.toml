@@ -2,14 +2,13 @@
 members = [
   # Applications
   "apps/*",
-  "apps/xnet/*",
   # Bindings
   "bindings/*",
   # Core crates
   "crates/*",
 ]
 
-exclude = ["apps/android", "apps/xnet/Cargo.toml", "apps/xnet/assets"]
+exclude = ["apps/android"]
 
 # Default members must be part of workspace hack to maximize cache hits in CI/nix/crane
 default-members = [
@@ -230,8 +229,6 @@ xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_proto = { path = "crates/xmtp_proto" }
-xnet-cli = { path = "apps/xnet/cli" }
-xnet-lib = { path = "apps/xnet/lib" }
 
 [profile.dbg]
 debug = true

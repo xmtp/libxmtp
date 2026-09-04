@@ -4,7 +4,6 @@ _: {
     {
       packages = {
         xdbg = pkgs.callPackage ./package/xdbg.nix { };
-        xnet-cli = pkgs.callPackage ./package/xnet-cli.nix { };
       };
     };
 }

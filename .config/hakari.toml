@@ -33,8 +33,6 @@ workspace-members = [
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
-  "xnet-cli",
-  "xnet-lib",
   "keepalive-probe",
 ]
 third-party = [
@@ -54,8 +52,6 @@ workspace-members = [
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
-  "xnet-cli",
-  "xnet-lib",
   "keepalive-probe",
 ]
 third-party = [
