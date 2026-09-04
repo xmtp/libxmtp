@@ -185,6 +185,19 @@ The static stream serves clients that cannot open a bidirectional stream.
 - API-130: The backend must reject a unary request above a limit with `INVALID_ARGUMENT` and must fail a stream above a limit with `INVALID_ARGUMENT`.
 - API-131: Every limit is one named configuration value. No limit is a literal in code.
 
+### 11.0 Limits under review
+
+A cross-check of the table against today's servers and clients (2026-09-04) found four values that a request working today would exceed. They stay in the table until the owner decides; the recommendation is in the questions plan.
+
+| Limit | Today | Client today | Recommendation |
+| --- | --- | --- | --- |
+| Publish envelopes per request, 50 | v3 and v4: no count cap | A membership update on a proposals-enabled group sends one proposal per installation plus the commit in one request; up to about 2,500 | Drop the count cap; keep the 25 MiB byte cap. A commit and its proposals then stay in one atomic publish |
+| Query limit, 100 rows across topics | v4: 1,000 rows; v3: full tail | Identity-update reads for 50 inboxes send no limit and have no paging loop | Raise the max to 1,000 rows and add the client paging loop |
+| Static-subscription topics, 1,000 | v3: no cap; v4: 10,000 | Every conversation in one request; the only path in browsers | Raise to 10,000 or keep 1,000 and make the client open one stream per 1,000 topics (API-144) |
+| Topics per bidirectional stream, 100,000 | v3: no cap; v4: 1,000,000 | One shared wire per process carries every client in the process | Keep 100,000 unless an agent host needs more |
+
+Limits that exist today and are absent here: per-envelope payload size (v4: 200,000 bytes for identity updates), signatures per smart-contract-wallet verify request, waves in flight per stream (v4: 256), publish concurrency, and rate limits (Phase 6).
+
 ### 11.1 Client chunking requirements
 
 - API-140: The client must chunk newest-envelope reads with full envelopes at 100 topics and must cap the number of chunks in flight.
@@ -193,7 +206,8 @@ The static stream serves clients that cannot open a bidirectional stream.
 - API-143: The client must chunk queries and metadata-only newest-envelope reads at 1000 topics.
 - API-144: The client must open a static subscription per 1000 topics.
 - API-145: Phase 3 integration tests must cover every limit at the boundary and one past it.
-- API-146: Key-package reads and inbox-id lookups are unchunked in the client today. The chunking in API-140 and API-141 is new client work that lands with this API.
+- API-146: Key-package reads, inbox-id lookups, query paging, static-subscription splitting, and proposal-bearing group publishes are unchunked in the client today. The chunking in API-140 to API-144 and a `has_more` paging loop for identity-update and commit-log reads are new client work that lands with this API.
+- API-148: The backend must reject an identity update for an inbox whose log already holds 256 entries with `INVALID_ARGUMENT` and reason `REASON_INVALID_IDENTITY_UPDATE`, as both existing backends do.
 - API-147: The client must add a fifth topic kind for the commit log and publish and read commit-log entries as envelopes.
 
 ## 12. Error contract
@@ -231,3 +245,4 @@ The static stream serves clients that cannot open a bidirectional stream.
 | --- | --- |
 | 2026-09-03 | Seeded from the Phase 0 proto review. Ordering model, wrappers, fresh payloads, idempotency, paging, `SubscribeStatic`, key-package retention, limits, and the error table were approved by the project owner in that review. Section 8 edge cases and the stream cap of 100,000 topics are carried from the review and await confirmation. A coverage check against the client caller and streaming catalogs added API-016, 023, 024, 045 (welcome keys), 063, 066 (drop rule), 067, 076, 090 (zero interval), 093 (waves), 100 (add plus remove), 103 to 105, 110 (no topics), 142 (measured size), 146, 147, and 153. |
 | 2026-09-04 | Owner decisions from the questions review: retention is per topic kind (API-021, API-062; identity updates never expire, `expiry_ns` is zero for them); no version or metadata endpoint in v1 (API-162, section 14); envelopes stay unsigned (API-163 confirmed); the stream cap of 100,000 topics and the `Mutate` adds cap of 100,000 are confirmed. Open: retention periods for welcome messages and commit-log entries. |
+| 2026-09-04 | Limits cross-check against the existing-behavior wiki and client code: added section 11.0, widened API-146, added API-148 (inbox log cap of 256). Four limits are under review by the owner. |
