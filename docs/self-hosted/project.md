@@ -11,8 +11,10 @@ XMTP is replacing both the v3 network (`xmtp-node-go`) and the v4 network (`xmtp
 ## Outcome
 
 - A new backend, `apps/backend`, written in Rust. It takes the best parts of `xmtpd` and `xmtp-node-go` and implements the bare minimum API surface an XMTP client needs to exercise the core SDK functionality: registering identities, publishing envelopes, querying envelopes, and efficiently streaming envelopes. It should be a single binary that can be horizontally scaled and load balanced, with no local state.
-- `libxmtp` and the platform SDKs are overhauled to work with this backend exclusively. Dead code for decentralization, blockchains, the payer service, and originator IDs is removed. The complexity `xmtpd` and v4 added for ordering messages between originators is removed. Streaming is expected to be simplified.
+- `libxmtp` and the platform SDKs are overhauled to work with this backend exclusively. Dead code for decentralization, blockchains, the payer service, and originator IDs is removed. Smart-contract-wallet (SCW) signature verification remains a chain-RPC dependency for SDK compatibility. The complexity `xmtpd` and v4 added for ordering messages between originators is removed. Streaming is expected to be simplified.
 - The `xmtpd`, `xmtp-node-go`, and `proto` repositories are deprecated. The entire stack lives in `libxmtp`. All `.proto` files live in a `proto/` folder in this repository.
+- Device-sync history storage remains an external service. Folding it into the backend is outside this transition's current scope.
+- Durable backend state lives in Postgres. Stream queues, subscription state, and reconstructible caches may live in memory. A reconnect to another instance must not need the previous instance's state.
 - The MLS validation service stops being a standalone service and becomes a crate the new backend uses.
 - The payer service and all related code, and `xmtp_api_d14n` and associated code, are removed from `libxmtp`.
 - All code shared by the backend and the client lives in a crate separate from `apps/backend` and `crates/xmtp_mls`.
@@ -27,6 +29,7 @@ XMTP is replacing both the v3 network (`xmtp-node-go`) and the v4 network (`xmtp
 - Plans live in Ref. Plans are short-lived, reviewed by a human before implementation, and mostly worked with by agents. They are a specific project plan and may reference files, modules, and lines. They match the `/writing-specs` skill format and include specific EARS requirements that must be satisfied.
 - Not all work needs a spec. All implementation work needs a plan.
 - Spec 002 is written in Phase 1, before the `xmtp_mls` audit, and approved before Phase 2.
+- Spec 004 must be approved before Phase 2 streaming implementation. Spec 003 first records backend admission and identity trust limits; its client MLS security description is completed during Phase 3.
 
 Expected specs by the end of the project:
 
@@ -34,7 +37,7 @@ Expected specs by the end of the project:
 | --- | --- |
 | `001_backend_api.md` | Public API of the backend |
 | `002_backend_architecture.md` | Backend service design and database schema |
-| `003_message_security.md` | Adaptation of the `xmtp_mls` README |
+| `003_message_security.md` | Backend and identity trust limits, then adaptation of the `xmtp_mls` README |
 | `004_streaming.md` | Streaming APIs and semantics |
 
 ### Git
@@ -72,8 +75,9 @@ Expected pull requests: a stack of two, one for documentation changes and one fo
 ### Phase 1: Scaffolding
 
 - Scaffold `apps/backend`. Ensure it builds with Nix. Give it a hello-world main and a single test.
-- If new crates are needed for shared types, utilities, and structs required by both the backend and `xmtp_mls`, scaffold them too. Ensure they build and test in CI.
+- Scaffold `crates/xmtp_mls_validation` for shared payload parsing, validation, topic derivation, and canonical envelope encoding. Include its `test-utils` fixtures. Ensure it builds and tests independently on native and wasm, without client database dependencies or accidental workspace feature unification.
 - Audit all of `crates/xmtp_mls`, including its runtime and test utilities, against the expected scope of the backend API. Move every function, struct, utility, and type the backend will share out of `xmtp_mls` and into the appropriate other crate. Spec 002 must be written before this audit; without it the comparison cannot be accurate.
+- Extract the shared validation logic and fixtures in this phase. Phase 2 connects them to backend storage and requests. Share canonical envelope encoding and hashing as well as topic derivation; preserve the separate client MLS message-ID and payload-hash rules.
 - Ensure the backend can produce a Docker image, the way the MLS validation service is built with Nix. Ensure all check, build, and test commands work and maximize Nix caching.
 - Create the `proto/` folder for all `.proto` files. Copy every required file from the `proto` repository (including files for endpoints this project removes, such as v4) plus the new backend protos. Set up Buf linting in the justfile. Update all scripts and `crates/xmtp_proto` to make this folder authoritative, and delete the old generated tree and the `proto` repository dependency in the same phase.
 - Ensure tests for the new crates run in CI.
@@ -86,8 +90,9 @@ Specs 001 and 002 must be completed and approved before this phase begins. This 
 - XIP-83 style bidirectional streaming (<https://github.com/xmtp/XIPs/pull/139>) as well as traditional HTTP streaming.
 - Complete support for the API surface defined in `backend.proto`. The standard gRPC health service is served. There is no version or metadata endpoint in v1.
 - A Postgres schema designed for the API surface, with indexes for every query parameter.
-- A single binary that can be horizontally scaled and load balanced. The MLS validation service is not used; the same lookups happen in the shared crate, which receives the validation logic in this phase.
-- No rate limits, authentication, or authorization. Later phases add them.
+- A single binary that can be horizontally scaled and load balanced. The MLS validation service is not used; the backend connects storage to the shared validation logic extracted in Phase 1.
+- Support read replicas from day one. Each configured replica URL points to one replica instance. Publish and Query use the primary; newest reads, streams, and identity lookups may use the replica.
+- No caller quotas, authentication, or authorization. Phase 6 adds them. Exception: per-stream Mutate and client Ping token buckets protect the stream protocol in Phase 2 (10 frames/s each, burst 100).
 - Establish, and include in the spec, a concise TOML config format for all server configuration. Config files may reference environment variables for secrets. The format should have a defined schema that can be publicly hosted and referenced by config files that support Taplo schemas.
 
 ### Phase 3: Integration
@@ -95,6 +100,9 @@ Specs 001 and 002 must be completed and approved before this phase begins. This 
 Replace all backend selection in `xmtp_mls` with the self-hosted backend. This requires updates to every binding in `bindings/`, every SDK in `sdks/`, and the CLIs in `apps/`. The diff is large and changes the test harness of every client SDK. `docs/self-hosted/deletions.md` gives the order of the deletions in this phase.
 
 - XIP-83 bidirectional streaming becomes the only native stream path. The opt-in flag is removed and the legacy streaming stack is deleted.
+- Redesign the client ledger around durable per-topic cursors. Remove the per-kind total-order watermark; a sequence ID on one topic says nothing about progress on another.
+- Implement the spec 001 client obligations: keyed key-package results with absence, batch chunking, identity and commit-log query paging, static-subscription splitting, and status-based retry classification. Preserve public SDK methods and stream callbacks.
+- Preserve canonical envelope bytes for publish retries and hash matching. An oversized publish response can follow a committed write; response failure does not prove rollback.
 - `apps/xmtp_debug` stays as an app. Its backend selection and other dead functionality are deleted as the code they depend on goes.
 - The SCW verifier tests start a local `anvil` from Rust instead of the Docker service.
 
@@ -109,7 +117,8 @@ We should be able to remove the `node`, `node-web`, `validation`, `anvil`, and `
 ### Phase 5: Message pruning
 
 - Figure out how to expire messages from the backend database.
-- Every row carries an expiry set at publish time from its topic kind. Group messages and key packages expire after 3 months. Identity updates never expire. The periods for welcome messages and commit-log entries are still to be decided.
+- Every row carries an expiry set at publish time. Group application messages, welcomes, and key packages use 90 days (the fixed duration called 3 months). Identity updates, commit-log entries, and group messages marked as commits or proposals never expire.
+- Before this phase, expiry is metadata only: no pruning and no read-time expiry filter. Add the expiry index with the pruning implementation. Define newest-watermark behavior, key-package absence, and duplicate retries after row deletion.
 - Define what a client does with a cursor that points below expired rows before retention is enabled in production.
 
 ### Phase 6: Authentication and rate limiting
