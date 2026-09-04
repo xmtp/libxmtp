@@ -8,11 +8,11 @@ In this analysis we assume that all symmetric cryptography is post-quantum/HNDL 
 
 We show that XMTP-MLS provides HNDL forward security, but falls short when removing clients from the group or considering post compromise security.
 
-# Security Notions
+## Security Notions
 
 Before arguing that we can reach some form of HNDL security with XMTP-MLS, we need to define what that means. The security notions for HNDL are not fully defined or well understood in the literature yet. We define the following two notions of HNDL.
 
-#### HNDL Forward Secrecy (HNDL-FS)
+### HNDL Forward Secrecy (HNDL-FS)
 
 Similar to regular forward security, which says that keys, and therefore messages, before a compromise must stay secure in future, HNDL forward secrecy is defined such that even an attacker with access to a quantum computer in the future can not gain access to old keys and messages.
 
@@ -26,7 +26,7 @@ Suppose a protocol derives a key `K` at time `T`. We say that `K` is HNDL forwar
 
 In the context of MLS, `K` will typically refer to the `epoch_secret` in a given epoch, which is subsequently used to derive all the message encryption keys. Consequently, this HNDL-FS for MLS means that a quantum adversary who can break all ECDH from time `T’’` can still not decrypt messages encrypted under `K`.
 
-#### HDNL Post Remove Security (HNDL-PRS)
+### HDNL Post Remove Security (HNDL-PRS)
 
 Similar to classical security guarantees, we also need to look at cases where keys are compromised. This is usually captured with a definition of Post-Compromise Security (PCS)[^6]. PCS considers different “compromise” scenarios for protocol participants where for example only parts of the secret state of a participant may be compromised.
 
@@ -43,7 +43,7 @@ Suppose key `K` defines the epoch secret for an epoch `E` that is created with (
 * if in epoch `T’’ > T’`, a quantum adversary is able to break classical asymmetric cryptography,  
 * then the adversary will not be able to distinguish key `K` from a randomly chosen key `K’`.
 
-# MLS
+## MLS
 
 We recall the MLS key schedule from RFC here to make the remainder of the document easier to understand. Please refer to RFC 9420[^7] for the full description of MLS structs and mechanisms.  
 
@@ -55,11 +55,11 @@ Since PSKs are not used in xmtp-mls, we do not further investigate the use of th
 
 The `epoch_secret` is used to generate secrets such as the `sender_data_secret` and `encryption_secret`, which are used for message encryption, using the secret tree. They are therefore the input key material for all encryptions of handshake and application messages.
 
-## The secrets
+### The secrets
 
 The two secrets, `commit_secret` and `init_secret`, bind the secret to i) the tree, and ii) to the previous epoch.
 
-### Commit secret
+#### Commit secret
 
 The `commit_secret` is the `DeriveSecret(path_secret[n-1], "path")` secret from updating the tree with a fresh leaf node. The `commit_secret` is empty if the commit adding the new leaf has no path.
 
@@ -67,19 +67,19 @@ The `Welcome` message contains the `path_secret` of the *lowest common ancestor*
 
 The `path_secret[0]` is chosen at random. And `DeriveSecret := HKDF(salt, “”, label)`.
 
-### Init secret
+#### Init secret
 
 The `init_secret` on group creation (epoch 0\) is chosen at random. In every subsequent epoch it is derived as shown in the key schedule above.
 
-### Derivation
+#### Derivation
 
 The derivation of the `joiner_secret` for epoch `n` is defined as `KDF(init_secret[n-1], commit_secret, joiner || GroupContext_[n])` with `KDF := HKDF(salt, ikm, label)`. We assume that given the output of the `KDF`, it is not possible to distinguish this value from a randomly chosen byte string of the same length. HKDF[^8] is used for all KDFs.
 
-## Messages with secrets
+### Messages with secrets
 
 MLS has many different messages that may change the group state, i.e. contain (encrypted) secret values. It is therefore important to inspect every possible message to reason about the security.
 
-### Welcome
+#### Welcome
 
 The `Welcome` message sends the encrypted group secrets to the new joiner. These secrets include the `joiner_secret`, the `path_secret` (if present), and all `psks` (their IDs, not the actual keys).
 
@@ -121,7 +121,7 @@ encrypt_with_label(
 
 The `hpke_welcome_key` is a fresh  XWing-06[^9] key pair, generated with 32 bytes of fresh randomness. The encryption key is stored in an opaque extension in the key package. The `”MLS_WELCOME”` label is unique in XMTP-MLS, and the `welcome_payload` is the TLS serialized `Welcome` message that would be sent out in regular MLS. The XWing-06 key is rotated together with the key package. Note that XMTP-MLS uses only last resort key packages.
 
-### Commit
+#### Commit
 
 The `Commit` message contains the encrypted `path_secret`s for the new path from the committer to the root. Note that the path may be omitted in certain cases. But we assume that all commits contain paths here. The `path_secret`s lead to the `commit_secret` as described above.
 
@@ -167,7 +167,7 @@ handshake_ratchet_secret_[N]_[0] = KDF(encryption_secret, "handshake")
 
 Therefore, if the `epoch_secret` in epoch `T` is HNDL secure, the `path_secrets` in the `Commit` message are HNDL protected.
 
-### External messages, ReInits, PSKs
+#### External messages, ReInits, PSKs
 
 MLS has more messages that modify the group state. However, they are not used in XMTP-MLS and are therefore not analyzed any further here.
 
@@ -177,15 +177,15 @@ Out-of-band distributed PSKs may also be mixed into the `joiner_secret` in the k
 
 External initialization allows a party that is not in the group, i.e. does not have knowledge of the symmetric key material within the group, to initialize a new epoch. This will most likely break HNDL security unless it is protected with a post-quantum secure asymmetric mechanism.
 
-# HNDL Forward Security of XMTP-MLS
+## HNDL Forward Security of XMTP-MLS
 
 In XMTP-MLS we claim that, if in epoch `n` either the `init_secret` or the `commit_secret` is HNDL secure, the `epoch_secrets` as well as the new `init_secret` in epoch `n+1` is HNDL secure. This implies that HNDL-FS holds for XMTP-MLS.
 
-## Epoch 0
+### Epoch 0
 
 In epoch `0` this is trivially correct because no secrets are sent over the wire, not even encrypted. Unless other users are added to the group, we assume that the group stays in epoch `0`.
 
-## Epoch 1
+### Epoch 1
 
 We assume that new users are added in epoch `1`. Any other case is trivial because only a single user is in the group. This requires `Welcome` messages to be sent to all new users. The welcome messages are HPKE encrypted with XWing-06.
 
@@ -193,17 +193,17 @@ If the attacker, at time `T’’` with access to a quantum computer, can distin
 
 No other operations are available at this point because the group only has a single member and is not fully functional yet.
 
-## Epochs \> 1
+### Epochs \> 1
 
 Now we show that if the `epoch_secret`s in epoch `n` were HNDL secure, the `epoch_secret`s in epoch `n+1` are HNDL secure. Given that the `epoch_secret_[n]` is HNDL secure, the combination of the `init_secret_[n]` with the attacker known `commit_secret` is HNDL secure as well, considering that HKDF is a dual-PRF[^12]. Note that knowledge of other `commit_secret`s from other epochs is irrelevant as each commit secret is the output of an HKDF chain with a fresh `leaf_secret` as input. If a new client is added to the group in the attacked epoch, the adversary could also attack the `Welcome` message. However, we argued in the previous section already that the attacker can not use a `Welcome` message to retrieve the `joiner_secret`. Therefore, additional welcome messages do not give the attacker additional capabilities.
 
-# XMTP-MLS and HNDL-PRS
+## XMTP-MLS and HNDL-PRS
 
 XMTP-MLS is not post-remove HNDL secure. For PRS we consider the attacker to have been part of the group at some point. While this would allow the attacker to also send messages to the group, this is not relevant for the attack. Once the HNDL chain, starting with the post-quantum secure `Welcome` message, is broken because the attacker is part of the group, it can not be restored without another post-quantum secured message.
 
 The `Commit` messages that are healing MLS to provide PRS are not HNDL secure. While private messages are used in XMTP-MLS, the key that is used to symmetrically encrypt the message is known to the attacker. The attacker therefore has access to the `init_secret` (because it was part of the group), and is able to decrypt the `commit_secret` from the `Commit` message. The protocol is therefore not HNDL-PRS.
 
-# Closing Remarks
+## Closing Remarks
 
 We believe that the arguments above are sufficient to argue that XMTP-MLS provides HNDL-FS for real-world use. This is similar to the security provided by protocols like PQXDH[^13] (without the post-quantum ratchet). While HNDL-PRS in a group context like MLS, is a relevant security property, HNDL-FS in XMTP-MLS provides a high level of protection against HNDL attackers.
 

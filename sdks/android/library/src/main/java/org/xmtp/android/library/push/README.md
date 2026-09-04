@@ -56,7 +56,7 @@ These files can serve as the basis for what you might want to provide for your o
 
 3. Uncomment the following code in the top level of the example app's `build.gradle` file:
 
-    ```
+    ```groovy
     buildscript {
         repositories {
             google()

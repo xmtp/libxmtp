@@ -1,3 +1,5 @@
+<!-- The branded header uses HTML and places status badges before the title. -->
+<!-- markdownlint-configure-file {"MD041": false, "MD033": {"allowed_elements": ["h1", "p", "img", "br", "a"]}} -->
 [![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
 [![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
@@ -112,20 +114,20 @@ CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
 - Output test logs in a async-aware context-specific tree format with the
   environment variable `CONTEXTUAL`
 
-```
+```bash
 CONTEXTUAL=1 cargo test
 ```
 
 - Filter tests logs by Crate
 
-```
+```bash
 RUST_LOG=xmtp_mls=debug,xmtp_api=off,xmtp_id=info cargo test
 ```
 
 - Output test logs as in a structured JSON format for inspection with
   third-party viewer
 
-```
+```bash
 STRUCTURED=1 cargo test
 ```
 
@@ -242,7 +244,7 @@ protocol buffers
   group
 - `crypto`: benchmarks surrounding cryptographic functions
 
-**Example Commands**
+#### Example Commands
 
 - **Run a specific category of benchmark**
   `cargo bench --features bench -p xmtp_mls --bench group_limit`

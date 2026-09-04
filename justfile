@@ -55,8 +55,9 @@ lint-toml:
 lint-treefmt:
     nix fmt -- --fail-on-change
 
+# Exclude the generated error glossary and release changelogs.
 lint-markdown:
-    markdownlint "**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --disable MD001 MD013
+    markdownlint "**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --ignore "docs/error_glossary.md" --ignore "sdks/js/*/CHANGELOG.md" --disable MD001 MD013
 
 # --- FORMAT ---
 

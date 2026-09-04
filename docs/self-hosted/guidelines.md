@@ -23,7 +23,7 @@ Delete this file when the project ends.
 ## Architecture
 
 10. The backend is one binary. It scales horizontally behind a load balancer.
-11. The backend keeps no local state. All state lives in Postgres.
+11. Durable state lives in Postgres. Instance-local stream state and caches are disposable; reconnect must not depend on them.
 12. Code used by both the backend and a client goes in a shared crate. Not in `apps/backend`. Not in `xmtp_mls`.
 13. Never copy a function between crates. Move it to the shared crate and import it.
 14. Values shared by more than one crate go in `xmtp_configuration`. A constant used by one module stays in that module. Every number has a name.

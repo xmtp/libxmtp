@@ -83,7 +83,7 @@ Agents can also recognize the following environment variables:
 
 Subscribe only to what you need using Node’s `EventEmitter` interface. Events you can listen for:
 
-**Message Events**
+#### Message Events
 
 - `actions` – an incoming [actions message](https://docs.xmtp.org/agents/content-types/actions) (interactive buttons/choices)
 - `attachment` – an incoming [remote attachment message](https://docs.xmtp.org/agents/content-types/attachments#how-remote-attachments-work)
@@ -102,18 +102,18 @@ Subscribe only to what you need using Node’s `EventEmitter` interface. Events 
 - `wallet-send-calls` – an incoming wallet [transaction request](https://docs.xmtp.org/agents/content-types/transactions#create-a-transaction-request) (batch calls)
 - `unknownMessage` – a message event that does not correspond to any of the pre-implemented event types
 
-**Conversation Events**
+#### Conversation Events
 
 - `conversation` – a new group or DM conversation
 - `dm` – a new DM conversation
 - `group` – a new group conversation
 
-**Lifecycle Events**
+#### Lifecycle Events
 
 - `start` / `stop` – agent lifecycle events
 - `unhandledError` – unhandled errors
 
-**Example**
+Example:
 
 ```ts
 // Listen to specific message types
@@ -150,7 +150,7 @@ agent.on("unknownMessage", (ctx) => {
 
 > **⚠️ Important:** The `"message"` event fires for **every** incoming message, regardless of type. When using the `"message"` event, always filter message types to prevent infinite loops. Without proper filtering, your agent might respond to its own messages or react to system messages like read receipts.
 
-**Best Practice Example**
+Best practice example:
 
 ```ts
 import { filter } from "@xmtp/agent-sdk";
@@ -177,7 +177,7 @@ Middleware functions receive a `ctx` (context) object and a `next` function. Nor
 2. Use `return` to stop the chain and prevent events from firing
 3. Use `throw` to trigger the error-handling middleware chain
 
-**Example**
+Example:
 
 ```ts
 import { Agent, AgentMiddleware, filter } from "@xmtp/agent-sdk";
@@ -206,7 +206,7 @@ Error middleware receives the `error`, `ctx`, and a `next` function. Just like r
 3. Use `return` to end error handling and stop the middleware chain
 4. Use `throw` to raise a new error to be caught by the error chain
 
-**Example**
+Example:
 
 ```ts
 import { Agent, AgentErrorMiddleware } from "@xmtp/agent-sdk";
@@ -229,7 +229,7 @@ agent.errors.use(errorHandler);
 
 Any error not handled by custom error middleware is caught by the default error handler and published to the `unhandledError` topic, where it can be observed.
 
-**Example**
+Example:
 
 ```ts
 agent.on("unhandledError", (error) => {
@@ -246,7 +246,7 @@ Built‑in, officially supported middleware is provided by the Agent SDK.
 | `CommandRouter`      | Slash-command routing with optional help generation and a default handler      |
 | `PerformanceMonitor` | Measures message processing time and logs periodic CPU / memory health reports |
 
-**Example: CommandRouter**
+CommandRouter example:
 
 The `CommandRouter` makes it easy to handle slash commands out of the box.
 
@@ -269,7 +269,7 @@ agent.use(router.middleware());
 
 Instead of manually checking every incoming message, you can use the provided filters.
 
-**Example**
+Example:
 
 ```ts
 import { filter } from "@xmtp/agent-sdk";
@@ -307,7 +307,7 @@ if (f.isText(ctx.message)) {
 
 **Available Filters:**
 
-You can find all available prebuilt filters [here](https://github.com/xmtp/xmtp-js/blob/main/sdks/agent-sdk/src/core/filter.ts).
+See the [available prebuilt filters](https://github.com/xmtp/xmtp-js/blob/main/sdks/agent-sdk/src/core/filter.ts).
 
 ### 4. Rich Context
 
@@ -318,7 +318,7 @@ Every message event handler receives a `MessageContext` (`ctx`) with:
 - `client` – underlying XMTP client
 - Helpers like `sendTextReply`, `sendMarkdown`, `sendReaction`, `getSenderAddress`, and more
 
-**Example**
+Example:
 
 ```ts
 agent.on("text", async (ctx) => {
@@ -328,7 +328,7 @@ agent.on("text", async (ctx) => {
 
 The Agent class also exposes a function to get the `ConversationContext`, so you can directly interact with a conversation.
 
-**Example**
+Example:
 
 ```ts
 const ctx = await agent.getConversationContext("conversationId");
@@ -386,7 +386,7 @@ console.log(`Resolved address: ${address}`);
 
 The Agent SDK supports sending encrypted remote attachments. Files are encrypted locally, uploaded to your storage provider of choice, and then sent as a remote attachment message containing the URL and decryption keys.
 
-**Example**
+Example:
 
 ```ts
 import { type AttachmentUploadCallback } from "@xmtp/agent-sdk";

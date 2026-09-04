@@ -28,6 +28,6 @@ These commands require Homebrew and `llvm` to be installed. See above.
 - `yarn build:macos`: Build a release version of the WASM bindings
 - `yarn test:integration:macos`: Run integration tests using vitest
 
-# Publishing
+## Publishing
 
 To release a new version of the bindings, update the version in `package.json` with the appropriate semver value. Once merged, manually trigger the `Release WASM Bindings` workflow to build and publish the bindings.

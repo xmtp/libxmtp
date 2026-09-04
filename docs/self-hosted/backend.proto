@@ -1,6 +1,6 @@
 // XMTP self-hosted backend API.
 //
-// Draft for spec 001 (docs/specs/001_backend_api.md). The package name is the
+// Wire schema for spec 001. The package name is the
 // version: there is no `oneof version` wrapper on frames or payloads. A
 // breaking change is a new package.
 //
@@ -68,20 +68,21 @@ message TopicQuery {
 // Server-assigned metadata for one stored envelope.
 message EnvelopeMeta {
   Cursor cursor = 1;
-  // Assigned by Postgres inside the insert, from the database clock. Strictly
-  // increasing with sequence_id within a topic; wall-clock time across topics.
-  // The client uses it as the envelope's created time.
+  // Assigned by Postgres inside the insert, from the database clock.
+  // Equal values and backwards clock steps are allowed. The client uses
+  // this as the created time, never as a cursor.
   uint64 server_ns = 2;
   MessageHash message_hash = 3;
   Topic topic = 4;
-  // Server-side deletion time of this row: server_ns plus the retention
-  // period of the topic kind (group messages and key packages: 3 months;
-  // identity updates: never, encoded as 0). Not a message expiry:
-  // disappearing messages remain a client-side feature.
+  // Earliest deletion eligibility: server_ns plus the retention duration.
+  // Group application messages, welcomes, and key packages default to
+  // 90 days. Identity updates, commit-log entries, and group commits or
+  // proposals never expire (0). No pruning or expiry filtering before
+  // Phase 5. Disappearing messages remain a client-side feature.
   uint64 expiry_ns = 5;
-  // Group messages only: the MLS message is a commit. False for every other
-  // payload kind.
-  bool is_commit = 6;
+  // Group messages only: the parsed content type is a commit or proposal.
+  // False for other payload kinds. This does not authenticate the sender.
+  bool is_commit_or_proposal = 6;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,8 @@ message EnvelopeMeta {
 // ---------------------------------------------------------------------------
 
 // Serialized MLS protocol message for a group. The server parses it to derive
-// the group_id and to set `is_commit`. It does not check membership.
+// the group_id and to set `is_commit_or_proposal`. It does not check membership.
+// Trailing bytes remain accepted and are returned verbatim.
 message GroupMessage {
   // Serialized MlsProtocolMessage.
   bytes data = 1;
@@ -166,7 +168,7 @@ message ServerEnvelope {
 // ---------------------------------------------------------------------------
 
 message QueryRequest {
-  // Max 1000.
+  // Max 1000 before coalescing. Repeated topics use the lowest cursor.
   repeated TopicQuery queries = 1;
   // Total across all topics. Max 1000, default 100.
   uint32 limit = 2;
@@ -176,6 +178,8 @@ message QueryRequest {
 // topic. The order across topics carries no meaning. Client rule: for each
 // topic that returned rows, set its cursor to that topic's highest returned
 // sequence_id; leave every other cursor unchanged; if `has_more`, query again.
+// Each stored envelope appears once. An oversized encoded response fails
+// with RESOURCE_EXHAUSTED; results are not silently omitted to fit.
 message QueryResponse {
   repeated ServerEnvelope envelopes = 1;
   Continuation continuation = 2;
@@ -184,19 +188,21 @@ message QueryResponse {
 // Paging state. A message so later fields (a page token, a retained floor)
 // can be added without a wire change.
 message Continuation {
-  // More rows matched than `limit` allowed. Computed from the same statement
-  // as the page (limit + 1 in every per-topic scan and in the outer cut).
+  // More rows matched than `limit` allowed. Computed from the same read
+  // snapshot as the page. No snapshot is held across separate requests.
   bool has_more = 1;
 }
 
 message QueryNewestRequest {
-  // Max 1000 with metas only, 100 with full envelopes.
+  // Max 1000 with metas only, 100 with full envelopes, before coalescing.
+  // Repeated topics produce one result.
   repeated Topic topics = 1;
   bool include_full_envelope = 2;
 }
 
 // One result per topic that has an envelope. A topic with no envelope is
-// absent from `results`.
+// absent from `results`. An oversized response fails with
+// RESOURCE_EXHAUSTED; omission never means the byte budget was exhausted.
 message QueryNewestResponse {
   message Result {
     Topic topic = 1;
@@ -213,7 +219,8 @@ message QueryNewestResponse {
 // ---------------------------------------------------------------------------
 
 // Atomic: every envelope is stored or none is. No envelope count limit; the
-// request is at most 25 MiB and each envelope at most 1 MiB.
+// request is at most 25 MiB, each envelope at most 1 MiB, and there are
+// at most 1000 distinct topics.
 // At most one identity update per inbox per request. A repeat of an envelope
 // already stored on its topic (same MessageHash) is not an error: the stored
 // meta is returned as success.
@@ -221,7 +228,9 @@ message PublishRequest {
   repeated ClientEnvelope envelopes = 1;
 }
 
-// Same order as the request.
+// Same order as the request, including duplicates. An oversized response
+// can fail with RESOURCE_EXHAUSTED after commit. Retry exact envelope bytes;
+// failure to receive a response does not establish rollback.
 message PublishResponse {
   repeated EnvelopeMeta envelope_metas = 1;
 }
@@ -238,7 +247,7 @@ message PublishError {
   }
 
   // Index of the failing envelope in the request. Absent for request-level
-  // errors (too many envelopes, too many bytes).
+  // errors (too many distinct topics, too many bytes).
   optional uint32 index = 1;
   Reason reason = 2;
   string message = 3;
@@ -255,15 +264,20 @@ message SubscribeRequest {
     // Begin delivering these topics from their cursors. Max 100,000 per
     // frame. A duplicate topic inside one frame coalesces with its first
     // occurrence. An add for a topic already live, with a cursor not below
-    // its floor, is a no-op.
+    // its floor, is a no-op. A lower cursor clears its floor and replays.
+    // An add during normal replay replaces old wave ownership; both waves
+    // ack. History-only collisions below are INVALID_ARGUMENT.
     repeated TopicQuery adds = 1;
     // Stop delivering; clears the topic's cursor floor so a re-add replays.
     // Max 100,000 per frame. A remove for an unsubscribed topic is a no-op.
     repeated Topic removes = 2;
     // Catch this Mutate's adds up (history, TopicsLive markers, and the
     // wave's CatchupComplete) but do NOT register them for live delivery.
-    // With a half-closed request stream this is the bounded catch-up mode:
+    // Replay ends at a captured ceiling and counts toward the topic cap
+    // while active. With a half-closed request stream this is bounded catch-up:
     // the server finishes the wave then closes the stream.
+    // After removals, a history-only add for a subscribed topic, or any
+    // add for an in-flight history-only topic, is INVALID_ARGUMENT.
     bool history_only = 3;
     // Client-chosen correlation id. Nonzero when adds are present (0 is the
     // live tag). Must not match a wave still in flight on this stream.
@@ -274,6 +288,9 @@ message SubscribeRequest {
     uint64 mutate_id = 4;
   }
 
+  // An unset oneof fails with INVALID_ARGUMENT. Mutate and client Ping
+  // each have a per-stream token bucket (10/s, burst 100); exhaustion is
+  // RESOURCE_EXHAUSTED. Pong does not consume either bucket.
   oneof request {
     Mutate mutate = 1;
     // Liveness challenge (e.g. probe the link after resuming).
@@ -363,7 +380,7 @@ message SubscribeResponse {
 // durable per-topic cursors and cancel the old one. Zero topics is
 // INVALID_ARGUMENT. A client with more than 10,000 topics opens more streams.
 message SubscribeStaticRequest {
-  // Max 10,000.
+  // Max 10,000 before coalescing. Repeated topics use the first entry.
   repeated TopicQuery topics = 1;
 }
 
@@ -409,7 +426,9 @@ message GetInboxIdsRequest {
 }
 
 // Same order as the request. An identifier resolves to the inbox with its
-// latest association, or to no inbox.
+// latest non-revoked association, or to no inbox. Revocation can reveal an
+// older active association. Lookup uses normalized (identifier, kind), but
+// response entries echo original inputs, including duplicates.
 message GetInboxIdsResponse {
   message Response {
     string identifier = 1;
