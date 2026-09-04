@@ -78,6 +78,10 @@ describe("AttachmentUtil", () => {
 
       expect(remoteAttachment.url).toBe(testUrl);
       expect(remoteAttachment.filename).toBe(fileName);
+      // Issue #4034: scheme must not carry the trailing colon that
+      // URL.protocol includes (e.g. "https", not "https:"), matching the
+      // format used elsewhere in libxmtp's remote attachment tests/examples.
+      expect(remoteAttachment.scheme).toBe("https");
 
       const receivedAttachment =
         await downloadRemoteAttachment(remoteAttachment);
@@ -95,6 +99,32 @@ describe("AttachmentUtil", () => {
         receivedAttachment.content,
       );
       expect(decryptedContent).toBe(fileContent);
+    });
+  });
+
+  describe("createRemoteAttachment scheme normalization", () => {
+    it("strips the trailing colon from URL.protocol (issue #4034)", async () => {
+      const fileContent = "scheme normalization test";
+      const unencryptedFile = new File([fileContent], "hello.txt", {
+        type: "text/plain",
+      });
+      const arrayBuffer = await unencryptedFile.arrayBuffer();
+      const encryptedAttachment = encryptAttachment({
+        filename: unencryptedFile.name,
+        content: new Uint8Array(arrayBuffer),
+        mimeType: unencryptedFile.type,
+      });
+
+      for (const [fileUrl, expectedScheme] of [
+        ["https://localhost/test_file", "https"],
+        ["http://localhost/test_file", "http"],
+      ] as const) {
+        const remoteAttachment = createRemoteAttachment(
+          encryptedAttachment,
+          fileUrl,
+        );
+        expect(remoteAttachment.scheme).toBe(expectedScheme);
+      }
     });
   });
 });
