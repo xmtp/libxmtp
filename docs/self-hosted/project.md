@@ -26,6 +26,7 @@ XMTP is replacing both the v3 network (`xmtp-node-go`) and the v4 network (`xmtp
 - Specs, once approved, live in `docs/specs`. Ref may be used to get approval on draft specs. Specs are long-lived documents for human and AI readers. They are high level and describe business rules, behaviors, and error cases. They do not reference files or modules. They may include code snippets, pseudocode, or type definitions where the code is a critical API surface unlikely to change.
 - Plans live in Ref. Plans are short-lived, reviewed by a human before implementation, and mostly worked with by agents. They are a specific project plan and may reference files, modules, and lines. They match the `/writing-specs` skill format and include specific EARS requirements that must be satisfied.
 - Not all work needs a spec. All implementation work needs a plan.
+- Spec 002 is written in Phase 1, before the `xmtp_mls` audit, and approved before Phase 2.
 
 Expected specs by the end of the project:
 
@@ -72,6 +73,7 @@ Expected pull requests: a stack of two, one for documentation changes and one fo
 
 - Scaffold `apps/backend`. Ensure it builds with Nix. Give it a hello-world main and a single test.
 - If new crates are needed for shared types, utilities, and structs required by both the backend and `xmtp_mls`, scaffold them too. Ensure they build and test in CI.
+- Audit all of `crates/xmtp_mls`, including its runtime and test utilities, against the expected scope of the backend API. Move every function, struct, utility, and type the backend will share out of `xmtp_mls` and into the appropriate other crate. Spec 002 must be written before this audit; without it the comparison cannot be accurate.
 - Ensure the backend can produce a Docker image, the way the MLS validation service is built with Nix. Ensure all check, build, and test commands work and maximize Nix caching.
 - Create the `proto/` folder for all `.proto` files. Copy every required file from the `proto` repository (including files for endpoints this project removes, such as v4) plus the new backend protos. Set up Buf linting in the justfile. Update all scripts and `crates/xmtp_proto` to make this folder authoritative, and delete the old generated tree and the `proto` repository dependency in the same phase.
 - Ensure tests for the new crates run in CI.

@@ -15,3 +15,8 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_logging -E 'test(/layers::
 ## Gotchas
 
 - Test and bench subscribers live in `xmtp_common`, not here.
+
+## Conventions
+
+- `src/lib.rs` owns the whole pipeline: `XmtpLoggingBuilder`, `LoggingHandle`, `filter_directive`, `Level` / `Rotation` / `ProcessType` (`src/config.rs`), OTLP `init` (native only), and the optional Sentry backend (`src/sentry.rs`, feature `sentry`). Never add a second subscriber or pull `tracing-subscriber` into a new crate.
+- Component tag: Sentry events carry a `component` tag defaulting to `"libxmtp"`; a caller-supplied one wins (`sentry.rs:148-155`). Set it, do not shadow it.
