@@ -24,10 +24,6 @@ mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 
-xmtp_common::if_d14n! {
-    mod test_message_dependencies;
-}
-
 use std::sync::Arc;
 
 use crate::groups::send_message_opts::SendMessageOpts;

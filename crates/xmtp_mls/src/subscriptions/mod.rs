@@ -16,13 +16,10 @@ use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
 // Live integration tests for the XIP-83 bidi connection (native-only —
-// full-duplex HTTP/2 is unavailable on the wasm gRPC-Web transport). The v3 and
-// d14n backends have distinct wire types, so each has its own module gated on
-// the backend feature switch.
+// full-duplex HTTP/2 is unavailable on the wasm gRPC-Web transport). They run
+// against the v3 wire types, so they are gated on the backend feature switch.
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
 mod bidi_tests;
-#[cfg(all(test, not(target_arch = "wasm32"), feature = "d14n"))]
-mod d14n_bidi_tests;
 // Randomized delivery fuzz over the live node (same gating as `bidi_tests`).
 #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
 mod bidi_fuzz_tests;

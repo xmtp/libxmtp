@@ -336,8 +336,12 @@ async fn bidi_history_only_catches_up_then_delivers_nothing_live() {
         .send_message(b"should-not-stream", SendMessageOpts::default())
         .await?;
     match tokio::time::timeout(Duration::from_secs(5), conn.next()).await {
-        Err(_) => {}   // idle: correct — history_only does not stream live
-        Ok(None) => {} // server closed the bounded stream — also acceptable
+        Err(_) => {} // idle: correct — history_only does not stream live
+        // Without a half-close the server MUST keep the stream open (XIP-83
+        // server req 9 closes only after the *client* half-closes), so an ended
+        // stream is a teardown bug — and tolerating it would let a dead
+        // connection pass this negative check vacuously.
+        Ok(None) => panic!("stream ended without a half-close: history_only must stay open"),
         Ok(Some(BidiEvent::GroupMessages { messages: m, .. })) => panic!(
             "history_only must not deliver live messages, got ids {:?}",
             m.iter().map(|g| gm(g).0).collect::<Vec<_>>()

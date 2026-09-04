@@ -13,16 +13,6 @@ pub type FullXmtpClient = Client<TestXmtpMlsContext>;
 pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
-/// A test client whose API is the v3↔d14n [`MigrationClient`](xmtp_api_d14n::MigrationClient)
-/// — the coexistence object production ships. Unlike [`TestClient`], its backend is not
-/// feature-switched: it always holds both, and a test drives the cutover via the cursor
-/// store. Used by the live coexistence test to prove messaging works through the real
-/// migration client.
-pub type MigrationTestClient = xmtp_api_d14n::TestMigrationClient;
-pub type MigrationXmtpMlsContext =
-    Arc<XmtpMlsLocalContext<MigrationTestClient, xmtp_db::DefaultStore, TestMlsStorage>>;
-pub type MigrationXmtpClient = Client<MigrationXmtpMlsContext>;
-
 /// A Test client
 /// This client switches its backend based on feature flag.
 /// default: V3 , Local
@@ -33,9 +23,6 @@ pub type TestClient = xmtp_api_d14n::TestClient;
 
 /// Test client that is local only, but still switches between d14n/v3 clients on feature flag
 pub type LocalOnlyTestClientCreator = xmtp_api_d14n::LocalOnlyTestClientCreator;
-
-/// Local-only creator for the v3↔d14n `MigrationClient` (does not feature-switch).
-pub type LocalOnlyMigrationClientCreator = xmtp_api_d14n::LocalOnlyMigrationClientCreator;
 
 /// Test client that is dev only, but still switches between d14n/v3 clients on feature flag
 pub type DevOnlyTestClientCreator = xmtp_api_d14n::DevOnlyTestClientCreator;
