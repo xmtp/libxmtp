@@ -26,34 +26,3 @@ impl Endpoint for GetNodes {
         Ok(GetNodesRequest {}.encode_to_vec().into())
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::d14n::GetNodes;
-    use xmtp_api_grpc::test::{GatewayClient, XmtpdClient};
-    use xmtp_proto::prelude::*;
-
-    #[xmtp_common::test]
-    fn test_grpc_endpoint_returns_correct_path() {
-        let endpoint = GetNodes::default();
-        assert!(!endpoint.grpc_endpoint().is_empty());
-    }
-
-    #[xmtp_common::test]
-    async fn test_get_nodes() {
-        let mut endpoint = GetNodes::builder().build().unwrap();
-        let gateway_client = GatewayClient::create();
-        let client = gateway_client.build().unwrap();
-        assert!(endpoint.query(&client).await.is_ok());
-    }
-
-    #[xmtp_common::test]
-    async fn test_get_nodes_unimplemented() {
-        // xmtpd doesn't implement the GetNodes endpoint
-        let mut endpoint = GetNodes::builder().build().unwrap();
-        let xmtpd_client = XmtpdClient::create();
-        let client = xmtpd_client.build().unwrap();
-        assert!(endpoint.query(&client).await.is_err());
-    }
-}

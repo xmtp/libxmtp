@@ -85,13 +85,3 @@ prop_compose! {
         }
     }
 }
-
-/// check if `missing` depends on any envelope in `removed`
-pub fn depends_on_one(missing: &TestEnvelope, removed: &[TestEnvelope]) -> bool {
-    for envelope in removed {
-        if missing.has_dependency_on(envelope) {
-            return true;
-        }
-    }
-    false
-}

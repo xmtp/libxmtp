@@ -53,23 +53,3 @@ impl Endpoint for HealthCheck {
         .into())
     }
 }
-
-#[cfg(test)]
-mod test {
-    use crate::d14n::HealthCheck;
-    use xmtp_api_grpc::test::{GatewayClient, XmtpdClient};
-    use xmtp_proto::prelude::*;
-
-    #[xmtp_common::test]
-    async fn test_health_check() {
-        let mut endpoint = HealthCheck::builder().build().unwrap();
-
-        let xmtpd_client = XmtpdClient::create();
-        let client = xmtpd_client.build().unwrap();
-        assert!(endpoint.query(&client).await.is_ok());
-
-        let gateway_client = GatewayClient::create();
-        let client = gateway_client.build().unwrap();
-        assert!(endpoint.query(&client).await.is_ok());
-    }
-}

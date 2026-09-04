@@ -57,9 +57,6 @@
         }:
         {
           _module.args.pkgs = lib.mkForce (self.lib.mkXmtpPkgs { inherit system; });
-          overlayAttrs = {
-            inherit (self'.packages) xnet-cli;
-          };
           devShells = {
             rust = pkgs.callPackage ./nix/shells/rust.nix { };
             default = pkgs.callPackage ./nix/shells/local.nix { };

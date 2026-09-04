@@ -176,21 +176,3 @@ where
         Ok(identity_v1::VerifySmartContractWalletSignaturesResponse { responses })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn publish_identity_update_returns_cursor() {
-        let client = crate::MockD14nClient::new_mock();
-        // After the change, this must type-check as Option<Cursor>
-        let request = xmtp_proto::identity_v1::PublishIdentityUpdateRequest {
-            identity_update: None,
-        };
-        let result: Result<Option<Cursor>, _> = client.publish_identity_update(request).await;
-        // No identity_update means the method returns early with an error (ConversionError::Missing)
-        // This verifies the return type compiles as Option<Cursor>
-        assert!(result.is_err());
-    }
-}

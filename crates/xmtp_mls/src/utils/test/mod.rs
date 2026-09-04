@@ -20,7 +20,7 @@ use crate::{
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api_d14n::XmtpTestClientExt;
-use xmtp_api_d14n::protocol::{CursorStore, XmtpQuery};
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::time::Expired;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
@@ -50,20 +50,6 @@ impl<A, S> ClientBuilder<A, S> {
     pub fn local(self) -> ClientBuilder<TestClient, S> {
         let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
         let a = LocalOnlyTestClientCreator::with_cursor_store(s);
-        let api_client = a.build().unwrap();
-        self.api_client(api_client)
-    }
-
-    /// Wire a `MigrationClient` (the v3↔d14n cutover client production ships)
-    /// onto this builder, pre-set to the migrated (d14n) side so a live test can
-    /// exercise real messaging through it against xmtpd. The pre-cutover (v3)
-    /// selection is covered by the migration unit tests; it can't be driven
-    /// locally because the test node-go does not serve `FetchD14nCutover`, so
-    /// `choose_client`'s first-call refresh would error before it could pick v3.
-    pub fn local_migration(self) -> ClientBuilder<MigrationTestClient, S> {
-        let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        s.set_has_migrated(true).unwrap();
-        let a = LocalOnlyMigrationClientCreator::with_cursor_store(s);
         let api_client = a.build().unwrap();
         self.api_client(api_client)
     }

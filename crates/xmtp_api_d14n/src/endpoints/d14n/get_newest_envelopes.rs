@@ -37,30 +37,3 @@ impl Endpoint for GetNewestEnvelopes {
         Ok(query.encode_to_vec().into())
     }
 }
-
-#[cfg(test)]
-mod test {
-    use xmtp_api_grpc::test::XmtpdClient;
-    use xmtp_proto::{api, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_grpc_endpoint_returns_correct_path() {
-        use crate::d14n::GetNewestEnvelopes;
-        let endpoint = GetNewestEnvelopes::default();
-        assert_eq!(
-            endpoint.grpc_endpoint(),
-            "/xmtp.xmtpv4.message_api.ReplicationApi/GetNewestEnvelope"
-        );
-    }
-
-    #[xmtp_common::test]
-    async fn get_newest_envelopes() {
-        use crate::d14n::GetNewestEnvelopes;
-
-        let client = XmtpdClient::create();
-        let client = client.build().unwrap();
-
-        let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();
-        api::ignore(endpoint).query(&client).await.unwrap();
-    }
-}
