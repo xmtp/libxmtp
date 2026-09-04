@@ -10,8 +10,8 @@ just wasm lint                          # clippy + rustfmt + prettier
 just wasm build                         # nix build .#wasm-bindings
 just wasm test                          # Rust tests on wasm32, v3 + d14n. Needs `just backend up`
 just wasm test-v3 backoff_retry             # one test
-just wasm test-integration              # TypeScript tests in test/   # unverified
-just wasm test-ci                       # what CI runs (Nix build)   # unverified
+just wasm test-integration              # TypeScript tests in test/. Needs `just backend up`
+just wasm test-ci                       # what CI runs (Nix build). Needs `just backend up`
 ```
 
 ## Gotchas
