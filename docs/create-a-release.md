@@ -17,7 +17,7 @@ Dev releases can be created from **any branch**. They append `-dev.<commit_hash>
 2. Fill in the inputs:
 
    | Input | Description |
-   |-------|-------------|
+   | ------- | ------------- |
    | `release-type` | `dev` |
    | `ref` | Branch to release from (defaults to the branch you trigger from) |
    | `ios` | Check to release iOS SDK |
@@ -57,7 +57,7 @@ Final releases go through three phases: **create branch → publish RC → publi
 2. Fill in the inputs:
 
    | Input | Description |
-   |-------|-------------|
+   | ------- | ------------- |
    | `base-ref` | Starting point — commit or branch (default: `main`) |
    | `version` | Release version number, e.g. `1.8.0` |
    | `ios-bump` | Version bump for iOS SDK: `none`, `patch`, `minor`, or `major` |
@@ -87,7 +87,7 @@ To manually edit notes, push changes directly to the release branch. The AI will
 2. Fill in the inputs:
 
    | Input | Description |
-   |-------|-------------|
+   | ------- | ------------- |
    | `release-type` | `rc` |
    | `ref` | The `release/<version>` branch |
    | `rc-number` | RC number (e.g. `1`, `2`) |
@@ -108,7 +108,7 @@ Once the RC is validated:
 2. Fill in the inputs:
 
    | Input | Description |
-   |-------|-------------|
+   | ------- | ------------- |
    | `release-type` | `final` |
    | `ref` | The `release/<version>` branch |
    | `ios` | Check to release iOS SDK |
@@ -130,14 +130,14 @@ Use the `--no-merge` flag if you are creating a patch to a previous major/minor 
 ### Branch patterns
 
 | Pattern | Allowed release types |
-|---------|----------------------|
+| --------- | ---------------------- |
 | `release/<major>.<minor>.<patch>` | RC, Final |
 | `*` (any other branch) | Dev only |
 
 ### Tag formats
 
 | SDK | Tag format | Example |
-|-----|-----------|---------|
+| ----- | ----------- | --------- |
 | iOS (final) | `ios-<version>` | `ios-4.9.0` |
 | iOS (artifact) | `libxmtp-ios-<sha7>` | `libxmtp-ios-b8bed44` |
 | Android | `android-<version>` | `android-5.1.0` |

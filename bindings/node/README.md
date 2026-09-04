@@ -7,7 +7,7 @@
 
 The Rust source code follows a modular structure organized by domain:
 
-```
+```text
 src/
 ├── lib.rs                 # Library entry point, ErrorWrapper utility
 ├── client/                # Client struct and methods (split by concern)

@@ -31,7 +31,7 @@ Message history is expected to persist between cold starts and does not require 
 
 Clients are expected to detect and establish sessions with new installations as they register.
 
-```
+```text
 Register client A1 and B1
     Send a message from A1 to B
     Verify message was received in all clients
@@ -52,7 +52,7 @@ Register client A3
 
 Users are expected to be able to enumerate the installations that have been granted access to their account, as well as enumerate the installations that they are currently sending messages to.
 
-```
+```text
 Enumerate installations for A from A1 (3 installations)
 Enumerate installations for B from A1 (2 installations)
 ```
@@ -61,7 +61,7 @@ Enumerate installations for B from A1 (2 installations)
 
 Clients should handle scenarios with flaky connections or where the app is killed mid-send or receive.
 
-```
+```text
 Disable the connection on client A1
     Verify A1's message history is accessible offline
     Send a message from B1 to A

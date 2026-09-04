@@ -15,19 +15,19 @@ To learn how to use the XMTP client SDK for Node, see [Get started with the XMTP
 
 ## Install
 
-**NPM**
+### NPM
 
 ```bash
 npm install @xmtp/node-sdk
 ```
 
-**PNPM**
+### PNPM
 
 ```bash
 pnpm install @xmtp/node-sdk
 ```
 
-**Yarn**
+### Yarn
 
 ```bash
 yarn add @xmtp/node-sdk

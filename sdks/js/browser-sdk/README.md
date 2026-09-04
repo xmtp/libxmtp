@@ -39,19 +39,19 @@ export default defineConfig({
 
 ## Install
 
-**NPM**
+### NPM
 
 ```bash
 npm install @xmtp/browser-sdk
 ```
 
-**PNPM**
+### PNPM
 
 ```bash
 pnpm install @xmtp/browser-sdk
 ```
 
-**Yarn**
+### Yarn
 
 ```bash
 yarn add @xmtp/browser-sdk
@@ -65,7 +65,7 @@ The SDK exports `createEOASigner` and `createSCWSigner` helper functions for cre
 npm install viem
 ```
 
-**Example**
+Example:
 
 ```ts
 import { createEOASigner } from "@xmtp/browser-sdk";
