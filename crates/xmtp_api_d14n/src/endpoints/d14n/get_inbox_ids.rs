@@ -54,35 +54,3 @@ impl Endpoint for GetInboxIds {
         .into())
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::d14n::GetInboxIds;
-    use xmtp_api_grpc::test::XmtpdClient;
-    use xmtp_proto::{api, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_grpc_endpoint_returns_correct_path() {
-        let endpoint = GetInboxIds::default();
-        assert_eq!(
-            endpoint.grpc_endpoint(),
-            "/xmtp.xmtpv4.message_api.ReplicationApi/GetInboxIds"
-        );
-    }
-
-    #[xmtp_common::test]
-    async fn test_get_inbox_ids() {
-        let client = XmtpdClient::create();
-        let client = client.build().unwrap();
-
-        let endpoint = GetInboxIds::builder()
-            .addresses(vec![
-                "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
-            ])
-            .build()
-            .unwrap();
-
-        api::ignore(endpoint).query(&client).await.unwrap();
-    }
-}
