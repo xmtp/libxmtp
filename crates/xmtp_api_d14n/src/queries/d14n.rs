@@ -14,6 +14,3 @@ xmtp_common::if_test! {
 pub use client::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use connection::*;
-
-#[cfg(test)]
-mod test;

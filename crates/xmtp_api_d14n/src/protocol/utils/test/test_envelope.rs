@@ -1,8 +1,7 @@
 use crate::protocol::{Envelope, EnvelopeError};
 use chrono::Utc;
-use std::collections::HashSet;
 use std::sync::LazyLock;
-use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, OrphanedEnvelope, Topic, TopicKind};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, Topic, TopicKind};
 use xmtp_proto::xmtp::xmtpv4;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
@@ -19,16 +18,6 @@ pub struct TestEnvelope {
     originator_id: u32,
     #[prost(message, tag = "3")]
     depends_on: Option<xmtpv4::envelopes::Cursor>,
-}
-
-impl From<&OrphanedEnvelope> for TestEnvelope {
-    fn from(value: &OrphanedEnvelope) -> Self {
-        TestEnvelope {
-            sequence_id: value.cursor.sequence_id,
-            originator_id: value.cursor.originator_id,
-            depends_on: Some(value.depends_on.clone().into()),
-        }
-    }
 }
 
 impl TestEnvelope {
@@ -54,17 +43,6 @@ impl TestEnvelope {
         let originator = other.cursor().originator_id;
         let depends_on_sid = self.depends_on().get(&originator);
         depends_on_sid == other.cursor().sequence_id
-    }
-
-    pub fn has_dependency_on_any(&self, other: &[TestEnvelope]) -> bool {
-        other.iter().any(|e| self.has_dependency_on(e))
-    }
-
-    // envelope mut only depend on other envelopes in the set
-    pub fn only_depends_on(&self, other: &[TestEnvelope]) -> bool {
-        let cursors = self.depends_on();
-        let valid = other.iter().map(|e| e.cursor()).collect::<HashSet<_>>();
-        cursors.cursors().all(|c| valid.contains(&c))
     }
 }
 

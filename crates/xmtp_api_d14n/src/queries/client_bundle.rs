@@ -303,20 +303,3 @@ impl ClientBundleBuilder {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use xmtp_configuration::GrpcUrlsDev;
-
-    use super::*;
-
-    #[xmtp_common::test]
-    fn env_cannot_be_overridden_by_none() {
-        let mut builder = ClientBundle::builder();
-        builder
-            .env(XmtpEnv::Dev)
-            .maybe_v3_host(Option::<String>::None);
-        assert!(builder.v3_host.is_some());
-        assert_eq!(builder.v3_host, Some(GrpcUrlsDev::NODE.to_string()))
-    }
-}

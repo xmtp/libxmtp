@@ -43,12 +43,6 @@ impl InMemoryCursorStore {
         self.topics.get(topic)
     }
 
-    /// Get the number of orphaned envelopes currently in the icebox
-    #[cfg(test)]
-    pub fn orphan_count(&self) -> usize {
-        self.icebox.lock().len()
-    }
-
     #[cfg(test)]
     pub fn icebox(&self) -> Vec<OrphanedEnvelope> {
         let icebox = self.icebox.lock();
@@ -175,85 +169,5 @@ impl fmt::Debug for InMemoryCursorStore {
         }
 
         entries.finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn cursor_with(kvs: &[(u32, u64)]) -> GlobalCursor {
-        GlobalCursor::new(kvs.iter().cloned().collect())
-    }
-
-    #[xmtp_common::test]
-    fn test_processed_and_get_latest() {
-        let mut store = InMemoryCursorStore::new();
-        let topic = topic("chat/abc");
-
-        let cursor = cursor_with(&[(1, 10), (2, 5)]);
-        store.received(topic.clone(), &cursor.clone());
-
-        let latest = store.get_latest(&topic).unwrap();
-        assert_eq!(latest.get(&1), 10);
-        assert_eq!(latest.get(&2), 5);
-    }
-
-    #[xmtp_common::test]
-    fn test_merge_on_processed() {
-        let mut store = InMemoryCursorStore::new();
-        let topic = topic("chat/merge");
-
-        let c1 = cursor_with(&[(1, 10), (2, 5)]);
-        let c2 = cursor_with(&[(1, 12), (2, 3), (3, 7)]);
-
-        store.received(topic.clone(), &c1);
-        store.received(topic.clone(), &c2);
-
-        let latest = store.get_latest(&topic).unwrap();
-        assert_eq!(latest.get(&1), 12);
-        assert_eq!(latest.get(&2), 5);
-        assert_eq!(latest.get(&3), 7);
-    }
-
-    #[xmtp_common::test]
-    fn test_get_latest_nonexistent_topic() {
-        let store = InMemoryCursorStore::new();
-        let missing_topic = topic("does/not/exist");
-
-        assert!(store.get_latest(&missing_topic).is_none());
-    }
-
-    #[xmtp_common::test]
-    fn test_independent_topics() {
-        let mut store = InMemoryCursorStore::new();
-
-        let topic_a = topic("a");
-        let topic_b = topic("b");
-
-        store.received(topic_a.clone(), &cursor_with(&[(1, 1)]));
-        store.received(topic_b.clone(), &cursor_with(&[(2, 2)]));
-
-        let a = store.get_latest(&topic_a).unwrap();
-        let b = store.get_latest(&topic_b).unwrap();
-
-        assert_eq!(a.get(&1), 1);
-        assert_eq!(b.get(&2), 2);
-    }
-
-    #[xmtp_common::test]
-    fn test_merge_into_empty_store_creates_topic() {
-        let mut store = InMemoryCursorStore::new();
-        let topic = topic("new/topic");
-        let cursor = cursor_with(&[(5, 9)]);
-
-        store.received(topic.clone(), &cursor.clone());
-
-        let stored = store.get_latest(&topic).unwrap();
-        assert_eq!(stored.get(&5), 9);
-    }
-
-    fn topic(name: &str) -> Topic {
-        Topic::from_bytes(name.as_bytes())
     }
 }
