@@ -74,8 +74,10 @@ message EnvelopeMeta {
   uint64 server_ns = 2;
   MessageHash message_hash = 3;
   Topic topic = 4;
-  // Server-side deletion time of this row (server_ns + retention). Not a
-  // message expiry: disappearing messages remain a client-side feature.
+  // Server-side deletion time of this row: server_ns plus the retention
+  // period of the topic kind (group messages and key packages: 3 months;
+  // identity updates: never, encoded as 0). Not a message expiry:
+  // disappearing messages remain a client-side feature.
   uint64 expiry_ns = 5;
   // Group messages only: the MLS message is a commit. False for every other
   // payload kind.

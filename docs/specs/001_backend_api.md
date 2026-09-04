@@ -52,11 +52,11 @@ Every stored envelope carries the metadata below. The backend assigns all of it.
 | `server_ns` | Assigned by the database inside the insert, in nanoseconds. Strictly increasing with the sequence id within a topic. Across topics it is database wall-clock time. The client uses it as the envelope's created time. |
 | `message_hash` | SHA-256 of the stored envelope bytes. |
 | `topic` | The derived topic. |
-| `expiry_ns` | The time the backend deletes the row: `server_ns` plus the retention period. Not a message expiry. |
+| `expiry_ns` | The time the backend deletes the row: `server_ns` plus the retention period of the topic kind. Zero when the row never expires. Not a message expiry. |
 | `is_commit` | Group messages only: true when the MLS message is a commit. False for every other kind. |
 
 - API-020: The backend must store the canonical protobuf re-encoding of the client envelope and must compute `message_hash` over exactly those bytes.
-- API-021: The retention period is one server configuration value with a default of 3 months. It applies to every kind. Phase 5 defines what happens to a cursor that points below deleted rows.
+- API-021: The retention period is set per topic kind at publish time, from server configuration. Defaults: group messages 3 months, key packages 3 months, identity updates never. The periods for welcome messages and commit-log entries are open (see the review log) and default to 3 months until decided. Phase 5 defines what happens to a cursor that points below deleted rows.
 - API-022: A client should store `expiry_ns` but must not act on it before Phase 5 defines the behavior.
 - API-023: Canonical re-encoding applies to the protobuf framing only. The backend must return every payload byte field (group message data, welcome data, key package bytes, commit-log entry bytes) exactly as received.
 - API-024: The client must match its own published messages by `message_hash`, computed over the same canonical envelope encoding, and must store the hash the backend returns as the authoritative value.
@@ -98,7 +98,7 @@ Because the hash covers the whole envelope, a re-signed or re-encrypted copy of 
 
 - API-060: Every key-package upload is stored. The backend does not delete the previous key package for an installation on upload.
 - API-061: The newest key package for an installation is the one with the highest sequence id on its topic.
-- API-062: Key packages expire by the retention period like every other kind. A client must re-upload well inside that period.
+- API-062: Key packages expire after the key-package retention period (3 months). A client must re-upload well inside that period.
 - API-063: The client must read the newest-envelope response as a map from topic to an optional key package. It must not require the response to have the same length as the request, and it must not fall back to one request per key.
 
 ### 5.5 Commit log
@@ -214,7 +214,7 @@ The static stream serves clients that cannot open a bidirectional stream.
 
 - API-160: The backend serves gRPC and gRPC-Web on one port.
 - API-161: The backend accepts the `x-app-version` and `x-libxmtp-version` headers and an authorization header on every call, including streams. Phase 6 defines their use.
-- API-162: The backend serves the standard gRPC health service.
+- API-162: The backend serves the standard gRPC health service. It serves no version or metadata endpoint in v1.
 - API-163: Envelopes are unsigned. The transport is trusted. Phase 6 authenticates the caller, not the envelope.
 - API-164: There is no version wrapper on frames or payloads. The package name is the version.
 
@@ -223,10 +223,11 @@ The static stream serves clients that cannot open a bidirectional stream.
 - Authentication, authorization, and rate limits (Phase 6).
 - Retention behavior beyond `expiry_ns` on every row (Phase 5).
 - Device-sync history storage. The history server stays a separate service. A later phase may fold it into the backend.
-- A version or metadata endpoint for SDK gating. Open question for Phase 6.
+- A version or metadata endpoint for SDK gating. Decided 2026-09-04: left out of v1.
 
 ## Review log
 
 | Date | Change |
 | --- | --- |
 | 2026-09-03 | Seeded from the Phase 0 proto review. Ordering model, wrappers, fresh payloads, idempotency, paging, `SubscribeStatic`, key-package retention, limits, and the error table were approved by the project owner in that review. Section 8 edge cases and the stream cap of 100,000 topics are carried from the review and await confirmation. A coverage check against the client caller and streaming catalogs added API-016, 023, 024, 045 (welcome keys), 063, 066 (drop rule), 067, 076, 090 (zero interval), 093 (waves), 100 (add plus remove), 103 to 105, 110 (no topics), 142 (measured size), 146, 147, and 153. |
+| 2026-09-04 | Owner decisions from the questions review: retention is per topic kind (API-021, API-062; identity updates never expire, `expiry_ns` is zero for them); no version or metadata endpoint in v1 (API-162, section 14); envelopes stay unsigned (API-163 confirmed); the stream cap of 100,000 topics and the `Mutate` adds cap of 100,000 are confirmed. Open: retention periods for welcome messages and commit-log entries. |
