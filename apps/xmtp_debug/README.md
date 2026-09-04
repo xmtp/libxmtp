@@ -40,31 +40,31 @@ monitoring daemon via Docker.
 
 ##### Generate 1000 random identities
 
-```
+```text
 cargo xdbg generate --entity identity --amount 1000
 ```
 
 ##### Generate 100 random groups, inviting 50 random identities to each
 
-```
+```text
 cargo xdbg generate --entity group --amount 100 --invite 50
 ```
 
 ##### Generate 20 messages
 
-```
+```text
 cargo xdbg generate --entity message --amount 20
 ```
 
 ##### Generate 20 messages in a loop every 500 milliseconds
 
-```
+```text
 cargo xdbg generate --entity message --amount 20 --interval 500 --loop
 ```
 
 ##### Generate 20 messages in a loop every 500 milliseconds, raising maximum size of each message
 
-```
+```text
 cargo xdbg generate --entity message --amount 20 --interval 500 --loop --max-message-size 1000
 ```
 
@@ -72,7 +72,7 @@ cargo xdbg generate --entity message --amount 20 --interval 500 --loop --max-mes
 
 ##### Inspect an InboxId
 
-```
+```text
 cargo xdbg inspect 1d8ec149b5670b1df0bbea0b9f2f0ba513eef805a02eafb37df3587fc23d89fe groups
 ```
 
@@ -80,13 +80,13 @@ cargo xdbg inspect 1d8ec149b5670b1df0bbea0b9f2f0ba513eef805a02eafb37df3587fc23d8
 
 ##### Show information about local generated state
 
-```
+```text
 cargo xdbg info
 ```
 
 #### Export Identities to JSON
 
-```
+```text
 cargo xdbg export --entity identity | jq > identities.json
 ```
 
@@ -94,19 +94,19 @@ cargo xdbg export --entity identity | jq > identities.json
 
 ##### Get information about identity updates for an inbox id
 
-```
+```text
 cargo xdbg query identity 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
 ```
 
 ##### Get information about key packages for multiple inboxes
 
-```
+```text
 cargo xdbg query fetch-key-packages d43e83f66ad7dbbe87add243806999d608bb0b6f7b88ba5efcaabdb532728309 01a43cdd27b196472687262ed5783006eabc7c26db9e09630bc5004b8fc689dc
 ```
 
 ##### Get information about the query log for multiple groups (optionally skipping unspecified commits)
 
-```
+```text
 cargo xdbg --backend dev query batch-query-commit-log e261da64fd225fc90034631945259cdf 0bc5493237d3399dddd3735a049ea237 --skip-unspecified
 ```
 
@@ -114,13 +114,13 @@ cargo xdbg --backend dev query batch-query-commit-log e261da64fd225fc90034631945
 
 ##### Measure message delivery latency (sender → receiver)
 
-```
+```text
 cargo xdbg -d -b dev test message-visibility --iterations 5
 ```
 
 ##### Measure group sync latency after 20 messages
 
-```
+```text
 cargo xdbg -d -b dev test group-sync --iterations 3 --message-count 20
 ```
 
@@ -187,7 +187,7 @@ Metrics are pushed to the PushGateway after each timed operation under job names
 
 In addition to Prometheus, every timed operation prints a CSV line to stdout:
 
-```
+```text
 kind,name,value,timestamp_ms,label1=v1;label2=v2
 ```
 

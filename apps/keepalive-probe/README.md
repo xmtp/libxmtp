@@ -3,6 +3,7 @@
 A standalone probe for XMTP gRPC **connection health** — it holds connections to an XMTP gRPC endpoint with a configurable keepalive and reports how long each survives and why it dropped. Built to diagnose [`herald-lite#70`](https://github.com/xmtplabs/herald-lite/issues/70) (`hyper::Error(Http2, KeepAliveTimedOut)` → gRPC `UNAVAILABLE`), it doubles as a long-lived **sidecar** that continuously traps disconnects so you can tell a client/host problem apart from a backend/path one.
 
 Two modes:
+
 - **idle** (default): open *N* bare HTTP/2 connections and measure how long each survives — isolates pure transport keepalive behavior.
 - **subscribe** (`--subscribe-group <hex>`): hold *N* real `MlsApi/SubscribeGroupMessages` streams, logging every payload and every disconnect — the herald-shaped test.
 
@@ -19,7 +20,7 @@ The defaults mirror libxmtp's real channel config in
 (`apply_channel_options`), so a bare run reproduces herald's transport behavior:
 
 | flag | default | libxmtp source |
-|------|---------|----------------|
+| ------ | --------- | ---------------- |
 | `--ka-interval` | `45s` | `http2_keep_alive_interval` |
 | `--ka-timeout` | `20s` | `keep_alive_timeout` ← the #70 knob |
 | `--ka-while-idle` | `true` | `keep_alive_while_idle` |
@@ -49,6 +50,7 @@ Stops at `--duration` or on Ctrl-C; either way it prints a summary. `RUST_LOG=de
 Instead of an idle connection, hold a real `MlsApi/SubscribeGroupMessages` stream per connection and log every payload + every disconnect. This is the herald-shaped test (herald holds subscribe streams), and it discriminates a *one-directional black hole* (return path drops → stream disconnects, client-side, no server error) from an idle-transport issue. Subscribe is unauthenticated — the V3 backend doesn't gate it.
 
 **Local first** (point at a local node-go, make a group with `xdbg`):
+
 ```sh
 # 1. run node-go locally (V3 gRPC on http://localhost:5556)
 # 2. seed identities, then a group (group creation needs members)
@@ -81,6 +83,7 @@ Per-connection lines as they die, then a summary: established / died / closed / 
 ## Build & CI
 
 Excluded from `default-members` (like `xdbg`), so it doesn't build in the default workspace CI. Instead:
+
 - **clippy gate:** `nix/package/keepalive-probe-check.nix`, run by `.github/workflows/test-keepalive-probe.yml` on changes to the crate or its deps.
 - **image:** `apps/keepalive-probe/docker/Dockerfile`, built + pushed to `ghcr.io/xmtp/keepalive-probe` by `.github/workflows/push-keepalive-probe.yml` (sha + `latest` tags).
 
