@@ -888,8 +888,8 @@ __metadata:
     "@vitest/browser": "npm:^4.1.10"
     "@vitest/browser-playwright": "npm:^4.1.10"
     "@xmtp/content-type-remote-attachment": "npm:^2.0.3"
-    binaryen: "npm:^125.0.0"
-    playwright: "npm:=1.61.1"
+    binaryen: "npm:^132.0.0"
+    playwright: "npm:=1.62.1"
     prettier: "npm:^3.7.4"
     prettier-plugin-packagejson: "npm:^3.0.0"
     tsx: "npm:^4.20.6"
@@ -936,9 +936,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"binaryen@npm:^125.0.0":
-  version: 125.0.0
-  resolution: "binaryen@npm:125.0.0"
+"binaryen@npm:^132.0.0":
+  version: 132.0.0
+  resolution: "binaryen@npm:132.0.0"
   bin:
     wasm-as: bin/wasm-as
     wasm-ctor-eval: bin/wasm-ctor-eval
@@ -949,7 +949,7 @@ __metadata:
     wasm-reduce: bin/wasm-reduce
     wasm-shell: bin/wasm-shell
     wasm2js: bin/wasm2js
-  checksum: 10/9a9a5a019769748cb55882886f81095b1bae14a159266d3b831e42e842c10d9635974ed4b6d76b19c5fbc8069bea22eb58f9989325c3d9790cac10e700a34ab1
+  checksum: 10/aba089c4431265653b7acd67c54b2fcb6db95a1cf6841a25c1c027152b0195b03527bed206fac24f5fe642f27d70a5361bfeb8e93a7e6441c1307d5e093bff3c
   languageName: node
   linkType: hard
 
@@ -1456,9 +1456,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ox@npm:0.14.33":
-  version: 0.14.33
-  resolution: "ox@npm:0.14.33"
+"ox@npm:0.14.44":
+  version: 0.14.44
+  resolution: "ox@npm:0.14.44"
   dependencies:
     "@adraffy/ens-normalize": "npm:^1.11.0"
     "@noble/ciphers": "npm:^1.3.0"
@@ -1473,7 +1473,7 @@ __metadata:
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/8a1390fa4799fc8629ea64c00b49fe4c5c93417c92033bad7599a1861842af202303ea1cdc85023f19145192563ebe9085609d84b0a3d0145ed1b61e579a2052
+  checksum: 10/8284acc81f560a5c1960f7c43fd18df70b3bc63840a5af178cb22b1ccd97e0fa47755a5df3e4b340ab91ac9248f876d3c28096f929e404c0adf17af6ad3cf683
   languageName: node
   linkType: hard
 
@@ -1498,27 +1498,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.61.1":
-  version: 1.61.1
-  resolution: "playwright-core@npm:1.61.1"
+"playwright-core@npm:1.62.1":
+  version: 1.62.1
+  resolution: "playwright-core@npm:1.62.1"
   bin:
     playwright-core: cli.js
-  checksum: 10/b0e7b1d4de7ca6c1a57eb88f1709609a8b7637092f149e703d84d6c8e01835992ec5ca26b86f1a32fb5f5bc1aad042c3ae27311e131b3dda8a27824a543eb3c7
+  checksum: 10/2dab88793a6a5cbfa27641664548ded72a4f869d7eab8d3541e070081b5e09595253aa3dbd42eb4e6eca1b03d96a727c60704359b5b309e71ca58b12549a4c06
   languageName: node
   linkType: hard
 
-"playwright@npm:=1.61.1":
-  version: 1.61.1
-  resolution: "playwright@npm:1.61.1"
+"playwright@npm:=1.62.1":
+  version: 1.62.1
+  resolution: "playwright@npm:1.62.1"
   dependencies:
     fsevents: "npm:2.3.2"
-    playwright-core: "npm:1.61.1"
+    playwright-core: "npm:1.62.1"
   dependenciesMeta:
     fsevents:
       optional: true
   bin:
     playwright: cli.js
-  checksum: 10/0cd1a8a7e106202e785450763973bf326d4aa112ed195bbd78b17af43dcfd12e29bc8204ae61c88f748dd0f2bdf69a7827bc3bbf8c1ec4c71b8e35586e05f13c
+  checksum: 10/f99546873ab2545160ad5a0145fef8e2c1d805efd1ba77356f5b0ee3d8688192b3a2af08cd948bece36ca386fdfad889ef7e53b7aaad309940744c0bbccc0a19
   languageName: node
   linkType: hard
 
@@ -1845,8 +1845,8 @@ __metadata:
   linkType: hard
 
 "viem@npm:^2.31.3":
-  version: 2.55.10
-  resolution: "viem@npm:2.55.10"
+  version: 2.56.3
+  resolution: "viem@npm:2.56.3"
   dependencies:
     "@noble/curves": "npm:1.9.1"
     "@noble/hashes": "npm:1.8.0"
@@ -1854,14 +1854,14 @@ __metadata:
     "@scure/bip39": "npm:1.6.0"
     abitype: "npm:1.2.3"
     isows: "npm:1.0.7"
-    ox: "npm:0.14.33"
+    ox: "npm:0.14.44"
     ws: "npm:8.21.0"
   peerDependencies:
     typescript: ">=5.0.4"
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/4da52637c5ef51a05748cb4566fc9842b39148fcd847746df239eb19a013fc9cbedeaf70331258b808ddef7c6ca984b1b5b5995a3e47869091723a9d73c245c2
+  checksum: 10/5877be20f0fce5fd89801bee5530aadc57ebd8c94eb122c14d8c93b7dfcd0156beb47224a3a40de4f084b6366e658a24b2aaf7520fd38b2bd867de28770ec27d
   languageName: node
   linkType: hard
 
