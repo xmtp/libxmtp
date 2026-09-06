@@ -1,58 +1,73 @@
 # 004: Streaming
 
-Status: approved on 2026-09-04 as the self-hosted stream contract.
+Status: approved on 2026-09-06, with the owner comments in the review record.
 
-Spec 001 defines wire types and limits. Spec 002 defines database visibility and tailer recovery. This spec defines subscription state and delivery order. Requirements use `STR-nnn`. A wave is the bounded catch-up work started by one mutation. A topic floor is the greatest sequence ID admitted for delivery on that topic in its current subscription.
+One logical client owns one ingestion cursor per topic. Local application streams share that ingestion state. Independent cursors for multiple downstream clients on one upstream stream are outside this contract.
 
-## 1. Session and mutations
+Spec 001 defines wire types and public limits. Spec 002 defines storage visibility, tailer recovery, and bounded fetch turns. Requirements use `STR-nnn`.
 
-- STR-001: Every bidirectional stream starts with `Started`. It carries the keepalive interval and an empty capability list in v1. An interval of zero means the client uses its own default. An empty topic set stays open.
-- STR-002: Process inbound mutations in receive order. Validate a whole mutation before changing state. Apply its removals and then its additions atomically. Exceeding a structural limit fails the stream with `INVALID_ARGUMENT`.
-- STR-003: Count input adds and removes before coalescing duplicates. Repeated adds use their first occurrence. Repeated removes have the same effect as one remove. A remove for an absent topic is a no-op.
-- STR-004: A mutation with additions must have a nonzero `mutate_id` that is not used by an in-flight wave. At most 256 waves can be in flight. Removes-only and no-op mutations may use zero. Every accepted mutation receives exactly one `CatchupComplete` while the stream remains healthy.
-- STR-005: An add for a live topic with a cursor at or above its floor is a no-op. An add below its floor replaces that subscription, clears its floor, and replays from the supplied cursor. An explicit remove followed by add also clears the floor. A cursor above newest is valid: replay is empty and future delivery still respects the supplied cursor.
-- STR-006: Except for the history-only collision rule in STR-018, an add for a topic already replaying replaces its old wave ownership and uses the new cursor. Old fetch results and buffered deliveries for that ownership must not emit new frames. The old wave still acknowledges after its remaining topics finish or are removed.
-- STR-007: A topic removed during replay loses its ownership and pending work. Frames already handed to the ordered outbound queue can still arrive. After the removal's acknowledgement, no new frame from the removed ownership may appear. Bytes already sent cannot be retracted.
-- STR-008: A stream holds at most 100,000 distinct topics, including active history-only topics. Replaced work must release its topic state. A mutation that breaches the cap fails without partial application.
-- STR-009: An inbound request with an unset oneof fails with `INVALID_ARGUMENT`. An unknown future request represented as an unset oneof has the same outcome in v1.
+## 1. Session and interest updates
 
-## 2. Replay and live delivery
+- STR-001: Every bidirectional stream starts with `Started(keepalive_interval_ms)`. No topics are registered yet. Zero means the client uses its default interval. An empty interest set stays open.
+- STR-002: Process `Update` requests in receive order. Validate each update before applying it atomically. Each topic occurs at most once across adds and removes. Duplicate or overlapping entries fail with `INVALID_ARGUMENT`.
+- STR-003: Every update ID is nonzero and strictly greater than the previous ID on this connection. Invalid IDs fail the stream. A new connection can restart its IDs.
+- STR-004: Adding an absent topic supplies an exclusive starting cursor C. Register the topic before capturing its visible head H from the selected read database. Queue `Applied` before any message for that registration. A publication racing registration must not be lost.
+- STR-005: Adding an active topic is a no-op, regardless of cursor. It changes neither its delivery position nor its initial catch-up target. The protocol has no seek operation for an active topic.
+- STR-006: Every accepted update receives one `Applied` with the same ID while the stream remains healthy. Acknowledgements follow update order and do not wait for history delivery. `added_targets` contains only newly registered topics, in add order; a new empty topic has target zero. An empty result does not mean existing topics finished processing.
+- STR-007: Removing an absent topic is a no-op. Removing an active topic cancels its pending work. Already queued messages may precede its acknowledgement. No message from the removed registration may follow that acknowledgement. Bytes already sent cannot be retracted.
+- STR-008: A later add of a removed topic creates a new registration from its supplied cursor. Internal generation checks discard stale fetch results. Ordered acknowledgement boundaries distinguish registrations without tagging every message.
+- STR-009: An unset inbound oneof or a structural limit violation fails with `INVALID_ARGUMENT`. Keep the spec 001 add/remove and topic-count limits. There is no wave-count limit.
 
-- STR-010: For each add, establish ownership and gate live delivery before reading that topic's replay ceiling. The ceiling is its committed watermark in the selected read database. Replay and the tailer use that same database instance.
-- STR-011: Replay only rows above the supplied cursor and at or below the captured ceiling. A future cursor returns no replay. Process topics in bounded rotating turns so one topic does not monopolize replay work.
-- STR-012: Live arrivals for replaying topics are buffered under that ownership. After replay, fold retained arrivals in topic sequence order and suppress duplicates with the topic floor. Concurrent arrivals must not pass the replay/fold boundary out of order.
-- STR-013: Emit a wave's replay and fold frames first, then its `TopicsLive` markers, then its `CatchupComplete`. Only then emit live frames for those topics. Output queue order must preserve this barrier; changing an internal phase is not sufficient.
-- STR-014: Each message frame has one wave ID or live ID zero. Never mix wave and live payloads in one frame. Sequence IDs ascend within each topic across frames, not only within a frame. Cross-topic order is not promised.
-- STR-015: `TopicsLive` is informational. It names only topics that still belong to the completing wave. No more replay for that wave/topic follows the marker. Correctness and acknowledgement tracking must not depend on these markers.
-- STR-016: Every lane checks and advances the same topic floor. Clear it on removal or replacement. Duplicates can still occur across reconnects and are removed by the client using its durable state.
-- STR-017: A newer wave can take a topic from an older one. The older wave skips that topic in its fold and markers but still acknowledges. Acknowledgements across waves need not follow mutation order; clients correlate by `mutate_id`.
-- STR-018: After applying removals, a history-only add naming an already subscribed topic, or any add naming a topic with an in-flight history-only wave, fails the stream with `INVALID_ARGUMENT`. Otherwise its finite replay ends at the captured ceiling and never enters live delivery. It does not buffer later live arrivals. Release its topics at completion and send its acknowledgement. Existing live topics not named by the mutation remain live.
-- STR-019: A lost stream can omit acknowledgements. The client must not wait forever for them; it reconnects from durable per-topic cursors and submits new mutations. It must not infer progress on another topic from any received sequence ID.
+## 2. Ordered delivery and fixed targets
 
-## 3. Capacity and liveness
+- STR-010: While a registration remains active, deliver every retained envelope above C in strictly increasing topic sequence order across frames, or explicitly fail the stream. Initialize its delivery floor to C. Gaps between sequence numbers are legal; cross-topic order is unspecified.
+- STR-011: Historical and newly published envelopes use the same `Messages` frame. There are no wave IDs, replay/live tags, `TopicsLive`, or `CatchupComplete` frames. A topic can continue delivering after its initial history without waiting for another topic.
+- STR-012: H is fixed for the registration. It is the head observed in the serving database, including replica lag, not a promise about the primary's current head. Separate updates do not form one global snapshot. A cursor at or above H owes no initial history and still filters future delivery at or below C.
+- STR-013: Catch-up targets describe processing obligations. The SDK reports a topic caught up only after safely processing the requested range through H. Receiving `Applied` or receiving the last envelope alone does not establish processing completion. New publications do not move H.
+- STR-014: Expose catch-up status for the application's current interest set. It includes pending add acknowledgements, unfinished targets, and processing that discovers more groups. Register discovered work before completing its parent welcome. A new topic starts its own catch-up; completed topics do not restart.
+- STR-015: Removing a topic cancels its outstanding obligation. Cancellation or connection failure must not be reported as successful processing of that history. Connection failure has a distinct status; reconnect produces new targets.
+- STR-016: Use bounded fair turns for topics with pending catch-up. A served topic returns to the back of the ready queue when it needs more work. Newly ready topics also join the back. Topics not visited before a byte cutoff retain priority. Do not repeatedly select the first topics by topic or sequence-ID sort order. Spec 002 supplies batch and byte bounds.
 
-- STR-020: Bound pending, fetched, and outbound stream data as spec 002 defines. Pause replay while it can wait safely. If a required live batch cannot be retained, fail the stream with `RESOURCE_EXHAUSTED`. This also applies during an unfinished wave.
-- STR-021: A legal envelope must fit a delivery frame including framing. A size failure must return an error. Never drop an envelope and advance its floor, or send a successful catch-up acknowledgement for skipped data.
-- STR-022: Mutate frames and client Ping frames each use the separate per-stream bucket defined in spec 001: 10 frames/s, burst 100. Rejected frames close the stream with `RESOURCE_EXHAUSTED`. Pong frames do not consume either bucket. These protections are included before Phase 6 caller rate limits.
-- STR-023: Either peer may send Ping. The receiver answers Pong with the same nonce. Only that nonce satisfies the pending challenge. Keep at most one server challenge outstanding; unrelated inbound traffic does not clear it.
-- STR-024: The server's send-idle timer resets on frames admitted to outbound delivery, not on inbound traffic. The pong deadline begins at transport handoff of Ping. Before expiring the deadline, consume already available inbound frames once without blocking. Missing Pong closes the stream with `DEADLINE_EXCEEDED`.
-- STR-025: Native request half-close stops new pings and accepts no more mutations. Finish already accepted waves and close within the configured drain time. Ongoing live traffic must not extend that time. Return `OK` only when accepted waves have completed; otherwise return `DEADLINE_EXCEEDED`.
-- STR-026: Cancellation, shutdown, capacity failure, and transport failure deregister the session and cancel its work. Tailer failure closes affected streams with `UNAVAILABLE`, even if queries or keepalives can still work.
+Fairness prevents starvation among ready topics; it does not promise equal throughput or a fixed latency. Shared connection bandwidth and a slow consumer still affect the whole stream.
 
-## 4. Static subscriptions and browsers
+## 3. Client processing and application choice
 
-- STR-030: A static subscription accepts 1 to 10,000 topic/cursor entries. Validate and limit entries before coalescing; repeated topics use the first entry. It starts with `Started`, replays one finite wave, sends one `CatchupComplete`, and then stays live until cancellation or failure.
-- STR-031: Use the same ownership, replay/live boundary, topic floors, ordering, and backpressure rules as the bidirectional engine. Static mode does not emit `TopicsLive`. Completion of the unary request is not a native half-close.
-- STR-032: Send one-way Keepalive frames; no response is expected. After three keepalive intervals without a frame, the client reopens the stream from its durable cursors. If the advertised interval is zero, it uses its default. Data frames also establish activity.
-- STR-033: To change topics, the client opens a replacement stream from durable cursors and cancels the old one. It tolerates overlap and drops duplicates. More than 10,000 topics require multiple streams. With no topics, the SDK keeps its logical subscription open and starts transport when a topic is added.
-- STR-034: Browser clients use gRPC-Web server streaming. No full-duplex browser transport or WebSocket adapter is required. Public HTTPS, CORS preflight, allowed authorization/version headers, exposed status details, and proxy buffering settings must be tested together.
+- STR-020: The client maintains one ordered ingestion path per topic and persists safe progress with the corresponding local state changes. Transient processing failure leaves the cursor before unfinished work. Existing terminal-error rules still apply; no new payload validation is introduced.
+- STR-021: Application developers choose topics and filters. Consent and membership can inform that choice, but streaming denied topics is allowed. The streaming protocol neither authorizes group membership nor forces removal when consent changes. Existing MLS authentication and decryptability rules still apply.
+- STR-022: When the selected interest set removes a topic, stop scheduling callbacks for that registration immediately, then send the remove. An already executing callback cannot be undone. A quick remove/re-add must not make old queued callbacks eligible again; keep the new registration pending until its add acknowledgement.
+- STR-023: Local application streams receive independent callbacks from shared ingestion. A later local subscriber does not rewind the upstream topic. Preserve SDK entry points, application-selected filters, and lifecycle callbacks. Use local history or sync APIs for historical reads.
+- STR-024: Adapt the old lease ledger and catch-up-window dedup to this model. Keep recovery sync until safe ordered processing and cursor advancement are established. No exactly-once application callback guarantee is made across crashes.
 
-## 5. Client obligations and verification
+## 4. Capacity, liveness, and termination
 
-- STR-040: Persist and resume per-topic cursors. The old per-kind total-order ledger is not valid. Stream and query processing use the same sequence space and durable topic progress.
-- STR-041: Preserve public SDK callback and lifecycle behavior, including empty logical subscriptions, locally created conversations, sibling subscriptions, and pre-stream sync options. These are SDK concerns; the backend must not add client-specific transport paths.
-- STR-042: Contract tests cover overlapping waves, replacement during fetch, removal with queued frames, below-floor re-add, future cursors, history-only work, both half-close modes, slow consumers, and late commits. Each test owns one behavior; bindings test their translation and lifecycle rather than duplicating all wire tests.
+- STR-030: Retain the configured fetched-data and outbound bounds. A fetch turn is not permission to materialize an arbitrary payload volume. Pause work only while required state remains safe; otherwise fail with `RESOURCE_EXHAUSTED`. Never skip an envelope and advance its floor.
+- STR-031: Every legal envelope must fit a delivery frame with metadata and framing. Oversized responses return the existing size error. A slow stream must not block the shared tailer.
+- STR-032: Update and client Ping each use a per-stream bucket of 10 frames/s with burst 100. Exhaustion closes the stream with `RESOURCE_EXHAUSTED`. Pong consumes neither bucket. Caller quotas remain Phase 6 work.
+- STR-033: Either peer may send Ping. Reply with Pong carrying the same nonce. Keep at most one server challenge outstanding. Unrelated inbound traffic does not satisfy it.
+- STR-034: Reset the server send-idle timer on outbound admission, not inbound traffic. Start the pong deadline at Ping transport handoff. Before expiring it, consume already available inbound frames once without blocking. Missing Pong closes with `DEADLINE_EXCEEDED`.
+- STR-035: Cancellation, native request half-close, shutdown, and failure end the session and deregister its topics. Half-close is not a catch-up command and does not wait for targets. Tailer or database failure closes affected streams with `UNAVAILABLE`.
+- STR-036: Reconnect with backoff, the current desired topic set, and safe durable cursors. Deduplicate overlap from local state. Do not resume from the greatest merely received sequence ID or infer progress on another topic.
+
+## 5. Bounded SDK sync
+
+- STR-040: A catch-up-then-stop operation uses a dedicated instance of the same stream. Enroll its starting topics and process through their returned targets. Welcomes within those targets can discover groups; add those groups and include their targets in the run.
+- STR-041: Later traffic and unrelated locally created groups do not extend the run. Remove completed topics when useful, then cancel after every enrolled processing obligation is complete. Cancellation alone is not evidence of success. There is no `history_only` mode or special server drain protocol.
+
+## 6. Static browser subscriptions
+
+- STR-050: A static request supplies 1 to 10,000 unique topic/cursor pairs. Empty sets, duplicates, and excess entries fail with `INVALID_ARGUMENT`.
+- STR-051: Its first `Started` frame supplies the keepalive interval and one fixed target per requested topic, in request order, including empty topics. It precedes every message. The stream then delivers ordinary envelopes until cancellation or failure.
+- STR-052: Use the same per-topic ordering, fixed targets, processing-completion meaning, fair fetch turns, and capacity rules as native streams. The end of the unary request does not trigger native half-close.
+- STR-053: Keepalive frames are one-way. Reopen after three keepalive intervals without any frame; data also proves activity. Use the client default for interval zero.
+- STR-054: Changing topics opens a replacement stream from durable cursors and cancels the old one. The SDK handles overlap. Split more than 10,000 topics across streams. An empty logical subscription waits locally for its first topic.
+- STR-055: Use the existing gRPC-Web transport, HTTPS, CORS/header handling, and unbuffered proxy configuration. No WebSocket adapter or separate browser control service is required.
+
+## 7. Verification
+
+Contract tests cover registration races; independent topic progress during long catch-up; bounded fair batching with hot, idle, and byte-heavy topics; finite catch-up under continuous publication; slow local processing; empty topics and future cursors; active-topic no-ops; remove/re-add with queued work; explicitly selected denied topics; reconnect with unprocessed data; bounded sync discovery; and matching native/browser completion behavior.
+
+Test each behavior once at its owning layer. Bindings test translation and application lifecycle rather than duplicating the complete wire suite.
 
 ## Review record
 
-[Approved architecture review](https://plan.ref.tools/xWi9jEu8VHmuLI0W), 2026-09-04. Stream transition rules are approved before Phase 2 implementation. The owner retained replicas and the original per-stream token buckets.
+[Single-client streaming proposal](https://plan.ref.tools/BbNc54CedfhM1Snb), approved 2026-09-06. Replace the undeployed XIP-83 design completely, without reserved proto fields. Define bounded fair batching and preserve application control of the interest set, including denied topics.

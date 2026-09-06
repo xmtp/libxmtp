@@ -27,7 +27,7 @@ Use three tables and one global positive bigint sequence. Columns are non-null u
 | `identifier_association` | `identifier text`, `identifier_kind smallint`, `inbox_id bytea`, `association_sequence_id bigint`, nullable `revocation_sequence_id bigint` | Primary key `(identifier, identifier_kind, inbox_id)`; lookup index `(identifier, identifier_kind, association_sequence_id DESC)` for rows with no revocation |
 
 - ARC-020: API reads must have an indexed access path. Measure query plans at production row counts in Phase 4; do not require the planner to choose an index for a tiny table. No payload/metadata split, partitioning, or expiry index is required in Phase 2.
-- ARC-021: Update each topic watermark in the transaction that inserts its envelopes. It stores the greatest committed sequence ID and supplies replay ceilings. Newest reads join the watermark to the envelope row for complete metadata; they do not duplicate hash, expiry, or commit/proposal fields in the watermark.
+- ARC-021: Update each topic watermark in the transaction that inserts its envelopes. It stores the greatest committed sequence ID and supplies fixed catch-up targets. Newest reads join the watermark to the envelope row for complete metadata; they do not duplicate hash, expiry, or commit/proposal fields in the watermark.
 - ARC-022: Update the identifier projection in the same transaction as the identity update. Include all identifier kinds except installation keys. Association and revocation sequence guards prevent older updates from replacing newer state. Normalize projection and lookup keys by kind, without changing signed update fields. The latest active association wins; revocation can expose an older active association to another inbox.
 - ARC-023: Keep normal vacuum behavior initially. Measure bloat and tune vacuum in Phase 4. Add the expiry index when pruning is implemented in Phase 5.
 - ARC-024: Storage permits topics up to 128 bytes. API validation still enforces the current kind-specific lengths. Message hashes are 32 bytes. Enforce configurable payload-size limits in the server, not in a fixed database constraint.
@@ -97,22 +97,30 @@ Replicas are supported from day one. Each configured replica URL names one physi
 
 ## 6. Streaming architecture
 
-- ARC-070: One tailer per instance polls the selected read database. No LISTEN/NOTIFY path is required. It supplies one topic registry shared by all sessions and follows the closed-boundary rules above.
-- ARC-071: Poll at a fixed interval, default 100 ms. Polls do not overlap. Schedule the next wait after the previous poll completes. Drain full pages without an extra interval. Trace duration and row count.
-- ARC-072: Use the existing topic types and a standard registry representation first. Do not prescribe a shard count, inline key layout, custom hasher, or exact bytes per topic before measurement.
-- ARC-073: Batch dispatch by stream and use non-blocking sends. A slow stream must not block the global tailer. Immutable payload storage may be shared across stream deliveries.
-- ARC-074: One session owner controls cursor floors, topic ownership, waves, and keepalive state. Replay, live delivery, and control frames obey spec 004. Fetch completions from replaced ownership cannot emit new messages.
-- ARC-075: Use one per-topic floor for duplicate suppression across replay, fold, and live delivery. Advance it only when delivery is admitted in order. A removed or replaced topic clears the old floor.
-- ARC-076: Register and gate live topics before reading replay ceilings. Read ceilings from the same selected database used for replay. Skip topics already at or above their ceiling; the ceiling lookup itself is still a database read. Replay only through each captured ceiling, using rotating bounded topic scans.
-- ARC-077: Share bounded replay fetch workers across sessions. Bound fetched-but-unconsumed bytes, default 64 MiB per stream. A row-count turn is not permission to allocate its full possible payload volume. The progress exception admits one legal envelope with framing, not an arbitrary oversized turn.
-- ARC-078: Buffer live arrivals for gated topics within the pending-byte budget, default 64 MiB. At wave completion, fold them in sequence order, suppress duplicates, and follow spec 004's output ordering. Superseded work loses ownership; its mutation still receives an acknowledgement.
-- ARC-079: Target delivery frames of 2 MiB, including framing. Every permitted envelope must fit a frame and the transport cap. Never skip a large envelope while advancing its cursor.
-- ARC-080: Bound outbound queues by frame count and bytes, defaults 64 frames and 16 MiB. Pause replay when it can wait within its budgets. If required live or outbound data cannot be retained, fail that stream with `RESOURCE_EXHAUSTED`, including during catch-up. Do not silently discard data.
-- ARC-081: Use separate send-idle and pong-deadline timers. Start the pong deadline when the ping is handed to the transport, not when it is merely waiting behind queued data. Only a matching nonce clears it. Before timeout, process already received inbound frames without blocking. Backpressure has its own failure path.
-- ARC-082: Every exit deregisters the stream and cancels its work. Tailer failure fails affected streams; keepalives alone must not make a broken delivery path appear healthy.
-- ARC-083: Native request half-close drains accepted waves and closes within the configured deadline. Continuous live traffic must not prevent termination. An incomplete drain returns `DEADLINE_EXCEEDED`.
-- ARC-084: Static subscriptions use the same replay/live engine with an explicit static mode, one wave, and one-way keepalives. Ending their unary request does not trigger native half-close.
-- ARC-085: Reject an empty inbound oneof with `INVALID_ARGUMENT`. Apply the two stream token buckets in spec 001. No caller quota is added in Phase 2.
+- ARC-070: One tailer per instance polls the selected read database. No LISTEN/NOTIFY path is required. One topic registry serves all sessions and follows the closed-boundary rules above.
+- ARC-071: Poll at a fixed interval, default 100 ms. Polls do not overlap. Start the next wait after the previous poll completes. Drain full pages without an extra interval. Trace duration and row count.
+- ARC-072: Use existing topic types and a standard registry representation first. Do not prescribe shard counts, inline layouts, custom hashers, or bytes per topic before measurement.
+- ARC-073: Batch tailer dispatch by stream and use non-blocking sends. A slow stream must not block the tailer. Immutable payloads may be shared across deliveries.
+- ARC-074: One session owner controls registrations, topic floors, pending updates, and keepalive state. Each registration has one starting position and fixed catch-up target. Internal generation checks prevent removed registrations' fetch results from emitting.
+- ARC-075: Initialize the per-topic delivery floor to the requested cursor. Every delivery path discards rows at or below it and advances it only on ordered outbound admission. Active-topic adds do not change it. Removal and later re-add create a new registration.
+- ARC-076: Register a topic before capturing its head from the same selected database used for fetching. Queue `Applied` with the new target before admitting any of that registration's messages. Empty topics have target zero. A head read is still required when no initial history is owed.
+- ARC-077: Share a bounded fetch pool. Permit at most one outstanding catch-up fetch turn per stream. Bound fetched-but-unconsumed data, default 64 MiB per stream, and release query resources before waiting for outbound capacity. A legal envelope with framing must fit the budget.
+- ARC-078: While a topic catches up, coalesce live notices into its greatest needed sequence ID instead of buffering every live payload. Fetch ordered suffixes through that moving needed position; the client-visible initial target remains fixed. Atomically switch a current topic to direct live delivery. A racing notice is either included in pending work or handled after the switch, never lost.
+- ARC-079: Target delivery frames of 2 MiB including framing. Every permitted envelope must fit a frame and the transport cap. Never skip an envelope while advancing its floor.
+- ARC-080: Bound outbound queues by frames and bytes, defaults 64 frames and 16 MiB. Pause fetches while safe. If required state cannot be retained, fail that stream with `RESOURCE_EXHAUSTED`. Do not discard data to remain within capacity.
+- ARC-081: Keep separate send-idle and pong-deadline timers. Start the deadline at Ping transport handoff. Only the matching nonce clears it. Before timeout, process already available inbound frames without blocking. Backpressure has its own failure path.
+- ARC-082: Every exit deregisters the session and cancels its work. Tailer failure fails affected streams with `UNAVAILABLE`; working keepalives do not prove that delivery works.
+- ARC-083: Native request half-close ends the session without waiting for catch-up. The SDK's bounded sync processes its fixed targets and discovered work, then cancels. There is no server catch-up drain mode.
+- ARC-084: Static subscriptions share the same data path. Their initial `Started` frame includes the fixed topic targets. They use one-way keepalives; ending the unary request does not end the subscription.
+- ARC-085: Reject an unset inbound oneof with `INVALID_ARGUMENT`. Apply the Update and Ping buckets in spec 001. Application-selected topics may include denied groups; the streaming layer does not enforce consent or membership.
+
+### Bounded fair fetch turns
+
+- ARC-086: Maintain a FIFO ready queue per stream, with each topic at most once. A turn takes up to 256 topics and at most 64 rows per topic. These are named private implementation constants, not new public API limits. Batch indexed `(topic, sequence_id)` range probes; do not issue one query per topic.
+- ARC-087: Limit the whole batch by available fetched-data bytes as well as rows. Select bounded candidate IDs and safe encoded-size bounds before loading payloads. An outer byte cutoff must preserve each topic's prefix. Process topics in ready-queue order; if the cutoff prevents visiting a selected topic, retain its priority for the next turn. A partial topic keeps only the progress actually admitted.
+- ARC-088: Requeue served topics with more work at the back; newly ready topics also join the back. A topic current with its known needed position leaves the fetch queue until new work arrives or it enters direct live delivery. Do not repeatedly select the first topics by topic or global sequence-ID order. Process control work between bounded turns; removals never wait for a topic's full backlog.
+
+This is round-robin fairness among ready catch-up topics, not a fixed latency or equal-bandwidth guarantee. Fetching through coalesced notices may add range reads while behind. Measure batch sizes, read cost, and scheduling in Phase 4. There is no wave-wide barrier, fold, or queue of gated live payloads.
 
 ## 7. Validation and cache
 
@@ -146,7 +154,6 @@ poll_interval_ms = 100
 frame_bytes = 2097152
 outbound_frames = 64
 outbound_bytes = 16777216
-pending_bytes = 67108864
 fetched_bytes = 67108864
 gap_range_limit = 10000
 keepalive_ms = 30000
@@ -173,17 +180,16 @@ publish_topics = 1000
 envelope_bytes = 1048576
 request_bytes = 26214400
 response_bytes = 26214400
-mutate_adds = 100000
-mutate_removes = 100000
+update_adds = 100000
+update_removes = 100000
 stream_topics = 100000
 static_topics = 10000
-waves = 256
 lookup_identifiers = 250
 scw_signatures = 100                 # per verify request or identity update
 identity_entries = 256              # new writes only
 http2_streams = 100                 # per connection
-mutate_frames_per_second = 10
-mutate_burst = 100
+update_frames_per_second = 10
+update_burst = 100
 ping_frames_per_second = 10
 ping_burst = 100
 ```
@@ -195,12 +201,14 @@ The schema URL is the publication target, not a claim that the schema is already
 - ARC-110: Backend integration tests exercise real Postgres and the real service surface with stateless fixtures. Cover each endpoint's happy path, errors, and limits. Reuse the project's test macro, generators, fault injection, clocks, task handles, and typed errors.
 - ARC-111: Concurrency tests cover topic ordering, identical publish races, mixed duplicate/new failures, and identity history changing during validation. A full duplicate at the identity cap succeeds. Unexpected uniqueness errors never produce partial success.
 - ARC-112: Exercise late commits beyond the former gap timeout, replica replay pauses, gap/forward snapshot races, and startup during an open publish. Each committed row is delivered in topic order or the affected stream explicitly fails before recovery state is lost.
-- ARC-113: Cover replay replacement, removal, native half-close, static continuation, slow consumers, large envelopes, oversized responses, and tailer/database failure. Browser transport tests include preflight and unbuffered delivery through the supported proxy.
+- ARC-113: Cover idempotent adds, registration and target capture, fair batched catch-up, removal/re-add, native half-close, static continuation, slow consumers, large envelopes, oversized responses, and tailer/database failure. Browser transport tests include preflight and unbuffered delivery through the supported proxy.
 - ARC-114: Test each important behavior once on its owning platform. Backend tests own protocol semantics; binding tests own conversion and SDK lifecycle. Phase 4 owns benchmarks, vacuum tuning, and full telemetry. Phase 5 owns pruning. Phase 6 owns caller authentication and quotas.
 
 Supported database failover must preserve acknowledged commits and fence the old primary. Promoting a replica that loses acknowledged data or restoring an old backup is an operator recovery event; durable client cursors cannot repair it. The backend does not implement a database failover manager.
 
 ## Review record
+
+The [single-client streaming proposal](https://plan.ref.tools/BbNc54CedfhM1Snb), approved 2026-09-06, replaces the earlier wave design with fixed targets, coalesced live notices, and bounded fair fetch turns. Applications control which topics they stream.
 
 - [Original architecture draft](https://plan.ref.tools/c8yzIJ4kaAAmrqZE).
 - [Approved review and owner decisions](https://plan.ref.tools/xWi9jEu8VHmuLI0W): keep replicas, timestamps from the database clock, existing validation, the SCW cache, and stream token buckets. Use simple response-size errors. Replace gap expiry with a proven allocation boundary and fix the identity snapshot and newest metadata rules.

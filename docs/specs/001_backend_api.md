@@ -15,7 +15,7 @@ Requirements are numbered `API-nnn`. "Must" is a requirement. "Should" is a reco
 | Sequence id | A 64-bit integer the backend assigns to each stored envelope. Unique across all topics. |
 | Cursor | A position on one topic: the highest sequence id a client has seen on that topic. 0 means the beginning. |
 | Message hash | SHA-256 of the stored envelope bytes. With the topic, the idempotency key. |
-| Wave | The catch-up replay a subscription mutation starts. |
+| Catch-up target | The fixed visible head captured when a topic is registered. |
 
 ## 2. Topics
 
@@ -137,36 +137,37 @@ API-074 is safe under per-topic order: a topic's cursor moves only when that top
 
 ## 8. Subscribe (bidirectional)
 
-The bidirectional stream follows XIP-83. Spec 004 states the full protocol. The rules below are the API contract.
+One client owns one ingestion cursor per topic. Spec 004 defines the complete contract. The protocol replaces XIP-83; it does not support independent replay cursors for multiple downstream clients.
 
-- API-090: The first frame on every stream is `Started`, carrying the server's keepalive interval and its capability list. In v1 the capability list is empty. A keepalive interval of 0 means the server advertises none and the client uses its own default.
-- API-091: A `Mutate` frame adds and removes topics atomically. Adds carry a cursor; the server replays every envelope above the cursor, then delivers live. Removes clear the topic's cursor floor.
-- API-092: A `Mutate` must carry at most 100,000 adds and at most 100,000 removes. A stream must hold at most 100,000 distinct topics. History-only topics count while their wave is in flight. A violation fails the stream with `INVALID_ARGUMENT`.
-- API-093: `mutate_id` must be nonzero when adds are present and must not equal the id of a wave still in flight. A violation fails the stream with `INVALID_ARGUMENT`. At most 256 waves may be in flight on one stream; a `Mutate` that would open the 257th fails the stream with `INVALID_ARGUMENT`.
-- API-094: Every `Mutate` is acknowledged with exactly one `CatchupComplete` carrying its `mutate_id`, including removes-only and no-op mutations.
-- API-095: A delivery frame belongs to exactly one wave or to live. The frame's `mutate_id` is the wave's id, or 0 for live. The server never mixes lanes in one frame.
-- API-096: Within a frame, envelopes of one topic are ascending by sequence id. Topics may interleave in any order.
-- API-097: `TopicsLive` names topics whose replay is complete. It is informational. Live frames for a wave's topics begin only after the wave's `CatchupComplete`.
-- API-098: With `history_only` true, the adds are replayed through captured ceilings and acknowledged but not registered for live delivery. After removals are applied, a history-only add for an already subscribed topic, or any add for a topic with an in-flight history-only wave, fails with `INVALID_ARGUMENT`. With a half-closed request stream, the server closes after accepted waves finish.
-- API-099: Either peer may send `Ping`. The receiver must answer with `Pong` carrying the same nonce. A peer that receives no `Pong` within its deadline closes the stream.
-- API-100: A cursor above the topic's newest sequence id replays nothing and is not an error. A remove for a topic that is not subscribed is a no-op. A duplicate add inside one `Mutate` coalesces with the first occurrence. An add for a topic already live, with a cursor not below its floor, is a no-op. A lower cursor replaces the subscription: its floor clears and it replays from that cursor. A topic in both adds and removes is applied as remove then add. Except for the history-only collision rule in API-098, an add for a topic already in replay replaces its old wave ownership and replays from the new cursor; both mutations still receive an acknowledgement.
-- API-101: There is no additional application-level quota for concurrent subscription streams in v1. The HTTP/2 concurrency limit in API-132 still applies. Phase 6 adds caller quotas.
-- API-102: A client recovers from backpressure or stream loss by opening a new stream from its durable per-topic cursors. Duplicates across the overlap are the client's to drop.
-- API-103: Per-topic cursor floors on a stream are independent. The client must track its last-seen position per topic and must not derive a shared watermark across topics of one kind.
-- API-104: A bidirectional stream with no subscribed topics stays open.
-- API-105: Expiry does not affect stream delivery. An envelope delivered before its `expiry_ns` is never retracted.
-- API-106: A subscription request with an unset request oneof fails the stream with `INVALID_ARGUMENT`.
-- API-107: Mutate and client Ping frames each have a per-stream token bucket of 10 frames/s with burst 100. Exceeding either bucket fails the stream with `RESOURCE_EXHAUSTED`. Pong frames do not consume either bucket. These protocol protections are the Phase 2 exception to API-133.
+- API-090: The first frame is `Started`, carrying the keepalive interval. No topics are registered yet. An interval of zero means the client uses its default.
+- API-091: An `Update` applies adds and removes atomically, in receive order. Each add supplies a topic and exclusive starting cursor. A topic may occur only once across both lists; duplicate or overlapping entries fail with `INVALID_ARGUMENT`.
+- API-092: An update may carry at most 100,000 adds and 100,000 removes. A stream holds at most 100,000 topics. A violation fails the stream with `INVALID_ARGUMENT`.
+- API-093: Update IDs must be nonzero and strictly increasing within the connection. A violation fails with `INVALID_ARGUMENT`. IDs can restart on a new connection.
+- API-094: Every accepted update receives one `Applied` with the same ID while the stream remains healthy. It lists newly registered topics and their fixed catch-up targets, in add order. No-op adds produce no target. Empty new topics have target zero. Acknowledgement does not wait for history delivery.
+- API-095: Message frames contain ordinary envelopes without replay or live tags. Sequence IDs increase within each uninterrupted topic registration, across frames. Topics can interleave; cross-topic order has no meaning.
+- API-096: Register a new topic before capturing its visible head in the selected read database. Queue its `Applied` before its first message. Deliver every retained row above its starting cursor, or explicitly fail the stream. Registration must not leave a gap.
+- API-097: The captured head is the registration's fixed catch-up target. It does not move with new publications. A starting cursor at or above the target owes no initial history. Once a topic is current, it continues independently of other topics' catch-up.
+- API-098: The SDK reports catch-up complete after safely processing through the targets for the current interest set, including processing that discovers new groups. Receiving an acknowledgement or a message alone is insufficient. Cancellation and failure are not proof of completion.
+- API-099: Either peer may send `Ping`. The receiver answers `Pong` with the same nonce. A peer that receives no matching Pong within its deadline closes the stream.
+- API-100: Adding an active topic is a no-op regardless of the supplied cursor. Removing an absent topic is a no-op. Removal cancels that registration; already queued messages may precede its `Applied`, but none from it may follow. A later add starts a new registration and target from the supplied cursor.
+- API-101: There is no application-level quota for concurrent subscriptions in v1. The HTTP/2 concurrency limit in API-132 still applies. Phase 6 adds caller quotas.
+- API-102: Reconnect with the current desired topic set and safe durable cursors. The new connection returns fresh targets. Clients remove overlap duplicates using local state; received-but-unprocessed rows must remain recoverable.
+- API-103: A client shares one ordered ingestion path per topic across its local application streams. Their callbacks remain independent. A later local consumer does not rewind the upstream topic. Use history APIs for historical reads.
+- API-104: A bidirectional stream with no topics stays open.
+- API-105: The application chooses topics and filters. Consent and membership can inform that choice, but denied topics may be streamed. The subscription protocol does not enforce consent or membership. Existing payload validation and MLS processing rules still apply.
+- API-106: An unset request oneof fails with `INVALID_ARGUMENT`.
+- API-107: Update and client Ping frames each have a per-stream token bucket of 10 frames/s with burst 100. Exhaustion fails the stream with `RESOURCE_EXHAUSTED`. Pong consumes neither bucket. These are the Phase 2 exception to API-133.
+- API-108: Cancellation and native request half-close end the session. Half-close is not a catch-up command. A bounded SDK sync uses the same stream, processes through fixed targets and any groups discovered within them, then cancels; later traffic does not extend that run.
 
 ## 9. Subscribe (static)
 
-The static stream serves clients that cannot open a bidirectional stream.
+The static adapter serves clients that cannot send bidirectional requests.
 
-- API-110: A static subscription names a fixed list of up to 10,000 `(topic, cursor)` pairs. Zero topics or more than 10,000 fails with `INVALID_ARGUMENT`. A client with no topics opens no stream until it has one.
-- API-111: The first frame is `Started`, carrying the keepalive interval.
-- API-112: The server replays every envelope above each cursor, sends one `CatchupComplete`, then delivers live until the client cancels.
-- API-113: `Keepalive` frames flow from server to client only and are never answered. The client reopens the stream after three keepalive intervals of silence.
-- API-114: To change its topic set, a client opens a new stream from its durable cursors and cancels the old one. A client with more than 10,000 topics opens more than one stream.
+- API-110: A request supplies 1 to 10,000 unique topic/cursor pairs. An empty, oversized, or duplicate topic set fails with `INVALID_ARGUMENT`.
+- API-111: The first frame is `Started`, carrying the keepalive interval and one fixed catch-up target per topic, in request order, including empty topics. It precedes all messages.
+- API-112: Deliver the same ordered per-topic suffix as the bidirectional stream and stay open until cancellation or failure. The SDK determines completion from safe processing progress and the targets; there is no server completion frame.
+- API-113: Keepalive frames are server-to-client only. Reopen after three keepalive intervals without any frame. Use the client default when the advertised interval is zero.
+- API-114: To change topics, open a replacement stream from durable cursors and cancel the old one. More than 10,000 topics require multiple streams. Keep a logical SDK subscription with no topics open locally until it has a topic to request.
 
 ## 10. Identity reads
 
@@ -187,17 +188,16 @@ The static stream serves clients that cannot open a bidirectional stream.
 | Distinct publish topics | 1000 |
 | Envelope bytes | 1 MiB |
 | Request and response bytes | 25 MiB |
-| Mutate adds per frame | 100,000 |
-| Mutate removes per frame | 100,000 |
+| Update adds per frame | 100,000 |
+| Update removes per frame | 100,000 |
 | Topics per bidirectional stream | 100,000 |
 | Static-subscription topics per request | 10,000 |
-| Waves in flight per bidirectional stream | 256 |
 | Inbox-id lookup identifiers | 250 |
 | Signatures per smart-contract-wallet verify request | 100 |
 | Identity-update entries per inbox | 256 |
 | Concurrent requests per connection (HTTP/2 streams) | 100 |
 | Keepalive interval | 30 s |
-| Mutate frames per stream | 10/s, burst 100 |
+| Update frames per stream | 10/s, burst 100 |
 | Client Ping frames per stream | 10/s, burst 100 |
 
 - API-130: The backend must reject a request above a structural or byte limit with `INVALID_ARGUMENT`, unless a more specific rule states otherwise. Stream token-bucket exhaustion and response-size failure use `RESOURCE_EXHAUSTED`.
@@ -217,6 +217,7 @@ The static stream serves clients that cannot open a bidirectional stream.
 - API-146: Key-package reads, inbox-id lookups, query paging, and static-subscription splitting are unchunked in the client today. The chunking in API-140, API-141, and API-144 and a `has_more` paging loop for identity-update and commit-log reads are new client work that lands with this API. The status-based retry classifier and per-topic client ledger must land in the same phase.
 - API-148: The backend must reject an identity update for an inbox whose log already holds 256 entries with `INVALID_ARGUMENT` and reason `REASON_INVALID_IDENTITY_UPDATE`, as both existing backends do.
 - API-147: The client must add a fifth topic kind for the commit log and publish and read commit-log entries as envelopes.
+- API-149: Phase 3 replaces the wave ledger with shared per-topic ingestion, processing-based catch-up status, and bounded sync through the same stream. Preserve application-selected filters, including denied topics.
 
 ## 12. Error contract
 
@@ -252,6 +253,8 @@ The static stream serves clients that cannot open a bidirectional stream.
 - A version or metadata endpoint for SDK gating. Decided 2026-09-04: left out of v1.
 
 ## Review log
+
+Current streaming contract: [single-client proposal](https://plan.ref.tools/BbNc54CedfhM1Snb), approved 2026-09-06. It replaces the XIP-83 wave decisions in the historical entries below. Application developers control the interest set, including denied topics.
 
 | Date | Change |
 | --- | --- |

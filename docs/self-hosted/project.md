@@ -87,20 +87,22 @@ Expected pull requests: a stack of two, one for documentation changes and one fo
 
 Specs 001 and 002 must be completed and approved before this phase begins. This phase sets up the backend, creates its tests, and implements the complete API surface. The backend is not integrated into any client or SDK yet, except for minimal stateless test harnesses required by the test suite.
 
-- XIP-83 style bidirectional streaming (<https://github.com/xmtp/XIPs/pull/139>) as well as traditional HTTP streaming.
+- Single-client bidirectional streaming with one ingestion cursor per topic, atomic interest updates, and fixed catch-up targets (spec 004). This replaces XIP-83. Static gRPC-Web subscriptions provide the same ordered feed for browsers.
 - Complete support for the API surface defined in `backend.proto`. The standard gRPC health service is served. There is no version or metadata endpoint in v1.
 - A Postgres schema designed for the API surface, with indexes for every query parameter.
 - A single binary that can be horizontally scaled and load balanced. The MLS validation service is not used; the backend connects storage to the shared validation logic extracted in Phase 1.
 - Support read replicas from day one. Each configured replica URL points to one replica instance. Publish and Query use the primary; newest reads, streams, and identity lookups may use the replica.
-- No caller quotas, authentication, or authorization. Phase 6 adds them. Exception: per-stream Mutate and client Ping token buckets protect the stream protocol in Phase 2 (10 frames/s each, burst 100).
+- No caller quotas, authentication, or authorization. Phase 6 adds them. Exception: per-stream Update and client Ping token buckets protect the stream protocol in Phase 2 (10 frames/s each, burst 100).
 - Establish, and include in the spec, a concise TOML config format for all server configuration. Config files may reference environment variables for secrets. The format should have a defined schema that can be publicly hosted and referenced by config files that support Taplo schemas.
 
 ### Phase 3: Integration
 
 Replace all backend selection in `xmtp_mls` with the self-hosted backend. This requires updates to every binding in `bindings/`, every SDK in `sdks/`, and the CLIs in `apps/`. The diff is large and changes the test harness of every client SDK. `docs/self-hosted/deletions.md` gives the order of the deletions in this phase.
 
-- XIP-83 bidirectional streaming becomes the only native stream path. The opt-in flag is removed and the legacy streaming stack is deleted.
-- Redesign the client ledger around durable per-topic cursors. Remove the per-kind total-order watermark; a sequence ID on one topic says nothing about progress on another.
+- The single-client protocol becomes the only native stream path. Remove the opt-in flag, legacy stream stack, and XIP-83 wave protocol. No compatibility adapter is required for the undeployed backend schema.
+- Redesign the client ledger around one ordered ingestion path and safe durable cursor per topic. Remove wave/lease replay positions and the per-kind total-order watermark. Local application streams share ingestion and retain independent callbacks.
+- Expose application catch-up status from fixed targets and completed processing. Bounded background sync uses a dedicated instance of the same stream, includes groups discovered from enrolled welcomes, and cancels after its finite work completes.
+- Application developers choose topics and filters, including denied topics. Consent and membership are inputs to that choice, not streaming authorization rules. Explicit interest removal invalidates stale callbacks and fetch work.
 - Implement the spec 001 client obligations: keyed key-package results with absence, batch chunking, identity and commit-log query paging, static-subscription splitting, and status-based retry classification. Preserve public SDK methods and stream callbacks.
 - Preserve canonical envelope bytes for publish retries and hash matching. An oversized publish response can follow a committed write; response failure does not prove rollback.
 - `apps/xmtp_debug` stays as an app. Its backend selection and other dead functionality are deleted as the code they depend on goes.
