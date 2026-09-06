@@ -8,10 +8,26 @@ let
     p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ]
   );
   root = ./../..;
-  src = lib.fileset.toSource {
+  workspaceSource = lib.fileset.toSource {
     inherit root;
-    # Keep workspace targets present for locked Cargo resolution.
     fileset = xmtp.filesets.workspace;
+  };
+  backendSource = lib.fileset.toSource {
+    inherit root;
+    fileset = lib.fileset.unions [
+      (root + /Cargo.toml)
+      (rust.fileset.commonCargoSources (root + /apps/backend))
+    ];
+  };
+  # The scaffold uses only std. Keep other workspace targets as stubs for
+  # locked resolution; their Rust source does not affect the backend image.
+  # Add dependency sources here when the backend starts using shared crates.
+  src = rust.mkDummySrc {
+    src = workspaceSource;
+    extraDummyScript = ''
+      cp --remove-destination ${backendSource}/Cargo.toml $out/Cargo.toml
+      cp --recursive --remove-destination ${backendSource}/apps/backend/. $out/apps/backend/
+    '';
   };
   targetArgs = lib.optionalAttrs stdenv.hostPlatform.isMusl {
     RUSTFLAGS = "-C target-feature=+crt-static";

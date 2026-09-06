@@ -156,6 +156,8 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-validation.yml'
             backend:
+              - 'flake.nix'
+              - 'dev/nix-shell'
               - 'apps/backend/**'
               - 'crates/**'
               - 'proto/**'
