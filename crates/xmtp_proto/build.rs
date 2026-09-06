@@ -106,6 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     codegen_configure(
         configure()
             .compile_well_known_types(true)
+            .protoc_arg("--experimental_allow_proto3_optional")
             .out_dir(&out_dir)
             .extern_path(".google.protobuf", "::pbjson_types")
             .file_descriptor_set_path(&descriptor_path)
