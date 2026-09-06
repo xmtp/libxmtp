@@ -1,0 +1,41 @@
+// Group immutable metadata
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+import "mls/message_contents/oneshot.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Parent message for group metadata
+message GroupMetadataV1 {
+  ConversationType conversation_type = 1;
+  // This will be removed soon
+  string creator_account_address = 2;
+  string creator_inbox_id = 3;
+  // Should only be present for CONVERSATION_TYPE_DM
+  optional DmMembers dm_members = 4;
+  // Should only be present for CONVERSATION_TYPE_ONESHOT
+  optional xmtp.mls.message_contents.OneshotMessage oneshot_message = 5;
+}
+
+// Defines the type of conversation
+enum ConversationType {
+  CONVERSATION_TYPE_UNSPECIFIED = 0;
+  CONVERSATION_TYPE_GROUP = 1;
+  CONVERSATION_TYPE_DM = 2;
+  CONVERSATION_TYPE_SYNC = 3;
+  CONVERSATION_TYPE_ONESHOT = 4;
+}
+
+// Wrapper around an Inbox Id
+message Inbox {
+  string inbox_id = 1;
+}
+
+// Ordering does not matter here
+message DmMembers {
+  Inbox dm_member_one = 1;
+  Inbox dm_member_two = 2;
+}

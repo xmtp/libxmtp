@@ -1,0 +1,25 @@
+// V3 -> D14n Migration Protos
+// These can be removed once migration is complete
+syntax = "proto3";
+package xmtp.migration.api.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/migration/api/v1";
+option java_package = "org.xmtp.proto.migration.api.v1";
+
+service D14nMigrationApi {
+  rpc FetchD14nCutover(google.protobuf.Empty) returns (FetchD14nCutoverResponse) {
+    option (google.api.http) = {
+      post: "/mls/v2/payer/fetch-d14n-cutover"
+      body: "*"
+    };
+  }
+}
+
+message FetchD14nCutoverResponse {
+  // the unix timestamp at which point d14n becomes the canonical backend
+  uint64 timestamp_ns = 1;
+}
+

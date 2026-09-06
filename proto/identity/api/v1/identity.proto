@@ -1,0 +1,140 @@
+// Message API
+syntax = "proto3";
+package xmtp.identity.api.v1;
+
+import "google/api/annotations.proto";
+import "identity/associations/association.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/api/v1";
+option java_package = "org.xmtp.proto.mls.api.v1";
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "IdentityApi"
+    version: "1.0"
+  }
+};
+
+// RPCs for the new MLS API
+service IdentityApi {
+  // Publishes an identity update for an XID or wallet. An identity update may
+  // consist of multiple identity actions that have been batch signed.
+  rpc PublishIdentityUpdate(PublishIdentityUpdateRequest) returns (PublishIdentityUpdateResponse) {
+    option (google.api.http) = {
+      post: "/identity/v1/publish-identity-update"
+      body: "*"
+    };
+  }
+
+  // Used to check for changes related to members of a group.
+  // Would return an array of any new installations associated with the wallet
+  // address, and any revocations that have happened.
+  rpc GetIdentityUpdates(GetIdentityUpdatesRequest) returns (GetIdentityUpdatesResponse) {
+    option (google.api.http) = {
+      post: "/identity/v1/get-identity-updates"
+      body: "*"
+    };
+  }
+
+  // Retrieve the XIDs for the given addresses
+  rpc GetInboxIds(GetInboxIdsRequest) returns (GetInboxIdsResponse) {
+    option (google.api.http) = {
+      post: "/identity/v1/get-inbox-ids"
+      body: "*"
+    };
+  }
+
+  // Verify an unverified smart contract wallet signature
+  rpc VerifySmartContractWalletSignatures(VerifySmartContractWalletSignaturesRequest) returns (VerifySmartContractWalletSignaturesResponse) {
+    option (google.api.http) = {
+      post: "/identity/v1/verify-smart-contract-wallet-signatures"
+      body: "*"
+    };
+  }
+}
+
+message VerifySmartContractWalletSignaturesRequest {
+  repeated VerifySmartContractWalletSignatureRequestSignature signatures = 1;
+}
+
+message VerifySmartContractWalletSignatureRequestSignature {
+  // CAIP-10 string
+  // https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md
+  string account_id = 1;
+  // Specify the block number to verify the signature against
+  optional uint64 block_number = 2;
+  // The signature bytes
+  bytes signature = 3;
+  bytes hash = 4;
+}
+
+message VerifySmartContractWalletSignaturesResponse {
+  message ValidationResponse {
+    bool is_valid = 1;
+    optional uint64 block_number = 2;
+    optional string error = 3;
+  }
+
+  repeated ValidationResponse responses = 1;
+}
+
+// Publishes an identity update to the network
+message PublishIdentityUpdateRequest {
+  xmtp.identity.associations.IdentityUpdate identity_update = 1;
+}
+
+// The response when an identity update is published
+message PublishIdentityUpdateResponse {}
+
+// Get all updates for an identity since the specified time
+message GetIdentityUpdatesRequest {
+  // Points to the last entry the client has received. The sequence_id should be
+  // set to 0 if the client has not received anything.
+  message Request {
+    string inbox_id = 1;
+    uint64 sequence_id = 2;
+  }
+
+  repeated Request requests = 1;
+}
+
+// Returns all log entries for the requested identities
+message GetIdentityUpdatesResponse {
+  // A single entry in the XID log on the server.
+  message IdentityUpdateLog {
+    uint64 sequence_id = 1;
+    uint64 server_timestamp_ns = 2;
+    xmtp.identity.associations.IdentityUpdate update = 3;
+  }
+
+  // The update log for a single identity, starting after the last cursor
+  message Response {
+    string inbox_id = 1;
+    repeated IdentityUpdateLog updates = 2;
+  }
+
+  repeated Response responses = 1;
+}
+
+// Request to retrieve the XIDs for the given addresses
+message GetInboxIdsRequest {
+  // A single request for a given address
+  message Request {
+    string identifier = 1;
+    xmtp.identity.associations.IdentifierKind identifier_kind = 2;
+  }
+
+  repeated Request requests = 1;
+}
+
+// Response with the XIDs for the requested addresses
+message GetInboxIdsResponse {
+  // A single response for a given address
+  message Response {
+    string identifier = 1;
+    optional string inbox_id = 2;
+    xmtp.identity.associations.IdentifierKind identifier_kind = 3;
+  }
+
+  repeated Response responses = 1;
+}

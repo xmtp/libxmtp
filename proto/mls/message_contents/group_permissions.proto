@@ -1,0 +1,105 @@
+// Group mutable permissions metadata
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Message for group mutable metadata
+message GroupMutablePermissionsV1 {
+  PolicySet policies = 1;
+}
+
+// The set of policies that govern the group
+message PolicySet {
+  MembershipPolicy add_member_policy = 1;
+  MembershipPolicy remove_member_policy = 2;
+  map<string, MetadataPolicy> update_metadata_policy = 3;
+  PermissionsUpdatePolicy add_admin_policy = 4;
+  PermissionsUpdatePolicy remove_admin_policy = 5;
+  PermissionsUpdatePolicy update_permissions_policy = 6;
+}
+
+// A policy that governs adding/removing members or installations
+message MembershipPolicy {
+  // Base policy
+  enum BasePolicy {
+    BASE_POLICY_UNSPECIFIED = 0;
+    BASE_POLICY_ALLOW = 1;
+    BASE_POLICY_DENY = 2;
+    BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN = 3;
+    BASE_POLICY_ALLOW_IF_SUPER_ADMIN = 4;
+  }
+
+  // Combine multiple policies. All must evaluate to true
+  message AndCondition {
+    repeated MembershipPolicy policies = 1;
+  }
+
+  // Combine multiple policies. Any must evaluate to true
+  message AnyCondition {
+    repeated MembershipPolicy policies = 1;
+  }
+
+  oneof kind {
+    BasePolicy base = 1;
+    AndCondition and_condition = 2;
+    AnyCondition any_condition = 3;
+  }
+}
+
+// A policy that governs updating metadata
+message MetadataPolicy {
+  // Base policy
+  enum MetadataBasePolicy {
+    METADATA_BASE_POLICY_UNSPECIFIED = 0;
+    METADATA_BASE_POLICY_ALLOW = 1;
+    METADATA_BASE_POLICY_DENY = 2;
+    METADATA_BASE_POLICY_ALLOW_IF_ADMIN = 3;
+    METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN = 4;
+  }
+
+  // Combine multiple policies. All must evaluate to true
+  message AndCondition {
+    repeated MetadataPolicy policies = 1;
+  }
+
+  // Combine multiple policies. Any must evaluate to true
+  message AnyCondition {
+    repeated MetadataPolicy policies = 1;
+  }
+
+  oneof kind {
+    MetadataBasePolicy base = 1;
+    AndCondition and_condition = 2;
+    AnyCondition any_condition = 3;
+  }
+}
+
+// A policy that governs updating permissions
+message PermissionsUpdatePolicy {
+  // Base policy
+  enum PermissionsBasePolicy {
+    PERMISSIONS_BASE_POLICY_UNSPECIFIED = 0;
+    PERMISSIONS_BASE_POLICY_DENY = 1;
+    PERMISSIONS_BASE_POLICY_ALLOW_IF_ADMIN = 2;
+    PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN = 3;
+  }
+
+  // Combine multiple policies. All must evaluate to true
+  message AndCondition {
+    repeated PermissionsUpdatePolicy policies = 1;
+  }
+
+  // Combine multiple policies. Any must evaluate to true
+  message AnyCondition {
+    repeated PermissionsUpdatePolicy policies = 1;
+  }
+
+  oneof kind {
+    PermissionsBasePolicy base = 1;
+    AndCondition and_condition = 2;
+    AnyCondition any_condition = 3;
+  }
+}

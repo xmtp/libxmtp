@@ -1,0 +1,70 @@
+// Message API for XMTP V4
+syntax = "proto3";
+
+package xmtp.xmtpv4.envelopes;
+
+import "identity/associations/association.proto";
+import "identity/associations/signature.proto";
+import "mls/api/v1/mls.proto";
+import "xmtpv4/envelopes/payer_report.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/xmtpv4/envelopes";
+
+// The last seen entry per originator. Originators that have not been seen are omitted.
+message Cursor {
+  map<uint32, uint64> node_id_to_sequence_id = 1;
+}
+
+// Data visible to the server that has been authenticated by the client.
+message AuthenticatedData {
+  // Do NOT reuse tag 1 — previously used by target_originator
+  bytes target_topic = 2;
+  Cursor depends_on = 3;
+  // Do NOT reuse tag 4 — previously used by is_commit
+}
+
+message ClientEnvelope {
+  AuthenticatedData aad = 1;
+
+  oneof payload {
+    xmtp.mls.api.v1.GroupMessageInput group_message = 2;
+    xmtp.mls.api.v1.WelcomeMessageInput welcome_message = 3;
+    xmtp.mls.api.v1.UploadKeyPackageRequest upload_key_package = 4;
+    xmtp.identity.associations.IdentityUpdate identity_update = 5;
+    PayerReport payer_report = 6;
+    PayerReportAttestation payer_report_attestation = 7;
+  }
+}
+
+// Wraps client envelope with payer signature
+message PayerEnvelope {
+  bytes unsigned_client_envelope = 1; // Protobuf serialized
+  xmtp.identity.associations.RecoverableEcdsaSignature payer_signature = 2;
+  uint32 target_originator = 3;
+  uint32 message_retention_days = 4;
+}
+
+// For blockchain envelopes, these fields are set by the smart contract
+message UnsignedOriginatorEnvelope {
+  uint32 originator_node_id = 1;
+  uint64 originator_sequence_id = 2;
+  int64 originator_ns = 3;
+  bytes payer_envelope_bytes = 4;
+  uint64 base_fee_picodollars = 5; // The base fee for the message in picodollars
+  uint64 congestion_fee_picodollars = 6; // The congestion fee for the message in picodollars
+  uint64 expiry_unixtime = 7;
+}
+
+// An alternative to a signature for blockchain payloads
+message BlockchainProof {
+  bytes transaction_hash = 1;
+}
+
+// Signed originator envelope
+message OriginatorEnvelope {
+  bytes unsigned_originator_envelope = 1; // Protobuf serialized
+  oneof proof {
+    xmtp.identity.associations.RecoverableEcdsaSignature originator_signature = 2;
+    BlockchainProof blockchain_proof = 3;
+  }
+}

@@ -1,0 +1,48 @@
+// multi_remote_attachment.proto
+// This file defines the MultiRemoteAttachment message type and is associated with the following ContentTypeId:
+//
+// ContentTypeId {
+//     authority_id: "xmtp.org",
+//     type_id:      "multiRemoteStaticContent",
+//     version_major: 1,
+//     version_minor: 0,
+// }
+//
+syntax = "proto3";
+
+package xmtp.mls.message_contents.content_types;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents/content_types";
+option java_package = "org.xmtp.proto.mls.message_contents.content_types";
+
+// MultiRemoteAttachment message type
+message MultiRemoteAttachment {
+  // Array of attachment information
+  repeated RemoteAttachmentInfo attachments = 1;
+}
+
+message RemoteAttachmentInfo {
+  // The SHA256 hash of the remote content
+  string content_digest = 1;
+
+  // A 32 byte array for decrypting the remote content payload
+  bytes secret = 2;
+
+  // A byte array for the nonce used to encrypt the remote content payload
+  bytes nonce = 3;
+
+  // A byte array for the salt used to encrypt the remote content payload
+  bytes salt = 4;
+
+  // The scheme of the URL. Must be "https://"
+  string scheme = 5;
+
+  // The URL of the remote content
+  string url = 6;
+
+  // The size of the encrypted content in bytes (max size of 4GB)
+  optional uint32 content_length = 7;
+
+  // The filename of the remote content
+  optional string filename = 8;
+}

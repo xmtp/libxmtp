@@ -1,0 +1,43 @@
+// Group membership
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// Contains a mapping of `inbox_id` -> `sequence_id` for all members of a group.
+// Designed to be stored in the group context extension of the MLS group
+message GroupMembership {
+  map<string, uint64> members = 1;
+  // List of installations that failed to be added due to errors encountered during the evaluation process.
+  repeated bytes failed_installations = 2;
+}
+
+// Per-member membership state stored inside the GROUP_MEMBERSHIP component
+// as a TlsMap<InboxId, bytes>. Keys are 32-byte inbox ids, values are the
+// encoded bytes of this message.
+message GroupMembershipEntry {
+  // V1 of the per-member membership state.
+  message V1 {
+    // Latest identity-update sequence id this client has applied for this
+    // member. Validator-checked at bootstrap against the pre-flip
+    // `GroupMembership.members[inbox_id]` value.
+    uint64 sequence_id = 1;
+    // Installation ids belonging to this member that we previously failed
+    // to add (expired key package, validation failure, etc.). Used to
+    // suppress retries on later membership updates.
+    //
+    // Sender-authoritative at migration: the migrator partitions the
+    // global `failed_installations` per inbox by walking identity-update
+    // history. Receivers accept these bytes as-is — the validator only
+    // checks `sequence_id`, so the blast radius of a bad partition is
+    // bounded to extra or silenced retries. Installations whose owning
+    // inbox can't be determined are dropped.
+    repeated bytes failed_installations = 2;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}

@@ -1,0 +1,50 @@
+version: v1
+name: buf.build/xmtp/proto
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - STANDARD
+  ignore:
+    - google
+    - protoc-gen-openapiv2
+  ignore_only:
+    DIRECTORY_SAME_PACKAGE:
+      - device_sync
+    ENUM_ZERO_VALUE_SUFFIX:
+      - message_contents/content.proto
+      - mls/message_contents/content.proto
+    PACKAGE_SAME_GO_PACKAGE:
+      - mls/message_contents
+    PACKAGE_SAME_JAVA_PACKAGE:
+      - mls/message_contents
+    RPC_REQUEST_RESPONSE_UNIQUE:
+      - message_api/v1/message_api.proto
+      - identity/api/v1/identity.proto
+      - mls/api/v1/mls.proto
+      - mls_validation/v1/service.proto
+      - migration/api/v1/migration.proto
+      - xmtpv4/message_api/message_api.proto
+      - xmtpv4/message_api/query_api.proto
+      - xmtpv4/message_api/publish_api.proto
+      - xmtpv4/message_api/notification_api.proto
+      - xmtpv4/metadata_api/metadata_api.proto
+      - xmtpv4/payer_api/payer_api.proto
+      - xmtpv4/gateway_api/gateway_api.proto
+    RPC_REQUEST_STANDARD_NAME:
+      - message_api/v1/message_api.proto
+      - migration/api/v1/migration.proto
+      - mls_validation/v1/service.proto
+      - xmtpv4/metadata_api/metadata_api.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - backend/v1/backend.proto
+      - message_api/v1/message_api.proto
+      - identity/api/v1/identity.proto
+      - mls/api/v1/mls.proto
+      - xmtpv4/message_api/notification_api.proto
+      - xmtpv4/metadata_api/metadata_api.proto
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_VERSION_SUFFIX
+    - SERVICE_SUFFIX

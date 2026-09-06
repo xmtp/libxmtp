@@ -1,0 +1,67 @@
+// Message content encoding structures
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// A group member and affected installation IDs
+message MembershipChange {
+  repeated bytes installation_ids = 1;
+  string account_address = 2;
+  string initiated_by_account_address = 3;
+}
+
+// The group membership change proto
+message GroupMembershipChanges {
+  // protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
+
+  // Members that have been added in the commit
+  repeated MembershipChange members_added = 1;
+  // Members that have been removed in the commit
+  repeated MembershipChange members_removed = 2;
+  // Installations that have been added in the commit, grouped by member
+  repeated MembershipChange installations_added = 3;
+  // Installations removed in the commit, grouped by member
+  repeated MembershipChange installations_removed = 4;
+
+  // protolint:enable REPEATED_FIELD_NAMES_PLURALIZED
+}
+
+// A summary of the changes in a commit.
+// Includes added/removed inboxes and changes to metadata
+message GroupUpdated {
+  // An inbox that was added or removed in this commit
+  message Inbox {
+    string inbox_id = 1;
+  }
+
+  // A summary of a change to the mutable metadata
+  message MetadataFieldChange {
+    // The field that was changed
+    string field_name = 1;
+    // The previous value
+    optional string old_value = 2;
+    // The updated value
+    optional string new_value = 3;
+  }
+
+  string initiated_by_inbox_id = 1;
+  // The inboxes added in the commit
+  repeated Inbox added_inboxes = 2;
+  // The inboxes removed in the commit
+  repeated Inbox removed_inboxes = 3;
+  // The metadata changes in the commit
+  repeated MetadataFieldChange metadata_field_changes = 4;
+  /// The inboxes that were removed from the group in response to pending-remove/self-remove requests
+  repeated Inbox left_inboxes = 5;
+  // The inboxes that were added to admin list in the commit
+  repeated Inbox added_admin_inboxes = 6;
+  // The inboxes that were removed from admin list in the commit
+  repeated Inbox removed_admin_inboxes = 7;
+  // The inboxes that were added to super admin list in the commit
+  repeated Inbox added_super_admin_inboxes = 8;
+  // The inboxes that were removed from super admin list in the commit
+  repeated Inbox removed_super_admin_inboxes = 9;
+}

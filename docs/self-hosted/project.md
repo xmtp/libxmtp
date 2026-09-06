@@ -62,7 +62,7 @@ Ephemeral documents produced in Phase 0 live in `docs/self-hosted`: the existing
 ### Phase 0: Mise en place
 
 - Dispatch sub-agents to research the existing implementations in `libxmtp`, `xmtp-node-go`, `xmtpd`, and `proto`, and catalog all current behaviors and requirements of the existing endpoints in a detailed wiki at `docs/self-hosted/existing`. Required content: the input parameters of each endpoint and their exact formats (serialization, bindings of fields to database tables), the database schema, what conditions trigger errors and how errors are surfaced to the client, limits applied to endpoints, rate limiting, and anything else relevant to future implementers. All claims cite function names and file paths. The goal is a complete and accurate specification of the relevant parts of the existing services.
-- Interrogate the proposed `docs/self-hosted/backend.proto`. Will it lead to a performant backend that can handle all needs of the new client? Analyze the expected callers of each backend API in `libxmtp` and ensure their core business requirements can be met.
+- Interrogate the proposed `proto/backend/v1/backend.proto`. Will it lead to a performant backend that can handle all needs of the new client? Analyze the expected callers of each backend API in `libxmtp` and ensure their core business requirements can be met.
 - Look for macros, utilities, and coding practices that are idiomatic in this repository. Create `docs/self-hosted/style-guide.md`.
 - Review `libxmtp` and determine what code can be removed by the end of the project: a concrete list of deletions, and the downstream change of each.
 - Refine this document: shorter, tighter, internally consistent.
@@ -88,7 +88,7 @@ Expected pull requests: a stack of two, one for documentation changes and one fo
 Specs 001 and 002 must be completed and approved before this phase begins. This phase sets up the backend, creates its tests, and implements the complete API surface. The backend is not integrated into any client or SDK yet, except for minimal stateless test harnesses required by the test suite.
 
 - Single-client bidirectional streaming with one ingestion cursor per topic, atomic interest updates, and fixed catch-up targets (spec 004). This replaces XIP-83. Static gRPC-Web subscriptions provide the same ordered feed for browsers.
-- Complete support for the API surface defined in `backend.proto`. The standard gRPC health service is served. There is no version or metadata endpoint in v1.
+- Complete support for the API surface defined in `proto/backend/v1/backend.proto`. The standard gRPC health service is served. There is no version or metadata endpoint in v1.
 - A Postgres schema designed for the API surface, with indexes for every query parameter.
 - A single binary that can be horizontally scaled and load balanced. The MLS validation service is not used; the backend connects storage to the shared validation logic extracted in Phase 1.
 - Support read replicas from day one. Each configured replica URL points to one replica instance. Publish and Query use the primary; newest reads, streams, and identity lookups may use the replica.

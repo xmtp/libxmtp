@@ -36,7 +36,10 @@ _check-crate +crates:
 
 # --- LINT ---
 
-lint: lint-rust lint-config lint-markdown
+lint: lint-rust lint-config lint-markdown lint-proto
+
+lint-proto:
+    buf lint proto
 
 lint-rust:
     cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings

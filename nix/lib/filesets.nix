@@ -16,12 +16,8 @@ let
     in
     map (name: commonCargoSources (cratesDir + "/${name}")) crateDirs;
 
-  # must match default-members in root Cargo.toml
-  apps = unions [
-    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (
-      src + /apps/mls_validation_service
-    ))
-  ];
+  # Cargo resolves every workspace member before it applies default-members.
+  apps = fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps);
 
   # Narrow fileset for buildDepsOnly — only includes files that affect
   # dependency compilation. Cargo.toml/Cargo.lock for resolution, build.rs
@@ -34,6 +30,7 @@ let
     (src + /Cargo.toml)
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
+    (src + /proto)
     # All Cargo.toml and build.rs files in the workspace
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /crates))
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /bindings))
@@ -53,7 +50,7 @@ let
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
-    (src + /crates/xmtp_proto/src/gen/proto_descriptor.bin)
+    (src + /proto)
     (src + /webdriver.json)
     (src + /.config/nextest.toml)
     # all crates in `crates/` are treated as required library crates

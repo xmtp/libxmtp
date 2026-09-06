@@ -1,0 +1,18 @@
+// Holds the ConversationReference
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "message_contents/invitation.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// A light pointer for a conversation that contains no decryption keys
+message ConversationReference {
+  string topic = 1;
+  string peer_address = 2;
+  uint64 created_ns = 3;
+  xmtp.message_contents.InvitationV1.Context context = 4;
+  xmtp.message_contents.ConsentProofPayload consent_proof_payload = 5;
+}

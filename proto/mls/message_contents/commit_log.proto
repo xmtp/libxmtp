@@ -1,0 +1,38 @@
+// Defines entries on the commit log, used for fork detection and recovery
+// XIP: https://community.xmtp.org/t/xip-68-draft-automated-fork-recovery/951
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+import "identity/associations/signature.proto";
+
+enum CommitResult {
+  COMMIT_RESULT_UNSPECIFIED = 0;
+  COMMIT_RESULT_APPLIED = 1;
+  COMMIT_RESULT_WRONG_EPOCH = 2;
+  COMMIT_RESULT_UNDECRYPTABLE = 3;
+  COMMIT_RESULT_INVALID = 4;
+}
+
+// PlaintextCommitLogEntry indicates whether a commit was successful or not,
+// when applied on top of the indicated `last_epoch_authenticator`.
+message PlaintextCommitLogEntry {
+  // The group_id of the group that the commit belongs to.
+  bytes group_id = 1;
+  // The sequence ID of the commit payload being validated.
+  uint64 commit_sequence_id = 2;
+  // The encryption state before the commit was applied.
+  bytes last_epoch_authenticator = 3;
+  // Indicates whether the commit was successful, or why it failed.
+  CommitResult commit_result = 4;
+  // The epoch number after the commit was applied, if successful.
+  uint64 applied_epoch_number = 5;
+  // The encryption state after the commit was applied, if successful.
+  bytes applied_epoch_authenticator = 6;
+}
+
+message CommitLogEntry {
+  uint64 sequence_id = 1;
+  bytes serialized_commit_log_entry = 2;
+  xmtp.identity.associations.RecoverableEd25519Signature signature = 3;
+}

@@ -1,0 +1,46 @@
+// Definitions for backups
+syntax = "proto3";
+package xmtp.device_sync;
+
+import "device_sync/consent_backup.proto";
+import "device_sync/event_backup.proto";
+import "device_sync/group_backup.proto";
+import "device_sync/message_backup.proto";
+
+option java_package = "org.xmtp.proto.device_sync";
+
+// Union type representing everything that can be serialied and saved in a backup archive.
+message BackupElement {
+  oneof element {
+    BackupMetadataSave metadata = 1;
+    xmtp.device_sync.group_backup.GroupSave group = 2;
+    xmtp.device_sync.message_backup.GroupMessageSave group_message = 3;
+    xmtp.device_sync.consent_backup.ConsentSave consent = 4;
+    xmtp.device_sync.event_backup.EventSave event = 5 [deprecated = true];
+  }
+}
+
+// Proto representation of backup metadata
+// (Backup version is explicitly missing - it's stored as a header.)
+message BackupMetadataSave {
+  repeated BackupElementSelection elements = 2;
+  int64 exported_at_ns = 3;
+  optional int64 start_ns = 4;
+  optional int64 end_ns = 5;
+}
+
+// Backup Options
+message ArchiveOptions {
+  repeated BackupElementSelection elements = 1;
+  optional int64 start_ns = 2;
+  optional int64 end_ns = 3;
+  bool exclude_disappearing_messages = 4;
+}
+
+// Elements selected for backup
+enum BackupElementSelection {
+  BACKUP_ELEMENT_SELECTION_UNSPECIFIED = 0;
+  BACKUP_ELEMENT_SELECTION_MESSAGES = 1;
+  BACKUP_ELEMENT_SELECTION_CONSENT = 2;
+  BACKUP_ELEMENT_SELECTION_EVENT = 3 [deprecated = true];
+}

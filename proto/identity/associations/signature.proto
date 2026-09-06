@@ -1,0 +1,69 @@
+// Signing methods for identity associations
+syntax = "proto3";
+
+package xmtp.identity.associations;
+
+import "message_contents/public_key.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/identity/associations";
+option java_package = "org.xmtp.proto.identity.associations";
+
+// RecoverableEcdsaSignature for EIP-191 and V2 signatures
+message RecoverableEcdsaSignature {
+  // 65-bytes [ R || S || V ], with recovery id as the last byte
+  bytes bytes = 1;
+}
+
+// EdDSA signature for 25519
+message RecoverableEd25519Signature {
+  // 64 bytes [R(32 bytes) || S(32 bytes)]
+  bytes bytes = 1;
+  // 32 bytes
+  bytes public_key = 2;
+}
+
+// Smart Contract Wallet signature
+message SmartContractWalletSignature {
+  // CAIP-10 string
+  // https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md
+  string account_id = 1;
+  // Specify the block number to verify the signature against
+  uint64 block_number = 2;
+  // The actual signature bytes
+  bytes signature = 3;
+}
+
+// Passkey signature
+message RecoverablePasskeySignature {
+  bytes public_key = 1;
+  bytes signature = 2;
+  bytes authenticator_data = 3;
+  bytes client_data_json = 4;
+}
+
+// An existing address on xmtpv2 may have already signed a legacy identity key
+// of type SignedPublicKey via the 'Create Identity' signature.
+// For migration to xmtpv3, the legacy key is permitted to sign on behalf of the
+// address to create a matching xmtpv3 installation key.
+// This signature type can ONLY be used for CreateXid and AddAssociation
+// payloads, and can only be used once in xmtpv3.
+message LegacyDelegatedSignature {
+  xmtp.message_contents.SignedPublicKey delegated_key = 1;
+  RecoverableEcdsaSignature signature = 2;
+}
+
+// A wrapper for all possible signature types
+message Signature {
+  // Must have two properties:
+  // 1. An identifier (address or public key) for the signer must either be
+  //    recoverable, or specified as a field.
+  // 2. The signer certifies that the signing payload is correct. The payload
+  //    must be inferred from the context in which the signature is provided.
+  oneof signature {
+    RecoverableEcdsaSignature erc_191 = 1;
+    SmartContractWalletSignature erc_6492 = 2;
+    RecoverableEd25519Signature installation_key = 3;
+    LegacyDelegatedSignature delegated_erc_191 = 4;
+    RecoverablePasskeySignature passkey = 5;
+  }
+}

@@ -86,7 +86,7 @@ See `justfile` for the commands.
 
 ## 6. Protobuf and types
 
-- Generated prost code lives under `crates/xmtp_proto/src/gen/`. Regenerate with `dev/nix-shell 'dev/gen_protos.sh'`; never hand-edit a file under `gen/`.
+- Protobuf sources live under `proto/`. The `xmtp_proto` build script writes generated prost and serde code to Cargo `OUT_DIR`.
 - **Use the newtypes, not `Vec<u8>`/`String`**: `GroupId`, `InstallationId`, `Topic`, the payload wrappers, and the `Cursor` constructors in
   `crates/xmtp_proto/src/types/`. Check each type's API in `crates/xmtp_proto/AGENTS.md`.
   `InstallationId` has fewer methods than `GroupId`. `GroupId` Diesel conversions require the `diesel` feature.
@@ -166,7 +166,7 @@ Three surfaces, one rule: a binding is a thin translation layer; business logic 
   both. Mobile uses an `Ffi*` prefix.
 - **Builders**: use the generated ones (`#[xmtp_macro::napi_builder]`, `wasm_builder`, `uniffi_builder`); `build()` is always hand-written
   (`crates/xmtp_macro/src/builders.rs`).
-- `dist/` output and `crates/xmtp_proto/src/gen/**` are build products. Never hand-edit them. Regeneration commands per surface: the binding's `AGENTS.md`.
+- `dist/` output is a build product. Never hand-edit it. Regeneration commands per surface are in the binding's `AGENTS.md`.
 
 ## 11. Anti-patterns
 

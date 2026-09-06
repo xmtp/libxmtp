@@ -1,0 +1,37 @@
+// Message API for XMTP V4
+syntax = "proto3";
+
+package xmtp.xmtpv4.envelopes;
+
+import "identity/associations/signature.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/xmtpv4/envelopes";
+
+// A report of the payers and nodes that sent messages in a given range of messages
+message PayerReport {
+  // The originator this report is referring to
+  uint32 originator_node_id = 1;
+  // The sequence_id that the report starts at [exclusive]
+  uint64 start_sequence_id = 2;
+  // The sequence_id that the report ends at [inclusive]
+  uint64 end_sequence_id = 3;
+  // The end timestamp of the report
+  uint32 end_minute_since_epoch = 4;
+  // The merkle root of the payer balance diff tree
+  bytes payers_merkle_root = 5;
+  // The node IDs that are active in the network at the time of the report
+  repeated uint32 active_node_ids = 6;
+}
+
+message NodeSignature {
+  uint32 node_id = 1;
+  xmtp.identity.associations.RecoverableEcdsaSignature signature = 2;
+}
+
+// An attestation of a payer report
+message PayerReportAttestation {
+  // The ID of the report, determined by hashing the report contents
+  bytes report_id = 1;
+  // The signature of the attester
+  NodeSignature signature = 2;
+}

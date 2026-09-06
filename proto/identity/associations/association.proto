@@ -1,0 +1,127 @@
+// Payloads to be signed for identity associations
+syntax = "proto3";
+
+package xmtp.identity.associations;
+
+import "identity/associations/signature.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/identity/associations";
+option java_package = "org.xmtp.proto.identity.associations";
+
+// The identifier for a member of an XID
+message MemberIdentifier {
+  oneof kind {
+    string ethereum_address = 1;
+    bytes installation_public_key = 2;
+    Passkey passkey = 3;
+  }
+}
+
+// Passkey identifier
+message Passkey {
+  bytes key = 1;
+  optional string relying_party = 2;
+}
+
+// List of identity kinds
+enum IdentifierKind {
+  IDENTIFIER_KIND_UNSPECIFIED = 0; // Ethereum on old clients
+  IDENTIFIER_KIND_ETHEREUM = 1;
+  IDENTIFIER_KIND_PASSKEY = 2;
+}
+
+// single member that optionally indicates the member that added them
+message Member {
+  MemberIdentifier identifier = 1;
+  optional MemberIdentifier added_by_entity = 2;
+  optional uint64 client_timestamp_ns = 3;
+  optional uint64 added_on_chain_id = 4;
+}
+
+// The first entry of any XID log. The XID must be deterministically derivable
+// from the address and nonce.
+// The recovery address defaults to the initial associated_address unless
+// there is a subsequent ChangeRecoveryAddress in the log.
+message CreateInbox {
+  string initial_identifier = 1;
+  uint64 nonce = 2;
+  Signature initial_identifier_signature = 3; // Must be an addressable member
+  IdentifierKind initial_identifier_kind = 4;
+  // Should be provided if identifier kind is passkey
+  optional string relying_party = 5;
+}
+
+// Adds a new member for an XID - either an addressable member such as a
+// wallet, or an installation acting on behalf of an address.
+// A key-pair that has been associated with one role MUST not be permitted to be
+// associated with a different role.
+message AddAssociation {
+  MemberIdentifier new_member_identifier = 1;
+  Signature existing_member_signature = 2;
+  Signature new_member_signature = 3;
+  // Should be provided if identifier kind is passkey
+  optional string relying_party = 4;
+}
+
+// Revokes a member from an XID. The recovery address must sign the revocation.
+message RevokeAssociation {
+  MemberIdentifier member_to_revoke = 1;
+  Signature recovery_identifier_signature = 2;
+}
+
+// Changes the recovery identifier for an XID. The recovery identifier is not required
+// to be a member of the XID. In addition to being able to add members, the
+// recovery identifier can also revoke members.
+message ChangeRecoveryAddress {
+  string new_recovery_identifier = 1;
+  Signature existing_recovery_identifier_signature = 2;
+  IdentifierKind new_recovery_identifier_kind = 3;
+  // Should be provided if identifier kind is passkey
+  optional string relying_party = 4;
+}
+
+// A single identity operation
+message IdentityAction {
+  oneof kind {
+    CreateInbox create_inbox = 1;
+    AddAssociation add = 2;
+    RevokeAssociation revoke = 3;
+    ChangeRecoveryAddress change_recovery_address = 4;
+  }
+}
+
+// One or more identity actions that were signed together.
+// Example: [CreateXid, AddAssociation, ChangeRecoveryAddress]
+// 1. The batched signature text is created by concatenating the signature text
+//    of each association together with a separator, '\n\n\n'.
+// 2. The user signs this concatenated result.
+// 3. The resulting signature is added to each association proto where relevant.
+//    The same signature may be used for multiple associations in the array.
+message IdentityUpdate {
+  repeated IdentityAction actions = 1;
+  uint64 client_timestamp_ns = 2;
+  string inbox_id = 3;
+}
+
+// Map of members belonging to an inbox_id
+message MemberMap {
+  MemberIdentifier key = 1;
+  Member value = 2;
+}
+
+// A final association state resulting from multiple `IdentityUpdates`
+message AssociationState {
+  string inbox_id = 1;
+  repeated MemberMap members = 2;
+  string recovery_identifier = 3;
+  repeated bytes seen_signatures = 4;
+  IdentifierKind recovery_identifier_kind = 5;
+  // Should be provided if identifier kind is passkey
+  optional string relying_party = 6;
+}
+
+/// state diff between two final AssociationStates
+message AssociationStateDiff {
+  repeated MemberIdentifier new_members = 1;
+  repeated MemberIdentifier removed_members = 2;
+}

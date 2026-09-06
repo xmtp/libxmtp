@@ -22,6 +22,13 @@ let
     fileset = xmtp.filesets.depsOnly;
   };
 
+  # Crane reads target paths from the full workspace, then launders source
+  # contents from its dependency-only dummy source.
+  dummyInputFileset = lib.fileset.toSource {
+    root = ./../..;
+    fileset = xmtp.filesets.workspace;
+  };
+
   # Full fileset for buildPackage — includes all source files needed to compile
   # the xmtpv3 crate and its workspace dependencies.
   bindingsFileset = lib.fileset.toSource {
@@ -46,6 +53,7 @@ let
       pkg-config
       perl
       zlib
+      pkgsBuildHost.protobuf
     ]
     ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ]
     # crane#1059 stopped adding toolchain cc's to nativeBuildInputs; restore the
@@ -86,12 +94,24 @@ let
     let
       maybeTestFeature = if test then "--features test-utils" else "";
       overrides' = if overrides == null then { } else overrides;
+      dummySrc = rust.mkDummySrc {
+        src = dummyInputFileset;
+        extraDummyScript = ''
+          mkdir -p $out/proto $out/crates/xmtp_proto
+          cp --recursive ${depsFileset}/proto/. $out/proto
+          cp ${depsFileset}/crates/xmtp_proto/build.rs $out/crates/xmtp_proto/build.rs
+          xmtp_dummy_build=$(grep '^build = ' $out/crates/xmtp_proto/Cargo.toml)
+          substituteInPlace $out/crates/xmtp_proto/Cargo.toml \
+            --replace-fail "$xmtp_dummy_build" 'build = "build.rs"'
+        '';
+      };
       # these attrs need to be removed otherwise cache becomes invalidated on every different commit
     in
     rust.buildDepsOnly (
-      commonArgs
+      (removeAttrs commonArgs [ "src" ])
       // {
-        src = rust.cleanCargoSource ../..;
+        inherit dummySrc;
+        pname = "cargo-package";
         buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
         doInstallCargoArtifacts = true;
       }

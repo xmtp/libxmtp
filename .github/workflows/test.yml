@@ -32,6 +32,7 @@ jobs:
         with:
           filters: |
             workspace:
+              - 'proto/**'
               - 'crates/**'
               - 'bindings/**'
               - 'apps/**'
@@ -45,6 +46,7 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             node:
+              - 'proto/**'
               - 'crates/**'
               - 'bindings/node/**'
               - 'Cargo.toml'
@@ -64,6 +66,7 @@ jobs:
               - 'sdks/js/js.just'
               - 'sdks/js/dev/**'
               - 'bindings/node/**'
+              - 'proto/**'
               - 'crates/**'
               - 'nix/**'
               - 'flake.lock'
@@ -80,6 +83,7 @@ jobs:
               - 'sdks/js/js.just'
               - 'sdks/js/dev/**'
               - 'bindings/node/**'
+              - 'proto/**'
               - 'crates/**'
               - 'nix/**'
               - 'flake.lock'
@@ -88,6 +92,7 @@ jobs:
             ios:
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
+              - 'proto/**'
               - 'crates/**'
               - 'nix/**'
               - 'flake.lock'
@@ -98,6 +103,7 @@ jobs:
             android:
               - 'sdks/android/**'
               - 'bindings/mobile/**'
+              - 'proto/**'
               - 'crates/**'
               - 'nix/**'
               - 'flake.lock'
@@ -119,6 +125,7 @@ jobs:
               - '.github/workflows/test-devcontainer*'
             keepalive-probe:
               - 'apps/keepalive-probe/**'
+              - 'proto/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'

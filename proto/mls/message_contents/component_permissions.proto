@@ -1,0 +1,62 @@
+// Component-level permission and metadata definitions for app data
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+import "mls/message_contents/group_permissions.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// The data structure type of a component's value
+enum ComponentType {
+  COMPONENT_TYPE_UNSPECIFIED = 0;
+  // Opaque bytes, replaced atomically
+  COMPONENT_TYPE_BYTES = 1;
+  // A utf-8 encoded string, replaced atomically
+  COMPONENT_TYPE_STRING = 2;
+  // A TlsMap<bytes, bytes> supporting key-level insert/update/delete via deltas
+  COMPONENT_TYPE_TLS_MAP_BYTES_BYTES = 3;
+  // A TlsMap<InboxId, bytes> supporting key-level insert/update/delete via deltas
+  COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES = 4;
+  // A TlsSet<bytes> supporting insert/remove/remove-by-hash via deltas
+  COMPONENT_TYPE_TLS_SET_BYTES = 5;
+  // A TlsSet<InboxId> supporting insert/remove/remove-by-hash via deltas
+  COMPONENT_TYPE_TLS_SET_INBOX_ID = 6;
+}
+
+// Per-component permission policy with separate rules for insert, update,
+// and delete operations.
+//
+// Insert and update are separate because some components need different
+// permission levels for creating vs modifying entries. For example, group
+// membership allows any member to update (installations/sequence ID) but
+// only admins to insert (add a new member).
+message ComponentPermissions {
+  // Policy for inserting a new value (component does not yet exist)
+  MetadataPolicy insert_policy = 1;
+  // Policy for updating an existing value
+  MetadataPolicy update_policy = 2;
+  // Policy for deleting a value
+  MetadataPolicy delete_policy = 3;
+}
+
+// Metadata describing a component: its data type and permission policies.
+//
+// Stored as the value in the component registry (ComponentId 0x8000).
+// Each registered component has one of these describing what kind of data
+// it holds and who can insert, update, or delete it.
+message ComponentMetadata {
+  // The data structure type of the component's value
+  ComponentType component_type = 1;
+  // Permission policies for this component, evaluated against regular
+  // (member-issued) commits.
+  ComponentPermissions permissions = 2;
+  // Permission policies for this component, evaluated against MLS External
+  // Commits (RFC 9420 §12.4.3.2). Absent / unset is equivalent to all-Deny:
+  // external committers cannot touch this component. Each component opts in
+  // explicitly by setting this field. Combined with the EXTERNAL_COMMIT_POLICY
+  // master switch (`allow_external_commit`), this is the per-component declarative
+  // authorization for external-commit-driven joins.
+  ComponentPermissions external_committer_permissions = 3;
+}

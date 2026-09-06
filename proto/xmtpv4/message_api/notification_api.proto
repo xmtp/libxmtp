@@ -1,0 +1,14 @@
+// Notification API - Full envelope stream for push notification servers
+syntax = "proto3";
+
+package xmtp.xmtpv4.message_api;
+
+import "xmtpv4/message_api/message_api.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/xmtpv4/message_api";
+
+// Full envelope stream for notification services.
+service NotificationApi {
+  rpc SubscribeAllEnvelopes(SubscribeAllEnvelopesRequest)
+      returns (stream SubscribeEnvelopesResponse) {}
+}

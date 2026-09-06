@@ -4,7 +4,7 @@ Historical Phase 0 comparison. The approved specs supersede the draft limits bel
 The 2026-09-06 streaming design uses Update frames, fixed catch-up targets, and one
 client cursor per topic. It has no waves or wave-count limit; see specs 001 and 004.
 
-Sources. New limits: `docs/specs/001_backend_api.md` §5-§11 (API-031, 050, 070, 071, 080, 092, 093, 101, 110, 120, 130, 140-147) and `docs/self-hosted/backend.proto` comments. Today's servers: `docs/self-hosted/existing/xmtp-node-go.md` (v3), `docs/self-hosted/existing/xmtpd.md` (v4), `docs/self-hosted/existing/xip-83.md`. Today's clients: `docs/self-hosted/existing/libxmtp-api-callers.md` (§5, §8, R1-R46) and the client code cited per row.
+Sources. New limits: `docs/specs/001_backend_api.md` §5-§11 (API-031, 050, 070, 071, 080, 092, 093, 101, 110, 120, 130, 140-147) and `proto/backend/v1/backend.proto` comments. Today's servers: `docs/self-hosted/existing/xmtp-node-go.md` (v3), `docs/self-hosted/existing/xmtpd.md` (v4), `docs/self-hosted/existing/xip-83.md`. Today's clients: `docs/self-hosted/existing/libxmtp-api-callers.md` (§5, §8, R1-R46) and the client code cited per row.
 
 Verdicts. SAFE: the new limit is at or above what the client sends. TIGHTER: below a server limit that exists today, but the client never reaches it (margin given). BREAKS: a request that works today against v3 or v4 is rejected, or returns silently truncated data, under the new limits.
 
