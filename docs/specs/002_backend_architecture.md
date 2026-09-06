@@ -47,10 +47,10 @@ Use three tables and one global positive bigint sequence. Columns are non-null u
 
 A forward scan above a global cursor can miss a late commit on another topic. A missing sequence value is not proof of rollback. A statement timeout does not bound the full transaction, and replica replay can pause between commits.
 
-- ARC-037: The tailer tracks missing sequence ranges and probes them along with new rows. Gap recovery and forward delivery use one consistent read snapshot. Deliver rows in per-topic sequence order across both sources, including across fetch pages. Do not advance a topic floor past an earlier visible row.
+- ARC-037: The tailer tracks missing sequence ranges and probes them along with new rows. Gap recovery and forward delivery use one consistent read snapshot. Deliver rows in per-topic sequence order across both sources, including across fetch pages. Do not advance a topic floor past an earlier visible row. Within one poll the forward page and the gap probes are disjoint (gap ranges lie strictly below the forward cursor), and across polls a row is read once, so the tailer never emits a row twice; the per-topic floor of ARC-075 is the only duplicate guard downstream.
 - ARC-038: Retire a missing range only with a closed allocation boundary: database evidence that no transaction can later commit a sequence ID in that range. Time alone must never close a range.
-- ARC-039: Establish the boundary with a shared/exclusive allocation barrier. Every publisher takes a shared transaction lock after its topic locks and before sequence allocation. It holds that lock through commit or rollback. A coordinator briefly takes the exclusive lock, reads the sequence high value after acquisition, and records a primary WAL position covering all prior commits. It then releases the barrier. Ordinary publishers remain concurrent.
-- ARC-040: On the replica, wait until replay reaches the recorded WAL position. Only a later read snapshot on that replica can retire absent gaps at or below the boundary. On the primary, a post-barrier snapshot suffices. Keep gaps while the barrier or replay check cannot complete. An unused sequence has boundary zero. No writer may bypass the barrier, cache sequence allocations, or rewind the sequence.
+- ARC-039: Establish the boundary with a shared/exclusive allocation barrier. Every publisher takes a shared transaction lock after its topic locks and before sequence allocation. It holds that lock through commit or rollback. The tailer acts as coordinator: in a short separate transaction it takes the exclusive lock, reads the sequence high value after acquisition, records a primary WAL position covering all prior commits, and releases the barrier. Ordinary publishers remain concurrent. There is no separate coordinator process and no leader election; any instance's tailer may run a barrier.
+- ARC-040: The tailer runs a barrier at start (ARC-041) and whenever it holds unresolved gap ranges, at most once per poll interval. Gaps and long publishes are both rare, so barriers are rare; an exclusive acquisition waits at most for the longest in-flight publish, bounded by the publish lifetime. On the replica, wait until replay reaches the recorded WAL position. Only a later read snapshot on that replica can retire absent gaps at or below the boundary. On the primary, a post-barrier snapshot suffices. Keep gaps while the barrier or replay check cannot complete. An unused sequence has boundary zero. No writer may bypass the barrier, cache sequence allocations, or rewind the sequence.
 - ARC-041: Gap ranges and the forward cursor are instance-local recovery state. A database connection loss, instance restart, or loss of required recovery state fails affected streams and resets the tailer. Establish a new boundary before accepting subscriptions. History replay covers rows at or below that initial boundary. Do not infer a safe resume point from a timestamp or an unproved maximum row ID.
 - ARC-042: Bound barrier waits and recovery memory. Capacity failure ends affected streams with `RESOURCE_EXHAUSTED`; database failure uses `UNAVAILABLE`. Never discard unknown gaps to remain within a budget. Keep gaps as ranges, not one allocation per absent integer.
 
@@ -83,6 +83,7 @@ Replicas are supported from day one. Each configured replica URL names one physi
 | Publish, including validation history | Primary |
 | Query | Primary |
 | QueryNewest | Replica, or primary when none is configured |
+| Get | Replica, or primary when none is configured |
 | Subscribe and SubscribeStatic, replay and live | Replica, or primary when none is configured |
 | GetInboxIds | Replica, or primary when none is configured |
 | VerifySmartContractWalletSignatures | Configured chain RPC |
@@ -93,6 +94,7 @@ Replicas are supported from day one. Each configured replica URL names one physi
 - ARC-063: Newest reads join watermarks and envelopes in one statement. Metadata-only results select all metadata but not the payload. Full results add the payload. Do not omit an existing topic to fit a successful response into the byte limit.
 - ARC-064: Identity validation reads complete history from one snapshot. Reads still work if stored history exceeds the write cap. Do not use a separately read head as the validation position.
 - ARC-065: Identifier lookup selects the greatest association sequence ID among active associations for each normalized `(identifier, kind)`. Reconstruct the positional response, including duplicate inputs.
+- ARC-067: Get is one primary-key lookup on the envelope table by sequence id, returning the full row as a `ServerEnvelope`. A sequence id with no row visible in the serving database's snapshot is `NOT_FOUND`; the backend does not distinguish never-allocated, aborted, pruned, or not-yet-replicated. No additional index is needed.
 - ARC-066: Oversized responses eventually fail with `RESOURCE_EXHAUSTED`, including transport-level rejection. No additional pagination protocol or structured size-error type is required.
 
 ## 6. Streaming architecture
@@ -104,10 +106,10 @@ Replicas are supported from day one. Each configured replica URL names one physi
 - ARC-074: One session owner controls registrations, topic floors, pending updates, and keepalive state. Each registration has one starting position and fixed catch-up target. Internal generation checks prevent removed registrations' fetch results from emitting.
 - ARC-075: Initialize the per-topic delivery floor to the requested cursor. Every delivery path discards rows at or below it and advances it only on ordered outbound admission. Active-topic adds do not change it. Removal and later re-add create a new registration.
 - ARC-076: Register a topic before capturing its head from the same selected database used for fetching. Queue `Applied` with the new target before admitting any of that registration's messages. Empty topics have target zero. A head read is still required when no initial history is owed.
-- ARC-077: Share a bounded fetch pool. Permit at most one outstanding catch-up fetch turn per stream. Bound fetched-but-unconsumed data, default 64 MiB per stream, and release query resources before waiting for outbound capacity. A legal envelope with framing must fit the budget.
+- ARC-077: Share a bounded fetch pool. Permit at most one outstanding catch-up fetch turn per stream. Bound fetched-but-unconsumed data at a fixed 64 MiB per stream (a private implementation constant), and release query resources before waiting for outbound capacity. A legal envelope with framing must fit the budget.
 - ARC-078: While a topic catches up, coalesce live notices into its greatest needed sequence ID instead of buffering every live payload. Fetch ordered suffixes through that moving needed position; the client-visible initial target remains fixed. Atomically switch a current topic to direct live delivery. A racing notice is either included in pending work or handled after the switch, never lost.
-- ARC-079: Target delivery frames of 2 MiB including framing. Every permitted envelope must fit a frame and the transport cap. Never skip an envelope while advancing its floor.
-- ARC-080: Bound outbound queues by frames and bytes, defaults 64 frames and 16 MiB. Pause fetches while safe. If required state cannot be retained, fail that stream with `RESOURCE_EXHAUSTED`. Do not discard data to remain within capacity.
+- ARC-079: Target delivery frames of 2 MiB including framing. This is a private implementation constant, not a config key. Every permitted envelope must fit a frame and the transport cap. Never skip an envelope while advancing its floor.
+- ARC-080: Bound outbound queues by frames and bytes, fixed private implementation constants of 64 frames and 16 MiB. Pause fetches while safe. If required state cannot be retained, fail that stream with `RESOURCE_EXHAUSTED`. Do not discard data to remain within capacity.
 - ARC-081: Keep separate send-idle and pong-deadline timers. Start the deadline at Ping transport handoff. Only the matching nonce clears it. Before timeout, process already available inbound frames without blocking. Backpressure has its own failure path.
 - ARC-082: Every exit deregisters the session and cancels its work. Tailer failure fails affected streams with `UNAVAILABLE`; working keepalives do not prove that delivery works.
 - ARC-083: Native request half-close ends the session without waiting for catch-up. The SDK's bounded sync processes its fixed targets and discovered work, then cancels. There is no server catch-up drain mode.
@@ -131,70 +133,126 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 
 ## 8. Configuration
 
-- ARC-100: Read one TOML file selected by `--config`. The database URL is required; other values have the defaults below. Publish a JSON schema usable by Taplo. Reject unknown keys, invalid values, and inconsistent size relationships at startup. Private implementation constants do not need config keys.
+- ARC-100: Read one TOML file selected by `--config`. The database URL is required; other values have the defaults below. Publish a JSON schema usable by Taplo. Reject unknown keys, invalid values, and inconsistent size relationships at startup; the relationships to check are the ones stated in the key comments below. Private implementation constants do not need config keys.
 - ARC-101: A string of the form `env:NAME` reads that environment variable at startup. A missing variable fails startup. Error messages and logs must not include resolved secrets.
-- ARC-102: Each public limit has one named config value. Server-only settings stay with the server; values shared with clients have one shared definition. A lower deployment limit can require smaller client batches. Identity and commit retention exemptions cannot be disabled by a finite duration setting.
+- ARC-102: Each public limit has one named config value. Server-only settings stay with the server; values shared with clients have one shared definition. A lower deployment limit can require smaller client batches. Identity and commit retention exemptions cannot be disabled by a finite duration setting. Retention is configured in seconds and converted to nanoseconds when `expiry_ns` is computed; the config never carries a nanosecond literal.
 
 ```toml
 #:schema https://xmtp.org/schemas/backend-v1.json
 [server]
+# Address the plaintext gRPC listener binds (ARC-002).
 listen = "0.0.0.0:5050"
-drain_timeout_ms = 10000
+# How long shutdown waits for in-flight unary requests before the process exits (ARC-003).
+# Open streams fail with UNAVAILABLE at once; only unary requests get this budget.
+max_drain_duration_ms = 10000
 
 [database]
+# Primary connection string. Required. `env:NAME` reads the variable at startup (ARC-101).
 url = "env:XMTP_DATABASE_URL"
-# replica_url = "env:XMTP_REPLICA_URL" # optional; one replica instance
-max_connections = 20                 # per pool
-statement_timeout_ms = 5000
-publish_timeout_ms = 30000
-barrier_wait_ms = 1000
+# Optional read replica, one instance. Reads route to it as section 5 describes (ARC-060).
+# replica_url = "env:XMTP_REPLICA_URL"
+# Connections per pool. With a replica there are two pools (ARC-060).
+max_connections = 20
+# Postgres statement_timeout applied to every statement the backend runs (ARC-051).
+max_statement_timeout_ms = 5000
+
+[publishing]
+# Hard ceiling on one publish request, from first lock to commit. Bounds how long a
+# publisher can hold topic locks and the shared allocation barrier (ARC-051).
+# Must be greater than database.max_statement_timeout_ms: a single slow statement should
+# fail on its own timeout, not by exhausting the whole request budget.
+max_publish_duration_ms = 10000
+
+# How long the tailer waits to acquire the exclusive allocation barrier before it gives up
+# (ARC-039, ARC-042). An acquisition waits at most for the longest in-flight publish, so a
+# value below max_publish_duration_ms can time out while a slow publish holds the barrier.
+# That is safe: the tailer keeps its unretired gap ranges and retries on a later poll. A
+# timeout never retires a range and never fails a stream.
+max_barrier_wait_ms = 1000
 
 [streams]
+# Interval between tailer polls of the read database (ARC-071). Polls do not overlap.
 poll_interval_ms = 100
-frame_bytes = 2097152
-outbound_frames = 64
-outbound_bytes = 16777216
-fetched_bytes = 67108864
-gap_range_limit = 10000
-keepalive_ms = 30000
-pong_timeout_ms = 90000
+# Most unresolved gap ranges the tailer keeps before it fails affected streams with
+# RESOURCE_EXHAUSTED (ARC-042). Counted as ranges, not as absent integers.
+max_gap_ranges = 10000
+# Send-idle time before the server sends a Ping (ARC-081). Advertised in Started (API-111).
+keepalive_interval_ms = 30000
+# How long the server waits for the matching Pong after a Ping before it fails the
+# stream (ARC-081). Must be greater than keepalive_interval_ms: a peer needs at least one
+# keepalive period to answer.
+max_pong_wait_ms = 90000
 
 [retention]
-group_message_ns = 7776000000000000  # 90 days, except commits/proposals
-welcome_ns = 7776000000000000
-key_package_ns = 7776000000000000
+# Age at which a row becomes eligible for deletion, per topic kind (API-021). Stored as
+# expiry_ns = server_ns + this value converted to nanoseconds at publish time.
+# Identity updates, commit-log entries, and commits/proposals never expire; a finite value
+# here cannot override those exemptions (ARC-102).
+group_message_seconds = 7776000  # 90 days; commits and proposals are exempt
+welcome_seconds = 7776000        # 90 days
+key_package_seconds = 7776000    # 90 days
 
 [chains]
-# "eip155:1" = "env:XMTP_RPC_MAINNET" # operator-selected routes
+# Chain RPC routes for smart-contract-wallet verification, keyed by CAIP-2 chain id
+# (section 5). An empty map serves non-SCW identities; SCW operations on an unconfigured
+# chain return UNAVAILABLE.
+# "eip155:1" = "env:XMTP_RPC_MAINNET"
 
 [validation]
-scw_cache_entries = 10000
+# Entries in the per-instance SCW signature-verdict cache, LRU eviction (SEC-042).
+max_scw_cache_entries = 10000
 
 [limits]
-query_topics = 1000
-query_default = 100
-query_max = 1000
-newest_meta_topics = 1000
-newest_full_topics = 100
-publish_topics = 1000
-envelope_bytes = 1048576
-request_bytes = 26214400
-response_bytes = 26214400
-update_adds = 100000
-update_removes = 100000
-stream_topics = 100000
-static_topics = 10000
-lookup_identifiers = 250
-scw_signatures = 100                 # per verify request or identity update
-identity_entries = 256              # new writes only
-http2_streams = 100                 # per connection
-update_frames_per_second = 10
-update_burst = 100
-ping_frames_per_second = 10
-ping_burst = 100
+# Each key below is one public limit from spec 001 section 11 (API-131). The server rejects
+# a request above a limit with INVALID_ARGUMENT unless a more specific rule applies (API-130).
+
+# Topics per Query request (API-143 is the client chunk size).
+max_query_topics = 1000
+# Per-topic row limit when the request sets none (ARC-061).
+default_query_limit = 100
+# Largest per-topic row limit a request may set. Must be >= default_query_limit.
+max_query_limit = 1000
+# Topics per metadata-only newest-envelope request (API-143).
+max_newest_metadata_topics = 1000
+# Topics per full-envelope newest-envelope request (API-140). Should be
+# <= max_newest_metadata_topics; a full read costs more per topic.
+max_newest_full_topics = 100
+# Distinct topics in one publish request. ARC-031 holds one lock per topic.
+max_publish_topics = 1000
+# Encoded bytes of one envelope. ARC-079 requires it to fit a delivery frame. Must be
+# <= max_request_bytes: one envelope must fit one request.
+max_envelope_bytes = 1048576
+# Encoded bytes of one request (API-031, API-142).
+max_request_bytes = 26214400
+# Encoded bytes of one response. Above this the response fails with RESOURCE_EXHAUSTED
+# (API-134, ARC-066).
+max_response_bytes = 26214400
+# Topics added by one Update frame. Must be <= max_stream_topics: one update cannot
+# exceed the stream cap.
+max_update_adds = 100000
+# Topics removed by one Update frame.
+max_update_removes = 100000
+# Registered topics per bidirectional stream (ARC-074).
+max_stream_topics = 100000
+# Topics per static-subscription request (API-110, API-144).
+max_static_topics = 10000
+# Identifiers per inbox-id lookup request (API-141).
+max_lookup_identifiers = 250
+# Signatures per SCW verify request or identity update.
+max_scw_signatures = 100
+# Identity-update entries per inbox. Applies to new writes only (API-148).
+max_identity_entries = 256
+# Concurrent HTTP/2 streams advertised per connection (API-132).
+max_http2_streams = 100
+# Update-frame token bucket per stream: refill rate and burst (API-107, ARC-085).
+max_update_frames_per_second = 10
+max_update_burst = 100
+# Client Ping token bucket per stream: refill rate and burst (API-107, ARC-085).
+max_ping_frames_per_second = 10
+max_ping_burst = 100
 ```
 
-The schema URL is the publication target, not a claim that the schema is already hosted. Publish and validate it with the backend config implementation. An empty chain map supports non-SCW identities; SCW operations on an unconfigured chain return `UNAVAILABLE`. A minimal deployment therefore needs only the database URL, while SCW support also needs chain routes. The statement and request timeouts bound work; gap correctness does not depend on their values.
+The schema URL is the publication target, not a claim that the schema is already hosted. Publish and validate it with the backend config implementation. An empty chain map supports non-SCW identities; SCW operations on an unconfigured chain return `UNAVAILABLE`. A minimal deployment therefore needs only the database URL, while SCW support also needs chain routes. The statement timeout, publish duration, and barrier wait bound work; gap correctness does not depend on their values. The relationships stated in the key comments (`max_publish_duration_ms` above `max_statement_timeout_ms`, `max_pong_wait_ms` above `keepalive_interval_ms`, `max_query_limit` at or above `default_query_limit`, `max_envelope_bytes` at or below `max_request_bytes`, and `max_update_adds` at or below `max_stream_topics`) are the size relationships ARC-100 checks at startup.
 
 ## 9. Verification and phase limits
 

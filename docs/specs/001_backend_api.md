@@ -43,7 +43,7 @@ Requirements are numbered `API-nnn`. "Must" is a requirement. "Should" is a reco
 - API-015: The backend must serve a read that starts at a cursor above the topic's newest sequence id as an empty result, not an error.
 - API-016: When a publish response returns, every envelope it stored is committed on the primary database. A read served from a read replica may lag behind the primary. Replication lag is acceptable and does not break the ordering guarantees: a replica still returns a prefix of each topic (API-011), so a lagging read looks like an earlier point in time, never a reordering or a gap.
 - API-017: A client must not assume that a read issued right after its own publish returns that envelope. A client that needs its own write must retry the read or rely on the sequence id from the publish response. Publish validation (section 5) always runs against the primary, so a publish that depends on an earlier publish (a key package before its identity update) is validated against committed data.
-- API-018: Publish and Query use the primary. Newest-envelope reads, subscriptions, and inbox-id lookups may use a replica. Each replica endpoint names one replica instance; lag is expected to be short. This does not make elapsed time a proof that a missing row cannot arrive.
+- API-018: Publish and Query use the primary. Newest-envelope reads, get-by-sequence-id reads, subscriptions, and inbox-id lookups may use a replica. Each replica endpoint names one replica instance; lag is expected to be short. This does not make elapsed time a proof that a missing row cannot arrive.
 
 ## 4. Envelope metadata
 
@@ -135,6 +135,13 @@ API-074 is safe under per-topic order: a topic's cursor moves only when that top
 - API-083: The newest envelope of a topic is the visible envelope with the highest sequence id.
 - API-084: Repeated newest topics coalesce. Validate all entries and apply the input-count limit before coalescing. A successful result must contain all required metadata, including hash, expiry, and the commit/proposal flag.
 
+### 7.1 Get by sequence id
+
+- API-085: A get request names one sequence id. The response is the stored envelope with that sequence id, with its metadata. There is no batch form and no limit.
+- API-086: When no visible envelope carries that sequence id, the request fails with `NOT_FOUND`. The backend does not say why: the id may never have been allocated, its transaction may have aborted, the row may have expired, or the row may not yet be visible on the replica that served the read.
+- API-087: A client that holds a sequence id from a publish response or a stream may retry `NOT_FOUND` briefly with backoff, because the read may be served by a lagging replica (API-016). A client with no such evidence must not retry.
+- API-088: A sequence id of 0, or above the signed 64-bit maximum, fails with `INVALID_ARGUMENT`.
+
 ## 8. Subscribe (bidirectional)
 
 One client owns one ingestion cursor per topic. Spec 004 defines the complete contract. The protocol replaces XIP-83; it does not support independent replay cursors for multiple downstream clients.
@@ -195,6 +202,7 @@ The static adapter serves clients that cannot send bidirectional requests.
 | Inbox-id lookup identifiers | 250 |
 | Signatures per smart-contract-wallet verify request | 100 |
 | Identity-update entries per inbox | 256 |
+| Get sequence ids per request | 1 |
 | Concurrent requests per connection (HTTP/2 streams) | 100 |
 | Keepalive interval | 30 s |
 | Update frames per stream | 10/s, burst 100 |
@@ -230,6 +238,7 @@ The static adapter serves clients that cannot send bidirectional requests.
 | Stream token bucket or slow consumer | `RESOURCE_EXHAUSTED` | Reconnect with backoff from durable per-topic cursors |
 | Oversized response | `RESOURCE_EXHAUSTED` | Reduce read batch size or query limit, or surface the error; publish outcome may be committed |
 | Unexpected storage invariant failure | `INTERNAL` | Surface the error; do not infer a partial success |
+| Get names a sequence id with no visible envelope | `NOT_FOUND` | Retry briefly only when the id came from a publish response or a stream (API-087); otherwise surface |
 
 - API-150: The backend must not rewrite the message text of a status. The text must state the condition in plain words.
 - API-151: A client must not retry `INVALID_ARGUMENT`.
@@ -264,3 +273,4 @@ Current streaming contract: [single-client proposal](https://plan.ref.tools/BbNc
 | 2026-09-04 | Owner decisions on the limits cross-check: publish has no count cap (API-031, API-142); query limit max 1000 (API-071); static subscription 10,000 topics (API-110, API-114, API-144); API-148 confirmed; new limits for envelope bytes (1 MiB), smart-contract-wallet signatures (100, API-044, API-123), waves in flight (256, API-093), and concurrent streams per connection (API-132); rate limits stay Phase 6 (API-133). Section 11.0 removed. |
 | 2026-09-04 | PR review: API-016 rewritten for read replicas (a publish response means committed on the primary; replica reads may lag but still return a topic prefix); API-017 added (no read-your-writes across instances; validation runs on the primary). |
 | 2026-09-04 | [Architecture review approved with comments](https://plan.ref.tools/xWi9jEu8VHmuLI0W). Keep replicas, database-clock timestamps, existing validation behavior, SCW caching, and per-stream token buckets. Use simple oversized-response errors. Add exact identity-history snapshots, duplicate-input rules, atomic duplicate outcomes, stream transitions, retention exemptions, and explicit client work. |
+| 2026-09-04 | Added `Get` to the query service (section 7.1, API-085 to API-088): one envelope by sequence id, `NOT_FOUND` when absent, replica-served (API-018, error table). |
