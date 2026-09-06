@@ -45,7 +45,7 @@ The iOS Nix shell required significant configuration for cross-compilation:
 The following FFI method names changed and required iOS SDK updates:
 
 | Old Name | New Name | File |
-|----------|----------|------|
+| ---------- | ---------- | ------ |
 | `findOrCreateDm(targetIdentity:)` | `findOrCreateDmByIdentity(targetIdentity:)` | Conversations.swift:467 |
 | `findOrCreateDmByInboxId(inboxId:)` | `findOrCreateDm(inboxId:)` | Conversations.swift:502 |
 | `createGroup(accountIdentities:)` | `createGroupByIdentity(accountIdentities:)` | Conversations.swift:570 |

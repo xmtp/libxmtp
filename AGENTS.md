@@ -21,6 +21,7 @@ just backend up         # docker services. Most tests need them.
 just check              # cargo check. default-members only.
 just test               # v3 + d14n tests. default-members only.
 just lint               # rust + config + markdown. Run before commit.
+just lint-markdown      # excludes generated error glossary and JS release changelogs.
 ```
 
 `default-members` = `apps/mls_validation_service`, `bindings/*`, `crates/*`. Other apps: see their `AGENTS.md`.

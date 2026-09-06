@@ -99,7 +99,7 @@ Client applications must include RPC URLs for all XMTP supported blockchains as 
 
 XMTP V2 is a legacy protocol which used a different identity model. In order to migrate users from V2 -> MLS, we allow signatures using their legacy keys in a narrow set of circumstances.
 
-**Legacy V2 keys may only be used to create one association (globally)**
+**Legacy V2 keys may only be used to create one association (globally).**
 
 We enforce this in two ways. Legacy V2 keys may only be used on an Inbox ID with nonce 0. Replay protection prevents the same Legacy V2 key from being used multiple times on that inbox ID.
 
@@ -107,7 +107,7 @@ We chose these restrictions because the legacy identity model shares keys betwee
 
 A legacy keypair includes a signature to link the XMTP public key with a given wallet. The challenge for the signature is in the following format:
 
-```
+```text
 XMTP : Create Identity
 $SERIALIZED_V2_PUBLIC_KEY
 

@@ -192,8 +192,8 @@ These are d14n or v4 code but are not safe to delete yet, or are out of scope.
 | --- | ---: | --- |
 | `crates/xmtp_api_d14n/src/protocol/impls/protocol_envelopes.rs`, `protocol/traits/visitor.rs`, `protocol/macros.rs` | 8 | The `EnvelopeVisitor` framework is the shared decode path. Phase 3. |
 | `crates/xmtp_api_d14n/src/protocol/extractors/*.rs` | 29 | `TopicExtractor` is used by the live v3 path. Phase 3. |
-| `crates/xmtp_api_d14n/src/queries/bidi_transport.rs`, `queries/bidi.rs`, `queries/bidi_transport_props.rs` | 65 | **Keep.** Backend-agnostic XIP-83 core. The new backend keeps XIP-83. |
-| `crates/xmtp_api_d14n/src/endpoints/v3/**`, `queries/v3/**` | 48 | v3 wire, still live until Phase 3. The `queries/v3/connection.rs` tests define the XIP-83 connection contract; port them, do not drop them. |
+| `crates/xmtp_api_d14n/src/queries/bidi_transport.rs`, `queries/bidi.rs`, `queries/bidi_transport_props.rs` | 65 | Keep until Phase 3 replacement. Port ordering, recovery, and lifecycle coverage to spec 004; remove obsolete wave/lease protocol tests. |
+| `crates/xmtp_api_d14n/src/endpoints/v3/**`, `queries/v3/**` | 48 | Keep until Phase 3 replacement. Port backend-independent connection behavior to the new single-client protocol; retire XIP-83 wire assertions. |
 | `crates/xmtp_api_d14n/src/middleware/readonly_client.rs`, `middleware/read_write_client/client.rs` | 4 | `ReadWriteClient` dies with the payer service. Phase 3. |
 | `crates/xmtp_proto/src/types/global_cursor.rs::dominates_empty` | 1 | `GlobalCursor` is still referenced. Delete with the type in Phase 3. |
 | `apps/mls_validation_service/src/handlers.rs`, `cached_signature_verifier.rs` | 10 | Move eight into the shared validation crate; delete the two `tonic::Status` tests when the binary goes. Phase 2. |

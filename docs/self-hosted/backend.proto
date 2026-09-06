@@ -1,6 +1,6 @@
 // XMTP self-hosted backend API.
 //
-// Draft for spec 001 (docs/specs/001_backend_api.md). The package name is the
+// Wire schema for spec 001. The package name is the
 // version: there is no `oneof version` wrapper on frames or payloads. A
 // breaking change is a new package.
 //
@@ -68,20 +68,21 @@ message TopicQuery {
 // Server-assigned metadata for one stored envelope.
 message EnvelopeMeta {
   Cursor cursor = 1;
-  // Assigned by Postgres inside the insert, from the database clock. Strictly
-  // increasing with sequence_id within a topic; wall-clock time across topics.
-  // The client uses it as the envelope's created time.
+  // Assigned by Postgres inside the insert, from the database clock.
+  // Equal values and backwards clock steps are allowed. The client uses
+  // this as the created time, never as a cursor.
   uint64 server_ns = 2;
   MessageHash message_hash = 3;
   Topic topic = 4;
-  // Server-side deletion time of this row: server_ns plus the retention
-  // period of the topic kind (group messages and key packages: 3 months;
-  // identity updates: never, encoded as 0). Not a message expiry:
-  // disappearing messages remain a client-side feature.
+  // Earliest deletion eligibility: server_ns plus the retention duration.
+  // Group application messages, welcomes, and key packages default to
+  // 90 days. Identity updates, commit-log entries, and group commits or
+  // proposals never expire (0). No pruning or expiry filtering before
+  // Phase 5. Disappearing messages remain a client-side feature.
   uint64 expiry_ns = 5;
-  // Group messages only: the MLS message is a commit. False for every other
-  // payload kind.
-  bool is_commit = 6;
+  // Group messages only: the parsed content type is a commit or proposal.
+  // False for other payload kinds. This does not authenticate the sender.
+  bool is_commit_or_proposal = 6;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,8 @@ message EnvelopeMeta {
 // ---------------------------------------------------------------------------
 
 // Serialized MLS protocol message for a group. The server parses it to derive
-// the group_id and to set `is_commit`. It does not check membership.
+// the group_id and to set `is_commit_or_proposal`. It does not check membership.
+// Trailing bytes remain accepted and are returned verbatim.
 message GroupMessage {
   // Serialized MlsProtocolMessage.
   bytes data = 1;
@@ -166,7 +168,7 @@ message ServerEnvelope {
 // ---------------------------------------------------------------------------
 
 message QueryRequest {
-  // Max 1000.
+  // Max 1000 before coalescing. Repeated topics use the lowest cursor.
   repeated TopicQuery queries = 1;
   // Total across all topics. Max 1000, default 100.
   uint32 limit = 2;
@@ -176,6 +178,8 @@ message QueryRequest {
 // topic. The order across topics carries no meaning. Client rule: for each
 // topic that returned rows, set its cursor to that topic's highest returned
 // sequence_id; leave every other cursor unchanged; if `has_more`, query again.
+// Each stored envelope appears once. An oversized encoded response fails
+// with RESOURCE_EXHAUSTED; results are not silently omitted to fit.
 message QueryResponse {
   repeated ServerEnvelope envelopes = 1;
   Continuation continuation = 2;
@@ -184,19 +188,21 @@ message QueryResponse {
 // Paging state. A message so later fields (a page token, a retained floor)
 // can be added without a wire change.
 message Continuation {
-  // More rows matched than `limit` allowed. Computed from the same statement
-  // as the page (limit + 1 in every per-topic scan and in the outer cut).
+  // More rows matched than `limit` allowed. Computed from the same read
+  // snapshot as the page. No snapshot is held across separate requests.
   bool has_more = 1;
 }
 
 message QueryNewestRequest {
-  // Max 1000 with metas only, 100 with full envelopes.
+  // Max 1000 with metas only, 100 with full envelopes, before coalescing.
+  // Repeated topics produce one result.
   repeated Topic topics = 1;
   bool include_full_envelope = 2;
 }
 
 // One result per topic that has an envelope. A topic with no envelope is
-// absent from `results`.
+// absent from `results`. An oversized response fails with
+// RESOURCE_EXHAUSTED; omission never means the byte budget was exhausted.
 message QueryNewestResponse {
   message Result {
     Topic topic = 1;
@@ -208,12 +214,21 @@ message QueryNewestResponse {
   repeated Result results = 1;
 }
 
+// One stored envelope by sequence id. Served from a replica. NOT_FOUND when
+// no visible envelope carries the id (never allocated, aborted, expired, or
+// not yet replicated); a client holding the id from a publish response or a
+// stream may retry briefly. 0 or a value above INT64_MAX is INVALID_ARGUMENT.
+message GetRequest {
+  uint64 sequence_id = 1;
+}
+
 // ---------------------------------------------------------------------------
 // Publish
 // ---------------------------------------------------------------------------
 
 // Atomic: every envelope is stored or none is. No envelope count limit; the
-// request is at most 25 MiB and each envelope at most 1 MiB.
+// request is at most 25 MiB, each envelope at most 1 MiB, and there are
+// at most 1000 distinct topics.
 // At most one identity update per inbox per request. A repeat of an envelope
 // already stored on its topic (same MessageHash) is not an error: the stored
 // meta is returned as success.
@@ -221,7 +236,9 @@ message PublishRequest {
   repeated ClientEnvelope envelopes = 1;
 }
 
-// Same order as the request.
+// Same order as the request, including duplicates. An oversized response
+// can fail with RESOURCE_EXHAUSTED after commit. Retry exact envelope bytes;
+// failure to receive a response does not establish rollback.
 message PublishResponse {
   repeated EnvelopeMeta envelope_metas = 1;
 }
@@ -238,159 +255,107 @@ message PublishError {
   }
 
   // Index of the failing envelope in the request. Absent for request-level
-  // errors (too many envelopes, too many bytes).
+  // errors (too many distinct topics, too many bytes).
   optional uint32 index = 1;
   Reason reason = 2;
   string message = 3;
 }
 
 // ---------------------------------------------------------------------------
-// Subscribe (XIP-83 bidirectional stream)
+// Subscribe (single client, one cursor per topic)
 // ---------------------------------------------------------------------------
 
-// Client -> server. Sent one or more times over the life of the stream.
+// Fixed catch-up boundary for one newly registered topic.
+message CatchupTarget {
+  Topic topic = 1;
+  // Observed head in the serving database. Zero means empty.
+  // Values do not exceed INT64_MAX.
+  uint64 through_sequence_id = 2;
+}
+
 message SubscribeRequest {
-  // Add and/or remove subscriptions in place (applied atomically per frame).
-  message Mutate {
-    // Begin delivering these topics from their cursors. Max 100,000 per
-    // frame. A duplicate topic inside one frame coalesces with its first
-    // occurrence. An add for a topic already live, with a cursor not below
-    // its floor, is a no-op.
-    repeated TopicQuery adds = 1;
-    // Stop delivering; clears the topic's cursor floor so a re-add replays.
-    // Max 100,000 per frame. A remove for an unsubscribed topic is a no-op.
-    repeated Topic removes = 2;
-    // Catch this Mutate's adds up (history, TopicsLive markers, and the
-    // wave's CatchupComplete) but do NOT register them for live delivery.
-    // With a half-closed request stream this is the bounded catch-up mode:
-    // the server finishes the wave then closes the stream.
-    bool history_only = 3;
-    // Client-chosen correlation id. Nonzero when adds are present (0 is the
-    // live tag). Must not match a wave still in flight on this stream.
-    // At most 256 waves may be in flight; the 257th fails the stream with
-    // INVALID_ARGUMENT.
-    // Every Mutate is acknowledged with its own mutate_id, including
-    // removes-only and no-op mutations.
-    uint64 mutate_id = 4;
+  message Update {
+    // Nonzero and strictly increasing within this connection.
+    uint64 id = 1;
+    // Max 100,000. Active topics are no-ops regardless of cursor.
+    repeated TopicQuery adds = 2;
+    // Max 100,000. Absent topics are no-ops.
+    // Each topic occurs at most once across adds and removes.
+    repeated Topic removes = 3;
   }
 
+  // An unset oneof fails with INVALID_ARGUMENT.
+  // Update and Ping each have a token bucket: 10/s, burst 100.
   oneof request {
-    Mutate mutate = 1;
-    // Liveness challenge (e.g. probe the link after resuming).
+    Update update = 1;
     Ping ping = 2;
-    // Answer to a server Ping.
     Pong pong = 3;
   }
 }
 
-// Liveness challenge. Either peer may send one; the receiver must reply with
-// a Pong echoing the nonce. The sender closes the stream if no Pong arrives
-// within its deadline.
+message SubscribeResponse {
+  message Started {
+    // Zero means the client uses its default. No topics registered yet.
+    uint32 keepalive_interval_ms = 1;
+  }
+
+  message Applied {
+    // Echoes every accepted Update, including no-op and removes-only.
+    uint64 id = 1;
+    // Newly registered topics only, in add order. Includes empty topics.
+    // These fixed targets do not imply that processing is complete.
+    repeated CatchupTarget added_targets = 2;
+  }
+
+  message Messages {
+    // Increasing sequence ids per topic registration, across all frames.
+    // No distinction between historical and newly published envelopes.
+    repeated ServerEnvelope envelopes = 1;
+  }
+
+  oneof response {
+    Started started = 1;
+    Applied applied = 2;
+    Messages messages = 3;
+    Ping ping = 4;
+    Pong pong = 5;
+  }
+}
+
 message Ping {
   uint64 nonce = 1;
 }
 
 message Pong {
-  // Echoes the nonce of the Ping it answers.
+  // Echoes the Ping nonce.
   uint64 nonce = 1;
 }
 
-// Server -> client.
-message SubscribeResponse {
-  // A batch of envelopes across the active subscriptions; the client demuxes
-  // by each envelope's topic. A frame belongs to exactly one catch-up wave
-  // or to live; the server never mixes lanes in one frame. Within a frame,
-  // envelopes of one topic are ascending by sequence_id; topics may
-  // interleave in any order.
-  message Messages {
-    repeated ServerEnvelope envelopes = 1;
-    // The catch-up wave that produced this frame: the Mutate's mutate_id for
-    // wave replay, 0 for live.
-    uint64 mutate_id = 2;
-  }
-
-  // The first frame on every stream, before any catch-up.
-  message Started {
-    // The server's ping cadence. Basis for the client's staleness threshold
-    // and the server's reap deadline.
-    uint32 keepalive_interval_ms = 1;
-    // Optional protocol features the server supports on this stream. A
-    // client must not send an optional request type whose capability the
-    // server did not advertise.
-    repeated Capability capabilities = 2;
-  }
-
-  // Sent once per Mutate: at wave completion (after the wave's last
-  // TopicsLive) for a Mutate that started a catch-up wave, immediately for
-  // one that did not. Live frames (mutate_id 0) for the wave's topics begin
-  // only after this frame.
-  message CatchupComplete {
-    // Echoes the Mutate. 0 only if a waveless Mutate carried 0.
-    uint64 mutate_id = 1;
-  }
-
-  // Emitted when topics finish catch-up, after the last history frame for
-  // them, so no further replay for a listed topic follows. Informational
-  // only: delivery correctness never depends on it. Re-adding a topic
-  // re-runs catch-up and re-emits it; receivers treat it idempotently.
-  message TopicsLive {
-    repeated Topic topics = 1;
-  }
-
-  // Optional per-stream protocol features. None defined yet.
-  enum Capability {
-    CAPABILITY_UNSPECIFIED = 0;
-  }
-
-  oneof response {
-    Messages messages = 1;
-    Started started = 2;
-    // Idle liveness challenge; receiver must answer with Pong.
-    Ping ping = 3;
-    // Answer to a client Ping.
-    Pong pong = 4;
-    TopicsLive topics_live = 5;
-    CatchupComplete catchup_complete = 6;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// SubscribeStatic (server-streaming, for clients that cannot do bidi)
-// ---------------------------------------------------------------------------
-
-// Fixed topic list: catch up every topic above its cursor, then stay live
-// until the client cancels. To change topics, open a new stream from the
-// durable per-topic cursors and cancel the old one. Zero topics is
-// INVALID_ARGUMENT. A client with more than 10,000 topics opens more streams.
+// Fixed topic set for clients that cannot send bidirectional requests.
+// Max 10,000 unique topics; zero topics is INVALID_ARGUMENT.
 message SubscribeStaticRequest {
-  // Max 10,000.
   repeated TopicQuery topics = 1;
 }
 
 message SubscribeStaticResponse {
-  // The first frame.
   message Started {
-    // The server's keepalive cadence. The client reopens the stream after
-    // three intervals of silence.
     uint32 keepalive_interval_ms = 1;
+    // One per requested topic, in request order, including empty topics.
+    // This frame precedes all messages.
+    repeated CatchupTarget targets = 2;
   }
 
-  // Ascending by sequence_id within each topic; topics may interleave.
   message Messages {
     repeated ServerEnvelope envelopes = 1;
   }
 
-  // Sent once, after the last catch-up frame. Live frames follow.
-  message CatchupComplete {}
-
-  // Server to client only; never answered.
+  // One-way liveness signal. No reply is expected.
   message Keepalive {}
 
   oneof response {
     Started started = 1;
     Messages messages = 2;
-    CatchupComplete catchup_complete = 3;
-    Keepalive keepalive = 4;
+    Keepalive keepalive = 3;
   }
 }
 
@@ -409,7 +374,9 @@ message GetInboxIdsRequest {
 }
 
 // Same order as the request. An identifier resolves to the inbox with its
-// latest association, or to no inbox.
+// latest non-revoked association, or to no inbox. Revocation can reveal an
+// older active association. Lookup uses normalized (identifier, kind), but
+// response entries echo original inputs, including duplicates.
 message GetInboxIdsResponse {
   message Response {
     string identifier = 1;
@@ -453,6 +420,8 @@ service QueryService {
   rpc Query(QueryRequest) returns (QueryResponse) {}
   // Newest envelope (or its metadata) per topic.
   rpc QueryNewest(QueryNewestRequest) returns (QueryNewestResponse) {}
+  // One envelope by sequence id, or NOT_FOUND.
+  rpc Get(GetRequest) returns (ServerEnvelope) {}
 }
 
 service PublishService {
@@ -461,7 +430,7 @@ service PublishService {
 }
 
 service SubscriptionService {
-  // XIP-83 bidirectional stream, mutable in place.
+  // One client's ordered topic feeds, with atomic interest updates.
   rpc Subscribe(stream SubscribeRequest) returns (stream SubscribeResponse) {}
   // Server-streaming stream over a fixed topic list, for gRPC-Web clients.
   rpc SubscribeStatic(SubscribeStaticRequest) returns (stream SubscribeStaticResponse) {}

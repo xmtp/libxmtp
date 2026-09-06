@@ -2,7 +2,7 @@
 
 ### Install the CLI onto your local system (one-time)
 
-```
+```bash
 cargo install diesel_cli --no-default-features --features sqlite
 ```
 
@@ -10,7 +10,7 @@ cargo install diesel_cli --no-default-features --features sqlite
 
 In this example the migration is called `create_key_store`:
 
-```
+```bash
 cd xmtp_db/
 diesel migration generate create_key_store
 ```
@@ -19,7 +19,7 @@ Edit the `up.sql` and `down.sql` files created
 
 ### Generate application code
 
-```
+```bash
 cd xmtp_db/
 cargo run --bin update-schema --features update-schema
 ```

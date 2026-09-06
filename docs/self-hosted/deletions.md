@@ -44,7 +44,7 @@ Nothing is a separate deletion wave. Every deletion belongs to a project phase:
 | 1 | `proto/` folder authoritative with the old generated tree deleted; `xmtp_proto` `keystore_api` generated files and `nightly-protos.yml` deleted with the proto move; shared crate scaffolded; `apps/backend` scaffold; CI workflows for xdbg, wasm, and the browser SDK disabled (not deleted; `test-xdbg.yml` is called by `test.yml`, and `cross-test.yml` is read by `release-gate-plan.yml`, so deleting them needs edits to those callers first) | 6,600 |
 | 1 | `dev/drivers` (`cross_talk_test`, `cross_version_test`, `xdbg_driver_lib`) and the matching nix packages | 1,400 |
 | 2 | Move the validation logic and its 8 logic tests into the shared crate, make the backend use it, then delete the `apps/mls_validation_service` shell (main, health, config); `xmtp.mls_validation.v1` protos; its nix package, release workflow, `dev/validation_service`, `dev/build_validation_service*` | 2,500 |
-| 3 | Integration: collapse the `d14n` feature; delete the d14n arm; replace the v3 arm; delete the ordering machinery; simplify `refresh_state.rs`; delete the xmtpv4 and migration copies from `proto/`; delete the legacy streaming stack and make XIP-83 bidi the default; delete `registration_visible`; rename the crate; collapse env and URL config; simplify test harness aliases; `grpc.gateway` and `google.api` generated files; retarget xdbg; Docker | 43,000 |
+| 3 | Integration: collapse the `d14n` feature; delete the d14n arm; replace the v3 arm; delete the ordering machinery; simplify `refresh_state.rs`; delete the xmtpv4 and migration copies from `proto/`; delete the legacy streaming stack and replace XIP-83 with the single-client protocol; delete `registration_visible`; rename the crate; collapse env and URL config; simplify test harness aliases; `grpc.gateway` and `google.api` generated files; retarget xdbg; Docker | 43,000 |
 
 The largest blocks:
 
@@ -82,12 +82,13 @@ v3 arm, and the ordering machinery are deleted from it.
 `if_v3!` and `if_d14n!`. Removing the feature means picking one arm at every `cfg` site
 (about 50 sites, section 5), not deleting a block.
 
-### 2.3 The XIP-83 bidi client stays
+### 2.3 Replace the XIP-83 protocol in Phase 3
 
 `crates/xmtp_api_d14n/src/queries/bidi.rs` and `bidi_transport.rs` are the XIP-83 client.
-The new backend supports XIP-83 streaming (`docs/self-hosted/project.md`, Phase 2). The bidi
-client is kept. It loses the `BidiBinding` type parameter and the d14n instantiation, and it
-becomes the default stream path in Phase 3.
+Spec 004 replaces that protocol with single-client interest updates and fixed catch-up
+targets. Reuse connection lifecycle, keepalive, and retry helpers where useful. Replace
+the wave/lease ledger with shared per-topic ingestion; remove wave tags, supersession,
+history-only mode, and their protocol-specific tests after the replacement works.
 
 ### 2.4 Proto types move early
 
@@ -103,9 +104,9 @@ Total: 24,913 lines.
 
 | Path | What | Lines | Dependents | Action |
 | --- | --- | --- | --- | --- |
-| `crates/xmtp_api_d14n/src/queries/bidi.rs` | XIP-83 bidi connection core (HTTP/2 full duplex) | 1,138 | `xmtp_mls` streaming | Keep. Remove the `BidiBinding` type parameter and the d14n instantiation. |
-| `crates/xmtp_api_d14n/src/queries/bidi_transport.rs` | XIP-83 topic ledger and envelope demux, with its tests | 6,172 | Same | Keep. Same collapse to one binding. |
-| `crates/xmtp_api_d14n/src/queries/bidi_transport_props.rs` | proptest model of the ledger | 751 | Tests the kept ledger | Keep. |
+| `crates/xmtp_api_d14n/src/queries/bidi.rs` | XIP-83 bidi connection core (HTTP/2 full duplex) | 1,138 | `xmtp_mls` streaming | Adapt reusable connection helpers to spec 004; remove backend binding selection. |
+| `crates/xmtp_api_d14n/src/queries/bidi_transport.rs` | XIP-83 topic ledger and envelope demux, with its tests | 6,172 | Same | Replace the wave/lease ledger with shared per-topic ingestion and fixed targets. |
+| `crates/xmtp_api_d14n/src/queries/bidi_transport_props.rs` | proptest model of the ledger | 751 | Tests the old ledger | Port ordering/recovery properties; delete obsolete wave properties in Phase 3. |
 | `crates/xmtp_api_d14n/src/queries/boxed_streams.rs` | Generic stream boxing | 259 | Stream consumers | Keep. |
 | `crates/xmtp_api_d14n/src/queries/stream/extractor.rs` | Flattens `EnvelopeCollection` items from a `TryStream` | 194 | Stream consumers | Keep. |
 | `crates/xmtp_api_d14n/src/middleware/auth.rs` | `AuthCallback`, `AuthHandle`, `Credential`, gateway JWT body | 518 | `bindings/mobile/src/mls/gateway_auth.rs`, `bindings/node/src/client/gateway_auth.rs`, `bindings/wasm/src/client/gateway_auth.rs` | Keep the three type names. Phase 6 replaces the gateway-specific body. |
@@ -240,17 +241,18 @@ Test recipes, CI matrix, nextest profiles:
 
 ## 6. Streaming
 
-The XIP-83 bidi path becomes the only stream path. The legacy per-stream subscriptions go.
+Spec 004's single-client bidi path replaces XIP-83 and the legacy native streams. Static
+browser streams remain. Preserve application-selected filters, including denied topics.
 
 ### 6.1 Keep
 
 | Path | What | Lines | Action |
 | --- | --- | --- | --- |
-| `crates/xmtp_api_d14n/src/queries/bidi.rs`, `bidi_transport.rs`, `bidi_transport_props.rs` | XIP-83 client | 8,061 | Keep; one binding |
-| `crates/xmtp_mls/src/subscriptions/stream_router.rs` | Router; `V3Binding`, `V3ProtoGroupMessage`, `V3ProtoWelcomeMessage` | 1,685 | Keep; rename the binding types to the one backend |
+| `crates/xmtp_api_d14n/src/queries/bidi.rs`, `bidi_transport.rs`, `bidi_transport_props.rs` | XIP-83 client | 8,061 | Reuse connection helpers; replace wave state and properties under spec 004 |
+| `crates/xmtp_mls/src/subscriptions/stream_router.rs` | Router; `V3Binding`, `V3ProtoGroupMessage`, `V3ProtoWelcomeMessage` | 1,685 | Adapt to shared ingestion and per-topic processing targets; remove lease replay and backend-specific bindings |
 | `crates/xmtp_mls/src/subscriptions/router_callbacks.rs` | Callback streams; the `XMTP_BIDI_STREAMS_ENABLED` gate and latch at lines 101-104 and after | 865 | Keep; delete the gate and the latch; bidi is the default |
-| `crates/xmtp_mls/src/subscriptions/catch_up.rs` | Bidi catch-up | 861 | Keep; spec 004 decides the final shape |
-| `crates/xmtp_mls/src/subscriptions/process_message.rs`, `process_welcome.rs`, `process_message/factory.rs` | Message and welcome processing | 1,287 | Keep; simplify cursor types |
+| `crates/xmtp_mls/src/subscriptions/catch_up.rs` | Bidi catch-up | 861 | Rewrite bounded sync to process fixed targets on a dedicated stream, then cancel |
+| `crates/xmtp_mls/src/subscriptions/process_message.rs`, `process_welcome.rs`, `process_message/factory.rs` | Message and welcome processing | 1,287 | Establish shared ordered ingestion and safe cursor advancement; keep recovery until replacement is verified |
 | `crates/xmtp_mls/src/subscriptions/bidi_tests.rs`, `bidi_fuzz_tests.rs`, `router_callbacks_tests.rs`, `stream_router_tests.rs` | Bidi tests | 2,886 | Keep. Port the backend-agnostic assertions from `d14n_bidi_tests.rs` into `bidi_tests.rs` before Phase 0 deletes it (see the test-deletion plan). |
 
 ### 6.2 Delete: the legacy streaming stack (Phase 3, step 8)
@@ -579,7 +581,7 @@ and the `dev/docker/**` path filters in `.github/workflows/test.yml`. **verify**
 | 1 | `proto/` folder authoritative with the old generated tree deleted; `xmtp_proto` `keystore_api` generated files and `nightly-protos.yml` deleted with the proto move; shared crate scaffolded; `apps/backend` scaffold; CI workflows for xdbg, wasm, and the browser SDK disabled (not deleted; `test-xdbg.yml` is called by `test.yml`, and `cross-test.yml` is read by `release-gate-plan.yml`, so deleting them needs edits to those callers first) | 6,600 |
 | 1 | `dev/drivers` (`cross_talk_test`, `cross_version_test`, `xdbg_driver_lib`) and the matching nix packages | 1,400 |
 | 2 | Move the validation logic and its 8 logic tests into the shared crate, make the backend use it, then delete the `apps/mls_validation_service` shell (main, health, config); `xmtp.mls_validation.v1` protos; its nix package, release workflow, `dev/validation_service`, `dev/build_validation_service*` | 2,500 |
-| 3 | Integration: collapse the `d14n` feature; delete the d14n arm (`endpoints/d14n`, `queries/d14n`, `queries/combined`, `middleware/multi_node_client`, `middleware/read_write_client`, `xmtp_configuration/src/common/d14n.rs`, `d14n_migration_cutover.rs`); replace the v3 arm (`endpoints/v3`, `queries/v3`, `xmtp_api/src/{mls,identity}.rs`, `message_api.v1` and `mls.api.v1` protos, `v3_paged.rs`); delete ordering machinery (`order.rs`, `sort/`, `resolve/`, cursor stores, `global_cursor.rs`, `vector_clock.rs`, `orphaned_envelope.rs`, `originator_id_refresh_state.rs`, `icebox.rs`); simplify `refresh_state.rs`; delete the xmtpv4 and migration copies from `proto/`; delete the legacy streaming stack (`stream_messages.rs`, `stream_conversations.rs`, `stream_all.rs`, `watchdog.rs`, `d14n_compat.rs`, the latch in `router_callbacks.rs`) and make XIP-83 bidi the default (remove the `XMTP_BIDI_STREAMS_ENABLED` opt-in); delete `crates/xmtp_mls/src/registration_visible/`; rename the crate; collapse env and URL config; simplify test harness aliases; `grpc.gateway` and `google.api` generated files; retarget xdbg; Docker | 43,000 |
+| 3 | Integration: collapse the `d14n` feature; delete the d14n arm (`endpoints/d14n`, `queries/d14n`, `queries/combined`, `middleware/multi_node_client`, `middleware/read_write_client`, `xmtp_configuration/src/common/d14n.rs`, `d14n_migration_cutover.rs`); replace the v3 arm (`endpoints/v3`, `queries/v3`, `xmtp_api/src/{mls,identity}.rs`, `message_api.v1` and `mls.api.v1` protos, `v3_paged.rs`); delete ordering machinery (`order.rs`, `sort/`, `resolve/`, cursor stores, `global_cursor.rs`, `vector_clock.rs`, `orphaned_envelope.rs`, `originator_id_refresh_state.rs`, `icebox.rs`); simplify `refresh_state.rs`; delete the xmtpv4 and migration copies from `proto/`; delete the legacy streaming stack (`stream_messages.rs`, `stream_conversations.rs`, `stream_all.rs`, `watchdog.rs`, `d14n_compat.rs`, the latch in `router_callbacks.rs`) and replace XIP-83 with the single-client protocol (remove the `XMTP_BIDI_STREAMS_ENABLED` opt-in); delete `crates/xmtp_mls/src/registration_visible/`; rename the crate; collapse env and URL config; simplify test harness aliases; `grpc.gateway` and `google.api` generated files; retarget xdbg; Docker | 43,000 |
 
 ### Phase 3 strict order
 

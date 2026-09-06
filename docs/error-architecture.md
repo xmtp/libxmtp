@@ -39,6 +39,7 @@ pub enum MyError {
 ```
 
 This generates:
+
 - `MyError::SomethingWrong` -> `"MyError::SomethingWrong"`
 - `MyError::InvalidInput("bad")` -> `"MyError::InvalidInput"`
 
@@ -79,6 +80,7 @@ pub enum GroupError {
 With `inherit`, the error code for `GroupError::Storage(StorageError::NotFound(...))` is `"StorageError::NotFound"`, not `"GroupError::Storage"`.
 
 **Requirements for `inherit`:**
+
 - The variant must have exactly one field (named or unnamed)
 - The inner type must implement `ErrorCode`
 
@@ -312,6 +314,7 @@ fn test_custom_error_code() {
 ```
 
 When adding new error types, add tests verifying:
+
 - Each variant produces the expected code string
 - Inherited variants produce the inner error's code
 - Custom codes return the specified string
@@ -319,7 +322,7 @@ When adding new error types, add tests verifying:
 ## Key files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `crates/xmtp_common/src/error_code.rs` | `ErrorCode` trait definition, remote impls, tests |
 | `crates/xmtp_macro/src/lib.rs` | `#[derive(ErrorCode)]` proc macro implementation |
 | `bindings/mobile/src/lib.rs` | `GenericError`, `FfiError`, `parse_xmtp_error` |

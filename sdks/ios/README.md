@@ -43,8 +43,8 @@ Older versions of the SDK will eventually be deprecated, which means:
 
 The following table provides the deprecation schedule.
 
-| Announced              | Effective     | Minimum Version | Rationale                                                                                                                                                                  |
-|------------------------|---------------|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Announced | Effective | Minimum Version | Rationale |
+| --- | --- | --- | --- |
 | No more support for XMTP V2 | May 1, 2025 | >=4.0.3 | In a move toward better security with MLS and the ability to decentralize, we will be shutting down XMTP V2 and moving entirely to XMTP V3. To learn more about V2 deprecation, see [XIP-53: XMTP V2 deprecation plan](https://community.xmtp.org/t/xip-53-xmtp-v2-deprecation-plan/867). To learn how to upgrade, see [xmtp-ios v4.0.4](https://github.com/xmtp/xmtp-ios/releases/tag/4.0.4). |
 
 Bug reports, feature requests, and PRs are welcome in accordance with these [libxmtp contribution guidelines](../../CONTRIBUTING.md).
