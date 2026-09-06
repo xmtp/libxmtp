@@ -10,8 +10,9 @@ members = [
 
 exclude = ["apps/android"]
 
-# Default members must be part of workspace hack to maximize cache hits in CI/nix/crane
+# Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
+  "apps/backend",
   "apps/mls_validation_service",
   # Bindings
   "bindings/*",

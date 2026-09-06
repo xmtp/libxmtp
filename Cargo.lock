@@ -11028,6 +11028,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_backend"
+version = "1.12.0-dev"
+dependencies = [
+ "tokio",
+ "xmtp_common",
+]
+
+[[package]]
 name = "xmtp_common"
 version = "1.12.0-dev"
 dependencies = [

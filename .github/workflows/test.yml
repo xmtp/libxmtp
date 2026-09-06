@@ -26,6 +26,7 @@ jobs:
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
       keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
       validation: ${{ steps.filter.outputs.validation }}
+      backend: ${{ steps.filter.outputs.backend }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -154,11 +155,31 @@ jobs:
               - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-validation.yml'
+            backend:
+              - 'apps/backend/**'
+              - 'crates/**'
+              - 'proto/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'justfile'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/actions/setup-nix/**'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-backend.yml'
 
   test-validation:
     needs: detect-changes
     if: needs.detect-changes.outputs.validation == 'true'
     uses: ./.github/workflows/test-validation.yml
+    secrets: inherit
+
+  test-backend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    uses: ./.github/workflows/test-backend.yml
     secrets: inherit
 
   test-workspace:
@@ -244,6 +265,7 @@ jobs:
     if: always()
     needs:
       - test-validation
+      - test-backend
       - test-workspace
       - test-keepalive-probe
       - test-node

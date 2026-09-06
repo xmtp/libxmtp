@@ -1,0 +1,70 @@
+name: Test self-hosted backend
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test-backend:
+    name: Test backend (native)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    env:
+      NIX_DEVSHELL: rust
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "false"
+      - uses: taiki-e/install-action@just
+      - name: Test backend
+        run: just test-backend
+
+  backend-image:
+    name: Backend image (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: blacksmith-16vcpu-ubuntu-2404
+            image: .#backend-image-x86_64-unknown-linux-musl
+            nix-disk: "true"
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            image: .#backend-image-aarch64-unknown-linux-musl
+            nix-disk: "false"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          nix-disk: ${{ matrix.nix-disk }}
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "false"
+      - name: Build backend image
+        run: nix build "${{ matrix.image }}" --out-link backend-image-result
+      - name: Load backend image
+        run: docker load --input backend-image-result
+      - name: Check image architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          actual_arch="$(docker image inspect ghcr.io/xmtp/backend:self-hosted --format '{{.Architecture}}')"
+          test "$actual_arch" = "$EXPECTED_ARCH"
+      - name: Run backend image
+        env:
+          PLATFORM: linux/${{ matrix.arch }}
+        run: |
+          output="$(docker run --rm --platform "$PLATFORM" ghcr.io/xmtp/backend:self-hosted)"
+          test "$output" = "Hello from the XMTP backend!"

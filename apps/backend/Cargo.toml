@@ -12,6 +12,7 @@ name = "xmtp-backend"
 path = "src/main.rs"
 
 [dev-dependencies]
+tokio.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [lints]

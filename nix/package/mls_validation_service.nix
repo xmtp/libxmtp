@@ -46,6 +46,7 @@ let
       (commonCargoSources (root + /crates/xmtp_proto))
       (commonCargoSources (root + /crates/xmtp_macro))
       (commonCargoSources (root + /apps/mls_validation_service))
+      (commonCargoSources (root + /apps/backend))
     ];
   };
 

@@ -114,6 +114,16 @@ validation: check-validation test-validation
 
 # --- BACKEND ---
 
+# Build the Phase 1 self-hosted binary without starting the test services.
+build-backend:
+    nix build .#xmtp-backend
+
+test-backend:
+    cargo test --locked -p xmtp_backend
+
+backend-image arch="x86_64":
+    nix build .#backend-image-{{ arch }}-unknown-linux-musl
+
 # `just backend up`, `just backend down`
 [script("bash")]
 backend command="up":
