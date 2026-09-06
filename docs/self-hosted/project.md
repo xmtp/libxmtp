@@ -81,7 +81,7 @@ Expected pull requests: a stack of two, one for documentation changes and one fo
 - Ensure the backend can produce a Docker image, the way the MLS validation service is built with Nix. Ensure all check, build, and test commands work and maximize Nix caching.
 - Create the `proto/` folder for all `.proto` files. Copy every required file from the `proto` repository (including files for endpoints this project removes, such as v4) plus the new backend protos. Set up Buf linting in the justfile. Update all scripts and `crates/xmtp_proto` to make this folder authoritative, and delete the old generated tree and the `proto` repository dependency in the same phase.
 - Ensure tests for the new crates run in CI.
-- Temporarily disable these GitHub Actions to speed up CI: anything for xdbg, wasm, the browser SDK, and `nightly-protos.yml`. The browser SDK is handled in a later phase.
+- Temporarily disable these GitHub Actions to speed up CI: anything for xdbg, wasm, the browser SDK, cross-test, and `nightly-protos.yml`. The browser SDK is handled in a later phase.
 
 ### Phase 2: Backend
 
