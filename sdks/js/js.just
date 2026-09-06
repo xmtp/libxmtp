@@ -12,7 +12,7 @@ install-ci:
 
 # Install only Node and agent workspaces and their dependencies.
 install-node-ci:
-    yarn workspaces focus @xmtp/node-sdk @xmtp/agent-sdk --immutable
+    YARN_ENABLE_IMMUTABLE_INSTALLS=true yarn workspaces focus @xmtp/node-sdk @xmtp/agent-sdk
 
 # Build + stage the local bindings into bindings/<x>/dist via Nix
 bindings target="all":
@@ -45,7 +45,7 @@ lint: install bindings
 
 lint-node: install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
-    yarn eslint node-sdk agent-sdk
+    yarn workspace @xmtp/node-sdk exec eslint . ../agent-sdk
 
 build-node: install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
