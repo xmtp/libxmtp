@@ -18,16 +18,14 @@ use crate::{
     context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
     utils::VersionInfo,
 };
-use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_d14n::MockApiClient;
-use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::XmtpDb;
 use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
-use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
+use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 mod generate;

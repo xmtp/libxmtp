@@ -1,12 +1,10 @@
 #![recursion_limit = "256"]
 
-mod cached_signature_verifier;
 mod config;
 mod handlers;
 mod health_check;
 mod version;
 
-use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
 use clap::Parser;
 use config::{Args, LogFormat};
@@ -17,6 +15,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt as _};
+use xmtp_id::scw_verifier::CachedSmartContractSignatureVerifier;
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 

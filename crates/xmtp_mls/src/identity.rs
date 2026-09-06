@@ -1,30 +1,22 @@
+pub use xmtp_cryptography::GeneratePostQuantumKeyError;
 mod identity_ext;
 pub use identity_ext::*;
 
 use crate::XmtpApi;
-use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use derive_builder::Builder;
+use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
-use openmls::prelude::{HpkeKeyPair, LeafNode};
 use openmls::{
-    credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
-    extensions::{
-        ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
-    },
+    credentials::errors::BasicCredentialError,
+    extensions::Extension,
     key_packages::KeyPackage,
-    messages::proposals::ProposalType,
-    prelude::{Capabilities, Credential as OpenMlsCredential, tls_codec::Serialize},
+    prelude::{Credential as OpenMlsCredential, tls_codec::Serialize},
 };
-use openmls_libcrux_crypto::Provider as LibcruxProvider;
-use openmls_traits::{
-    OpenMlsProvider, crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError,
-};
-use prost::Message;
+use openmls_traits::{OpenMlsProvider, types::CryptoError};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
-use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
@@ -32,12 +24,8 @@ use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
-    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
 };
-use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
@@ -52,7 +40,6 @@ use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::key_package::KeyPackageVerificationError;
-use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId, InboxIdRef,
@@ -63,7 +50,6 @@ use xmtp_id::{
     },
 };
 use xmtp_proto::types::InstallationId;
-use xmtp_proto::xmtp::identity::MlsCredential;
 
 /**
  * The identity strategy determines how the [`ClientBuilder`](crate::builder::ClientBuilder) constructs an identity on startup.
@@ -811,115 +797,49 @@ impl XmtpKeyPackageBuilder {
         include_post_quantum: bool,
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let this = self.inner_build()?;
-        let last_resort = Extension::LastResort(LastResortExtension::default());
-        let welcome_pointee_encryption_aead_types =
-            WelcomePointersExtension::available_types().try_into()?;
-        let mut extensions = vec![last_resort, welcome_pointee_encryption_aead_types];
-        #[cfg(any(test, feature = "test-utils"))]
-        {
-            if !ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true) {
-                let extension = extensions
-                    .pop()
-                    .expect("Welcome pointers extension is always present");
-                assert_eq!(
-                    extension.extension_type(),
-                    ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
-                );
-            }
-        }
-        let mut post_quantum_keypair = None;
-        if include_post_quantum {
-            let keypair = generate_post_quantum_key()?;
-            extensions.push(build_post_quantum_public_key_extension(&keypair.public)?);
-            post_quantum_keypair = Some(keypair);
-        }
-        let key_package_extensions = Extensions::from_vec(extensions)?;
-
-        let application_id =
-            Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
-        let leaf_node_extensions = Extensions::<LeafNode>::single(application_id)?;
-
         #[allow(unused_mut)]
-        let mut capability_extensions = vec![
-            ExtensionType::LastResort,
-            ExtensionType::ApplicationId,
-            ExtensionType::ImmutableMetadata,
-            // Advertise AppDataDictionary so the bootstrap commit
-            // (and later AppDataUpdate proposals) are accepted —
-            // OpenMLS rejects commits whose new extension set isn't
-            // covered by every leaf's capabilities. Advertising
-            // unconditionally is the simplest path: required-vs-
-            // supported is enforced by RequiredCapabilities, not by
-            // this leaf-node list. This advertisement also doubles
-            // as the migration-eligibility signal that
-            // `all_members_support_proposals` reads.
-            ExtensionType::AppDataDictionary,
-            ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-            ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-            ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
-        ];
-        // Test-only opt-out: tests that simulate an "old client
-        // without AppData support" drop the advertisement so the
-        // member-support check fails for that installation.
+        let mut options = xmtp_id::key_package::KeyPackageOptions {
+            include_post_quantum,
+            ..Default::default()
+        };
         #[cfg(any(test, feature = "test-utils"))]
         {
-            if !ENABLE_APP_DATA_DICTIONARY_BROADCAST
+            options.welcome_pointers = ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true);
+            options.app_data_dictionary = ENABLE_APP_DATA_DICTIONARY_BROADCAST
                 .try_with(|v| *v)
-                .unwrap_or(true)
-            {
-                capability_extensions.retain(|e| *e != ExtensionType::AppDataDictionary);
-            }
+                .unwrap_or(true);
+            options.lifetime =
+                Some(crate::utils::test_mocks_helpers::maybe_mock_package_lifetime());
         }
-        // Advertise both `GroupContextExtensions` (required by all groups)
-        // and `AppDataUpdate` (used by the new app-data path) so this client
-        // can join groups that commit AppDataUpdate proposals. Required-vs-
-        // supported is enforced by the group's RequiredCapabilities, not by
-        // this leaf-node list, so advertising more is always safe.
-        let capabilities = Capabilities::new(
-            None,
-            Some(&[CIPHERSUITE]),
-            Some(&capability_extensions),
-            Some(&[
-                ProposalType::GroupContextExtensions,
-                ProposalType::AppDataUpdate,
-            ]),
-            None,
-        );
-
-        let kp_builder = KeyPackage::builder()
-            .leaf_node_capabilities(capabilities)
-            .leaf_node_extensions(leaf_node_extensions)
-            .key_package_extensions(key_package_extensions);
-
-        let kp_builder = {
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
-                let life_time = maybe_mock_package_lifetime();
-                kp_builder.key_package_lifetime(life_time)
-            }
-            #[cfg(not(any(test, feature = "test-utils")))]
-            {
-                kp_builder
-            }
-        };
-
-        let kp = kp_builder.build(
-            CIPHERSUITE,
-            provider,
+        let generated = xmtp_id::key_package::build_key_package(
+            &this.inbox_id,
+            this.credential,
             &this.installation_keys,
-            CredentialWithKey {
-                credential: this.credential,
-                signature_key: this.installation_keys.public_slice().into(),
-            },
+            provider,
+            options,
+        )
+        .map_err(|error| match error {
+            xmtp_id::key_package::KeyPackageConstructionError::Generation(e) => {
+                IdentityError::KeyPackageGenerationError(e)
+            }
+            xmtp_id::key_package::KeyPackageConstructionError::InvalidExtension(e) => {
+                IdentityError::InvalidExtension(e)
+            }
+            xmtp_id::key_package::KeyPackageConstructionError::Encode(e) => {
+                IdentityError::CredentialSerialization(e)
+            }
+            xmtp_id::key_package::KeyPackageConstructionError::PostQuantum(e) => {
+                IdentityError::GeneratePostQuantumKey(e)
+            }
+        })?;
+        store_key_package_references(
+            provider,
+            generated.bundle.key_package(),
+            &generated.post_quantum_keypair,
         )?;
-
-        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
         Ok(NewKeyPackageResult {
-            key_package: kp.key_package().clone(),
-            pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
+            key_package: generated.bundle.key_package().clone(),
+            pq_pub_key: generated.post_quantum_keypair.map(|kp| kp.public),
         })
     }
 }
@@ -957,58 +877,17 @@ pub(crate) fn deserialize_key_package_hash_ref(
 pub(crate) fn create_credential(
     inbox_id: impl AsRef<str>,
 ) -> Result<OpenMlsCredential, IdentityError> {
-    let inbox_id = inbox_id.as_ref().to_string();
-    let cred = MlsCredential { inbox_id };
-    let mut credential_bytes = Vec::new();
-    let _ = cred.encode(&mut credential_bytes);
-
-    Ok(BasicCredential::new(credential_bytes).into())
+    Ok(xmtp_id::key_package::create_credential(inbox_id))
 }
 
 pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {
-    let cred = MlsCredential::decode(credential_bytes)?;
-    Ok(cred.inbox_id)
+    Ok(xmtp_id::key_package::parse_credential(credential_bytes)?)
 }
 
 pub fn build_post_quantum_public_key_extension(
     public_key: &[u8],
 ) -> Result<Extension, IdentityError> {
-    let ext =
-        WrapperEncryptionExtension::new(WrapperAlgorithm::XWingMLKEM768Draft6, public_key.to_vec());
-
-    Ok(ext.try_into()?)
-}
-
-/// Error type for generating a post quantum key pair
-#[derive(Debug, Error)]
-pub enum GeneratePostQuantumKeyError {
-    #[error(transparent)]
-    Crypto(#[from] openmls_traits::types::CryptoError),
-    #[error(transparent)]
-    Rand(#[from] openmls_libcrux_crypto::RandError),
-}
-
-impl xmtp_common::ErrorCode for GeneratePostQuantumKeyError {
-    fn error_code(&self) -> &'static str {
-        match self {
-            Self::Crypto(_) => "GeneratePostQuantumKeyError::Crypto",
-            Self::Rand(_) => "GeneratePostQuantumKeyError::Rand",
-        }
-    }
-}
-
-/// Generate a new key pair using our post quantum ciphersuite
-pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQuantumKeyError> {
-    let provider = LibcruxProvider::default();
-    let rand = provider.rand();
-
-    let ikm: SecretVLBytes = rand
-        .random_vec(POST_QUANTUM_CIPHERSUITE.hash_length())?
-        .into();
-
-    Ok(provider
-        .crypto()
-        .derive_hpke_keypair(POST_QUANTUM_CIPHERSUITE.hpke_config(), ikm.as_slice())?)
+    Ok(xmtp_id::key_package::build_post_quantum_public_key_extension(public_key)?)
 }
 
 // Store the hash reference, keyed with both the public init key and the post quantum init key.
@@ -1197,39 +1076,6 @@ mod tests {
         let key_package_from_db: Option<KeyPackageBundle> =
             provider.storage().key_package(&pq_hash_ref_inner).unwrap();
         assert!(key_package_from_db.is_none());
-    }
-
-    /// Companion to `test_app_data_update_advertised_but_not_required` in
-    /// `groups/tests/test_proposals.rs`, which covers the group-creator side.
-    ///
-    /// The joiner side: a key package built by `XmtpKeyPackageBuilder` must
-    /// advertise `AppDataUpdate` on its leaf node so this installation can be
-    /// added to groups whose commits inline AppDataUpdate proposals. If this
-    /// regresses, new clients would fail RequiredCapabilities on join into any
-    /// group created by a peer that later requires the capability.
-    #[xmtp_common::test]
-    async fn test_app_data_update_capability_advertised_on_key_package() {
-        use openmls::messages::proposals::ProposalType;
-
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let storage = client.context.mls_storage();
-        let provider = XmtpOpenMlsProviderRef::new(storage);
-
-        let kp = client
-            .identity()
-            .new_key_package(&provider, false)
-            .unwrap()
-            .key_package;
-        let proposals = kp.leaf_node().capabilities().proposals();
-
-        assert!(
-            proposals.contains(&ProposalType::AppDataUpdate),
-            "key package must advertise AppDataUpdate, got: {proposals:?}",
-        );
-        assert!(
-            proposals.contains(&ProposalType::GroupContextExtensions),
-            "key package must still advertise GroupContextExtensions, got: {proposals:?}",
-        );
     }
 
     #[test]

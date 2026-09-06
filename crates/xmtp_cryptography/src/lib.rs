@@ -1,3 +1,5 @@
+pub mod post_quantum;
+pub use post_quantum::{GeneratePostQuantumKeyError, generate_post_quantum_key};
 pub mod basic_credential;
 pub mod configuration;
 pub mod ethereum;

@@ -25,6 +25,7 @@ hex.workspace = true
 libcrux-ed25519.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
+openmls_libcrux_crypto.workspace = true
 openmls_traits.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
