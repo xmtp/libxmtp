@@ -62,6 +62,7 @@
             default = pkgs.callPackage ./nix/shells/local.nix { };
             android = pkgs.callPackage ./nix/shells/android.nix { };
             js = pkgs.callPackage ./nix/js.nix { };
+            js-node = pkgs.callPackage ./nix/js-node.nix { };
             wasm = (pkgs.callPackage ./nix/package/wasm.nix { }).devShell;
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {

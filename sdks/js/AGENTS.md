@@ -8,6 +8,7 @@ Yarn workspace: `node-sdk` (over `bindings/node`), `browser-sdk` (over `bindings
 just js install
 just js bindings                        # build node + wasm bindings via Nix, stage into bindings/*/dist
 just js bindings-node                    # build only Node bindings via Nix
+just js install-node-ci                  # install only Node and agent workspaces
 just js check-node                       # typecheck Node and agent SDKs
 just js lint-node                        # lint Node and agent SDKs
 just js build-node                       # build Node and agent SDKs
@@ -24,6 +25,7 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 
 ## Gotchas
 
-- Needs `just backend up`. Run `just js install` and `just js bindings` once first.
+- Needs `just backend up`. Run `just js install` and `just js bindings` once first for full local SDK work.
+- Node and agent CI uses `NIX_DEVSHELL=js-node`, `just js install-node-ci`, and `just js bindings-node`.
 - `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
 - Formatting is treefmt prettier (`just lint-config`), not eslint.

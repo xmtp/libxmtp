@@ -94,7 +94,7 @@ jobs:
             echo "ios=true" >> "$GITHUB_OUTPUT"
             echo "android=true" >> "$GITHUB_OUTPUT"
             echo "node-sdk=true" >> "$GITHUB_OUTPUT"
-            echo "browser-sdk=true" >> "$GITHUB_OUTPUT"
+            echo "browser-sdk=false" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=true" >> "$GITHUB_OUTPUT"
             echo "dry-run=false" >> "$GITHUB_OUTPUT"
           else
@@ -107,6 +107,11 @@ jobs:
             echo "agent-sdk=$INPUT_AGENT_SDK" >> "$GITHUB_OUTPUT"
             echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
           fi
+      - name: Reject deferred browser SDK release
+        if: steps.resolve.outputs.browser-sdk == 'true'
+        run: |
+          echo "::error::Browser SDK releases are disabled during Phase 1. Set browser-sdk=false and release Node or agent SDKs instead."
+          exit 1
       # `ref` can arrive as either `refs/heads/x` or `x` (inputs.ref is free
       # text, github.ref is always fully qualified). `branch` is the single
       # normalized form, so anything that keys off branch IDENTITY — the

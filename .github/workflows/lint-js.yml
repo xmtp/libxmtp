@@ -2,7 +2,7 @@ name: Lint JS
 on:
   workflow_call:
 env:
-  NIX_DEVSHELL: js
+  NIX_DEVSHELL: js-node
 jobs:
   lint:
     name: Lint (JS SDKs)

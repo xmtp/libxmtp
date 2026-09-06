@@ -10,6 +10,10 @@ install:
 install-ci:
     yarn install --immutable
 
+# Install only Node and agent workspaces and their dependencies.
+install-node-ci:
+    yarn workspaces focus @xmtp/node-sdk @xmtp/agent-sdk --immutable
+
 # Build + stage the local bindings into bindings/<x>/dist via Nix
 bindings target="all":
     ./dev/bindings {{ target }}
@@ -25,7 +29,7 @@ check: install bindings
     yarn workspace @xmtp/node-sdk run build
     yarn workspaces foreach -A run typecheck
 
-check-node: install-ci bindings-node
+check-node: install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
     yarn workspace @xmtp/node-sdk run typecheck
     yarn workspace @xmtp/agent-sdk run typecheck
@@ -39,11 +43,11 @@ lint: install bindings
     yarn workspace @xmtp/node-sdk run build
     yarn lint
 
-lint-node: install-ci bindings-node
+lint-node: install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
     yarn eslint node-sdk agent-sdk
 
-build-node: install-ci bindings-node
+build-node: install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
     yarn workspace @xmtp/agent-sdk run build
 
@@ -56,7 +60,7 @@ test: install bindings
 
 # CI: node-sdk tests. Bindings are a nix cache hit (built by test-node job).
 # Extra args (e.g. --shard N/M) are forwarded to vitest.
-test-node-sdk-ci *args="": install-ci bindings-node
+test-node-sdk-ci *args="": install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run test {{ args }}
 
 # CI: browser-sdk tests (Playwright). Bindings are a nix cache hit (test-wasm).
@@ -65,6 +69,6 @@ test-browser-sdk-ci *args="": install-ci bindings
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),
 # which must be built first so its dist exists at runtime.
-test-agent-sdk-ci *args="": install-ci bindings-node
+test-agent-sdk-ci *args="": install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
     yarn workspace @xmtp/agent-sdk run test {{ args }}
