@@ -7,6 +7,10 @@ Yarn workspace: `node-sdk` (over `bindings/node`), `browser-sdk` (over `bindings
 ```bash
 just js install
 just js bindings                        # build node + wasm bindings via Nix, stage into bindings/*/dist
+just js bindings-node                    # build only Node bindings via Nix
+just js check-node                       # typecheck Node and agent SDKs
+just js lint-node                        # lint Node and agent SDKs
+just js build-node                       # build Node and agent SDKs
 just js check                           # typecheck all
 just js build
 just js lint                            # eslint

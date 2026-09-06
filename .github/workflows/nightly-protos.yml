@@ -5,6 +5,8 @@ on:
   workflow_dispatch:
 jobs:
   nightly-protos:
+    # Deferred until local protobuf sources are authoritative.
+    if: ${{ false }}
     permissions:
       contents: write
       pull-requests: write

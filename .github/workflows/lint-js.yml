@@ -18,11 +18,11 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Install dependencies
         run: just js install-ci
-      - name: Build bindings (typecheck needs the .d.ts)
-        run: just js bindings
+      - name: Build Node bindings (typecheck needs the .d.ts)
+        run: just js bindings-node
       - name: Typecheck
-        run: just js check
+        run: just js check-node
       - name: ESLint
-        run: just js lint
-      - name: Build SDKs (rollup bundle — exercises the release build path)
-        run: just js build
+        run: just js lint-node
+      - name: Build Node and agent SDKs
+        run: just js build-node

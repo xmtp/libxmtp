@@ -39,6 +39,8 @@ env:
 
 jobs:
   setup:
+    # Deferred until the browser SDK migration phase.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -79,6 +81,7 @@ jobs:
           echo "Computed version: $VERSION"
 
   build:
+    if: ${{ false }}
     needs: setup
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
@@ -107,6 +110,7 @@ jobs:
           retention-days: 1
 
   publish:
+    if: ${{ false }}
     needs: [setup, build]
     uses: ./.github/workflows/npm-publish.yml
     with:

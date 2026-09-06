@@ -54,7 +54,6 @@ let
       filesets = host.callPackage ./filesets.nix { };
       mkToolchain = final.callPackage ./mkToolchain.nix { inherit inputs; };
       mkNativeToolchain = xmtp.mkToolchain final;
-      xdbg-driver-lib = final.callPackage ./../package/xdbg-driver-lib { };
       craneLib = (inputs.crane.mkLib final).overrideScope craneConfig;
       base = final.callPackage ./base.nix { };
       androidEnv = final.callPackage ./android-env.nix { };
@@ -64,8 +63,6 @@ let
       toNapiTarget = import ./napiTarget.nix;
       gitSha = self.shortRev or self.dirtyShortRev or "unknown";
       gitCommitDate = self.lastModifiedDate or "";
-      cross-version-test = final.callPackage ./../package/cross-version-test { };
-      cross-talk-test = final.callPackage ./../package/cross-talk-test { };
     };
   };
 

@@ -128,7 +128,7 @@ jobs:
       - uses: taiki-e/install-action@just
 
       - name: Stage node bindings
-        run: just js bindings
+        run: just js bindings-node
 
       - name: Install + build node-sdk
         run: |

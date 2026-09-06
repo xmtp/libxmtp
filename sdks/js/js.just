@@ -11,13 +11,24 @@ install-ci:
     yarn install --immutable
 
 # Build + stage the local bindings into bindings/<x>/dist via Nix
-bindings:
-    ./dev/bindings
+bindings target="all":
+    ./dev/bindings {{ target }}
+
+bindings-node:
+    ./dev/bindings node
+
+bindings-wasm:
+    ./dev/bindings wasm
 
 # Typecheck all SDKs (agent-sdk resolves types from node-sdk's dist)
 check: install bindings
     yarn workspace @xmtp/node-sdk run build
     yarn workspaces foreach -A run typecheck
+
+check-node: install-ci bindings-node
+    yarn workspace @xmtp/node-sdk run build
+    yarn workspace @xmtp/node-sdk run typecheck
+    yarn workspace @xmtp/agent-sdk run typecheck
 
 # Build all SDKs in topological order (needs bindings present)
 build: install bindings
@@ -28,6 +39,14 @@ lint: install bindings
     yarn workspace @xmtp/node-sdk run build
     yarn lint
 
+lint-node: install-ci bindings-node
+    yarn workspace @xmtp/node-sdk run build
+    yarn eslint node-sdk agent-sdk
+
+build-node: install-ci bindings-node
+    yarn workspace @xmtp/node-sdk run build
+    yarn workspace @xmtp/agent-sdk run build
+
 # Run all JS SDK tests locally (builds bindings first)
 test: install bindings
     yarn workspace @xmtp/node-sdk run test
@@ -37,7 +56,7 @@ test: install bindings
 
 # CI: node-sdk tests. Bindings are a nix cache hit (built by test-node job).
 # Extra args (e.g. --shard N/M) are forwarded to vitest.
-test-node-sdk-ci *args="": install-ci bindings
+test-node-sdk-ci *args="": install-ci bindings-node
     yarn workspace @xmtp/node-sdk run test {{ args }}
 
 # CI: browser-sdk tests (Playwright). Bindings are a nix cache hit (test-wasm).
@@ -46,6 +65,6 @@ test-browser-sdk-ci *args="": install-ci bindings
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),
 # which must be built first so its dist exists at runtime.
-test-agent-sdk-ci *args="": install-ci bindings
+test-agent-sdk-ci *args="": install-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
     yarn workspace @xmtp/agent-sdk run test {{ args }}

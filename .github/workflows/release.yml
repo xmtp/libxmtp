@@ -252,11 +252,8 @@ jobs:
 
   release-browser-sdk:
     needs: [validate, plan]
-    if: >-
-      !cancelled() && !contains(needs.*.result, 'failure')
-      && needs.validate.outputs.browser-sdk == 'true' && needs.validate.outputs.skip != 'true'
-      && (needs.validate.outputs.release-type != 'nightly'
-          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    # Deferred until the browser SDK and WASM migration phase.
+    if: ${{ false }}
     uses: ./.github/workflows/release-browser-sdk.yml
     with:
       release-type: ${{ needs.validate.outputs.release-type }}

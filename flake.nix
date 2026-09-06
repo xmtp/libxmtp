@@ -70,9 +70,6 @@
           packages = {
             inherit (pkgs.xmtp)
               ffi-uniffi-bindgen
-              xdbg-driver-lib
-              cross-talk-test
-              cross-version-test
               ;
             inherit (pkgs)
               napi-rs-cli
