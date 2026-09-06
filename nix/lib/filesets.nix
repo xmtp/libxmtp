@@ -18,6 +18,9 @@ let
 
   # Cargo resolves every workspace member before it applies default-members.
   apps = fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps);
+  # Full app sources are required for Crane's dummy workspace. A manifest-only
+  # app has no target when Cargo resolves the workspace in a Nix build.
+  appSources = unions (crateSources (src + /apps));
 
   # Narrow fileset for buildDepsOnly — only includes files that affect
   # dependency compilation. Cargo.toml/Cargo.lock for resolution, build.rs
@@ -55,7 +58,7 @@ let
     (src + /.config/nextest.toml)
     # all crates in `crates/` are treated as required library crates
     (crateSources (src + /crates))
-    apps
+    appSources
   ]);
   binaries = unions (flatten [
     (commonCargoSources (src + /apps/android/xmtpv3_example))
