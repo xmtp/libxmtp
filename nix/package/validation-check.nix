@@ -59,7 +59,7 @@ rust.buildPackage (
       python3
       taplo
     ];
-    buildPhaseCargoCommand = "dev/check-validation all";
+    buildPhaseCargoCommand = "bash dev/check-validation all";
     doCheck = false;
     doInstallCargoArtifacts = false;
     doNotPostBuildInstallCargoBinaries = true;
