@@ -8,7 +8,7 @@ gRPC service. Validates key packages, group messages, identity updates.
 just check crate mls_validation_service
 just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate mls_validation_service  # needs `just backend up` (anvil)
-just test v3 -p mls_validation_service --ignore-default-filter test_get_association_state   # one test
+just test v3 -p mls_validation_service --ignore-default-filter test_validate_scw   # one test
 dev/nix-shell "cargo nextest run --profile ci -p mls_validation_service -E 'test(/handlers::/)'"# needs `just backend up` (anvil)
 dev/nix-shell 'cargo run -p mls_validation_service -- --help'
 nix build .#validation-service-image     # docker image. `just backend up` does this too.
@@ -17,5 +17,6 @@ nix build .#validation-service-image     # docker image. `just backend up` does 
 ## Gotchas
 
 - Needs `just backend up` (anvil for SCW checks).
-- This project turns it into a crate the backend calls in-process. No new standalone features.
-- Old tests use `#[tokio::test]`. New tests use `#[xmtp_common::test]`.
+- Payload admission is in `xmtp_mls_validation`; the SCW cache is in `xmtp_id`.
+- This transport shell remains until Phase 2. Do not add standalone features.
+- Tests use `#[xmtp_common::test(unwrap_try = true)]`.

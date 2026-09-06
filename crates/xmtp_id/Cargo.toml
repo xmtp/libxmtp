@@ -18,7 +18,11 @@ targets = [
 ]
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types"] }
+alloy = { workspace = true, features = [
+  "sol-types",
+  "provider-http",
+  "reqwest",
+] }
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
@@ -45,7 +49,6 @@ sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 url = { workspace = true, features = ["serde"] }
-xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
@@ -59,8 +62,6 @@ alloy = { workspace = true, features = [
   "rpc-types",
   "network",
   "json",
-  "provider-anvil-api",
-  "provider-anvil-node",
   "contract",
   "rand",
 ] }
@@ -78,7 +79,16 @@ xmtp_configuration = { workspace = true, features = ["test-utils"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 gloo-timers.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Activate native harness support without enabling it on portable fixtures.
+alloy-provider = { version = "2", default-features = false, features = [
+  "anvil-node",
+], optional = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+alloy-provider = { version = "2", default-features = false, features = [
+  "anvil-node",
+] }
 ctor.workspace = true
 
 [features]
@@ -91,8 +101,8 @@ test-utils = [
   "xmtp_configuration/test-utils",
   "dep:rstest",
   "alloy/json",
-  "alloy/provider-anvil-api",
-  "alloy/provider-anvil-node",
   "alloy/contract",
   "alloy/rand",
 ]
+
+test-utils-anvil = ["test-utils", "dep:alloy-provider"]

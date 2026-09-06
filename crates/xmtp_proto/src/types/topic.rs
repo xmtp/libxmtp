@@ -20,6 +20,7 @@ pub enum TopicKind {
     WelcomeMessagesV1 = 1,
     IdentityUpdatesV1 = 2,
     KeyPackagesV1 = 3,
+    CommitLogEntriesV1 = 4,
 }
 
 impl TryFrom<u8> for TopicKind {
@@ -31,9 +32,10 @@ impl TryFrom<u8> for TopicKind {
             1 => Ok(TopicKind::WelcomeMessagesV1),
             2 => Ok(TopicKind::IdentityUpdatesV1),
             3 => Ok(TopicKind::KeyPackagesV1),
+            4 => Ok(TopicKind::CommitLogEntriesV1),
             i => Err(ConversionError::InvalidValue {
                 item: "u8",
-                expected: "an unsigned integer in the range 0-3",
+                expected: "an unsigned integer in the range 0-4",
                 got: i.to_string(),
             }),
         }
@@ -48,6 +50,7 @@ impl Display for TopicKind {
             WelcomeMessagesV1 => write!(f, "welcome_message_v1"),
             IdentityUpdatesV1 => write!(f, "identity_updates_v1"),
             KeyPackagesV1 => write!(f, "key_packages_v1"),
+            CommitLogEntriesV1 => write!(f, "commit_log_entries_v1"),
         }
     }
 }
@@ -95,6 +98,39 @@ where
 }
 
 impl Topic {
+    /// Parse a backend topic and check its kind-specific identifier length.
+    pub fn parse(bytes: &[u8]) -> Result<Self, ConversionError> {
+        use xmtp_configuration::{BACKEND_GROUP_ID_BYTES, BACKEND_INSTALLATION_ID_BYTES};
+
+        let Some((&kind, identifier)) = bytes.split_first() else {
+            return Err(ConversionError::InvalidValue {
+                item: "Topic",
+                expected: "a topic kind followed by its identifier",
+                got: "empty".into(),
+            });
+        };
+        let kind = TopicKind::try_from(kind)?;
+        let expected = match kind {
+            TopicKind::GroupMessagesV1 | TopicKind::CommitLogEntriesV1 => BACKEND_GROUP_ID_BYTES,
+            TopicKind::WelcomeMessagesV1
+            | TopicKind::IdentityUpdatesV1
+            | TopicKind::KeyPackagesV1 => BACKEND_INSTALLATION_ID_BYTES,
+        };
+        if identifier.len() != expected {
+            return Err(ConversionError::InvalidLength {
+                item: "Topic identifier",
+                expected,
+                got: identifier.len(),
+            });
+        }
+        Ok(kind.create(identifier))
+    }
+
+    /// Create a commit-log topic from its group identifier.
+    pub fn new_commit_log(group_id: impl AsRef<[u8]>) -> Self {
+        TopicKind::CommitLogEntriesV1.create(group_id)
+    }
+
     pub fn new(kind: TopicKind, bytes: Vec<u8>) -> Self {
         Self {
             inner: kind.build(bytes),
@@ -274,6 +310,37 @@ impl AuthenticatedData {
         AuthenticatedData {
             target_topic: topic.into(),
             depends_on: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xmtp_configuration::{BACKEND_GROUP_ID_BYTES, BACKEND_INSTALLATION_ID_BYTES};
+
+    /// P1-VAL-01/04: raw backend topics have one known kind and an exact identifier.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn backend_topic_parser_checks_each_kind_and_identifier_length() {
+        assert!(Topic::parse(&[]).is_err());
+        assert!(Topic::parse(&[u8::MAX]).is_err());
+        for (kind, length) in [
+            (TopicKind::GroupMessagesV1, BACKEND_GROUP_ID_BYTES),
+            (TopicKind::WelcomeMessagesV1, BACKEND_INSTALLATION_ID_BYTES),
+            (TopicKind::IdentityUpdatesV1, BACKEND_INSTALLATION_ID_BYTES),
+            (TopicKind::KeyPackagesV1, BACKEND_INSTALLATION_ID_BYTES),
+            (TopicKind::CommitLogEntriesV1, BACKEND_GROUP_ID_BYTES),
+        ] {
+            let mut bytes = vec![kind as u8];
+            bytes.extend(vec![0; length]);
+            let topic = Topic::parse(&bytes)?;
+            assert_eq!(topic.kind(), kind);
+            assert_eq!(topic.cloned_vec(), bytes);
+            assert!(Topic::parse(&[kind as u8]).is_err());
+            bytes.pop();
+            assert!(Topic::parse(&bytes).is_err());
+            bytes.extend([0, 0]);
+            assert!(Topic::parse(&bytes).is_err());
         }
     }
 }

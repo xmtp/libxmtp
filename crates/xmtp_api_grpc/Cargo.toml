@@ -60,7 +60,7 @@ tower.workspace = true
 futures-test.workspace = true
 rstest.workspace = true
 toxiproxy_rust.workspace = true
-xmtp_proto = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
 tokio = { workspace = true }
@@ -74,4 +74,4 @@ wasm-bindgen-test.workspace = true
 
 [features]
 default = []
-test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]
+test-utils = ["xmtp_proto/test-utils-network", "dep:toxiproxy_rust"]

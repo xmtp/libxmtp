@@ -100,7 +100,6 @@ dependencies = [
  "alloy-eips",
  "alloy-ens",
  "alloy-network",
- "alloy-node-bindings",
  "alloy-provider",
  "alloy-rpc-client",
  "alloy-rpc-types",
@@ -542,7 +541,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96deb317fe224e98a8ae17a7ed7ea63478867385bf50b7abd53642b24cfd811a"
 dependencies = [
  "alloy-primitives",
- "alloy-rpc-types-anvil",
  "alloy-rpc-types-eth",
  "alloy-serde",
  "serde",
@@ -5912,15 +5910,9 @@ name = "mls_validation_service"
 version = "1.12.0-dev"
 dependencies = [
  "alloy",
- "async-trait",
  "clap",
  "const-hex",
  "futures",
- "lru 0.18.2",
- "openmls",
- "openmls_rust_crypto",
- "parking_lot",
- "rand 0.10.2",
  "rstest",
  "thiserror 2.0.19",
  "tokio",
@@ -5929,11 +5921,9 @@ dependencies = [
  "tracing-subscriber",
  "vergen-gix",
  "warp",
- "xmtp-workspace-hack",
  "xmtp_common",
- "xmtp_configuration",
- "xmtp_cryptography",
  "xmtp_id",
+ "xmtp_mls_validation",
  "xmtp_proto",
 ]
 
@@ -10845,7 +10835,9 @@ dependencies = [
  "itertools 0.14.0",
  "k256",
  "libc",
- "libcrux-ed25519",
+ "libcrux-ecdh",
+ "libcrux-kem",
+ "libcrux-ml-kem",
  "log",
  "memchr",
  "nu-ansi-term",
@@ -11068,7 +11060,6 @@ dependencies = [
  "web-sys",
  "web-time",
  "webpki-roots",
- "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",
  "xmtp_logging",
@@ -11080,7 +11071,6 @@ name = "xmtp_configuration"
 version = "1.12.0-dev"
 dependencies = [
  "openmls",
- "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",
 ]
@@ -11122,6 +11112,7 @@ dependencies = [
  "libcrux-ed25519",
  "openmls",
  "openmls_basic_credential",
+ "openmls_libcrux_crypto",
  "openmls_traits",
  "rand 0.10.2",
  "rand_chacha 0.10.0",
@@ -11131,7 +11122,6 @@ dependencies = [
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
  "wasm-bindgen-test",
- "xmtp-workspace-hack",
  "zeroize",
 ]
 
@@ -11189,20 +11179,27 @@ name = "xmtp_id"
 version = "1.12.0-dev"
 dependencies = [
  "alloy",
+ "alloy-provider",
  "async-trait",
  "base64 0.23.0",
  "chrono",
  "const-hex",
+ "coset",
  "ctor",
  "ed25519-dalek",
  "futures",
+ "futures-executor",
  "gloo-timers",
  "hpke-rs 0.6.1",
+ "lru 0.18.2",
  "openmls",
  "openmls_rust_crypto",
  "openmls_traits",
  "p256",
+ "parking_lot",
+ "passkey",
  "prost",
+ "public-suffix",
  "regex",
  "rstest",
  "serde",
@@ -11213,7 +11210,6 @@ dependencies = [
  "tracing",
  "url",
  "wasm-bindgen-test",
- "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
@@ -11245,7 +11241,6 @@ dependencies = [
  "tracing-subscriber",
  "tracing-web",
  "tracing_android_trace",
- "xmtp-workspace-hack",
 ]
 
 [[package]]
@@ -11258,7 +11253,6 @@ dependencies = [
  "syn 2.0.119",
  "tokio",
  "wasm-bindgen-test",
- "xmtp-workspace-hack",
 ]
 
 [[package]]
@@ -11273,7 +11267,6 @@ dependencies = [
  "bytes",
  "chrono",
  "const-hex",
- "coset",
  "criterion",
  "ctor",
  "derive_builder",
@@ -11299,11 +11292,9 @@ dependencies = [
  "openmls_traits",
  "owo-colors",
  "parking_lot",
- "passkey",
  "pin-project",
  "proptest",
  "prost",
- "public-suffix",
  "rand 0.10.2",
  "reqwest 0.13.4",
  "rstest",
@@ -11324,7 +11315,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trait-variant",
- "url",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
@@ -11341,6 +11331,7 @@ dependencies = [
  "xmtp_id",
  "xmtp_macro",
  "xmtp_mls_common",
+ "xmtp_mls_validation",
  "xmtp_proto",
  "zeroize",
 ]
@@ -11368,6 +11359,26 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
+ "xmtp_id",
+ "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_mls_validation"
+version = "1.12.0-dev"
+dependencies = [
+ "const-hex",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_rust_crypto",
+ "prost",
+ "thiserror 2.0.19",
+ "tls_codec 0.5.0",
+ "tokio",
+ "wasm-bindgen-test",
+ "xmtp_common",
+ "xmtp_configuration",
+ "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
 ]
@@ -11409,7 +11420,6 @@ dependencies = [
  "url",
  "walkdir",
  "wasm-bindgen-test",
- "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_configuration",
 ]

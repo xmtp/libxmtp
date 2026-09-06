@@ -4,9 +4,7 @@ use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::summary::SyncSummary;
 use futures::StreamExt;
-use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
-use prost::Message;
 use std::collections::HashSet;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
@@ -32,7 +30,6 @@ use xmtp_db::{
 };
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
 use xmtp_proto::types::Cursor;
-use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::{CommitLogEntry, CommitResult as ProtoCommitResult};
 use xmtp_proto::{
     mls_v1::{PagingInfo, QueryCommitLogRequest, QueryCommitLogResponse},
@@ -390,21 +387,21 @@ where
         let provider = self.context.mls_provider();
         let mut signed_entries = Vec::new();
         for entry in plaintext_commit_log_entries {
-            let serialized_commit_log_entry = entry.encode_to_vec();
-            let signature = provider.crypto().sign(
-                SignatureScheme::ED25519,
-                &serialized_commit_log_entry,
-                private_key.as_slice(),
-            )?;
-            let public_key = xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec();
+            let signed =
+                xmtp_mls_validation::sign_commit_log(entry, &private_key, provider.crypto())
+                    .map_err(|error| match error {
+                        xmtp_mls_validation::CommitLogSigningError::Crypto(error) => {
+                            CommitLogError::CryptoError(error)
+                        }
+                        xmtp_mls_validation::CommitLogSigningError::KeyLength(error) => {
+                            CommitLogError::TryFromSliceError(error)
+                        }
+                    })?;
 
             signed_entries.push(PublishCommitLogRequest {
                 group_id: conversation.id.to_vec(),
-                serialized_commit_log_entry,
-                signature: Some(RecoverableEd25519Signature {
-                    bytes: signature,
-                    public_key,
-                }),
+                serialized_commit_log_entry: signed.serialized_commit_log_entry,
+                signature: Some(signed.signature),
             });
         }
         Ok(signed_entries)
@@ -496,7 +493,7 @@ where
         if let Some(consensus_public_key) = consensus_public_key {
             let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
             for commit_log_entry in &commit_log_response.commit_log_entries {
-                let log_entry = match PlaintextCommitLogEntry::decode(
+                let log_entry = match xmtp_mls_validation::decode_commit_log(
                     commit_log_entry.serialized_commit_log_entry.as_slice(),
                 ) {
                     Ok(entry) => entry,

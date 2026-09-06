@@ -20,11 +20,11 @@ publish = ["crates-io"]
 [dependencies]
 aead = { version = "0.5", default-features = false, features = ["getrandom", "std"] }
 aes-gcm = { version = "0.10", features = ["std"] }
-alloy = { version = "2", default-features = false, features = ["contract", "provider-anvil-node", "rand", "signer-local"] }
+alloy = { version = "2", default-features = false, features = ["contract", "provider-http", "rand", "reqwest", "rpc-types", "signer-local"] }
 alloy-core = { version = "1", default-features = false, features = ["dyn-abi", "json-abi", "rand", "rlp"] }
 alloy-json-abi = { version = "1", default-features = false, features = ["serde_json", "std"] }
 alloy-primitives = { version = "1", default-features = false, features = ["k256", "map", "rand", "rlp", "serde", "std"] }
-alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
+alloy-provider = { version = "2", default-features = false, features = ["reqwest"] }
 alloy-rpc-client = { version = "2", default-features = false, features = ["reqwest"] }
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
@@ -60,7 +60,9 @@ idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
-libcrux-ed25519 = { version = "0.0.9", default-features = false, features = ["rand"] }
+libcrux-ecdh = { version = "0.0.8", default-features = false, features = ["std"] }
+libcrux-kem = { version = "0.0.9", default-features = false, features = ["std"] }
+libcrux-ml-kem = { version = "0.0.10", default-features = false, features = ["default-no-std", "std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
@@ -69,7 +71,7 @@ once_cell = { version = "1" }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
 openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
@@ -105,16 +107,15 @@ url = { version = "2", features = ["serde"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
-zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [build-dependencies]
 aead = { version = "0.5", default-features = false, features = ["getrandom", "std"] }
 aes-gcm = { version = "0.10", features = ["std"] }
-alloy = { version = "2", default-features = false, features = ["contract", "provider-anvil-node", "rand", "signer-local"] }
+alloy = { version = "2", default-features = false, features = ["contract", "provider-http", "rand", "reqwest", "rpc-types", "signer-local"] }
 alloy-core = { version = "1", default-features = false, features = ["dyn-abi", "json-abi", "rand", "rlp"] }
 alloy-json-abi = { version = "1", default-features = false, features = ["serde_json", "std"] }
 alloy-primitives = { version = "1", default-features = false, features = ["k256", "map", "rand", "rlp", "serde", "std"] }
-alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
+alloy-provider = { version = "2", default-features = false, features = ["reqwest"] }
 alloy-rpc-client = { version = "2", default-features = false, features = ["reqwest"] }
 alloy-sol-macro = { version = "1", default-features = false, features = ["json"] }
 alloy-sol-macro-expander = { version = "1", default-features = false, features = ["json"] }
@@ -154,7 +155,9 @@ idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
-libcrux-ed25519 = { version = "0.0.9", default-features = false, features = ["rand"] }
+libcrux-ecdh = { version = "0.0.8", default-features = false, features = ["std"] }
+libcrux-kem = { version = "0.0.9", default-features = false, features = ["std"] }
+libcrux-ml-kem = { version = "0.0.10", default-features = false, features = ["default-no-std", "std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
@@ -163,7 +166,7 @@ once_cell = { version = "1" }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["clonable", "draft-ietf-mls-pq-ciphersuites", "test-utils"] }
 openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", default-features = false, features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = ["draft-ietf-mls-pq-ciphersuites", "extensions-draft", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
@@ -202,9 +205,9 @@ url = { version = "2", features = ["serde"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
-zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
@@ -224,8 +227,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
@@ -247,8 +252,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-apple-darwin.dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
@@ -270,8 +277,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
@@ -295,8 +304,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-linux-android.dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
@@ -318,8 +329,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-linux-android.build-dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
@@ -343,8 +356,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-linux-android.dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
@@ -365,8 +380,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-linux-android.build-dependencies]
+alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
@@ -389,5 +406,6 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 ### END HAKARI SECTION

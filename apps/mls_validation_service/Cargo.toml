@@ -19,15 +19,9 @@ path = "src/main.rs"
 vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
-alloy.workspace = true
-async-trait.workspace = true
 clap = { workspace = true, features = ["env"] }
 futures.workspace = true
 hex.workspace = true
-lru.workspace = true
-openmls.workspace = true
-openmls_rust_crypto.workspace = true
-parking_lot.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tonic = { workspace = true, features = ["router", "server"] }
@@ -38,20 +32,17 @@ tracing-subscriber = { workspace = true, features = [
   "json",
 ] }
 warp.workspace = true
-xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
-xmtp_configuration.workspace = true
-xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
+xmtp_mls_validation.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 
 [dev-dependencies]
-rand.workspace = true
+alloy = { workspace = true, features = ["dyn-abi", "rand"] }
 rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_configuration = { workspace = true, features = ["test-utils"] }
-xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
 
 
 [features]
-test-utils = ["xmtp_id/test-utils", "xmtp_configuration/test-utils"]
+test-utils = ["xmtp_id/test-utils-anvil"]

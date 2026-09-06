@@ -1,9 +1,8 @@
 # Phase 1 MLS extraction audit
 
-Status: identity extraction implemented on the Phase 1 identity branch.
-Envelope validation, commit-log extraction, dependency isolation, and final test
-traceability remain integration tasks. This document does not claim those tasks
-are complete.
+Status: runtime extraction and dependency isolation are implemented. The Phase 1
+PR records the final native/wasm execution results. Test ownership is recorded in
+[the test catalogue](tests/existing-requirements.md#phase-1-ownership-update).
 
 ## Scope and method
 
@@ -33,7 +32,7 @@ Paths in the first column are the original source locations.
 | `groups/mls_ext/mls_ext_welcome_pointee_encryption_aead_type.rs::WelcomePointersExtension` and conversions | `xmtp_id/src/key_package/welcome_pointers.rs` | The client module re-exports the shared type. |
 | `identity_updates.rs::verify_updates` | `xmtp_id/src/associations/verify_updates.rs` | Client history fetch and association-state cache remain local. |
 | `utils/test/tester_utils.rs::PasskeyUser`, `PKCredential`, `PKClient`, `PkUserValidationMethod` and implementations | `xmtp_id/src/utils/passkey.rs` | Client tester imports the shared signer fixture. |
-| `test/mock/generate.rs::generate_inbox_id_credential` | `xmtp_id/src/utils/mod.rs` | Client mock imports it. The service duplicate must use it during handler integration. |
+| `test/mock/generate.rs::generate_inbox_id_credential` | `xmtp_id/src/utils/mod.rs` | Client mock imports it. The service's duplicate fixture was removed with its moved key-package tests. |
 | `apps/mls_validation_service/src/cached_signature_verifier.rs` | `xmtp_id/src/scw_verifier/cached.rs` | Service main constructs the shared cache. Latest requests bypass it; verifier errors are not stored. |
 
 The shared key-package constructor uses `OpenMlsProvider`. OpenMLS can store its
@@ -46,29 +45,29 @@ The cache preserves numbered-block positive and negative verdicts, all key field
 explicit block presence, and LRU eviction. It does not add reorganization
 invalidation. This implements SEC-042 through SEC-044.
 
-## Pending envelope integration
+## Shared envelope integration
 
-The Phase 1 integration owner must finish these items before closing the audit.
+The original sources now use these shared owners or remain transport/storage adapters.
 
-| Current source or missing operation | Required owner and action |
+| Original source or operation | Current owner and boundary |
 | --- | --- |
-| Service `handlers.rs::validate_group_message`, `ValidateGroupMessageResult` | Move typed MLS parsing and commit/proposal classification to `xmtp_mls_validation`. Keep permissive TLS consumption and original bytes. |
-| Service `validate_inbox_id_key_package` | Use `xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes` through shared validation. Keep transport response construction in the service. |
-| Service `get_association_state` | Reuse shared signature conversion, state folding, and state diff. Storage supplies complete history. No association-state cache in the backend. |
-| Service `verify_smart_contract_wallet_signatures` | Preserve typed verifier errors. The new backend maps retryable errors to UNAVAILABLE. The old handler embeds errors in positional responses today. |
-| Service `generate_inbox_id_credential`, `build_key_package_bytes` | Reuse the extracted credential generator and shared package construction in moved tests. Preserve mismatched signer/credential-key fixtures. |
-| Canonical outer `Envelope` encoding and SHA-256 | Implement once in shared validation using generated protocol types. Preserve inner byte fields. |
-| Structural parsing and topic derivation | Separate from cryptographic validation so duplicate lookup can precede lifetime/signature checks. An expired package can still be an exact duplicate. |
-| Welcome inline/pointer parsing | Share structural version and destination extraction. Do not invoke client decryptors or registration checks. |
-| `xmtp_mls/src/groups/commit_log.rs::save_remote_commit_log_entries_and_update_cursors`, inner decode | Share plaintext-entry decoding and checked group-ID extraction. Keep signature/fork checks and cursor writes on the client. |
-| `groups/commit_log.rs::sign_group_logs`, per-entry encoding/signing | Split shared entry construction from private-key lookup and old publish-request construction. |
-| `xmtp_db/src/encrypted_store/local_commit_log.rs::From<&LocalCommitLog> for PlaintextCommitLogEntry` | Review alongside the shared constructor. The source maps group ID, commit sequence, authenticators, result, and epoch. Keep database row/query types in `xmtp_db`; route shared protocol construction through its owning helper. |
-| `xmtp_proto/src/types/topic.rs` | Add kind 0x04 and checked parsing for all kind-specific lengths. Keep topic types below validation. |
+| Service `handlers.rs::validate_group_message`, `ValidateGroupMessageResult` | `xmtp_mls_validation::{parse_group_message,is_commit_or_proposal}`. The old service converts the shared result to its response shape. Trailing bytes remain accepted. |
+| Service `validate_inbox_id_key_package` | `xmtp_mls_validation::verify_key_package` calls the existing identity verifier. The service retains response construction. |
+| Service `get_association_state` | `xmtp_mls_validation::validate_identity_updates` uses shared signature conversion, state folding, and state diff. The caller supplies complete history. |
+| Service `verify_smart_contract_wallet_signatures` | The shared `xmtp_id` verifier and cache return typed errors. The old RPC adapter retains positional response construction. Phase 2 maps retryable errors for the new API. |
+| Service key-package fixtures | `xmtp_mls_validation::test_utils` uses shared package construction and retains mismatched signer fixtures. The old duplicate builders were removed. |
+| Canonical outer `ClientEnvelope` encoding and SHA-256 | `xmtp_proto::types::canonical_envelope` encodes once and preserves all inner byte fields. |
+| Structural parsing and topic derivation | `xmtp_mls_validation::parse_envelope` precedes `validate_envelope`. An expired key package still yields a topic and canonical hash for duplicate lookup. |
+| Welcome inline/pointer parsing | `parse_envelope` checks the selected version and destination length without decryption or registration checks. |
+| Client commit-log inner decode | `xmtp_mls_validation::decode_commit_log` is shared. The backend parser checks the embedded group ID; the client retains its existing signature/fork checks, check order, and cursor writes. |
+| `groups/commit_log.rs::sign_group_logs`, per-entry encoding/signing | `xmtp_mls_validation::sign_commit_log` owns encoding and signing. Private-key lookup and old publish-request construction remain in the client. |
+| `xmtp_db/src/encrypted_store/local_commit_log.rs::From<&LocalCommitLog> for PlaintextCommitLogEntry` | Kept as a client storage adapter. It maps stored fields to protocol fields; the backend has no client `LocalCommitLog` rows. Shared signing consumes the resulting protocol entry. |
+| `xmtp_proto/src/types/topic.rs` | Kind 0x04 and `Topic::parse` implement checked backend topics. Existing client constructors retain their behavior. |
 
 The local commit-log conversion currently casts signed database sequence/epoch
 values to `u64`. Its storage adapter is not a suitable backend fixture dependency.
-A shared constructor must take protocol-domain values, while database conversion
-remains an adapter. The backend must not inherit client fork checks or signature
+The shared signer takes protocol-domain values; database conversion remains an
+adapter. Backend admission does not inherit client fork checks or signature
 verification from that adapter (SEC-015).
 
 ## Hash boundaries
@@ -138,7 +137,7 @@ OpenMLS provider with the shared constructor for backend fixtures.
 client wrapper fakes. Separately generated group IDs and payload hashes do not
 establish a valid backend payload. The backend fixture must bind those values.
 
-## Dependency evidence and remaining checks
+## Dependency evidence
 
 - `xmtp_mls_common/Cargo.toml` has an unconditional `xmtp_db` dependency.
   Its runtime use is `group_metadata.rs::ConversationType`; migration tests also
@@ -147,15 +146,14 @@ establish a valid backend payload. The backend fixture must bind those values.
   `xmtp_id`. Moving the welcome capability to `xmtp_id` avoids a reverse cycle.
 - `xmtp_mls/test-utils` enables DB, API stacks, archive fixtures, and native
   tooling. Never forward it into shared fixtures.
-- The workspace hack enables Diesel, OpenMLS test features, and Alloy Anvil.
-  Remove hack edges from the portable closure, including the host
-  `xmtp_macro` path and the `xmtp_common/test-utils -> xmtp_logging` path.
-- Target-gate native Anvil and Toxiproxy fixtures. Declare required OpenMLS and
-  Alloy features directly. Workspace feature unification is not proof of a
-  valid isolated build.
-- Run isolated native and WASM validation builds/tests, with and without
-  `test-utils`, then inspect normal/build dependency edges for client runtime
-  and database crates.
+- Hakari final exclusions remove the aggregate feature helper from the portable
+  closure, including `xmtp_macro` and the test-only `xmtp_logging` path.
+- Portable `test-utils` is separate from native `test-utils-network` and
+  `test-utils-anvil` harness features. Required OpenMLS and Alloy features are
+  declared directly.
+- `dev/check-validation` compiles standalone consumers and checks normal/build
+  graphs on native and wasm, with and without fixtures. It rejects client
+  runtimes, databases, the workspace helper, Anvil, and Toxiproxy.
 
 Identity extraction checks include
 `generated_package_preserves_options_and_verifies`,
@@ -164,5 +162,5 @@ Identity extraction checks include
 `cache_preserves_numbered_verdicts_and_bypasses_latest`,
 `verifier_errors_are_never_cached`, `cache_key_binds_every_parameter`, and
 `passkey_fixture_binds_the_signed_challenge`. The former client capability test
-moved into the shared construction coverage. Final envelope test names and
-native/WASM isolation results must be added by the integration owner.
+moved into the shared construction coverage. The test catalogue records the
+envelope matrices, existing requirement IDs, and retired placeholder tests.

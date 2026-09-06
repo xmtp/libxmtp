@@ -4,6 +4,29 @@ This catalogue describes the requirements expressed by tests in the `libxmtp` so
 
 It records current test intent. It does not grade tests or recommend changes.
 
+## Phase 1 ownership update
+
+The tables below retain the Phase 0 baseline. These Phase 1 entries supersede the
+listed service tests and record the new shared behaviors. Each Rust declaration
+runs on native and wasm where its owning package supports both targets.
+
+| Requirement | Owning tests | Change |
+| --- | --- | --- |
+| P1-VAL-01, P1-VAL-02 | `xmtp_mls_validation::tests::group_message_matrix_*` | Structural routing, accepted trailing bytes, content flags, and malformed input. |
+| P1-VAL-04 | `xmtp_mls_validation::tests::{welcome_matrix_*,commit_log_*}` and `xmtp_proto::types::topic::tests::backend_topic_parser_checks_each_kind_and_identifier_length` | Both welcome forms, exact topic lengths, and commit-log admission without signature verification. |
+| P1-VAL-03, RUST-REQ-013 | `xmtp_mls_validation::tests::key_package_*` | Replaces service key-package logic tests. Covers retained admission rules and parsing before validation. |
+| P1-VAL-03 | `xmtp_mls_validation::tests::identity_*` | Real supplied history, state/diff, replay, signature errors, retryable SCW failures, and retained recovery behavior. Existing identity state-machine tests remain in `xmtp_id`. |
+| P1-VAL-05 | `xmtp_proto::types::backend_envelope::tests::all_payloads_have_stable_canonical_bytes_and_distinct_outer_hashes` | Five canonical encoding/hash vectors; preserves inner byte fields and separate payload hashing. |
+| P1-VAL-06, RUST-REQ-008, RUST-REQ-010 | `xmtp_id::scw_verifier::cached::tests::*` | Moves cache coverage to its shared owner and tests real wrapper hits, eviction, latest bypass, error handling, and key fields. |
+| P1-VAL-07 | `xmtp_mls_validation::test_utils` exercised by the payload matrices | Fixtures cover all five kinds without a client or service. |
+| P1-VAL-08 | `dev/check-validation` | Standalone native/wasm consumers compile with and without fixtures; normal/build graphs exclude client DBs and network test harnesses. |
+| P1-VAL-09, P1-VAL-10 | `docs/self-hosted/phase-1-mls-audit.md` plus preserved client/service tests | Complete source disposition and consumer migration. |
+
+RUST-REQ-009's direct third-party LRU test is removed; production eviction is
+covered by P1-VAL-06. RUST-REQ-012's expected-panic placeholder is removed; real
+identity history and state changes are covered by P1-VAL-03. RUST-REQ-014 and
+RUST-REQ-015 remain transport tests in the old validation service.
+
 ## How to read this catalogue
 
 Each requirement has a stable ID and four fields:

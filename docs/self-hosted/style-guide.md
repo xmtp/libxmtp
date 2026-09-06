@@ -96,8 +96,8 @@ See `justfile` for the commands.
 
 ## 7. Cryptography and identity
 
-- `xmtp_cryptography` owns every primitive (hashing, randomness, signatures, installation credentials); `crates/xmtp_common` re-exports its `hash` and `rand`
-  modules, so prefer the `xmtp_common::` path. Use `sha256_bytes` or `sha256_array` for SHA-256. See `crates/xmtp_cryptography/AGENTS.md` for entry points.
+- `xmtp_cryptography` owns every primitive (hashing, randomness, signatures, installation credentials). `xmtp_common` re-exports the hash and random functions
+  at its root. Use `xmtp_common::sha256_bytes` or `xmtp_common::sha256_array` for SHA-256. See `crates/xmtp_cryptography/AGENTS.md` for entry points.
 - Call `xmtp_cryptography::install_crypto_provider()` at native entry points before building a TLS client. The call is idempotent.
   Do not rely on the constructor fallback when linking a static library into an Apple binary.
 - `xmtp_id` owns identity: `InboxOwner`, `Identifier`, inbox id derivation, association state, signature requests, smart-contract-wallet verification, key

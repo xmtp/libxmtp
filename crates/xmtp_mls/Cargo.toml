@@ -22,13 +22,13 @@ targets = [
 [features]
 test-utils = [
   "tracing-subscriber",
-  "xmtp_id/test-utils",
+  "xmtp_id/test-utils-anvil",
   "xmtp_db/test-utils",
-  "xmtp_proto/test-utils",
+  "xmtp_proto/test-utils-network",
   "xmtp_api/test-utils",
   "xmtp_api_grpc/test-utils",
   "xmtp_configuration/test-utils",
-  "xmtp_common/test-utils",
+  "xmtp_common/test-utils-network",
   "xmtp_api_d14n/test-utils",
   "xmtp_content_types/test-utils",
   "dep:alloy",
@@ -104,6 +104,7 @@ xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls_common.workspace = true
+xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 
 # Optional/Features
@@ -157,14 +158,14 @@ wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_archive = { workspace = true, features = ["test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_content_types = { path = "../xmtp_content_types", features = [
   "test-utils",
 ] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
-xmtp_id = { workspace = true, features = ["test-utils"] }
-xmtp_proto = { workspace = true, features = ["test-utils"] }
+xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
+xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 # Required for traced_test! macro
 tracing-subscriber.workspace = true
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }

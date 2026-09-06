@@ -41,6 +41,7 @@ let
       (commonCargoSources (root + /crates/xmtp_configuration))
       (commonCargoSources (root + /crates/xmtp_cryptography))
       (commonCargoSources (root + /crates/xmtp_id))
+      (commonCargoSources (root + /crates/xmtp_mls_validation))
       (commonCargoSources (root + /crates/xmtp_proto))
       (commonCargoSources (root + /crates/xmtp_macro))
       (commonCargoSources (root + /apps/mls_validation_service))
