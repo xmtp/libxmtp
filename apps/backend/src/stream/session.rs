@@ -466,7 +466,8 @@ impl Session {
             },
         ))?;
         if self.static_subscription {
-            tracing::info!(request_id = %self.request_id, added_topics = update.topics.len(), "static subscription started");
+            tracing::info!(request_id = %self.request_id, added_topics = update.topics.len(),
+                removed_topics = update.removed_topics, "static subscription started");
         } else {
             tracing::info!(request_id = %self.request_id, update_id = update.id,
                 added_topics = update.topics.len(), removed_topics = update.removed_topics, "subscription interests updated");

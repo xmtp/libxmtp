@@ -7,6 +7,7 @@ use bytes::Bytes;
 use xmtp_common::time::{Duration, timeout};
 use xmtp_proto::types::TopicKind;
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_closes_a_connection_with_a_flow_control_blocked_subscription() {
     let mut server = TestServer::new(|config| config.server.max_drain_duration_ms = 100).await?;

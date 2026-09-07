@@ -8,6 +8,7 @@ use crate::{
 };
 use api::subscribe_static_response::Response as Frame;
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn direct_grpc_web_static_subscription_delivers_incrementally_with_cors_headers() {
     let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;

@@ -90,6 +90,7 @@ async fn next_frame(
         .ok_or_else(|| "empty static response".into())
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn https_passthrough_preserves_streaming_headers_and_status_details() {
     let server = TestServer::new(|_| {}).await?;

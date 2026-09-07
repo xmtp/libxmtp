@@ -6,6 +6,7 @@ use crate::{
     },
 };
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn reconnect_to_independent_instance_replays_received_but_unprocessed_rows() {
     let mut first = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;

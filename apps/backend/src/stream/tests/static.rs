@@ -4,6 +4,37 @@ use crate::{
 };
 use api::subscribe_static_response::Response as Frame;
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn oversized_static_targets_fail_without_a_partial_started_frame() {
+    let server = TestServer::new(|config| {
+        config.limits.max_envelope_bytes = 1024;
+        config.limits.max_response_bytes = 66_560;
+    })
+    .await?;
+    let topics = (0_u64..2000)
+        .map(|id| {
+            let mut identifier = [0; 32];
+            identifier[..8].copy_from_slice(&id.to_be_bytes());
+            let topic =
+                test_support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &identifier);
+            test_support::query_topic(topic, 0)
+        })
+        .collect();
+    let mut client =
+        api::subscription_service_client::SubscriptionServiceClient::new(server.channel.clone());
+    let error = match client
+        .subscribe_static(api::SubscribeStaticRequest { topics })
+        .await
+    {
+        Err(error) => error,
+        Ok(response) => response.into_inner().message().await.unwrap_err(),
+    };
+    assert_eq!(error.code(), tonic::Code::ResourceExhausted);
+    server.stop().await?;
+}
+
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn static_targets_precede_ordered_history_and_live_delivery() {
     let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
@@ -66,6 +97,7 @@ async fn static_targets_precede_ordered_history_and_live_delivery() {
     server.stop().await?;
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn static_keepalives_are_one_way_and_do_not_expire_waiting_for_pong() {
     let server = TestServer::new(|config| {
@@ -96,6 +128,7 @@ async fn static_keepalives_are_one_way_and_do_not_expire_waiting_for_pong() {
     server.stop().await?;
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn static_request_validates_its_own_limits_and_unique_topics() {
     let server = TestServer::new(|config| {
@@ -140,6 +173,7 @@ async fn static_request_validates_its_own_limits_and_unique_topics() {
     server.stop().await?;
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn static_initial_log_and_completion_share_request_id_and_body_counts() {
     use prost::Message;
@@ -179,6 +213,7 @@ async fn static_initial_log_and_completion_share_request_id_and_body_counts() {
     assert_eq!(logs.len(), 2);
     assert_eq!(logs[0]["message"], "static subscription started");
     assert_eq!(logs[0]["added_topics"], 1);
+    assert_eq!(logs[0]["removed_topics"], 0);
     assert_eq!(logs[0]["request_id"], request_id);
     assert_eq!(logs[1]["request_id"], request_id);
     assert_eq!(logs[1]["request_size_bytes"], bytes);
@@ -186,6 +221,7 @@ async fn static_initial_log_and_completion_share_request_id_and_body_counts() {
     server.stop().await?;
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn static_started_waits_for_target_capture_before_sending_keepalives() {
     let server = TestServer::new(|config| {

@@ -32,6 +32,7 @@ async fn blocked_publish(
     Ok((blocker, publish))
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
     let mut server = TestServer::new(|config| config.server.max_drain_duration_ms = 2_000).await?;
@@ -45,13 +46,16 @@ async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
             .code(),
         tonic::Code::Unavailable
     );
-    assert!(
+    // HTTP/2 can reject the new stream before it reaches the admission layer.
+    assert!(matches!(
         server
             .query()
             .get(api::GetRequest { sequence_id: 1 })
             .await
-            .is_err()
-    );
+            .unwrap_err()
+            .code(),
+        tonic::Code::Unavailable | tonic::Code::Cancelled
+    ));
     blocker.commit().await?;
     assert_eq!(publish.await??.into_inner().envelope_metas.len(), 1);
     timeout(Duration::from_secs(1), server.wait_stopped()).await??;
@@ -65,6 +69,7 @@ async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
     server.stop().await?;
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_deadline_cancels_unfinished_unary_work_without_a_commit() {
     let mut server = TestServer::new(|config| config.server.max_drain_duration_ms = 100).await?;
@@ -88,6 +93,7 @@ async fn shutdown_deadline_cancels_unfinished_unary_work_without_a_commit() {
     server.stop().await?;
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_also_ends_a_static_subscription() {
     let mut server = TestServer::new(|_| {}).await?;
