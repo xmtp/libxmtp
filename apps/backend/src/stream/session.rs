@@ -573,7 +573,7 @@ impl Session {
 
     fn mail(&mut self) -> Result<(), Status> {
         let mail = {
-            let mut mail = self.mailbox.mail.lock().expect("mail mutex");
+            let mut mail = self.mailbox.mail.lock();
             std::mem::take(&mut *mail)
         };
         for (topic, (generation, head)) in mail.heads {

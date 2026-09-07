@@ -49,6 +49,9 @@ Important functions need `///` RustDoc explaining purpose, invariants, and relev
 errors or cancellation. Keep local implementation notes in `//` comments.
 Use module-local `tests.rs` or `tests/`, including for real RPC and storage tests.
 
+Short synchronous backend locks use `parking_lot::Mutex`, which has no poisoning
+state. Keep guards short and never hold one across an await point.
+
 Basic logs use `xmtp_logging`. Set `server.log_level` (default `info`) or override
 with `--log-level`. `server.request_logger` defaults to true and logs completion,
 including stream termination. Never log payloads, topic values, or auth headers.

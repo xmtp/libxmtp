@@ -11642,6 +11642,7 @@ dependencies = [
  "http-body 1.1.0",
  "http-body-util",
  "jsonschema",
+ "parking_lot",
  "pin-project",
  "prost",
  "prost-types",

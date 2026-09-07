@@ -1,10 +1,11 @@
 use super::OUTBOUND_FRAMES;
 use crate::{api, config::OUTBOUND_QUEUE_BYTES};
 use futures::{Stream, task::AtomicWaker};
+use parking_lot::Mutex;
 use std::{
     pin::Pin,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
@@ -22,15 +23,12 @@ pub(super) struct Terminal {
 
 impl Terminal {
     pub fn fail(&self, error: Status) {
-        self.error
-            .lock()
-            .expect("terminal mutex")
-            .get_or_insert(error);
+        self.error.lock().get_or_insert(error);
         self.waker.wake();
         self.wake.notify_one();
     }
     pub fn error(&self) -> Option<Status> {
-        self.error.lock().expect("terminal mutex").clone()
+        self.error.lock().clone()
     }
     pub fn closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)

@@ -26,6 +26,8 @@ See `justfile` for the commands.
 
 ## 2. Async and runtime
 
+- Use `parking_lot::Mutex` for short synchronous backend state access. Never hold
+  its guard across `.await`. Non-poisoning locks do not make panicking code safe.
 - **Read clocks and sleep through `crates/xmtp_common/src/time.rs`**, which re-exports `Duration` / `Instant` / `SystemTime` from `std` on native and `web_time` on
   wasm. A plain `std::time::Duration` stays valid as a value type in a constant or signature (`crates/xmtp_configuration/src/common/mls.rs`,
   `crates/xmtp_mls/src/context.rs`); it is `Instant`, `SystemTime`, and the timer functions that must come from `xmtp_common::time`.

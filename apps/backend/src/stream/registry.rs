@@ -3,9 +3,10 @@ use super::{
     output::{Budget, Reservation, Terminal},
 };
 use crate::{config::DELIVERY_FRAME_BYTES, db::StoredEnvelope};
+use parking_lot::Mutex;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 use tokio::sync::Notify;
 use tonic::Status;
@@ -57,11 +58,11 @@ pub(crate) struct Registry(Mutex<State>);
 
 impl Registry {
     pub fn ready(&self) {
-        self.0.lock().expect("registry mutex").ready = true;
+        self.0.lock().ready = true;
     }
     /// Enroll an empty session only after recovery is ready.
     pub(super) fn connect(&self, mailbox: Arc<Mailbox>) -> Result<u64, Status> {
-        let mut state = self.0.lock().expect("registry mutex");
+        let mut state = self.0.lock();
         if !state.ready {
             return Err(Status::unavailable("stream recovery in progress"));
         }
@@ -82,7 +83,7 @@ impl Registry {
     /// Register before target capture. Catching-up registrations retain heads,
     /// not payloads, until the owner completes the history-to-live handoff.
     pub(super) fn add(&self, id: u64, topic: Vec<u8>, generation: u64) -> Result<(), Status> {
-        let mut state = self.0.lock().expect("registry mutex");
+        let mut state = self.0.lock();
         if !state.ready {
             return Err(Status::unavailable("stream recovery in progress"));
         }
@@ -104,7 +105,7 @@ impl Registry {
     /// Remove shared interest and pending notices before acknowledging removal.
     /// Already queued payloads are rejected by the owner's generation check.
     pub(super) fn remove(&self, id: u64, topic: &[u8]) {
-        let mut state = self.0.lock().expect("registry mutex");
+        let mut state = self.0.lock();
         if let Some(watchers) = state.topics.get_mut(topic) {
             watchers.remove(&id);
             if watchers.is_empty() {
@@ -113,31 +114,17 @@ impl Registry {
         }
         if let Some(client) = state.clients.get_mut(&id) {
             client.topics.remove(topic);
-            client
-                .mailbox
-                .mail
-                .lock()
-                .expect("mail mutex")
-                .heads
-                .remove(topic);
+            client.mailbox.mail.lock().heads.remove(topic);
         }
     }
     /// Atomically consume the latest notice and switch to direct payload delivery
     /// only if the owner's admitted floor covers it.
     pub(super) fn current(&self, id: u64, topic: &[u8], floor: i64) -> i64 {
-        let mut state = self.0.lock().expect("registry mutex");
+        let mut state = self.0.lock();
         let needed = state
             .clients
             .get(&id)
-            .and_then(|client| {
-                client
-                    .mailbox
-                    .mail
-                    .lock()
-                    .expect("mail mutex")
-                    .heads
-                    .remove(topic)
-            })
+            .and_then(|client| client.mailbox.mail.lock().heads.remove(topic))
             .map_or(floor, |(_, head)| head.max(floor));
         if needed <= floor
             && let Some(watcher) = state
@@ -150,7 +137,7 @@ impl Registry {
         needed
     }
     pub(super) fn disconnect(&self, id: u64) {
-        let mut state = self.0.lock().expect("registry mutex");
+        let mut state = self.0.lock();
         if let Some(client) = state.clients.remove(&id) {
             for topic in client.topics {
                 if let Some(watchers) = state.topics.get_mut(&topic) {
@@ -164,7 +151,7 @@ impl Registry {
     }
     /// Publish a terminal error before clearing recovery registrations.
     pub fn fail_all(&self, error: Status) {
-        let mut state = self.0.lock().expect("registry mutex");
+        let mut state = self.0.lock();
         state.ready = false;
         for client in state.clients.values() {
             client.mailbox.terminal.fail(error.clone());
@@ -175,7 +162,7 @@ impl Registry {
     /// Share each committed row across interested sessions without awaiting them.
     /// A full mailbox fails that session instead of blocking the shared tailer.
     pub(super) fn dispatch(&self, rows: Vec<StoredEnvelope>) {
-        let state = self.0.lock().expect("registry mutex");
+        let state = self.0.lock();
         let mut live: HashMap<u64, Vec<(u64, Arc<StoredEnvelope>)>> = HashMap::new();
         for row in rows {
             let row = Arc::new(row);
@@ -186,7 +173,7 @@ impl Registry {
                             .or_default()
                             .push((watcher.generation, row.clone()));
                     } else if let Some(client) = state.clients.get(&id) {
-                        let mut mail = client.mailbox.mail.lock().expect("mail mutex");
+                        let mut mail = client.mailbox.mail.lock();
                         let head = mail
                             .heads
                             .entry(row.topic.clone())
@@ -226,7 +213,6 @@ fn flush(mailbox: &Mailbox, rows: Vec<(u64, Arc<StoredEnvelope>)>, bytes: usize)
         mailbox
             .mail
             .lock()
-            .expect("mail mutex")
             .live
             .push_back(LiveBatch { rows, reservation });
         mailbox.wake.notify_one();
@@ -268,16 +254,16 @@ mod tests {
             registry.add(id, topic.clone(), 1)?;
         }
         registry.dispatch(vec![row(&topic, 1), row(&topic, 2)]);
-        assert!(catching_up.mail.lock().unwrap().live.is_empty());
+        assert!(catching_up.mail.lock().live.is_empty());
         assert_eq!(registry.current(a, &topic, 0), 2);
         assert_eq!(registry.current(a, &topic, 2), 2);
         assert_eq!(registry.current(b, &topic, 2), 2);
         registry.dispatch(vec![row(&topic, 3)]);
-        let left = first.mail.lock().unwrap().live.pop_front().unwrap();
-        let right = second.mail.lock().unwrap().live.pop_front().unwrap();
+        let left = first.mail.lock().live.pop_front().unwrap();
+        let right = second.mail.lock().live.pop_front().unwrap();
         assert!(Arc::ptr_eq(&left.rows[0].1, &right.rows[0].1));
         assert_eq!(left.rows[0].1.sequence_id, 3);
-        let pending = catching_up.mail.lock().unwrap();
+        let pending = catching_up.mail.lock();
         assert_eq!(pending.heads[&topic], (1, 3));
         assert!(pending.live.is_empty());
     }
