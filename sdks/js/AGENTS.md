@@ -27,5 +27,6 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 
 - Needs `just backend up`. Run `just js install` and `just js bindings` once first for full local SDK work.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just js install-node-ci`, and `just js bindings-node`.
+- Verify dependency changes with the focused CI install. It omits root development tools; declare required tools in the selected workspace and run them with `yarn workspace <name> exec`.
 - `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
 - Formatting is treefmt prettier (`just lint-config`), not eslint.

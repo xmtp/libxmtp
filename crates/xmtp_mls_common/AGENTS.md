@@ -15,6 +15,5 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls_common -E 'test(/app_d
 ## Gotchas
 
 - No Docker or client database dependency. All modules are available on native and wasm.
-- Never depend on `xmtp_db` for a shared type. Use `xmtp_proto::types`; SQL support is optional there.
 - General commit-log signing and decoding live in `commit_log`.
 - Types the backend also needs go here, not in `xmtp_mls`.
