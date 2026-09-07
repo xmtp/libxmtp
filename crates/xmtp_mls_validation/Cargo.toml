@@ -21,6 +21,7 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
+xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
 
 [features]

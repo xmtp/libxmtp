@@ -2,6 +2,7 @@
 mod api_identifier;
 mod app_version;
 mod backend_envelope;
+mod conversation_type;
 mod cursor;
 mod cursor_list;
 mod global_cursor;
@@ -15,6 +16,7 @@ mod welcome_message;
 pub use api_identifier::*;
 pub use app_version::*;
 pub use backend_envelope::*;
+pub use conversation_type::*;
 pub use cursor::*;
 pub use cursor_list::*;
 pub use global_cursor::*;

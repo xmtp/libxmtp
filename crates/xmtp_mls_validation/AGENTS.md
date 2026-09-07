@@ -2,6 +2,9 @@
 
 Shared payload admission and stateless fixtures. No client database or transport.
 
+General commit-log signing and decoding live in `xmtp_mls_common::commit_log`.
+Admission parsing and validation stay in this crate.
+
 ```bash
 just check crate xmtp_mls_validation
 just test crate xmtp_mls_validation

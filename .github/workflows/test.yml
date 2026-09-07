@@ -139,6 +139,7 @@ jobs:
             validation:
               - 'proto/**'
               - 'crates/xmtp_mls_validation/**'
+              - 'crates/xmtp_mls_common/**'
               - 'crates/xmtp_common/**'
               - 'crates/xmtp_configuration/**'
               - 'crates/xmtp_cryptography/**'

@@ -14,5 +14,6 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls_common -E 'test(/app_d
 
 ## Gotchas
 
-- Pure. No docker.
+- No Docker or client database dependency. All modules are available on native and wasm.
+- General commit-log signing and decoding live in `commit_log`.
 - Types the backend also needs go here, not in `xmtp_mls`.

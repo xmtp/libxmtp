@@ -1,11 +1,7 @@
 //! Shared payload admission. Storage and transport remain with their callers.
 
-mod commit_log;
-pub use commit_log::*;
-
 use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
-use prost::Message;
 use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
 use xmtp_id::{
@@ -16,6 +12,7 @@ use xmtp_id::{
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_mls_common::commit_log::decode_commit_log;
 use xmtp_proto::{
     ConversionError,
     types::{CanonicalEnvelope, Topic, TopicKind, canonical_envelope},
@@ -25,7 +22,6 @@ use xmtp_proto::{
             welcome_message::Version,
         },
         identity::associations::IdentityUpdate,
-        mls::message_contents::PlaintextCommitLogEntry,
     },
 };
 
@@ -122,11 +118,6 @@ pub fn is_commit_or_proposal(message: &ProtocolMessage) -> bool {
         message.content_type(),
         ContentType::Commit | ContentType::Proposal
     )
-}
-
-/// Decode the inner entry without checking its signature or hash chain.
-pub fn decode_commit_log(data: &[u8]) -> Result<PlaintextCommitLogEntry, prost::DecodeError> {
-    PlaintextCommitLogEntry::decode(data)
 }
 
 fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic, ValidationError> {

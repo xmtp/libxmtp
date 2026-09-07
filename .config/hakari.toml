@@ -58,6 +58,7 @@ workspace-members = [
   "xmtp_macro",
   "xmtp_logging",
   "xmtp_mls_validation",
+  "xmtp_mls_common",
   "mls_validation_service",
   "xmtp-db-tools",
   "xdbg",

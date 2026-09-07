@@ -441,8 +441,12 @@ pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {
         .crypto()
         .signature_key_gen(SignatureScheme::ED25519)
         .expect("commit-log fixture key generation succeeds");
-    let signed = crate::sign_commit_log(&entry, &Secret::new(private_key), provider.crypto())
-        .expect("commit-log fixture signing succeeds");
+    let signed = xmtp_mls_common::commit_log::sign_commit_log(
+        &entry,
+        &Secret::new(private_key),
+        provider.crypto(),
+    )
+    .expect("commit-log fixture signing succeeds");
     ClientEnvelope {
         payload: Some(Payload::CommitLogEntry(CommitLogEntry {
             serialized_commit_log_entry: signed.serialized_commit_log_entry,

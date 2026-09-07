@@ -104,7 +104,6 @@ xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls_common.workspace = true
-xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 
 # Optional/Features

@@ -59,8 +59,8 @@ The original sources now use these shared owners or remain transport/storage ada
 | Canonical outer `ClientEnvelope` encoding and SHA-256 | `xmtp_proto::types::canonical_envelope` encodes once and preserves all inner byte fields. |
 | Structural parsing and topic derivation | `xmtp_mls_validation::parse_envelope` precedes `validate_envelope`. An expired key package still yields a topic and canonical hash for duplicate lookup. |
 | Welcome inline/pointer parsing | `parse_envelope` checks the selected version and destination length without decryption or registration checks. |
-| Client commit-log inner decode | `xmtp_mls_validation::decode_commit_log` is shared. The backend parser checks the embedded group ID; the client retains its existing signature/fork checks, check order, and cursor writes. |
-| `groups/commit_log.rs::sign_group_logs`, per-entry encoding/signing | `xmtp_mls_validation::sign_commit_log` owns encoding and signing. Private-key lookup and old publish-request construction remain in the client. |
+| Client commit-log inner decode | `xmtp_mls_common::commit_log::decode_commit_log` is shared. The backend parser checks the embedded group ID; the client retains its existing signature/fork checks, check order, and cursor writes. |
+| `groups/commit_log.rs::sign_group_logs`, per-entry encoding/signing | `xmtp_mls_common::commit_log::sign_commit_log` owns encoding and signing. Private-key lookup and old publish-request construction remain in the client. |
 | `xmtp_db/src/encrypted_store/local_commit_log.rs::From<&LocalCommitLog> for PlaintextCommitLogEntry` | Kept as a client storage adapter. It maps stored fields to protocol fields; the backend has no client `LocalCommitLog` rows. Shared signing consumes the resulting protocol entry. |
 | `xmtp_proto/src/types/topic.rs` | Kind 0x04 and `Topic::parse` implement checked backend topics. Existing client constructors retain their behavior. |
 
@@ -139,9 +139,15 @@ establish a valid backend payload. The backend fixture must bind those values.
 
 ## Dependency evidence
 
-- `xmtp_mls_common/Cargo.toml` has an unconditional `xmtp_db` dependency.
-  Its runtime use is `group_metadata.rs::ConversationType`; migration tests also
-  use it. Do not route portable validation through that dependency.
+The PR #4067 ownership review also moved general commit-log signing and decoding
+to `xmtp_mls_common::commit_log`. The remaining validation utilities parse
+admission payloads, classify commits/proposals, check key packages, or validate
+identity histories. Its `test-utils` generators remain admission fixtures.
+Canonical outer-envelope encoding and hashing remain in `xmtp_proto`.
+
+- `xmtp_mls_common` has no `xmtp_db` dependency. The shared
+  `xmtp_proto::types::ConversationType` keeps metadata and migration code portable.
+  Its SQL conversions require the existing `xmtp_proto/diesel` feature.
 - `xmtp_id` already depends on `xmtp_proto`; `xmtp_mls_common` depends on
   `xmtp_id`. Moving the welcome capability to `xmtp_id` avoids a reverse cycle.
 - `xmtp_mls/test-utils` enables DB, API stacks, archive fixtures, and native

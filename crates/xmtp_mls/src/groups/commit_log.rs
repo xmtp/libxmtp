@@ -95,6 +95,9 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
+    /// Commit-log signing failed. Not retryable.
+    #[error(transparent)]
+    Signing(#[from] xmtp_mls_common::commit_log::CommitLogSigningError),
     #[error("conversion error: {0}")]
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error("Group did not pass readd validation: {0}")]
@@ -124,6 +127,7 @@ impl RetryableError for CommitLogError {
             Self::GroupError(group_error) => group_error.is_retryable(),
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::Signing(_) => false,
             Self::Conversion(_) => false,
             Self::GroupReaddValidationError(_group_readd_validation_error) => false,
             Self::SyncError(sync_error) => sync_error.is_retryable(),
@@ -152,6 +156,7 @@ impl NeedsDbReconnect for CommitLogError {
             | Self::KeystoreError(_)
             | Self::CryptoError(_)
             | Self::TryFromSliceError(_)
+            | Self::Signing(_)
             | Self::Conversion(_)
             | Self::GroupReaddValidationError(_)
             | Self::SyncError(_)
@@ -387,16 +392,11 @@ where
         let provider = self.context.mls_provider();
         let mut signed_entries = Vec::new();
         for entry in plaintext_commit_log_entries {
-            let signed =
-                xmtp_mls_validation::sign_commit_log(entry, &private_key, provider.crypto())
-                    .map_err(|error| match error {
-                        xmtp_mls_validation::CommitLogSigningError::Crypto(error) => {
-                            CommitLogError::CryptoError(error)
-                        }
-                        xmtp_mls_validation::CommitLogSigningError::KeyLength(error) => {
-                            CommitLogError::TryFromSliceError(error)
-                        }
-                    })?;
+            let signed = xmtp_mls_common::commit_log::sign_commit_log(
+                entry,
+                &private_key,
+                provider.crypto(),
+            )?;
 
             signed_entries.push(PublishCommitLogRequest {
                 group_id: conversation.id.to_vec(),
@@ -493,7 +493,7 @@ where
         if let Some(consensus_public_key) = consensus_public_key {
             let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
             for commit_log_entry in &commit_log_response.commit_log_entries {
-                let log_entry = match xmtp_mls_validation::decode_commit_log(
+                let log_entry = match xmtp_mls_common::commit_log::decode_commit_log(
                     commit_log_entry.serialized_commit_log_entry.as_slice(),
                 ) {
                     Ok(entry) => entry,

@@ -6,6 +6,11 @@ use xmtp_proto::xmtp::{
     mls::message_contents::PlaintextCommitLogEntry,
 };
 
+/// Decode a commit-log entry without checking its signature or hash chain.
+pub fn decode_commit_log(data: &[u8]) -> Result<PlaintextCommitLogEntry, prost::DecodeError> {
+    PlaintextCommitLogEntry::decode(data)
+}
+
 pub struct SignedCommitLogEntry {
     pub serialized_commit_log_entry: Vec<u8>,
     pub signature: RecoverableEd25519Signature,

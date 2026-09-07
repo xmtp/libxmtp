@@ -11331,7 +11331,6 @@ dependencies = [
  "xmtp_id",
  "xmtp_macro",
  "xmtp_mls_common",
- "xmtp_mls_validation",
  "xmtp_proto",
  "zeroize",
 ]
@@ -11354,11 +11353,9 @@ dependencies = [
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
  "wasm-bindgen-test",
- "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
- "xmtp_db",
  "xmtp_id",
  "xmtp_proto",
 ]
@@ -11380,6 +11377,7 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
+ "xmtp_mls_common",
  "xmtp_proto",
 ]
 
