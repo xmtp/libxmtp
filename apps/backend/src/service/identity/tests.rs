@@ -1,12 +1,67 @@
 use crate::test_support as support;
 
 use crate::api;
+use prost::Message;
 use support::TestServer;
 use tonic::Code;
 use xmtp_mls_validation::test_utils::{
     identity_envelope, identity_history_with_passkey, scw_create_inbox_update,
 };
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn installation_members_are_excluded_from_identifier_lookup_projection() {
+    use xmtp_id::associations::{
+        MemberIdentifier,
+        builder::SignatureRequestBuilder,
+        test_utils::{WalletTestExt, add_installation_key_signature, add_wallet_signature},
+    };
+    let server = TestServer::new(|_| {}).await?;
+    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let installation = xmtp_cryptography::basic_credential::XmtpInstallationCredential::new();
+    let identifier = wallet.identifier();
+    let inbox = wallet.get_inbox_id(0);
+    let installation_key = installation.public_bytes().to_vec();
+    let mut request = SignatureRequestBuilder::new(&inbox)
+        .create_inbox(identifier.clone(), 0)
+        .add_association(
+            MemberIdentifier::installation(installation_key.clone()),
+            identifier.clone().into(),
+        )
+        .build();
+    add_wallet_signature(&mut request, &wallet).await;
+    add_installation_key_signature(&mut request, &installation).await;
+    server
+        .publish(vec![identity_envelope(
+            request.build_identity_update()?.into(),
+        )])
+        .await?;
+    let rows: Vec<(String, i16)> = sqlx::query_as(
+        "SELECT identifier, identifier_kind FROM identifier_association ORDER BY identifier",
+    )
+    .fetch_all(&server.backend.store.primary)
+    .await?;
+    assert_eq!(rows, vec![(identifier.to_string().to_ascii_lowercase(), 1)]);
+    let result = server
+        .identity()
+        .get_inbox_ids(api::GetInboxIdsRequest {
+            requests: vec![
+                api::get_inbox_ids_request::Request {
+                    identifier: hex::encode(installation_key),
+                    identifier_kind: IdentifierKind::Passkey.into(),
+                },
+                api::get_inbox_ids_request::Request {
+                    identifier: identifier.to_string(),
+                    identifier_kind: IdentifierKind::Ethereum.into(),
+                },
+            ],
+        })
+        .await?
+        .into_inner();
+    assert_eq!(result.responses[0].inbox_id, None);
+    assert_eq!(result.responses[1].inbox_id, Some(inbox));
+    server.stop().await?;
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn verified_identity_projects_normalized_positional_lookups_and_duplicate_retries() {
@@ -18,6 +73,25 @@ async fn verified_identity_projects_normalized_positional_lookups_and_duplicate_
     let update = identity_envelope(fixture.update);
     let stored = server.publish(vec![update.clone()]).await?;
     assert_eq!(server.publish(vec![update]).await?, stored);
+    let mut backend = server.backend.clone();
+    std::sync::Arc::make_mut(&mut backend.config)
+        .limits
+        .max_identity_entries = 1;
+    backend.config.validate()?;
+    let topic = stored[0].topic.clone().unwrap();
+    let history = backend.store.history(&topic.topic).await?;
+    assert_eq!(history.payloads.len(), 2);
+    use crate::api::query_service_server::QueryService;
+    let page = QueryService::query(
+        &backend,
+        tonic::Request::new(api::QueryRequest {
+            queries: vec![support::query_topic(topic, 0)],
+            limit: 100,
+        }),
+    )
+    .await?
+    .into_inner();
+    assert_eq!(page.envelopes.len(), 2);
     let identifier = fixture.added_identifier.to_string().to_uppercase();
     let input = api::get_inbox_ids_request::Request {
         identifier: identifier.clone(),
@@ -273,6 +347,39 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
             .code(),
         Code::InvalidArgument
     );
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_update_scw_signature_limit_is_checked_before_verification() {
+    let server = TestServer::with_verifier(
+        |config| config.limits.max_scw_signatures = 1,
+        xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier::new(true),
+    )
+    .await?;
+    let update = scw_create_inbox_update();
+    let stored = server
+        .publish(vec![identity_envelope(update.clone())])
+        .await?;
+    assert_eq!(stored.len(), 1);
+    let mut excess = update.clone();
+    excess.actions.extend(update.actions);
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![identity_envelope(excess)],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!(detail.index, Some(0));
+    assert_eq!(detail.reason(), api::publish_error::Reason::TooLarge);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(count, 1);
     server.stop().await?;
 }
 

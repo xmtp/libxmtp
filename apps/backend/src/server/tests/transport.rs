@@ -378,3 +378,57 @@ async fn oversized_publish_response_reports_transport_error_after_commit() {
     assert_eq!(count, 800);
     server.stop().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn grpc_web_preserves_structured_publish_error_details() {
+    let server = TestServer::new(|_| {}).await?;
+    let request = api::PublishRequest {
+        envelopes: vec![
+            inline_welcome_envelope([75; 32]),
+            api::ClientEnvelope::default(),
+        ],
+    };
+    let response = grpc_web_post(
+        &server,
+        "/xmtp.backend.v1.PublishService/Publish",
+        encode_frame(request),
+        [("origin", "https://app.example")],
+    )
+    .await?;
+    assert_eq!(response.status, reqwest::StatusCode::OK);
+    assert_eq!(response.grpc_status(), Some(Code::InvalidArgument as i32));
+    let frames = decode_frames(&response.body)?;
+    assert!(frames.data.is_empty());
+    let mut headers = response.headers.clone();
+    if !headers.contains_key("grpc-status-details-bin") {
+        let details = frames
+            .trailers
+            .get("grpc-status-details-bin")
+            .expect("gRPC-Web trailers must carry structured details");
+        headers.insert("grpc-status-details-bin", HeaderValue::from_str(details)?);
+    }
+    let metadata = tonic::metadata::MetadataMap::from_headers(headers);
+    let decoded = tonic_types::pb::Status::decode(
+        metadata
+            .get_bin("grpc-status-details-bin")
+            .unwrap()
+            .to_bytes()?,
+    )?;
+    assert_eq!(decoded.code, Code::InvalidArgument as i32);
+    assert_eq!(decoded.details.len(), 1);
+    assert_eq!(
+        decoded.details[0].type_url,
+        "type.googleapis.com/xmtp.backend.v1.PublishError"
+    );
+    let detail = api::PublishError::decode(decoded.details[0].value.as_slice())?;
+    assert_eq!(detail.index, Some(1));
+    assert_eq!(
+        detail.reason(),
+        api::publish_error::Reason::MalformedPayload
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    assert_eq!(count, 0);
+    server.stop().await?;
+}

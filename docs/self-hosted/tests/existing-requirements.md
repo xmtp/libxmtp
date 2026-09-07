@@ -36,7 +36,7 @@ Requirement IDs stay in documentation, not in Rust names or comments.
 
 | Behavior | Owning tests |
 | --- | --- |
-| Config defaults, invalid values, environment references, secret redaction, and schema parity | `apps/backend/src/config.rs` |
+| Config defaults, invalid values, environment references, secret redaction, and schema parity | `apps/backend/src/config/tests.rs` and `apps/backend/src/config/schema/tests.rs` |
 | Fresh and concurrent database initialization | `apps/backend/src/db/tests.rs` |
 | Atomic publish, original indexes, metadata, retained payload bytes, and watermark guard rollback | `apps/backend/src/service/publish/tests.rs` |
 | Duplicate and history races, topic and identity lock order, cancellation, and cumulative transaction lifetime | `apps/backend/src/db/publish/tests.rs` |

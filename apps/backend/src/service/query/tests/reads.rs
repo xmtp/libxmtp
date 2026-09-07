@@ -194,3 +194,63 @@ async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
     );
     server.stop().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn full_query_and_newest_fail_when_response_bytes_exceed_the_cap() {
+    let server = TestServer::new(|config| {
+        config.limits.max_envelope_bytes = 1_024;
+        config.limits.max_response_bytes = 1_500;
+    })
+    .await?;
+    let mut envelopes = Vec::new();
+    for id in 0..3 {
+        let mut envelope = inline_welcome_envelope([id; 32]);
+        if let Some(api::client_envelope::Payload::WelcomeMessage(welcome)) = &mut envelope.payload
+            && let Some(api::welcome_message::Version::V1(version)) = &mut welcome.version
+        {
+            version.data = vec![3; 700];
+        }
+        envelopes.push(envelope);
+    }
+    let metas = server.publish(envelopes).await?;
+    let topics: Vec<_> = metas
+        .iter()
+        .map(|meta| meta.topic.clone().unwrap())
+        .collect();
+    let queries = topics
+        .iter()
+        .cloned()
+        .map(|topic| query_topic(topic, 0))
+        .collect();
+    assert_eq!(
+        server
+            .query()
+            .query(api::QueryRequest { queries, limit: 3 })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::OutOfRange
+    );
+    assert_eq!(
+        server
+            .query()
+            .query_newest(api::QueryNewestRequest {
+                topics: topics.clone(),
+                include_full_envelope: true,
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::OutOfRange
+    );
+    let metadata = server
+        .query()
+        .query_newest(api::QueryNewestRequest {
+            topics,
+            include_full_envelope: false,
+        })
+        .await?
+        .into_inner();
+    assert_eq!(metadata.results.len(), 3);
+    server.stop().await?;
+}

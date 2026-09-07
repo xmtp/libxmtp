@@ -352,3 +352,42 @@ async fn cumulative_publish_deadline_releases_database_locks_before_statement_ti
     assert_eq!(retried[0].cursor.as_ref().unwrap().sequence_id, 2);
     server.stop().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn projection_failure_after_writes_rolls_back_the_publish_transaction() {
+    let server = TestServer::new(|_| {}).await?;
+    let pool = &server.backend.store.primary;
+    sqlx::raw_sql("CREATE SEQUENCE test_projection_seen; CREATE FUNCTION test_reject_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF (SELECT count(*) FROM envelopes) = 2 AND (SELECT count(*) FROM topic_watermark) = 2 AND (SELECT count(*) FROM identifier_association) = 1 THEN PERFORM nextval('test_projection_seen'); END IF; RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'injected projection failure'; END $$; CREATE TRIGGER test_projection_failure AFTER INSERT ON identifier_association FOR EACH ROW EXECUTE FUNCTION test_reject_projection();")
+        .execute(pool)
+        .await?;
+    let fixture = xmtp_mls_validation::test_utils::identity_history_with_passkey().await;
+    let result = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![
+                identity_envelope(fixture.history[0].clone()),
+                xmtp_mls_validation::test_utils::inline_welcome_envelope([61; 32]),
+            ],
+        })
+        .await;
+    assert_eq!(result.unwrap_err().code(), Code::Internal);
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT is_called FROM test_projection_seen")
+            .fetch_one(pool)
+            .await?
+    );
+    let envelopes: i64 = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
+        .fetch_one(pool)
+        .await?;
+    let watermarks: i64 = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topic_watermark")
+        .fetch_one(pool)
+        .await?;
+    let projections: i64 =
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM identifier_association")
+            .fetch_one(pool)
+            .await?;
+    assert_eq!(envelopes, 0);
+    assert_eq!(watermarks, 0);
+    assert_eq!(projections, 0);
+    server.stop().await?;
+}

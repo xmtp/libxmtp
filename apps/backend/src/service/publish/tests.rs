@@ -5,7 +5,9 @@ use prost::Message;
 use support::TestServer;
 use tonic::Code;
 use xmtp_mls_validation::test_utils::{
-    GroupMessageKind, expired_key_package_envelope, group_message_envelope, inline_welcome_envelope,
+    GroupMessageKind, expired_key_package_envelope, group_message_envelope, identity_envelope,
+    identity_history_with_passkey, inline_welcome_envelope,
+    malformed_signature_create_inbox_update,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -115,12 +117,60 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
+    let server = TestServer::new(|_| {}).await?;
+    let fixture = identity_history_with_passkey().await;
+    let cases = [
+        (api::ClientEnvelope::default(), Reason::MalformedPayload),
+        (
+            expired_key_package_envelope().envelope,
+            Reason::InvalidKeyPackage,
+        ),
+        (
+            identity_envelope(fixture.update.clone()),
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            identity_envelope(malformed_signature_create_inbox_update()),
+            Reason::InvalidSignature,
+        ),
+    ];
+    for (bad, reason) in cases {
+        let good = inline_welcome_envelope([70; 32]);
+        let error = server
+            .publisher()
+            .publish(api::PublishRequest {
+                envelopes: vec![good.clone(), good, bad, api::ClientEnvelope::default()],
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        let status = tonic_types::pb::Status::decode(error.details())?;
+        let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+        assert_eq!(detail.index, Some(2));
+        assert_eq!(detail.reason(), reason);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
+                .fetch_one(&server.backend.store.primary)
+                .await?,
+            0
+        );
+    }
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn welcome_batch_commits_each_destination_and_canonical_payload() {
     let server = TestServer::new(|_| {}).await?;
     let envelopes: Vec<_> = (0..32)
         .map(|id| inline_welcome_envelope([id; 32]))
         .collect();
     let metas = server.publish(envelopes.clone()).await?;
+    let watermarks: Vec<(Vec<u8>, i64)> =
+        sqlx::query_as("SELECT topic, last_sequence_id FROM topic_watermark")
+            .fetch_all(&server.backend.store.primary)
+            .await?;
+    assert_eq!(watermarks.len(), envelopes.len());
     for (envelope, meta) in envelopes.into_iter().zip(metas) {
         let fetched = server
             .query()
@@ -137,6 +187,10 @@ async fn welcome_batch_commits_each_destination_and_canonical_payload() {
             meta.message_hash.unwrap().hash,
             Some(api::message_hash::Hash::Sha256(hash.to_vec()))
         );
+        assert!(watermarks.contains(&(
+            meta.topic.unwrap().topic,
+            meta.cursor.unwrap().sequence_id as i64,
+        )));
     }
     server.stop().await?;
 }
