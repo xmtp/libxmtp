@@ -1,0 +1,85 @@
+// Message content encoding structures
+// Copied from V2 code so that we can eventually retire all V2 message content
+syntax = "proto3";
+
+package xmtp.mls.message_contents;
+
+import "device_sync/content.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents";
+option java_package = "org.xmtp.proto.mls.message.contents";
+
+// ContentTypeId is used to identify the type of content stored in a Message.
+message ContentTypeId {
+  string authority_id = 1; // authority governing this content type
+  string type_id = 2; // type identifier
+  uint32 version_major = 3; // major version of the type
+  uint32 version_minor = 4; // minor version of the type
+}
+
+// Recognized compression algorithms
+// protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
+enum Compression {
+  COMPRESSION_DEFLATE = 0;
+  COMPRESSION_GZIP = 1;
+}
+// protolint:enable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
+
+// EncodedContent bundles the content with metadata identifying its type
+// and parameters required for correct decoding and presentation of the content.
+message EncodedContent {
+  // content type identifier used to match the payload with
+  // the correct decoding machinery
+  ContentTypeId type = 1;
+  // optional encoding parameters required to correctly decode the content
+  map<string, string> parameters = 2;
+  // optional fallback description of the content that can be used in case
+  // the client cannot decode or render the content
+  optional string fallback = 3;
+  // optional compression; the value indicates algorithm used to
+  // compress the encoded content bytes
+  optional Compression compression = 5;
+  // encoded content itself
+  bytes content = 4;
+}
+
+// A PlaintextEnvelope is the outermost payload that gets encrypted by MLS
+message PlaintextEnvelope {
+  // Version 1 of the encrypted envelope
+  message V1 {
+    // Expected to be EncodedContent
+    bytes content = 1;
+    // A unique value that can be used to ensure that the same content can
+    // produce different hashes. May be the sender timestamp.
+    string idempotency_key = 2;
+  }
+
+  // Version 2 of the encrypted envelope
+  message V2 {
+    // A unique value that can be used to ensure that the same content can
+    // produce different hashes. May be the sender timestamp.
+    string idempotency_key = 1;
+
+    oneof message_type {
+      // Expected to be EncodedContent
+      bytes content = 2;
+      // Initiator sends a request to receive sync payload
+      xmtp.device_sync.content.DeviceSyncRequest device_sync_request = 3;
+      // Some other authorized installation sends a reply with a link to payload
+      xmtp.device_sync.content.DeviceSyncReply device_sync_reply = 4;
+      // A serialized user preference update
+      xmtp.device_sync.content.V1UserPreferenceUpdate user_preference_update = 5;
+    }
+
+    // Removed; moved to oneshot message
+    reserved 6;
+    reserved "readd_request";
+  }
+
+  // Selector which declares which version of the EncodedContent this
+  // PlaintextEnvelope is
+  oneof content {
+    V1 v1 = 1;
+    V2 v2 = 2;
+  }
+}

@@ -1,0 +1,15 @@
+// Signature is a generic structure for signed byte arrays
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "message_contents/signature.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// SignedPayload is a wrapper for a signature and a payload
+message SignedPayload {
+  bytes payload = 1;
+  Signature signature = 2;
+}

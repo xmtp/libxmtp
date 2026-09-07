@@ -1,0 +1,76 @@
+// API for reporting and querying node misbehavior in decentralized XMTP
+syntax = "proto3";
+
+package xmtp.xmtpv4.message_api;
+
+import "identity/associations/signature.proto";
+import "xmtpv4/envelopes/envelopes.proto";
+import "xmtpv4/message_api/message_api.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/xmtpv4/message_api";
+
+enum Misbehavior {
+  MISBEHAVIOR_UNSPECIFIED = 0;
+  MISBEHAVIOR_UNRESPONSIVE_NODE = 1;
+  MISBEHAVIOR_SLOW_NODE = 2;
+  MISBEHAVIOR_FAILED_REQUEST = 3;
+  MISBEHAVIOR_OUT_OF_ORDER = 4;
+  MISBEHAVIOR_DUPLICATE_SEQUENCE_ID = 5;
+  MISBEHAVIOR_CAUSAL_ORDERING = 6;
+  MISBEHAVIOR_INVALID_PAYLOAD = 7;
+  MISBEHAVIOR_BLOCKCHAIN_INCONSISTENCY = 8;
+}
+
+message LivenessFailure {
+  uint32 response_time_ns = 1;
+  oneof request {
+    xmtp.xmtpv4.message_api.SubscribeEnvelopesRequest subscribe = 2;
+    xmtp.xmtpv4.message_api.QueryEnvelopesRequest query = 3;
+    xmtp.xmtpv4.message_api.PublishPayerEnvelopesRequest publish = 4;
+  }
+}
+
+message SafetyFailure {
+  repeated xmtp.xmtpv4.envelopes.OriginatorEnvelope envelopes = 1;
+}
+
+message UnsignedMisbehaviorReport {
+  uint64 reporter_time_ns = 1;
+  uint32 misbehaving_node_id = 2;
+  Misbehavior type = 3;
+  oneof failure {
+    LivenessFailure liveness = 4;
+    SafetyFailure safety = 5;
+  }
+  // Nodes must verify this field is false for client-submitted reports
+  bool submitted_by_node = 6;
+}
+
+message MisbehaviorReport {
+  // Server time when the report was stored. Used only for querying reports.
+  // This field is not signed.
+  uint64 server_time_ns = 1;
+  bytes unsigned_misbehavior_report = 2;
+  // Signed by the node hosting the report
+  xmtp.identity.associations.RecoverableEcdsaSignature signature = 3;
+}
+
+message SubmitMisbehaviorReportRequest {
+  UnsignedMisbehaviorReport report = 1;
+}
+
+message SubmitMisbehaviorReportResponse {}
+
+message QueryMisbehaviorReportsRequest {
+  uint64 after_ns = 1;
+}
+
+message QueryMisbehaviorReportsResponse {
+  repeated MisbehaviorReport reports = 1;
+}
+
+service MisbehaviorApi {
+  rpc SubmitMisbehaviorReport(SubmitMisbehaviorReportRequest) returns (SubmitMisbehaviorReportResponse) {}
+
+  rpc QueryMisbehaviorReports(QueryMisbehaviorReportsRequest) returns (QueryMisbehaviorReportsResponse) {}
+}

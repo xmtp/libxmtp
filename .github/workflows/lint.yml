@@ -22,6 +22,7 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       config: ${{ steps.filter.outputs.config }}
+      proto: ${{ steps.filter.outputs.proto }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -29,6 +30,7 @@ jobs:
         with:
           filters: |
             workspace:
+              - 'proto/**'
               - 'crates/**'
               - 'bindings/**'
               - 'apps/**'
@@ -46,6 +48,7 @@ jobs:
               - 'sdks/js/**'
               - 'bindings/node/**'
               - 'bindings/wasm/**'
+              - 'proto/**'
               - 'crates/**'
               - 'nix/**'
               - 'flake.lock'
@@ -63,6 +66,11 @@ jobs:
               - 'flake.nix'
               - 'dev/**'
               - '.github/workflows/lint-config*'
+            proto:
+              - 'proto/**'
+              - 'justfile'
+              - '.github/workflows/lint.yml'
+              - '.github/workflows/lint-proto.yml'
 
   lint-workspace:
     needs: detect-changes
@@ -100,6 +108,12 @@ jobs:
     uses: ./.github/workflows/lint-config.yml
     secrets: inherit
 
+  lint-proto:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.proto == 'true'
+    uses: ./.github/workflows/lint-proto.yml
+    secrets: inherit
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -111,6 +125,7 @@ jobs:
       # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - lint-config
+      - lint-proto
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \

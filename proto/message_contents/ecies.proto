@@ -1,0 +1,15 @@
+// ECIES is a wrapper for ECIES payloads
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// EciesMessage is a wrapper for ECIES encrypted payloads
+message EciesMessage {
+  oneof version {
+    // Expected to be an ECIES encrypted SignedPayload
+    bytes v1 = 1;
+  }
+}

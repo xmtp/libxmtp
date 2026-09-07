@@ -2,12 +2,10 @@
 #[allow(warnings)]
 mod generated {
     //! Module structure of Protos for XMTP
-    //!
-    //! Edit the 'build.rs' file and uncomment '.include_file' to generate this file
-    //! from the beginning. Generating this file anew will remove all ".serde.rs" includes,
-    //! since pbjson does not integrate with prost/tonic build
-    include!("gen/mod.rs");
-    pub const FILE_DESCRIPTOR_SET: &'static [u8] = include_bytes!("gen/proto_descriptor.bin");
+
+    include!(concat!(env!("OUT_DIR"), "/mod.rs"));
+    pub const FILE_DESCRIPTOR_SET: &'static [u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/proto_descriptor.bin"));
 }
 
 pub mod api_client;
@@ -54,6 +52,10 @@ pub mod prelude {
 
 pub mod identity_v1 {
     pub use super::xmtp::identity::api::v1::*;
+}
+
+pub mod backend_v1 {
+    pub use super::xmtp::backend::v1::*;
 }
 
 pub mod mls_v1 {

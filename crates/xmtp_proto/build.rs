@@ -1,180 +1,128 @@
-use color_eyre::eyre::Result;
-use relative_path::PathExt;
 use std::env;
+use std::error::Error;
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
 use tonic_prost_build::{Builder, Config, configure};
 use walkdir::WalkDir;
-use xshell::{Shell, cmd};
 
-fn codegen_configure(builder: Builder) -> Builder {
+const SERVER_CFG: &str =
+    r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#;
+
+fn codegen_configure(mut builder: Builder) -> Builder {
+    for package in [
+        "xmtp.backend.v1",
+        "xmtp.identity.api.v1",
+        "xmtp.mls_validation.v1",
+        "xmtp.message_api.v1",
+        "xmtp.mls.api.v1",
+        "xmtp.xmtpv4",
+        "xmtp.xmtpv4.gateway_api",
+        "xmtp.xmtpv4.payer_api",
+        "xmtp.xmtpv4.message_api",
+        "xmtp.xmtpv4.metadata_api",
+        "xmtp.migration.api.v1",
+    ] {
+        builder = builder.server_mod_attribute(package, SERVER_CFG);
+    }
     builder
-        .build_transport(false)
-        .server_mod_attribute(
-            "xmtp.identity.api.v1",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.mls_validation.v1",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.message_api.v1",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.mls.api.v1",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.xmtpv4",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.xmtpv4.payer_api",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.xmtpv4.message_api",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.xmtpv4.metadata_api",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
-        .server_mod_attribute(
-            "xmtp.migration.api.v1",
-            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
-        )
 }
 
-fn clone_proto_repos(out_dir: &PathBuf, git_ref: &str) -> Result<()> {
-    let sh = Shell::new()?;
-    if !std::fs::exists(out_dir.join("grpc-gateway"))? {
-        cmd!(
-            sh,
-            "git clone https://github.com/grpc-ecosystem/grpc-gateway.git {out_dir}/grpc-gateway"
-        )
-        .run()?;
+fn proto_files(proto_root: &Path) -> Result<Vec<PathBuf>, walkdir::Error> {
+    let entries = WalkDir::new(proto_root)
+        .min_depth(1)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.file_type().is_dir() || entry.path().extension() == Some(OsStr::new("proto"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut files = entries
+        .into_iter()
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.into_path())
+        .collect::<Vec<_>>();
+    files.sort();
+    Ok(files)
+}
+
+fn merge_serde_files(out_dir: &Path) -> Result<(), Box<dyn Error>> {
+    let entries = WalkDir::new(out_dir)
+        .max_depth(1)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut serde_files = entries
+        .into_iter()
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.into_path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| name.ends_with(".serde.rs"))
+        })
+        .collect::<Vec<_>>();
+    serde_files.sort();
+
+    for serde_path in serde_files {
+        let file_name = serde_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or("generated serde path is not valid UTF-8")?;
+        let rust_path = out_dir.join(file_name.replace(".serde.rs", ".rs"));
+        let serde_source = fs::read(&serde_path)?;
+        let mut rust_file = OpenOptions::new().append(true).open(&rust_path)?;
+        rust_file.write_all(b"\n")?;
+        rust_file.write_all(&serde_source)?;
+        fs::remove_file(serde_path)?;
     }
-    if !std::fs::exists(out_dir.join("googleapis"))? {
-        cmd!(
-            sh,
-            "git clone https://github.com/googleapis/googleapis.git {out_dir}/googleapis"
-        )
-        .run()?;
-    }
-    if std::fs::exists(out_dir.join("proto"))? {
-        std::fs::remove_dir_all(out_dir.join("proto"))?;
-    }
-    cmd!(
-        sh,
-        "git clone https://github.com/xmtp/proto.git {out_dir}/proto"
-    )
-    .run()?;
-    cmd!(
-        sh,
-        "git --git-dir {out_dir}/proto/.git --work-tree={out_dir}/proto checkout {git_ref}"
-    )
-    .run()?;
+
     Ok(())
 }
 
-fn main() -> Result<()> {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=proto_version");
-    println!("cargo:rerun-if-env-changed=GEN_PROTOS");
-    let update = std::env::var("GEN_PROTOS");
-    let should_update = matches!(update, Ok(s) if s == "true" || s == "1");
-    if !should_update {
-        return Ok(());
-    }
-
-    if !cmd_exists("protoc") {
-        panic!("xmtp_proto buildscript requires protoc on $PATH");
-    }
-
+fn main() -> Result<(), Box<dyn Error>> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let workspace_dir = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("xmtp_proto must be inside the workspace crates directory")?;
+    let proto_root = workspace_dir.join("proto");
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    println!("out_dir = {}", out_dir.display());
-    let revision = std::fs::read_to_string(manifest.join("proto_version"))?;
-    clone_proto_repos(&out_dir, revision.trim())?;
 
-    let include_paths = &[
-        &format!("{}/proto/proto", out_dir.display()),
-        &format!("{}/grpc-gateway/", out_dir.display()),
-        &format!("{}/grpc-gateway/third_party/googleapis/", out_dir.display()),
-        &format!("{}/googleapis/", out_dir.display()),
-    ];
+    println!("cargo:rerun-if-changed={}", proto_root.display());
+    println!("cargo:rerun-if-changed=build.rs");
 
-    let mut proto_files = WalkDir::new(out_dir.join("proto").join("proto"))
-        .min_depth(1)
-        .into_iter()
-        .filter_entry(|f| {
-            f.path().extension() == Some(OsStr::new("proto")) || f.file_type().is_dir()
-        })
-        .filter_map(|f| {
-            let p = f.unwrap().into_path();
-            if p.is_dir() { None } else { Some(p) }
-        })
-        .collect::<Vec<_>>();
-    // prost emits each package file in input order, and WalkDir yields raw
-    // readdir order — filesystem- and machine-dependent. Sort, or every
-    // regen on a different machine rewrites unchanged generated files.
-    proto_files.sort();
-
-    let files = &proto_files
-        .iter()
-        .map(|p| p.relative_to(out_dir.join("proto").join("proto")).unwrap())
-        .map(|p| p.to_string())
-        .collect::<Vec<String>>();
-    for file in files {
-        println!("{}", file);
+    if out_dir.exists() {
+        fs::remove_dir_all(&out_dir)?;
     }
+    fs::create_dir_all(&out_dir)?;
 
-    let descriptor_path = manifest.join("src/gen/proto_descriptor.bin");
-
-    let files = files.iter().map(|s| s.as_ref()).collect::<Vec<&str>>();
-    let includes = include_paths
-        .iter()
-        .map(|s| s.as_ref())
-        .collect::<Vec<&str>>();
+    let files = proto_files(&proto_root)?;
+    let descriptor_path = out_dir.join("proto_descriptor.bin");
 
     let mut config = Config::new();
-    config.enable_type_names();
-    let builder = configure()
-        .compile_well_known_types(true)
-        .out_dir("src/gen")
-        .extern_path(".google.protobuf", "::pbjson_types")
-        .file_descriptor_set_path(&descriptor_path);
+    config.enable_type_names().include_file("mod.rs");
 
-    let builder = codegen_configure(builder);
-    builder
-        // include can be used to generate the mod.rs file, before
-        // editing it to include serde additions
-        // .include_file("mod.rs")
-        .build_client(false)
-        .compile_with_config(config, &files, &includes)
-        .expect("Failed to compile protos");
-    let descriptors = std::fs::read(&descriptor_path)?;
+    codegen_configure(
+        configure()
+            .compile_well_known_types(true)
+            .protoc_arg("--experimental_allow_proto3_optional")
+            .out_dir(&out_dir)
+            .extern_path(".google.protobuf", "::pbjson_types")
+            .file_descriptor_set_path(&descriptor_path)
+            .build_transport(false)
+            .build_client(false),
+    )
+    .compile_with_config(config, &files, &[proto_root])?;
+
+    let descriptors = fs::read(&descriptor_path)?;
     pbjson_build::Builder::new()
-        .out_dir("src/gen")
+        .out_dir(&out_dir)
         .register_descriptors(&descriptors)?
         .ignore_unknown_fields()
         .preserve_proto_field_names()
         .build(&[".xmtp"])?;
+    merge_serde_files(&out_dir)?;
 
     Ok(())
-}
-
-fn cmd_exists(program: &str) -> bool {
-    if let Ok(path) = env::var("PATH") {
-        for p in path.split(":") {
-            let p_str = format!("{}/{}", p, program);
-            if std::fs::metadata(p_str).is_ok() {
-                return true;
-            }
-        }
-    }
-    false
 }

@@ -1,0 +1,14 @@
+// Publish API - Gateway to Node publishing
+syntax = "proto3";
+
+package xmtp.xmtpv4.message_api;
+
+import "xmtpv4/message_api/message_api.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/xmtpv4/message_api";
+
+// Gateway -> Node.
+service PublishApi {
+  rpc PublishPayerEnvelopes(PublishPayerEnvelopesRequest)
+      returns (PublishPayerEnvelopesResponse) {}
+}

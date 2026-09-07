@@ -1,0 +1,78 @@
+// Sync group messages
+syntax = "proto3";
+package xmtp.device_sync.content;
+
+import "device_sync/consent_backup.proto";
+import "device_sync/device_sync.proto";
+
+option java_package = "org.xmtp.proto.device_sync";
+
+// All potential device sync group messages
+message DeviceSyncContent {
+  oneof content {
+    DeviceSyncRequest request = 1;
+    DeviceSyncAcknowledge acknowledge = 2;
+    DeviceSyncReply reply = 3;
+    PreferenceUpdates preference_updates = 4;
+  }
+}
+
+// Acknowledges a request
+message DeviceSyncAcknowledge {
+  string request_id = 1;
+}
+
+// Preference updates
+message PreferenceUpdates {
+  repeated PreferenceUpdate updates = 1;
+}
+
+// Preference update
+message PreferenceUpdate {
+  oneof update {
+    xmtp.device_sync.consent_backup.ConsentSave consent = 1;
+    HmacKeyUpdate hmac = 2;
+  }
+}
+
+message V1UserPreferenceUpdate {
+  repeated bytes contents = 1;
+}
+
+// Hmac key update
+message HmacKeyUpdate {
+  bytes key = 1;
+  int64 cycled_at_ns = 2;
+}
+
+// Initiator or new installation id requesting a sync payload send a request
+message DeviceSyncRequest {
+  string pin = 1;
+  string server_url = 2;
+  xmtp.device_sync.BackupElementSelection deprecated_kind = 3 [deprecated = true];
+  xmtp.device_sync.ArchiveOptions options = 4;
+}
+
+// Pre-existing installation id capable of supplying a sync payload sends this reply
+message DeviceSyncReply {
+  // Must match an existing request_id from a message history request
+  string request_id = 1;
+  // Where the messages can be retrieved from
+  string url = 2;
+  // Encryption key
+  DeviceSyncKeyType encryption_key = 3;
+  // ns unix timestamp of when the reply was sent
+  uint64 timestamp_ns = 4 [deprecated = true];
+  // request kind
+  xmtp.device_sync.BackupElementSelection kind = 5 [deprecated = true];
+
+  // Metadata about the backup
+  xmtp.device_sync.BackupMetadataSave metadata = 6;
+}
+
+// Key used to encrypt the message-bundle
+message DeviceSyncKeyType {
+  oneof key {
+    bytes aes_256_gcm = 1;
+  }
+}

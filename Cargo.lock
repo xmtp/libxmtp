@@ -7677,15 +7677,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
-name = "relative-path"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bca40a312222d8ba74837cb474edef44b37f561da5f773981007a10bbaa992b0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.11.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7828,7 +7819,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "relative-path 1.9.3",
+ "relative-path",
  "rustc_version 0.4.1",
  "syn 2.0.119",
  "unicode-ident",
@@ -10859,6 +10850,7 @@ dependencies = [
  "memchr",
  "nu-ansi-term",
  "num-traits",
+ "once_cell",
  "openmls",
  "openmls_basic_credential",
  "openmls_memory_storage",
@@ -11388,7 +11380,6 @@ dependencies = [
  "bincode",
  "bytes",
  "chrono",
- "color-eyre",
  "const-hex",
  "ctor",
  "derive_builder",
@@ -11405,7 +11396,6 @@ dependencies = [
  "pin-project",
  "prost",
  "prost-types",
- "relative-path 2.0.1",
  "rstest",
  "serde",
  "smallvec",
@@ -11422,7 +11412,6 @@ dependencies = [
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_configuration",
- "xshell",
 ]
 
 [[package]]
@@ -11463,21 +11452,6 @@ dependencies = [
  "xmtp_mls",
  "xmtp_proto",
 ]
-
-[[package]]
-name = "xshell"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e7290c623014758632efe00737145b6867b66292c42167f2ec381eb566a373d"
-dependencies = [
- "xshell-macros",
-]
-
-[[package]]
-name = "xshell-macros"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xxhash-rust"

@@ -1,0 +1,50 @@
+// reaction.proto
+// This file defines the ReactionV2 message type and is associated with the following ContentTypeId:
+//
+// ContentTypeId {
+//     authority_id: "xmtp.org",
+//     type_id:      "reaction",
+//     version_major: 2,
+//     version_minor: 0,
+// }
+//
+syntax = "proto3";
+
+package xmtp.mls.message_contents.content_types;
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/message_contents/content_types";
+option java_package = "org.xmtp.proto.mls.message_contents.content_types";
+
+// Action enum to represent reaction states
+enum ReactionAction {
+  REACTION_ACTION_UNSPECIFIED = 0;
+  REACTION_ACTION_ADDED = 1;
+  REACTION_ACTION_REMOVED = 2;
+}
+
+// Schema enum to represent reaction content types
+enum ReactionSchema {
+  REACTION_SCHEMA_UNSPECIFIED = 0;
+  REACTION_SCHEMA_UNICODE = 1;
+  REACTION_SCHEMA_SHORTCODE = 2;
+  REACTION_SCHEMA_CUSTOM = 3;
+}
+
+// Reaction message type
+message ReactionV2 {
+  // The message ID being reacted to
+  string reference = 1;
+
+  // The inbox ID of the user who sent the message being reacted to
+  // Optional for group messages
+  string reference_inbox_id = 2;
+
+  // The action of the reaction (added or removed)
+  ReactionAction action = 3;
+
+  // The content of the reaction
+  string content = 4;
+
+  // The schema of the reaction content
+  ReactionSchema schema = 5;
+}

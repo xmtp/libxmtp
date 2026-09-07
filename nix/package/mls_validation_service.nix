@@ -29,7 +29,7 @@ let
       (root + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
       (root + /crates/xmtp_id/artifact)
       (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
-      (root + /crates/xmtp_proto/src/gen/proto_descriptor.bin)
+      (root + /proto)
 
       (root + /bindings/.gitkeep)
       (root + /apps/.gitkeep)

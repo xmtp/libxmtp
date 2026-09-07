@@ -16,7 +16,6 @@
             enable = true;
             package = rustfmt;
             excludes = [
-              "crates/xmtp_proto/src/gen/*"
               "crates/xmtp-workspace-hack/*"
             ];
           };

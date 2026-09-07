@@ -11,6 +11,7 @@
   darwin,
   lib,
   pkg-config,
+  protobuf,
   mkShell,
   openssl,
   sqlite,
@@ -39,7 +40,10 @@ mkShell {
   # causing "unknown flag" errors during iOS cross-compilation.
   hardeningDisable = [ "zerocallusedregs" ];
 
-  nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [
+    pkg-config
+    protobuf
+  ];
   buildInputs = [
     rust-ios-toolchain
     zstd

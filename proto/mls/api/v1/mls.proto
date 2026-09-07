@@ -1,0 +1,619 @@
+// Message API
+syntax = "proto3";
+package xmtp.mls.api.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "identity/associations/signature.proto";
+import "message_contents/signature.proto";
+import "mls/message_contents/commit_log.proto";
+import "mls/message_contents/welcome_pointer.proto";
+import "mls/message_contents/wrapper_encryption.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/api/v1";
+option java_package = "org.xmtp.proto.mls.api.v1";
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "MlsApi"
+    version: "1.0"
+  }
+};
+
+// RPCs for the new MLS API
+service MlsApi {
+  // Send a MLS payload, that would be validated before being stored to the
+  // network
+  rpc SendGroupMessages(SendGroupMessagesRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/mls/v1/send-group-messages"
+      body: "*"
+    };
+  }
+
+  // Send a batch of welcome messages
+  rpc SendWelcomeMessages(SendWelcomeMessagesRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/mls/v1/send-welcome-messages"
+      body: "*"
+    };
+  }
+
+  // Register a new installation, which would be validated before storage
+  rpc RegisterInstallation(RegisterInstallationRequest) returns (RegisterInstallationResponse) {
+    option (google.api.http) = {
+      post: "/mls/v1/register-installation"
+      body: "*"
+    };
+  }
+
+  // Upload a new KeyPackage, which would be validated before storage
+  rpc UploadKeyPackage(UploadKeyPackageRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/mls/v1/upload-key-package"
+      body: "*"
+    };
+  }
+
+  // Get one or more Key Packages by installation_id
+  rpc FetchKeyPackages(FetchKeyPackagesRequest) returns (FetchKeyPackagesResponse) {
+    option (google.api.http) = {
+      post: "/mls/v1/fetch-key-packages"
+      body: "*"
+    };
+  }
+
+  // Would delete all key packages associated with the installation and mark
+  // the installation as having been revoked
+  rpc RevokeInstallation(RevokeInstallationRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/mls/v1/revoke-installation"
+      body: "*"
+    };
+  }
+
+  // Used to check for changes related to members of a group.
+  // Would return an array of any new installations associated with the wallet
+  // address, and any revocations that have happened.
+  rpc GetIdentityUpdates(GetIdentityUpdatesRequest) returns (GetIdentityUpdatesResponse) {
+    option (google.api.http) = {
+      post: "/mls/v1/get-identity-updates"
+      body: "*"
+    };
+  }
+
+  // Query stored group messages
+  rpc QueryGroupMessages(QueryGroupMessagesRequest) returns (QueryGroupMessagesResponse) {
+    option (google.api.http) = {
+      post: "/mls/v1/query-group-messages"
+      body: "*"
+    };
+  }
+
+  // Query stored group messages
+  rpc QueryWelcomeMessages(QueryWelcomeMessagesRequest) returns (QueryWelcomeMessagesResponse) {
+    option (google.api.http) = {
+      post: "/mls/v1/query-welcome-messages"
+      body: "*"
+    };
+  }
+
+  // Subscribe stream of new group messages
+  rpc SubscribeGroupMessages(SubscribeGroupMessagesRequest) returns (stream GroupMessage) {
+    option (google.api.http) = {
+      post: "/mls/v1/subscribe-group-messages"
+      body: "*"
+    };
+  }
+
+  // Subscribe stream of new welcome messages
+  rpc SubscribeWelcomeMessages(SubscribeWelcomeMessagesRequest) returns (stream WelcomeMessage) {
+    option (google.api.http) = {
+      post: "/mls/v1/subscribe-welcome-messages"
+      body: "*"
+    };
+  }
+
+  // Bidirectional subscription (XIP-83). One long-lived stream the client mutates
+  // in place via add/remove topic deltas, with WebSocket-style liveness ping/pong.
+  // A single stream MAY carry both group-message and welcome topics.
+  // gRPC-only: bidirectional streaming has no HTTP/grpc-gateway mapping.
+  rpc Subscribe(stream SubscribeRequest) returns (stream SubscribeResponse) {}
+
+  rpc BatchPublishCommitLog(BatchPublishCommitLogRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/mls/v1/batch-publish-commit-log"
+      body: "*"
+    };
+  }
+
+  rpc BatchQueryCommitLog(BatchQueryCommitLogRequest) returns (BatchQueryCommitLogResponse) {
+    option (google.api.http) = {
+      post: "/mls/v1/batch-query-commit-log"
+      body: "*"
+    };
+  }
+
+  rpc GetNewestGroupMessage(GetNewestGroupMessageRequest) returns (GetNewestGroupMessageResponse) {
+    option (google.api.http) = {get: "/mls/v1/get-newest-group-message"};
+  }
+}
+
+// Full representation of a welcome message
+message WelcomeMessage {
+  // Version 1 of the WelcomeMessage format
+  message V1 {
+    uint64 id = 1;
+    uint64 created_ns = 2;
+    bytes installation_key = 3;
+    bytes data = 4;
+    bytes hpke_public_key = 5;
+    xmtp.mls.message_contents.WelcomeWrapperAlgorithm wrapper_algorithm = 6;
+    bytes welcome_metadata = 7;
+  }
+
+  message WelcomePointer {
+    uint64 id = 1;
+    uint64 created_ns = 2;
+    // The topic of the welcome message (generally the installation id)
+    bytes installation_key = 3;
+    // A WelcomePointer encrypted using the algorithm specified by
+    // wrapper_algorithm
+    bytes welcome_pointer = 4;
+    // The public key used to encrypt the welcome pointer
+    bytes hpke_public_key = 5;
+    // The algorithm used to encrypt the welcome pointer
+    xmtp.mls.message_contents.WelcomePointerWrapperAlgorithm wrapper_algorithm = 6;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+    WelcomePointer welcome_pointer = 2;
+  }
+}
+
+// Input type for a welcome message
+message WelcomeMessageInput {
+  // Version 1 of the WelcomeMessageInput format, if used as the pointee of a
+  // WelcomePointer then the hpke_public_key will be unset, and the
+  // wrapper_algorithm will be WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY
+  message V1 {
+    // The topic of the welcome message (generally the installation id)
+    bytes installation_key = 1;
+    // An encrypted mls `Welcome` struct
+    bytes data = 2;
+    // The public key of the welcome message
+    bytes hpke_public_key = 3;
+    // The algorithm used to encrypt the welcome message
+    xmtp.mls.message_contents.WelcomeWrapperAlgorithm wrapper_algorithm = 4;
+    // The metadata of the welcome message
+    bytes welcome_metadata = 7;
+  }
+
+  // Version 2 of the WelcomeMessageInput format which uses a WelcomePointer
+  // to point to the welcome message for several installations at once
+  message WelcomePointer {
+    // The topic of the welcome message (generally the installation id)
+    bytes installation_key = 1;
+    // A WelcomePointer encrypted using the wrapper_algorithm
+    bytes welcome_pointer = 2;
+    // The public key used to encrypt the welcome pointer
+    bytes hpke_public_key = 3;
+    // The algorithm used to encrypt the welcome pointer
+    xmtp.mls.message_contents.WelcomePointerWrapperAlgorithm wrapper_algorithm = 4;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+    WelcomePointer welcome_pointer = 2;
+  }
+}
+
+// This field is encrypted along with the `data` field on the welcome message.
+message WelcomeMetadata {
+  uint64 message_cursor = 1;
+}
+
+// Full representation of a group message
+message GroupMessage {
+  // Version 1 of the GroupMessage format
+  message V1 {
+    uint64 id = 1;
+    uint64 created_ns = 2;
+    bytes group_id = 3;
+    bytes data = 4;
+    bytes sender_hmac = 5;
+    bool should_push = 6;
+    bool is_commit = 7;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Input type for a group message
+message GroupMessageInput {
+  // Version 1 of the GroupMessageInput payload format
+  message V1 {
+    bytes data = 1; // Serialized MlsProtocolMessage
+    bytes sender_hmac = 2;
+    bool should_push = 3;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Send a batch of MLS messages
+message SendGroupMessagesRequest {
+  repeated GroupMessageInput messages = 1;
+}
+
+// Send a batch of welcome messages
+message SendWelcomeMessagesRequest {
+  repeated WelcomeMessageInput messages = 1;
+}
+
+// A wrapper around the Key Package bytes
+message KeyPackageUpload {
+  // This would be a serialized MLS key package that the node would
+  // parse, validate, and then store.
+
+  // The owner's wallet address would be extracted from the identity
+  // credential in the key package, and all signatures would be validated.
+  bytes key_package_tls_serialized = 1;
+}
+
+// Register a new installation
+message RegisterInstallationRequest {
+  // The Key Package contains all information needed to register an installation
+  KeyPackageUpload key_package = 1;
+  bool is_inbox_id_credential = 2;
+}
+
+// The response to a RegisterInstallationRequest
+message RegisterInstallationResponse {
+  bytes installation_key = 1;
+}
+
+// Upload a new key packages
+message UploadKeyPackageRequest {
+  // An individual key package upload request
+  KeyPackageUpload key_package = 1;
+  bool is_inbox_id_credential = 2;
+}
+
+// Fetch one or more key packages
+message FetchKeyPackagesRequest {
+  // The caller can provide an array of installation keys, and the API
+  // will return one key package for each installation associated with each
+  // installation key
+  repeated bytes installation_keys = 1;
+}
+
+// The response to a FetchKeyPackagesRequest
+message FetchKeyPackagesResponse {
+  // An individual key package
+  message KeyPackage {
+    bytes key_package_tls_serialized = 1;
+  }
+
+  // Returns one key package per installation in the original order of the
+  // request. If any installations are missing key packages, an empty entry is
+  // left in their respective spots in the array.
+  repeated KeyPackage key_packages = 1;
+}
+
+// Revoke an installation
+message RevokeInstallationRequest {
+  bytes installation_key = 1;
+  // All revocations must be validated with a wallet signature over the
+  // installation_id being revoked (and some sort of standard prologue)
+  xmtp.message_contents.Signature wallet_signature = 2;
+}
+
+// Get all updates for an identity since the specified time
+message GetIdentityUpdatesRequest {
+  repeated string account_addresses = 1;
+  uint64 start_time_ns = 2;
+}
+
+// Used to get any new or revoked installations for a list of wallet addresses
+message GetIdentityUpdatesResponse {
+  // A new installation key was seen for the first time by the nodes
+  message NewInstallationUpdate {
+    bytes installation_key = 1;
+    bytes credential_identity = 2;
+  }
+
+  // An installation was revoked
+  message RevokedInstallationUpdate {
+    bytes installation_key = 1;
+  }
+
+  // A wrapper for any update to the wallet
+  message Update {
+    uint64 timestamp_ns = 1;
+    oneof kind {
+      NewInstallationUpdate new_installation = 2;
+      RevokedInstallationUpdate revoked_installation = 3;
+    }
+  }
+
+  // A wrapper for the updates for a single wallet
+  message WalletUpdates {
+    repeated Update updates = 1;
+  }
+
+  // A list of updates (or empty objects if no changes) in the original order
+  // of the request
+  repeated WalletUpdates updates = 1;
+}
+
+// Sort direction for queries
+enum SortDirection {
+  SORT_DIRECTION_UNSPECIFIED = 0;
+  SORT_DIRECTION_ASCENDING = 1;
+  SORT_DIRECTION_DESCENDING = 2;
+}
+
+// Pagination config for queries
+message PagingInfo {
+  SortDirection direction = 1;
+  uint32 limit = 2;
+  uint64 id_cursor = 3;
+}
+
+// Request for group message queries
+message QueryGroupMessagesRequest {
+  bytes group_id = 1;
+  PagingInfo paging_info = 2;
+}
+
+// Response for group message queries
+message QueryGroupMessagesResponse {
+  repeated GroupMessage messages = 1;
+  PagingInfo paging_info = 2;
+}
+
+// Request for welcome message queries
+message QueryWelcomeMessagesRequest {
+  bytes installation_key = 1;
+  PagingInfo paging_info = 2;
+}
+
+// Response for welcome message queries
+message QueryWelcomeMessagesResponse {
+  repeated WelcomeMessage messages = 1;
+  PagingInfo paging_info = 2;
+}
+
+// Request for subscribing to group messages
+message SubscribeGroupMessagesRequest {
+  // Subscription filter
+  message Filter {
+    bytes group_id = 1;
+    uint64 id_cursor = 2;
+  }
+  repeated Filter filters = 1;
+}
+
+// Request for subscribing to welcome messages
+message SubscribeWelcomeMessagesRequest {
+  // Subscription filter
+  message Filter {
+    bytes installation_key = 1;
+    uint64 id_cursor = 2;
+  }
+  repeated Filter filters = 1;
+}
+
+// --- XIP-83: bidirectional mutable subscription with liveness ----------------
+//
+// A single long-lived `Subscribe` stream replaces repeated server-streaming
+// subscriptions. The client mutates its subscribed set in place (no reconnect on
+// membership change), and the two sides exchange a WebSocket-style ping/pong so
+// the client detects silent stream death and the node reaps a vanished peer.
+//
+// Subscriptions are expressed as kind-prefixed binary topics (XIP-49 §3.3.2):
+// a leading kind byte plus the identifier, the same representation the
+// decentralized backend uses, so one topic format spans both backends and a
+// single stream can carry several topic kinds (group messages, welcomes).
+// Request and response are wrapped in `oneof version` (cf. GroupMessage /
+// WelcomeMessage) to leave room for future revisions. The versions are pinned
+// per stream: a stream whose requests are V1 receives only V1 responses, so a
+// client never has to handle a response version it did not speak first.
+
+// Client -> server. Sent one or more times over the life of the stream.
+message SubscribeRequest {
+  oneof version {
+    V1 v1 = 1;
+  }
+
+  message V1 {
+    // Each frame is exactly one of: a mutation, a Ping, or a Pong.
+    oneof request {
+      Mutate mutate = 1;
+      Ping ping = 2; // liveness challenge (e.g. probe the link after resuming)
+      Pong pong = 3; // answer to a server Ping
+    }
+
+    // Add and/or remove subscriptions in place (applied atomically per frame).
+    // Topics use the kind-prefixed binary representation shared with the
+    // decentralized backend (XIP-49 §3.3.2): the first byte is the topic kind,
+    // the remainder is the identifier. This RPC initially serves
+    // TOPIC_KIND_GROUP_MESSAGES_V1 (0x00, identifier = group_id) and
+    // TOPIC_KIND_WELCOME_MESSAGES_V1 (0x01, identifier = installation_key);
+    // a topic whose kind the node does not serve fails the stream with
+    // INVALID_ARGUMENT. Future kinds (key packages, identity updates) are
+    // adopted via the capabilities advertised on Started.
+    message Mutate {
+      repeated Subscription adds = 1; // begin delivering these topics
+      repeated bytes removes = 2; // stop delivering; clears the topic's cursor floor so a re-add replays
+
+      // Catch this Mutate's adds up — history, TopicsLive markers, and the
+      // wave's CatchupComplete — but do NOT register them for live delivery.
+      // The markers then mean "you have everything as of the wave's start";
+      // later messages arrive on no lane of this stream. Combined with
+      // half-closing the request stream, this is the
+      // bounded catch-up ("sync") mode: the server finishes the wave and then
+      // closes the stream itself. Removals in the Mutate are unaffected.
+      bool history_only = 3;
+
+      // Client-chosen correlation id: echoed on this wave's CatchupComplete,
+      // and stamped on every delivery frame of the wave's catch-up replay
+      // (Messages.mutate_id). MUST be nonzero when adds are present (0 is the
+      // live tag), and MUST NOT match the mutate_id of a wave still in flight
+      // on the stream (an in-flight collision would make two waves' frames and
+      // completions indistinguishable) — either violation fails the stream
+      // with INVALID_ARGUMENT. SHOULD be unique per stream so completed waves
+      // stay attributable too.
+      uint64 mutate_id = 4;
+
+      // A topic to subscribe, with the cursor to resume from.
+      message Subscription {
+        bytes topic = 1;
+        // Deliver ids greater than this; 0 = from the beginning. For a newly
+        // joined group, a client SHOULD seed this from the welcome's encrypted
+        // WelcomeMetadata.message_cursor so a new membership does not refetch
+        // pre-join history it cannot decrypt; for a new installation's welcome
+        // topic, 0 is how pending welcomes are collected.
+        uint64 id_cursor = 2;
+      }
+    }
+  }
+}
+
+// Server -> client.
+message SubscribeResponse {
+  oneof version {
+    V1 v1 = 1;
+  }
+
+  message V1 {
+    oneof response {
+      Messages messages = 1;
+      Started started = 2; // sent once, immediately on open, before any catch-up
+      Ping ping = 3; // idle liveness challenge; receiver MUST answer with Pong
+      Pong pong = 4; // answer to a client Ping
+      TopicsLive topics_live = 5; // no more replay for these topics; live begins after CatchupComplete
+      CatchupComplete catchup_complete = 6; // acks a Mutate; wave completion if it started one
+    }
+
+    // A batch of new messages; group and welcome messages share the stream,
+    // depending on which subscriptions are active. A frame belongs to exactly
+    // one catch-up wave or to live — the server never mixes lanes, or two
+    // waves, in one frame — and each lane is delivered in ascending id order
+    // per message kind (live: across all live topics on the stream; a wave:
+    // across the wave's topics, one merged cursor-ordered pass).
+    message Messages {
+      repeated GroupMessage group_messages = 1;
+      repeated WelcomeMessage welcome_messages = 2;
+      // The catch-up wave that produced this frame: the Mutate's mutate_id
+      // for wave replay, 0 for live tail.
+      uint64 mutate_id = 3;
+    }
+
+    // The first frame on every stream.
+    message Started {
+      // The server's ping cadence (ms): the basis for the client's staleness
+      // threshold and the server's reap deadline.
+      uint32 keepalive_interval_ms = 1;
+      // Optional protocol features the node supports on this stream. The node
+      // silently ignores request types it does not understand, so a client
+      // MUST NOT send an optional request type whose capability the node did
+      // not advertise (it would hang waiting on a response that never comes).
+      repeated Capability capabilities = 2;
+    }
+
+    // Sent once per Mutate: at wave completion (after the wave's last
+    // TopicsLive) for a Mutate that started a catch-up "wave", immediately for
+    // one that did not (nothing added — removes-only or empty — or every add
+    // a no-op). Also the catch-up
+    // seam: live frames (mutate_id 0) for the wave's topics begin only after
+    // this frame.
+    message CatchupComplete {
+      uint64 mutate_id = 1; // echoes the Mutate; 0 only if a waveless Mutate carried 0
+    }
+
+    // Emitted when topics finish catch-up, AFTER the last history frame for
+    // them — including messages that arrived mid-wave and were folded into it,
+    // which were equally historical from the client's perspective — so no
+    // further replay for a listed topic follows; its live (mutate_id 0) frames
+    // begin after the wave's CatchupComplete. Informational only: delivery
+    // correctness (no duplicates, no gaps) never depends on it. Re-adding a
+    // topic re-runs catch-up and re-emits it; receivers treat it idempotently.
+    message TopicsLive {
+      repeated bytes topics = 1; // kind-prefixed topics done replaying
+    }
+
+    // Optional per-stream protocol features (none defined yet; future
+    // revisions add values, e.g. fetch-over-stream lookups answered with the
+    // same read view that feeds the stream, or new streamable topic kinds).
+    enum Capability {
+      CAPABILITY_UNSPECIFIED = 0;
+    }
+  }
+}
+
+// Liveness challenge/response, shared across versions. Either peer MAY send a
+// Ping; the receiver MUST reply with a Pong echoing the nonce. The sender closes
+// the stream if no Pong arrives within its deadline — how a node reaps a vanished
+// peer (e.g. a mobile client the OS suspended behind a proxy that still ACKs the
+// transport).
+message Ping {
+  uint64 nonce = 1;
+}
+
+message Pong {
+  uint64 nonce = 1; // echoes the nonce of the Ping it answers
+}
+
+message BatchPublishCommitLogRequest {
+  repeated PublishCommitLogRequest requests = 1;
+}
+
+message PublishCommitLogRequest {
+  bytes group_id = 1;
+  bytes serialized_commit_log_entry = 2;
+  xmtp.identity.associations.RecoverableEd25519Signature signature = 3;
+}
+
+message QueryCommitLogRequest {
+  bytes group_id = 1;
+  PagingInfo paging_info = 2;
+}
+
+message QueryCommitLogResponse {
+  bytes group_id = 1;
+  repeated xmtp.mls.message_contents.CommitLogEntry commit_log_entries = 2;
+  PagingInfo paging_info = 3;
+}
+
+message BatchQueryCommitLogRequest {
+  repeated QueryCommitLogRequest requests = 1;
+}
+
+message BatchQueryCommitLogResponse {
+  repeated QueryCommitLogResponse responses = 1;
+}
+
+// Request to get the newest group message from a range of topics
+message GetNewestGroupMessageRequest {
+  // Get the newest message from each of these topics
+  repeated bytes group_ids = 1;
+  bool include_content = 2;
+}
+
+// Returns a list of responses that will always be the same length as the
+// request
+message GetNewestGroupMessageResponse {
+  message Response {
+    // If no message is found on the topic, will be nil
+    optional GroupMessage group_message = 1;
+  }
+
+  repeated Response responses = 1;
+}

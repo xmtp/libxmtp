@@ -2,6 +2,7 @@ FROM rust:1-bullseye as builder
 WORKDIR /code
 COPY . .
 COPY .git /.git
+RUN apt-get update && apt-get install -y protobuf-compiler
 RUN cargo build --release --features test-utils --package mls_validation_service
 
 FROM debian:bullseye-slim

@@ -1,0 +1,79 @@
+// Intent protos that are stored in the libxmtp database
+
+syntax = "proto3";
+package xmtp.mls.database;
+
+import "device_sync/device_sync.proto";
+import "mls/message_contents/welcome_pointer.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/database";
+option java_package = "org.xmtp.proto.mls.database";
+
+message Task {
+  oneof task {
+    xmtp.mls.message_contents.WelcomePointer process_welcome_pointer = 1;
+    SendSyncArchive send_sync_archive = 2;
+    ProcessPendingSelfRemove process_pending_self_remove = 3;
+    PullInDeadline pull_in_deadline = 4;
+    KpRotation kp_rotation = 5;
+    KpDeletion kp_deletion = 6;
+    AddMissingInstallations add_missing_installations = 7;
+    KpLiveness kp_liveness = 8;
+  }
+}
+
+// Lower a target task's next-attempt deadline so it runs sooner. One-shot:
+// applied by the TaskWorker, then deleted.
+message PullInDeadline {
+  // The UNIQUE data_hash identifying the target task row.
+  bytes target_data_hash = 1;
+  // Target's next_attempt_at_ns is set to MIN(current, this).
+  int64 not_later_than_ns = 2;
+}
+
+// Recurring singleton: rotate + upload a fresh key package when the identity's
+// rotation deadline is due. Empty payload => stable data_hash for pull-ins.
+message KpRotation {}
+
+// Recurring singleton: delete superseded local key-package material whose
+// delete_at_ns has passed. Empty payload => stable data_hash for pull-ins.
+message KpDeletion {}
+
+// Recurring singleton: verify that THIS installation still has a usable key
+// package published on the network, and queue a rotation when it does not.
+//
+// Distinct from KpRotation on purpose. Rotation is driven by a local deadline
+// column; if that column is ever wrong the client stops rotating, its published
+// key package expires, and it becomes permanently unreachable (added to groups
+// only as a failed installation, so it never receives a welcome and never gets
+// the welcome-driven rotation nudge either) without observing any local error.
+// Liveness is the independent watchdog for that closed loop: its own schedule,
+// its own retry/backoff, and a network probe rather than a local deadline as
+// its source of truth. Empty payload => stable data_hash for pull-ins.
+message KpLiveness {}
+
+message SendSyncArchive {
+  xmtp.device_sync.ArchiveOptions options = 1;
+  bytes sync_group_id = 2;
+  optional string pin = 3;
+  string server_url = 4;
+}
+
+// Durable TaskRunner intent: process a group's pending self-remove requests
+// (build the MLS RemoveProposal/Commit to evict members who sent a LeaveRequest,
+// then clean up the pending-remove list). Enqueued in the same DB transaction as
+// the pending_remove row so it survives restart; runs on the TaskRunner with
+// retry/backoff. group_id is the target conversation.
+message ProcessPendingSelfRemove {
+  bytes group_id = 1;
+}
+
+// Durable TaskRunner intent: reconcile a group's membership with the inbox's
+// latest identity state (add installations registered after the group was
+// last updated). Enqueued by the device-sync worker when a sync-group welcome
+// signals a new installation; runs on the TaskRunner with retry/backoff so a
+// transient failure (e.g. identity propagation lag) cannot permanently skip
+// the add. group_id is the target conversation.
+message AddMissingInstallations {
+  bytes group_id = 1;
+}

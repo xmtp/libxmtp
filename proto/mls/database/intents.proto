@@ -1,0 +1,265 @@
+// Intent protos that are stored in the libxmtp database
+
+syntax = "proto3";
+package xmtp.mls.database;
+
+import "mls/message_contents/welcome_pointer.proto";
+import "mls/message_contents/wrapper_encryption.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/mls/database";
+option java_package = "org.xmtp.proto.mls.database";
+
+// The data required to publish a message
+message SendMessageData {
+  // V1 of SendMessagePublishData
+  message V1 {
+    bytes payload_bytes = 1;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Wrapper around a list af repeated EVM Account Addresses
+message AccountAddresses {
+  repeated string account_addresses = 1;
+}
+
+// Wrapper around a list of repeated Installation IDs
+message InstallationIds {
+  repeated bytes installation_ids = 1;
+}
+
+// One of an EVM account address or Installation ID
+message AddressesOrInstallationIds {
+  oneof addresses_or_installation_ids {
+    AccountAddresses account_addresses = 1;
+    InstallationIds installation_ids = 2;
+  }
+}
+
+// DEPRECATED
+// The data required to add members to a group
+message AddMembersData {
+  // V1 of AddMembersPublishData
+  message V1 {
+    AddressesOrInstallationIds addresses_or_installation_ids = 1;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// DEPRECATED
+// The data required to remove members from a group
+message RemoveMembersData {
+  // V1 of RemoveMembersPublishData
+  message V1 {
+    AddressesOrInstallationIds addresses_or_installation_ids = 1;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// The data required to make a commit that updates group membership
+// Handles both Add and Remove actions
+message UpdateGroupMembershipData {
+  // V1 of UpdateGroupMembershipPublishData
+  message V1 {
+    // Contains delta of membership updates that need to be applied
+    map<string, uint64> membership_updates = 1;
+    // Contains the list of members that will be removed
+    repeated string removed_members = 2;
+    // List of installations that failed to be added due to errors encountered during the evaluation process.
+    repeated bytes failed_installations = 3;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// The data required to remove and readd existing leaf nodes
+// on the MLS tree. Does not change or update the members list.
+// Used for fork recovery
+message ReaddInstallationsData {
+  message V1 {
+    repeated bytes readded_installations = 1;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// The data required to update group metadata
+message UpdateMetadataData {
+  // V1 of UpdateMetadataPublishData
+  message V1 {
+    string field_name = 1;
+    string field_value = 2;
+    // Compare-and-swap guard. When set, the publisher must abandon this
+    // intent unless the field's currently committed value equals this,
+    // rather than overwriting whatever landed in the meantime. Absent
+    // means last-writer-wins, which is the historical behavior.
+    optional string expected_field_value = 3;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Type of update to admin lists
+enum AdminListUpdateType {
+  ADMIN_LIST_UPDATE_TYPE_UNSPECIFIED = 0;
+  ADMIN_LIST_UPDATE_TYPE_ADD_ADMIN = 1;
+  ADMIN_LIST_UPDATE_TYPE_REMOVE_ADMIN = 2;
+  ADMIN_LIST_UPDATE_TYPE_ADD_SUPER_ADMIN = 3;
+  ADMIN_LIST_UPDATE_TYPE_REMOVE_SUPER_ADMIN = 4;
+}
+
+// The data required to update group admin/super admin lists
+message UpdateAdminListsData {
+  // V1 of UpdateAdminListsPublishData
+  message V1 {
+    AdminListUpdateType admin_list_update_type = 1;
+    string inbox_id = 2;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Type of Permission to Update
+enum PermissionUpdateType {
+  PERMISSION_UPDATE_TYPE_UNSPECIFIED = 0;
+  PERMISSION_UPDATE_TYPE_ADD_MEMBER = 1;
+  PERMISSION_UPDATE_TYPE_REMOVE_MEMBER = 2;
+  PERMISSION_UPDATE_TYPE_ADD_ADMIN = 3;
+  PERMISSION_UPDATE_TYPE_REMOVE_ADMIN = 4;
+  PERMISSION_UPDATE_TYPE_UPDATE_METADATA = 5;
+}
+
+// Permission Policy
+enum PermissionPolicyOption {
+  PERMISSION_POLICY_OPTION_UNSPECIFIED = 0;
+  PERMISSION_POLICY_OPTION_ALLOW = 1;
+  PERMISSION_POLICY_OPTION_DENY = 2;
+  PERMISSION_POLICY_OPTION_ADMIN_ONLY = 3;
+  PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY = 4;
+}
+
+// The data required to update permissions
+message UpdatePermissionData {
+  // V1 of UpdatePermissionData
+  message V1 {
+    PermissionUpdateType permission_update_type = 1;
+    PermissionPolicyOption permission_policy_option = 2;
+    // Metadata permissions update specify which field permission they are updating
+    optional string metadata_field_name = 3;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Generic AppData write intent — local-only serialization for the
+// `group_intents` table. Replaces the proliferation of per-component
+// IntentKind/IntentData pairs with a single shape that carries the
+// target component_id and the same payload bytes that will be written
+// to the on-wire `AppDataUpdate` proposal. Interpretation of `payload`
+// is determined by the target component's `ComponentType` in the
+// registry:
+//
+//   * `Bytes` / `String` typed components — payload is the new value
+//     written verbatim (last-writer-wins).
+//   * `TlsMap` typed components — payload is a TLS-encoded
+//     `TlsMapDelta<K, V>` carrying `Insert` / `Update` / `Delete`
+//     mutations. Apply semantics on the receive side are total
+//     (Insert is no-op-if-present, Update is upsert, Delete is
+//     idempotent); the strict variants of the in-process TlsMap API
+//     are not exposed on the wire. No "conflict" failure path.
+//   * `TlsSet` typed components — payload is a TLS-encoded
+//     `TlsSetDelta<E>` (`Add` is no-op-if-present, `Remove` is
+//     idempotent).
+//
+// Never appears on the MLS wire; lives only in the local intents
+// table.
+message AppDataUpdateData {
+  // v1 payload shape.
+  message V1 {
+    // u16 component_id widened to u32 (proto has no u16). The
+    // dispatcher narrows back to u16 at decode time.
+    uint32 component_id = 1;
+    // The bytes that will be written verbatim as the on-wire
+    // AppDataUpdate proposal payload. Interpretation determined by
+    // the component's registered ComponentType (see message-level
+    // comment above).
+    bytes payload = 2;
+  }
+
+  // Versioned envelope. New variants are added as new oneof entries;
+  // readers that don't recognize a variant fail closed.
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+// Generic data-type for all post-commit actions
+message PostCommitAction {
+  // An installation
+  message Installation {
+    bytes installation_key = 1;
+    bytes hpke_public_key = 2;
+    xmtp.mls.message_contents.WelcomeWrapperAlgorithm welcome_wrapper_algorithm = 3;
+    xmtp.mls.message_contents.WelcomePointeeEncryptionAeadTypesExtension welcome_pointee_encryption_aead_types = 4;
+  }
+  // SendWelcome message
+  message SendWelcomes {
+    repeated Installation installations = 1;
+    bytes welcome_message = 2;
+  }
+
+  oneof kind {
+    SendWelcomes send_welcomes = 1;
+  }
+}
+
+message ProposeMemberUpdateData {
+  message V1 {
+    // Not hex encoded
+    repeated bytes add_inbox_ids = 1;
+    repeated bytes remove_inbox_ids = 2;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+message ProposeGroupContextExtensionData {
+  message V1 {
+    bytes group_context_extension = 1;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}
+
+message CommitPendingProposalsData {
+  message V1 {
+    repeated bytes proposal_hashes = 1;
+  }
+
+  oneof version {
+    V1 v1 = 1;
+  }
+}

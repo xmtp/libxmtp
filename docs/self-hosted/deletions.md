@@ -283,7 +283,7 @@ Subtotal deleted in Phase 3: about 3,900 lines plus `registration_visible` (369)
    `crates/xmtp_proto/src/types/cursor.rs`, `crates/xmtp_proto/src/types/global_cursor.rs`,
    `crates/xmtp_mls/src/groups/subscriptions.rs`, `crates/xmtp_mls/src/registration_visible/mod.rs`,
    and `crates/xmtp_mls/src/subscriptions/d14n_compat.rs`.
-2. Add the new `xmtp.backend.v1` file from `docs/self-hosted/backend.proto`.
+2. Add the new `xmtp.backend.v1` file at `proto/backend/v1/backend.proto`.
 3. Rewrite `crates/xmtp_proto/build.rs:51-80` (`clone_proto_repos`) to read `proto/`. Drop the
    `xmtp/proto` clone at line 72. Keep the grpc-gateway and googleapis clones (lines 53-63)
    only until Phase 3 removes the annotations.

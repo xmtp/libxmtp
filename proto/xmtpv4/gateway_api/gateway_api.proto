@@ -1,0 +1,17 @@
+// Gateway API - Client to Gateway requests
+syntax = "proto3";
+
+package xmtp.xmtpv4.gateway_api;
+
+import "xmtpv4/payer_api/payer_api.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/xmtpv4/gateway_api";
+
+// Client -> Gateway. Replaces payer_api.PayerApi.
+service GatewayApi {
+  rpc PublishClientEnvelopes(xmtp.xmtpv4.payer_api.PublishClientEnvelopesRequest)
+      returns (xmtp.xmtpv4.payer_api.PublishClientEnvelopesResponse) {}
+
+  rpc GetNodes(xmtp.xmtpv4.payer_api.GetNodesRequest)
+      returns (xmtp.xmtpv4.payer_api.GetNodesResponse) {}
+}
