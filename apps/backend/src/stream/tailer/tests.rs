@@ -11,14 +11,16 @@ async fn signals_during_cooldown_share_one_boundary_attempt() {
         .await?;
     let signal = Arc::new(Notify::new());
     signal.notify_one();
-    let worker = Worker(tokio::spawn(maintain(
+    let mut maintenance = Box::pin(maintain(
         pool.clone(),
         signal.clone(),
         Duration::from_millis(250),
         10,
         Instant::now(),
-    )));
-    tokio::task::yield_now().await;
+    ));
+    // Poll through the first notification into the cooldown before sending more.
+    assert!(futures::poll!(&mut maintenance).is_pending());
+    let worker = Worker(tokio::spawn(maintenance));
     for _ in 0..1_000 {
         signal.notify_one();
     }

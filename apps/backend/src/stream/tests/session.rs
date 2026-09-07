@@ -4,7 +4,7 @@ use crate::api::{
 use crate::test_support as support;
 use support::{
     TestServer,
-    native::{Native, envelope},
+    native::{Native, envelope, terminal},
 };
 use tonic::Code;
 
@@ -19,7 +19,7 @@ async fn empty_session_acknowledges_updates_and_ping_then_ends_on_half_close() {
     stream.send(Input::Ping(api::Ping { nonce: 77 })).await?;
     assert!(matches!(stream.next().await?, Frame::Pong(pong) if pong.nonce == 77));
     drop(stream.input);
-    assert!(stream.output.message().await?.is_none());
+    assert!(terminal(&mut stream.output).await?.is_none());
     server.stop().await?;
 }
 
@@ -354,7 +354,7 @@ async fn structural_update_errors_close_the_session() {
         let mut stream = Native::open(&server).await?;
         stream.input.send(request).await?;
         assert_eq!(
-            stream.output.message().await.unwrap_err().code(),
+            terminal(&mut stream.output).await?.unwrap().code(),
             Code::InvalidArgument
         );
     }
@@ -365,7 +365,7 @@ async fn structural_update_errors_close_the_session() {
 async fn unmatched_server_challenge_expires_despite_other_inbound_traffic() {
     let server = TestServer::new(|config| {
         config.streams.keepalive_interval_ms = 20;
-        config.streams.max_pong_wait_ms = 60;
+        config.streams.max_pong_wait_ms = 1_000;
     })
     .await?;
     let mut stream = Native::open(&server).await?;
@@ -380,7 +380,7 @@ async fn unmatched_server_challenge_expires_despite_other_inbound_traffic() {
     stream.send(Input::Ping(api::Ping { nonce: 88 })).await?;
     assert!(matches!(stream.next().await?, Frame::Pong(pong) if pong.nonce == 88));
     assert_eq!(
-        stream.output.message().await.unwrap_err().code(),
+        terminal(&mut stream.output).await?.unwrap().code(),
         Code::DeadlineExceeded
     );
     drop(stream);
@@ -405,7 +405,7 @@ async fn ping_and_update_use_independent_buckets() {
     }
     stream.send(Input::Ping(api::Ping { nonce: 3 })).await?;
     assert_eq!(
-        stream.output.message().await.unwrap_err().code(),
+        terminal(&mut stream.output).await?.unwrap().code(),
         Code::ResourceExhausted
     );
     drop(stream);
@@ -529,16 +529,10 @@ async fn slow_live_consumer_fails_without_blocking_other_sessions() {
         .await?;
     healthy.send(Input::Ping(api::Ping { nonce: 91 })).await?;
     assert!(matches!(healthy.next().await?, Frame::Pong(pong) if pong.nonce == 91));
-    loop {
-        match slow.output.message().await {
-            Ok(Some(_)) => {}
-            Err(error) => {
-                assert_eq!(error.code(), Code::ResourceExhausted);
-                break;
-            }
-            Ok(None) => panic!("slow stream ended without a capacity error"),
-        }
-    }
+    assert_eq!(
+        terminal(&mut slow.output).await?.unwrap().code(),
+        Code::ResourceExhausted
+    );
     drop(slow);
     drop(healthy);
     server.stop().await?;
@@ -572,7 +566,7 @@ async fn pending_target_capture_does_not_block_ping_or_half_close() {
     stream.send(Input::Ping(api::Ping { nonce: 92 })).await?;
     assert!(matches!(stream.next().await?, Frame::Pong(pong) if pong.nonce == 92));
     drop(stream.input);
-    assert!(stream.output.message().await?.is_none());
+    assert!(terminal(&mut stream.output).await?.is_none());
     blocker.commit().await?;
     server.stop().await?;
 }
@@ -606,21 +600,10 @@ async fn unknown_gap_capacity_fails_before_discarding_recovery_state() {
         aborted.rollback().await?;
         server.publish(vec![envelope(36, value)]).await?;
     }
-    loop {
-        let response = xmtp_common::time::timeout(
-            xmtp_common::time::Duration::from_secs(5),
-            stream.output.message(),
-        )
-        .await?;
-        match response {
-            Err(error) => {
-                assert_eq!(error.code(), Code::ResourceExhausted);
-                break;
-            }
-            Ok(Some(_)) => {}
-            Ok(None) => panic!("missing explicit gap capacity failure"),
-        }
-    }
+    assert_eq!(
+        terminal(&mut stream.output).await?.unwrap().code(),
+        Code::ResourceExhausted
+    );
     assert_eq!(
         sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
             .fetch_one(&server.backend.store.primary)

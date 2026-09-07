@@ -8,6 +8,7 @@ use crate::{
 use support::{
     TestServer,
     native::{Native, envelope},
+    replica::with_paused_replay,
 };
 use tonic::Code;
 
@@ -25,9 +26,7 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     let _replay = REPLAY.lock().await;
     let server = TestServer::new(replica).await?;
     let read = server.backend.store.read.clone();
-    sqlx::query!("SELECT pg_wal_replay_pause()")
-        .execute(&read)
-        .await?;
+    let (meta, mut stream) = with_paused_replay(&read, async {
     let meta = server.publish(vec![envelope(21, 1)]).await?.remove(0);
     let id = meta.cursor.as_ref().unwrap().sequence_id;
     let primary = server
@@ -59,9 +58,8 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     assert!(
         matches!(stream.next().await?, Frame::Applied(applied) if applied.added_targets[0].through_sequence_id == 0)
     );
-    sqlx::query!("SELECT pg_wal_replay_resume()")
-        .execute(&read)
-        .await?;
+        Ok((meta, stream))
+    }).await?;
     let rows = stream.messages(1).await?;
     assert_eq!(rows[0].meta, Some(meta));
     drop(stream);
@@ -73,31 +71,70 @@ async fn startup_waits_for_its_boundary_to_reach_the_selected_replica() {
     let _replay = REPLAY.lock().await;
     let first = TestServer::new(replica).await?;
     let read = first.backend.store.read.clone();
-    sqlx::query!("SELECT pg_wal_replay_pause()")
-        .execute(&read)
+    let initialization = with_paused_replay(&read, async {
+        first.publish(vec![envelope(22, 1)]).await?;
+        let config = (*first.backend.config).clone();
+        let initialization = tokio::spawn(server::initialize(config));
+        xmtp_common::wait_for_eq(
+            || async {
+                sqlx::query_scalar!(
+                    "SELECT closed_sequence_id FROM allocation_boundary WHERE singleton"
+                )
+                .fetch_one(&first.backend.store.primary)
+                .await
+                .unwrap()
+            },
+            1,
+        )
         .await?;
-    first.publish(vec![envelope(22, 1)]).await?;
-    let config = (*first.backend.config).clone();
-    let initialization = tokio::spawn(server::initialize(config));
-    xmtp_common::wait_for_eq(
-        || async {
-            sqlx::query_scalar!(
-                "SELECT closed_sequence_id FROM allocation_boundary WHERE singleton"
-            )
-            .fetch_one(&first.backend.store.primary)
-            .await
-            .unwrap()
-        },
-        1,
-    )
+        assert!(!initialization.is_finished());
+        Ok(initialization)
+    })
     .await?;
-    assert!(!initialization.is_finished());
-    sqlx::query!("SELECT pg_wal_replay_resume()")
-        .execute(&read)
-        .await?;
-    let backend = initialization.await??;
+    let backend =
+        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(5), initialization)
+            .await???;
     drop(backend);
     first.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn replay_resumes_after_test_error_or_assertion_failure() {
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
+    let _replay = REPLAY.lock().await;
+    let server = TestServer::new(replica).await?;
+    let read = &server.backend.store.read;
+    let error = with_paused_replay(read, async { Err::<(), _>("deliberate test error".into()) })
+        .await
+        .unwrap_err();
+    let paused_after_error =
+        sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_wal_replay_paused()"))
+            .fetch_one(read)
+            .await?;
+    let panic = AssertUnwindSafe(with_paused_replay(read, async {
+        let paused =
+            sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_wal_replay_paused()"))
+                .fetch_one(read)
+                .await?;
+        assert!(!paused, "deliberate assertion failure");
+        Ok(())
+    }))
+    .catch_unwind()
+    .await;
+    let paused =
+        sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_wal_replay_paused()"))
+            .fetch_one(read)
+            .await?;
+    // Repair shared state even when this regression detects broken cleanup.
+    sqlx::query!("SELECT pg_wal_replay_resume()")
+        .execute(read)
+        .await?;
+    server.stop().await?;
+    assert_eq!(error.to_string(), "deliberate test error");
+    assert!(!paused_after_error);
+    assert!(panic.is_err());
+    assert!(!paused);
 }
 
 #[xmtp_common::test(unwrap_try = true)]

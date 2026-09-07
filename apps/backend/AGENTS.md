@@ -30,6 +30,9 @@ local database connections; `RUST_TEST_THREADS` overrides that value.
 Never silently skip database tests when the database is unavailable.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
+Replica tests that pause replay use `test_support::replica::with_paused_replay`
+under the replay mutex. Run this suite with `cargo test`; that mutex is process-local.
+Use a total deadline for stream termination, not a new deadline for each frame.
 
 Keep one mutable migration through completion of Phase 6. Recreate only the
 disposable backend database after schema edits. Startup never deletes a database.

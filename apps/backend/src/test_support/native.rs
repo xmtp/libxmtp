@@ -4,7 +4,7 @@ use crate::api::{
 use crate::test_support::{TestResult, TestServer};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::Streaming;
+use tonic::{Status, Streaming};
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 
 pub struct Native {
@@ -69,6 +69,25 @@ impl Native {
         }
         Ok(rows)
     }
+}
+
+/// Wait for one terminal result under a total deadline, even when unexpected
+/// data continues to arrive. Return None only for a successful end of stream.
+pub async fn terminal(
+    output: &mut Streaming<api::SubscribeResponse>,
+) -> TestResult<Option<Status>> {
+    Ok(
+        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(5), async {
+            loop {
+                match output.message().await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => return None,
+                    Err(error) => return Some(error),
+                }
+            }
+        })
+        .await?,
+    )
 }
 
 pub fn envelope(topic: u8, value: u8) -> api::ClientEnvelope {

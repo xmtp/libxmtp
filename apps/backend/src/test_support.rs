@@ -2,6 +2,7 @@ use crate::{Backend, api, config::Config, server};
 mod database;
 pub use database::TestDatabase;
 pub(crate) mod native;
+pub(crate) mod replica;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, SmartContractSignatureVerifier};

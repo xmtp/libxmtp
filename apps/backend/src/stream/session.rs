@@ -176,7 +176,7 @@ impl Session {
                     _ => pending().await,
                 }} => {
                     if let (Some(sent), Some(challenge)) = (handed, &mut self.challenge) {
-                        challenge.deadline = Some(sent + Duration::from_millis(self.config.streams.max_pong_wait_ms));
+                        challenge.start_deadline(sent, Duration::from_millis(self.config.streams.max_pong_wait_ms))?;
                     }
                 },
                 _ = mailbox.wake.notified() => {},
@@ -214,7 +214,7 @@ impl Session {
                 };
                 let frame = frame?;
                 if let Some(api::subscribe_request::Request::Pong(pong)) = &frame.request {
-                    self.pong(pong.nonce);
+                    self.pong(pong.nonce)?;
                     if self.challenge.is_none() {
                         return Ok(());
                     }
@@ -281,25 +281,27 @@ impl Session {
                     nonce: ping.nonce,
                 }))
             }
-            api::subscribe_request::Request::Pong(pong) => {
-                self.pong(pong.nonce);
-                Ok(())
-            }
+            api::subscribe_request::Request::Pong(pong) => self.pong(pong.nonce),
         }
     }
 
-    fn pong(&mut self, nonce: u64) {
+    /// Complete only the matching challenge after its Ping reached transport.
+    /// An unrepresentable deadline fails the stream instead of its owner task.
+    fn pong(&mut self, nonce: u64) -> Result<(), Status> {
         if let Some(challenge) = &mut self.challenge {
             if challenge.deadline.is_none()
                 && let Ok(sent) = challenge.handed.try_recv()
             {
-                challenge.deadline =
-                    Some(sent + Duration::from_millis(self.config.streams.max_pong_wait_ms));
+                challenge.start_deadline(
+                    sent,
+                    Duration::from_millis(self.config.streams.max_pong_wait_ms),
+                )?;
             }
             if challenge.nonce == nonce && challenge.deadline.is_some() {
                 self.challenge = None;
             }
         }
+        Ok(())
     }
 
     /// Validate the complete update before changing interests. Register all new
