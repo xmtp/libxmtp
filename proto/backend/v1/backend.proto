@@ -1,6 +1,6 @@
 // XMTP self-hosted backend API.
 //
-// Wire schema for spec 001. The package name is the
+// Public wire schema. The package name is the
 // version: there is no `oneof version` wrapper on frames or payloads. A
 // breaking change is a new package.
 //
@@ -179,7 +179,8 @@ message QueryRequest {
 // topic that returned rows, set its cursor to that topic's highest returned
 // sequence_id; leave every other cursor unchanged; if `has_more`, query again.
 // Each stored envelope appears once. An oversized encoded response fails
-// with RESOURCE_EXHAUSTED; results are not silently omitted to fit.
+// with a transport size error or RESOURCE_EXHAUSTED from an application check;
+// results are not silently omitted to fit.
 message QueryResponse {
   repeated ServerEnvelope envelopes = 1;
   Continuation continuation = 2;
@@ -201,8 +202,9 @@ message QueryNewestRequest {
 }
 
 // One result per topic that has an envelope. A topic with no envelope is
-// absent from `results`. An oversized response fails with
-// RESOURCE_EXHAUSTED; omission never means the byte budget was exhausted.
+// absent from `results`. An oversized response fails with a transport size
+// error or RESOURCE_EXHAUSTED from an application check; omission never means
+// the byte budget was exhausted.
 message QueryNewestResponse {
   message Result {
     Topic topic = 1;
@@ -237,13 +239,14 @@ message PublishRequest {
 }
 
 // Same order as the request, including duplicates. An oversized response
-// can fail with RESOURCE_EXHAUSTED after commit. Retry exact envelope bytes;
+// can fail with a size error after commit. Retry exact envelope bytes;
 // failure to receive a response does not establish rollback.
 message PublishResponse {
   repeated EnvelopeMeta envelope_metas = 1;
 }
 
-// Attached as a google.rpc.Status detail on INVALID_ARGUMENT.
+// Attached as a google.rpc.Status detail on application-generated publish
+// INVALID_ARGUMENT. Transport size rejections do not require this detail.
 message PublishError {
   enum Reason {
     REASON_UNSPECIFIED = 0;

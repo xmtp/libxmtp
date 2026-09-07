@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sequence_id, payload FROM envelopes WHERE topic = $1 ORDER BY sequence_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "sequence_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "payload"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1fbe4f942bd7d3bd7805964606611dd684fbdbcb12d84b1dc5e4e6732dd50cef"
+}

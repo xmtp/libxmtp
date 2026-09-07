@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sequence_id, topic, server_ns, expiry_ns, message_hash,\n                is_commit_or_proposal, payload FROM envelopes WHERE sequence_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "sequence_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "topic",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "topic"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "server_ns",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "server_ns"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "expiry_ns",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "expiry_ns"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "message_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "message_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "is_commit_or_proposal",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "is_commit_or_proposal"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "payload"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bd00cb8c6b1bf5aa34c9b84b9a7de583376fe0c685ddc0d5fcb24283debc782b"
+}

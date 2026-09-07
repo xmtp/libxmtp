@@ -15,6 +15,8 @@
   cargo-deny,
   cargo-machete,
   cargo-hakari,
+  sqlx-cli,
+  grpc-health-probe,
   lcov,
   cargo-llvm-cov,
   buf,
@@ -118,6 +120,8 @@ in
     cargo-deny
     cargo-machete
     cargo-hakari
+    sqlx-cli
+    grpc-health-probe
   ];
 
   # CI-only cargo tools (coverage — Linux only)

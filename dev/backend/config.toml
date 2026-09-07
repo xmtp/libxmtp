@@ -1,0 +1,3 @@
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+[database]
+url = "env:XMTP_DATABASE_URL"

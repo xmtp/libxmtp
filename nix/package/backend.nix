@@ -14,19 +14,36 @@ let
   };
   backendSource = lib.fileset.toSource {
     inherit root;
-    fileset = lib.fileset.unions [
-      (root + /Cargo.toml)
-      (rust.fileset.commonCargoSources (root + /apps/backend))
-    ];
+    fileset = lib.fileset.unions (
+      [
+        (root + /Cargo.toml)
+        (root + /proto)
+        (lib.fileset.maybeMissing (root + /.sqlx))
+        (lib.fileset.maybeMissing (root + /apps/backend/migrations))
+        (lib.fileset.maybeMissing (root + /docs/schemas/backend-v1.json))
+        (rust.fileset.commonCargoSources (root + /apps/backend))
+        (root + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
+        (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
+      ]
+      ++ map (name: rust.fileset.commonCargoSources (root + "/crates/${name}")) [
+        "xmtp_common"
+        "xmtp_configuration"
+        "xmtp_cryptography"
+        "xmtp_id"
+        "xmtp_logging"
+        "xmtp_macro"
+        "xmtp_mls_common"
+        "xmtp_mls_validation"
+        "xmtp_proto"
+      ]
+    );
   };
-  # The scaffold uses only std. Keep other workspace targets as stubs for
-  # locked resolution; their Rust source does not affect the backend image.
-  # Add dependency sources here when the backend starts using shared crates.
+  # Keep unrelated clients as stubs for locked workspace resolution. Restore
+  # the backend's shared dependency sources and embedded inputs only.
   src = rust.mkDummySrc {
     src = workspaceSource;
     extraDummyScript = ''
-      cp --remove-destination ${backendSource}/Cargo.toml $out/Cargo.toml
-      cp --recursive --remove-destination ${backendSource}/apps/backend/. $out/apps/backend/
+      cp --recursive --remove-destination ${backendSource}/. $out/
     '';
   };
   targetArgs = lib.optionalAttrs stdenv.hostPlatform.isMusl {
@@ -36,6 +53,7 @@ let
     targetArgs
     // {
       buildPhaseCargoCommand = "cargo build --locked --profile $CARGO_PROFILE -p xmtp_backend --bin xmtp-backend";
+      SQLX_OFFLINE = "true";
     }
   );
 in
@@ -49,5 +67,6 @@ rust.buildPackage (
     cargoExtraArgs = "--locked -p xmtp_backend --bin xmtp-backend";
     doInstallCargoArtifacts = false;
     doCheck = false;
+    SQLX_OFFLINE = "true";
   }
 )

@@ -20,7 +20,7 @@ Spec 001 defines wire types and public limits. Spec 002 defines storage visibili
 
 ## 2. Ordered delivery and fixed targets
 
-- STR-010: While a registration remains active, deliver every retained envelope above C in strictly increasing topic sequence order across frames, or explicitly fail the stream. Initialize its delivery floor to C. Gaps between sequence numbers are legal; cross-topic order is unspecified.
+- STR-010: While a registration remains active, deliver every retained envelope above C in strictly increasing topic sequence order across frames, or explicitly fail the stream. Initialize its delivery floor to C. Gaps between sequence numbers are legal; cross-topic order is unspecified. A closed allocation boundary is only proof for retiring an absent gap; it is not a live-delivery ceiling, so visible rows above it may be delivered.
 - STR-011: Historical and newly published envelopes use the same `Messages` frame. There are no wave IDs, replay/live tags, `TopicsLive`, or `CatchupComplete` frames. A topic can continue delivering after its initial history without waiting for another topic.
 - STR-012: H is fixed for the registration. It is the head observed in the serving database, including replica lag, not a promise about the primary's current head. Separate updates do not form one global snapshot. A cursor at or above H owes no initial history and still filters future delivery at or below C.
 - STR-013: Catch-up targets describe processing obligations. The SDK reports a topic caught up only after safely processing the requested range through H. Receiving `Applied` or receiving the last envelope alone does not establish processing completion. New publications do not move H.
@@ -41,11 +41,11 @@ Fairness prevents starvation among ready topics; it does not promise equal throu
 ## 4. Capacity, liveness, and termination
 
 - STR-030: Retain the configured fetched-data and outbound bounds. A fetch turn is not permission to materialize an arbitrary payload volume. Pause work only while required state remains safe; otherwise fail with `RESOURCE_EXHAUSTED`. Never skip an envelope and advance its floor.
-- STR-031: Every legal envelope must fit a delivery frame with metadata and framing. Oversized responses return the existing size error. A slow stream must not block the shared tailer.
+- STR-031: Every legal envelope must fit a delivery frame with worst-case metadata and framing. Startup rejects a permitted envelope size that cannot fit the delivery frame, transport cap, fetched-data budget, and outbound byte budget. Oversized responses return the existing size error. A slow stream must not block the shared tailer.
 - STR-032: Update and client Ping each use a per-stream bucket of 10 frames/s with burst 100. Exhaustion closes the stream with `RESOURCE_EXHAUSTED`. Pong consumes neither bucket. Caller quotas remain Phase 6 work.
 - STR-033: Either peer may send Ping. Reply with Pong carrying the same nonce. Keep at most one server challenge outstanding. Unrelated inbound traffic does not satisfy it.
 - STR-034: Reset the server send-idle timer on outbound admission, not inbound traffic. Start the pong deadline at Ping transport handoff. Before expiring it, consume already available inbound frames once without blocking. Missing Pong closes with `DEADLINE_EXCEEDED`.
-- STR-035: Cancellation, native request half-close, shutdown, and failure end the session and deregister its topics. Half-close is not a catch-up command and does not wait for targets. Tailer or database failure closes affected streams with `UNAVAILABLE`.
+- STR-035: Cancellation, native request half-close, shutdown, and failure end the session and deregister its topics. Half-close is not a catch-up command and does not wait for targets. Tailer or any required database failure, including boundary-task failure, closes affected streams with `UNAVAILABLE`; a boundary lock timeout retains recovery work for a later attempt.
 - STR-036: Reconnect with backoff, the current desired topic set, and safe durable cursors. Deduplicate overlap from local state. Do not resume from the greatest merely received sequence ID or infer progress on another topic.
 
 ## 5. Bounded SDK sync
@@ -60,7 +60,7 @@ Fairness prevents starvation among ready topics; it does not promise equal throu
 - STR-052: Use the same per-topic ordering, fixed targets, processing-completion meaning, fair fetch turns, and capacity rules as native streams. The end of the unary request does not trigger native half-close.
 - STR-053: Keepalive frames are one-way. Reopen after three keepalive intervals without any frame; data also proves activity. Use the client default for interval zero.
 - STR-054: Changing topics opens a replacement stream from durable cursors and cancels the old one. The SDK handles overlap. Split more than 10,000 topics across streams. An empty logical subscription waits locally for its first topic.
-- STR-055: Use the existing gRPC-Web transport, HTTPS, CORS/header handling, and unbuffered proxy configuration. No WebSocket adapter or separate browser control service is required.
+- STR-055: Send gRPC-Web requests directly to Tonic on the backend listener. HTTPS termination at the load balancer must pass requests through without gRPC-Web conversion or response buffering, with the required CORS and header handling. No WebSocket adapter or separate browser control service is required.
 
 ## 7. Verification
 

@@ -1,0 +1,282 @@
+use super::{Store, StoredMeta, identity::apply_projection};
+use crate::{error::Error, validation::Projection};
+use sqlx::{PgConnection, Postgres, Transaction};
+use tonic::Status;
+use xmtp_mls_validation::ParsedEnvelope;
+use xmtp_proto::types::TopicKind;
+
+const GLOBAL_LOCK_DOMAIN: i32 = 0;
+const IDENTITY_LOCK: i32 = 1;
+const ALLOCATION_BARRIER: i32 = 2;
+
+pub(crate) struct PendingEnvelope {
+    pub parsed: ParsedEnvelope,
+    pub index: usize,
+    pub duplicate: Option<StoredMeta>,
+    pub validation: Result<Option<Projection>, Status>,
+    pub head: i64,
+    pub retention_ns: Option<i64>,
+}
+
+impl Store {
+    pub(crate) async fn find_duplicates(
+        &self,
+        pending: &mut [PendingEnvelope],
+    ) -> Result<(), Error> {
+        duplicates(&mut *self.primary.acquire().await?, pending).await
+    }
+
+    pub(crate) async fn commit_publish(
+        &self,
+        pending: &mut [PendingEnvelope],
+        parse_error: Option<(usize, Status)>,
+        max_duration_ms: u64,
+    ) -> Result<Vec<StoredMeta>, Status> {
+        let mut tx = self
+            .primary
+            .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
+            .await
+            .map_err(Error::from)?;
+        let transaction_timeout = format!("{max_duration_ms}ms");
+        sqlx::query!(
+            "SELECT set_config('transaction_timeout', $1, true)",
+            transaction_timeout
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::from)?;
+        lock(&mut tx, pending).await?;
+        duplicates(&mut tx, pending).await?;
+        check_heads(&mut tx, pending).await?;
+        let validation_error = pending
+            .iter()
+            .filter(|item| item.duplicate.is_none())
+            .find_map(|item| {
+                item.validation
+                    .as_ref()
+                    .err()
+                    .map(|error| (item.index, error.clone()))
+            });
+        if let Some((_, error)) = validation_error
+            .into_iter()
+            .chain(parse_error)
+            .min_by_key(|(index, _)| *index)
+        {
+            return Err(error);
+        }
+        let new: Vec<_> = pending
+            .iter()
+            .filter(|item| item.duplicate.is_none())
+            .collect();
+        let inserted = insert(&mut tx, &new).await?;
+        for (item, meta) in new.iter().zip(&inserted) {
+            if let Ok(Some(changes)) = &item.validation {
+                apply_projection(
+                    &mut tx,
+                    item.parsed.topic.identifier(),
+                    meta.sequence_id,
+                    changes,
+                )
+                .await?;
+            }
+        }
+        tx.commit().await.map_err(Error::from)?;
+        let mut inserted = inserted.into_iter();
+        pending
+            .iter()
+            .map(|item| {
+                item.duplicate
+                    .clone()
+                    .or_else(|| inserted.next())
+                    .ok_or_else(|| Status::internal("publish metadata missing"))
+            })
+            .collect()
+    }
+}
+
+async fn duplicates(
+    connection: &mut PgConnection,
+    pending: &mut [PendingEnvelope],
+) -> Result<(), Error> {
+    let topics: Vec<_> = pending
+        .iter()
+        .map(|item| item.parsed.topic.to_vec())
+        .collect();
+    let hashes: Vec<_> = pending
+        .iter()
+        .map(|item| item.parsed.canonical.hash.to_vec())
+        .collect();
+    let rows = sqlx::query!(
+        r#"SELECT wanted.ordinality AS "ordinality!", e.sequence_id, e.topic, e.server_ns,
+            e.expiry_ns, e.message_hash, e.is_commit_or_proposal
+        FROM unnest($1::bytea[], $2::bytea[]) WITH ORDINALITY AS wanted(topic, hash, ordinality)
+        JOIN envelopes e ON e.topic = wanted.topic AND e.message_hash = wanted.hash
+        ORDER BY wanted.ordinality"#,
+        &topics,
+        &hashes
+    )
+    .fetch_all(connection)
+    .await?;
+    for row in rows {
+        let index = usize::try_from(row.ordinality - 1)
+            .map_err(|_| Error::Invariant("invalid duplicate ordinal"))?;
+        let item = pending
+            .get_mut(index)
+            .ok_or(Error::Invariant("unknown duplicate ordinal"))?;
+        item.duplicate = Some(StoredMeta {
+            sequence_id: row.sequence_id,
+            topic: row.topic,
+            server_ns: row.server_ns,
+            expiry_ns: row.expiry_ns,
+            message_hash: row.message_hash,
+            is_commit_or_proposal: row.is_commit_or_proposal,
+        });
+    }
+    Ok(())
+}
+
+async fn lock(
+    tx: &mut Transaction<'_, Postgres>,
+    pending: &[PendingEnvelope],
+) -> Result<(), Error> {
+    if pending
+        .iter()
+        .any(|item| item.parsed.topic.kind() == TopicKind::IdentityUpdatesV1)
+    {
+        sqlx::query!(
+            "SELECT pg_advisory_xact_lock($1::integer, $2::integer)",
+            GLOBAL_LOCK_DOMAIN,
+            IDENTITY_LOCK
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    let mut keys: Vec<_> = pending
+        .iter()
+        .map(|item| {
+            let hash = xmtp_common::sha256_array(&item.parsed.topic);
+            let mut key = [0; 8];
+            key.copy_from_slice(&hash[..8]);
+            i64::from_be_bytes(key)
+        })
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+    for key in keys {
+        sqlx::query!("SELECT pg_advisory_xact_lock($1::bigint)", key)
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock_shared($1::integer, $2::integer)",
+        GLOBAL_LOCK_DOMAIN,
+        ALLOCATION_BARRIER
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn check_heads(
+    tx: &mut Transaction<'_, Postgres>,
+    pending: &[PendingEnvelope],
+) -> Result<(), Status> {
+    let identities: Vec<_> = pending
+        .iter()
+        .filter(|item| {
+            item.duplicate.is_none() && item.parsed.topic.kind() == TopicKind::IdentityUpdatesV1
+        })
+        .collect();
+    let topics: Vec<_> = identities
+        .iter()
+        .map(|item| item.parsed.topic.to_vec())
+        .collect();
+    let heads: Vec<_> = identities.iter().map(|item| item.head).collect();
+    let stale = sqlx::query!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM unnest($1::bytea[], $2::bigint[]) AS wanted(topic, head)
+            LEFT JOIN topic_watermark w ON w.topic = wanted.topic
+            WHERE COALESCE(w.last_sequence_id, 0) <> wanted.head
+        ) AS "stale!""#,
+        &topics,
+        &heads
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(Error::from)?
+    .stale;
+    if stale {
+        Err(Status::aborted(
+            "identity history changed during validation",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+async fn insert(
+    tx: &mut Transaction<'_, Postgres>,
+    new: &[&PendingEnvelope],
+) -> Result<Vec<StoredMeta>, Error> {
+    let count =
+        i64::try_from(new.len()).map_err(|_| Error::Invariant("publish input count overflow"))?;
+    let ids = sqlx::query!(
+        r#"SELECT nextval('envelope_sequence') AS "id!" FROM generate_series(1, $1::bigint) ordinal ORDER BY ordinal"#, count
+    ).fetch_all(&mut **tx).await?.into_iter().map(|row| row.id).collect::<Vec<_>>();
+    let topics: Vec<_> = new.iter().map(|item| item.parsed.topic.to_vec()).collect();
+    let hashes: Vec<_> = new
+        .iter()
+        .map(|item| item.parsed.canonical.hash.to_vec())
+        .collect();
+    let flags: Vec<_> = new
+        .iter()
+        .map(|item| item.parsed.is_commit_or_proposal)
+        .collect();
+    let payloads: Vec<_> = new
+        .iter()
+        .map(|item| item.parsed.canonical.bytes.clone())
+        .collect();
+    let retention: Vec<_> = new.iter().map(|item| item.retention_ns).collect();
+    let rows = sqlx::query!(
+        r#"WITH input AS MATERIALIZED (
+            SELECT * FROM unnest($1::bigint[], $2::bytea[], $3::bytea[], $4::boolean[], $5::bytea[], $6::bigint[])
+            WITH ORDINALITY AS r(sequence_id, topic, message_hash, is_commit_or_proposal, payload, retention_ns, ordinal)
+        ), stamped AS MATERIALIZED (
+            SELECT input.*, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint AS server_ns FROM input
+        ), inserted AS (
+            INSERT INTO envelopes (sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, expiry_ns)
+            SELECT sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, server_ns + retention_ns
+            FROM stamped ORDER BY ordinal
+            RETURNING sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal
+        ), new_heads AS MATERIALIZED (
+            SELECT topic, max(sequence_id) AS sequence_id FROM inserted GROUP BY topic
+        ), advanced AS (
+            INSERT INTO topic_watermark AS current (topic, last_sequence_id)
+            SELECT topic, sequence_id FROM new_heads
+            ON CONFLICT (topic) DO UPDATE SET last_sequence_id = EXCLUDED.last_sequence_id
+            WHERE current.last_sequence_id < EXCLUDED.last_sequence_id RETURNING topic
+        )
+        SELECT inserted.sequence_id AS "sequence_id!", inserted.topic AS "topic!",
+            inserted.server_ns AS "server_ns!", inserted.expiry_ns,
+            inserted.message_hash AS "message_hash!", inserted.is_commit_or_proposal AS "is_commit_or_proposal!",
+            (SELECT count(*) FROM advanced) = (SELECT count(*) FROM new_heads) AS "advanced!"
+        FROM input JOIN inserted USING (sequence_id) ORDER BY input.ordinal"#,
+        &ids, &topics, &hashes, &flags, &payloads, &retention as &[Option<i64>]
+    ).fetch_all(&mut **tx).await?;
+    if rows.len() != new.len() || rows.iter().any(|row| !row.advanced) {
+        return Err(Error::Invariant(
+            "watermark did not advance for each inserted topic",
+        ));
+    }
+    Ok(rows
+        .into_iter()
+        .map(|row| StoredMeta {
+            sequence_id: row.sequence_id,
+            topic: row.topic,
+            server_ns: row.server_ns,
+            expiry_ns: row.expiry_ns,
+            message_hash: row.message_hash,
+            is_commit_or_proposal: row.is_commit_or_proposal,
+        })
+        .collect())
+}

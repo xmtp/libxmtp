@@ -27,6 +27,27 @@ covered by P1-VAL-06. RUST-REQ-012's expected-panic placeholder is removed; real
 identity history and state changes are covered by P1-VAL-03. RUST-REQ-014 and
 RUST-REQ-015 remain transport tests in the old validation service.
 
+## Phase 2 backend ownership
+
+The backend suite owns storage and wire behavior. Shared validation, canonical
+encoding, identity state-machine, and SCW cache tests retain their Phase 1 owners.
+The following map identifies owners, not an independent verification result.
+Requirement IDs stay in documentation, not in Rust names or comments.
+
+| Behavior | Owning tests |
+| --- | --- |
+| Config defaults, invalid values, environment references, secret redaction, and schema parity | `apps/backend/src/config.rs` |
+| Fresh and concurrent database initialization | `apps/backend/tests/database.rs` |
+| Atomic publish, original indexes, metadata, retained payload bytes, and watermark guard rollback | `apps/backend/tests/publish.rs` |
+| Duplicate and history races, topic and identity lock order, cancellation, and cumulative transaction lifetime | `apps/backend/tests/concurrency.rs` |
+| Identity admission, normalized projection, revocation fallback, history caps, and SCW routing/results | `apps/backend/tests/identity.rs` |
+| Query paging, input coalescing, clamping, newest metadata, Get, and absence | `apps/backend/tests/reads.rs` |
+| Native and gRPC-Web unary transport, CORS, health, HTTP/2 settings, and transport size errors | `apps/backend/tests/transport.rs` |
+
+The dedicated backend CI job runs these tests against PostgreSQL 18. The legacy
+SDK Nix test jobs exclude this package; they do not provide its test database.
+The previous backend greeting test is removed because the binary is now a service.
+
 ## How to read this catalogue
 
 Each requirement has a stable ID and four fields:

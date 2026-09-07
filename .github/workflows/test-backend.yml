@@ -23,8 +23,15 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
       - uses: taiki-e/install-action@just
+      - name: Start backend database
+        run: just backend-db-up
+      - name: Check SQL cache
+        run: just backend-sql-check
       - name: Test backend
         run: just test-backend
+      - name: Stop backend database
+        if: always()
+        run: just backend-db-down
 
   backend-image:
     name: Backend image (${{ matrix.arch }})
@@ -41,7 +48,9 @@ jobs:
             image: .#backend-image-aarch64-unknown-linux-musl
             nix-disk: "false"
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: rust
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -66,5 +75,16 @@ jobs:
         env:
           PLATFORM: linux/${{ matrix.arch }}
         run: |
-          output="$(docker run --rm --platform "$PLATFORM" ghcr.io/xmtp/backend:self-hosted)"
-          test "$output" = "Hello from the XMTP backend!"
+          docker compose -f dev/backend/compose.yml up --detach --wait
+          docker run --detach --name backend-smoke --platform "$PLATFORM" \
+            --network xmtp-backend_default -p 127.0.0.1:55050:5050 \
+            -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@primary:5432/xmtp_backend \
+            -v "$PWD/dev/backend/config.toml:/config.toml:ro" \
+            ghcr.io/xmtp/backend:self-hosted --config /config.toml
+          dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
+      - name: Backend logs and cleanup
+        if: always()
+        run: |
+          docker logs backend-smoke || true
+          docker rm --force backend-smoke || true
+          docker compose -f dev/backend/compose.yml down

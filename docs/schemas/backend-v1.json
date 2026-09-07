@@ -1,0 +1,357 @@
+{
+  "$id": "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "description": "Complete backend configuration.",
+  "type": "object",
+  "properties": {
+    "server": {
+      "$ref": "#/$defs/ServerConfig",
+      "default": {
+        "listen": "0.0.0.0:5050",
+        "max_drain_duration_ms": 10000
+      }
+    },
+    "database": {
+      "$ref": "#/$defs/DatabaseConfig"
+    },
+    "publishing": {
+      "$ref": "#/$defs/PublishingConfig",
+      "default": {
+        "max_publish_duration_ms": 10000,
+        "max_barrier_wait_ms": 1000
+      }
+    },
+    "streams": {
+      "$ref": "#/$defs/StreamsConfig",
+      "default": {
+        "poll_interval_ms": 100,
+        "max_gap_ranges": 10000,
+        "keepalive_interval_ms": 30000,
+        "max_pong_wait_ms": 90000
+      }
+    },
+    "retention": {
+      "$ref": "#/$defs/RetentionConfig",
+      "default": {
+        "group_message_seconds": 7776000,
+        "welcome_seconds": 7776000,
+        "key_package_seconds": 7776000
+      }
+    },
+    "chains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "validation": {
+      "$ref": "#/$defs/ValidationConfig",
+      "default": {
+        "max_scw_cache_entries": 10000
+      }
+    },
+    "limits": {
+      "$ref": "#/$defs/LimitsConfig",
+      "default": {
+        "max_query_topics": 1000,
+        "default_query_limit": 100,
+        "max_query_limit": 1000,
+        "max_newest_metadata_topics": 1000,
+        "max_newest_full_topics": 100,
+        "max_publish_topics": 1000,
+        "max_envelope_bytes": 1048576,
+        "max_request_bytes": 26214400,
+        "max_response_bytes": 26214400,
+        "max_update_adds": 100000,
+        "max_update_removes": 100000,
+        "max_stream_topics": 100000,
+        "max_static_topics": 10000,
+        "max_lookup_identifiers": 250,
+        "max_scw_signatures": 100,
+        "max_identity_entries": 256,
+        "max_http2_streams": 100,
+        "max_update_frames_per_second": 10,
+        "max_update_burst": 100,
+        "max_ping_frames_per_second": 10,
+        "max_ping_burst": 100
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "database"
+  ],
+  "$defs": {
+    "ServerConfig": {
+      "type": "object",
+      "properties": {
+        "listen": {
+          "type": "string",
+          "default": "0.0.0.0:5050"
+        },
+        "max_drain_duration_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "default": 10000
+        }
+      },
+      "additionalProperties": false
+    },
+    "DatabaseConfig": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "replica_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "max_connections": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "default": 20
+        },
+        "max_statement_timeout_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 5000
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ]
+    },
+    "PublishingConfig": {
+      "type": "object",
+      "properties": {
+        "max_publish_duration_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 10000
+        },
+        "max_barrier_wait_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "StreamsConfig": {
+      "type": "object",
+      "properties": {
+        "poll_interval_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "default": 100
+        },
+        "max_gap_ranges": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 10000
+        },
+        "keepalive_interval_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "default": 30000
+        },
+        "max_pong_wait_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "default": 90000
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetentionConfig": {
+      "type": "object",
+      "properties": {
+        "group_message_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "maximum": 9223372036,
+          "default": 7776000
+        },
+        "welcome_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "maximum": 9223372036,
+          "default": 7776000
+        },
+        "key_package_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "maximum": 9223372036,
+          "default": 7776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidationConfig": {
+      "type": "object",
+      "properties": {
+        "max_scw_cache_entries": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 10000
+        }
+      },
+      "additionalProperties": false
+    },
+    "LimitsConfig": {
+      "type": "object",
+      "properties": {
+        "max_query_topics": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 1000
+        },
+        "default_query_limit": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100
+        },
+        "max_query_limit": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 1000
+        },
+        "max_newest_metadata_topics": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 1000
+        },
+        "max_newest_full_topics": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100
+        },
+        "max_publish_topics": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 1000
+        },
+        "max_envelope_bytes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 1048576
+        },
+        "max_request_bytes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 26214400
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 26214400
+        },
+        "max_update_adds": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100000
+        },
+        "max_update_removes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100000
+        },
+        "max_stream_topics": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100000
+        },
+        "max_static_topics": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 10000
+        },
+        "max_lookup_identifiers": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 250
+        },
+        "max_scw_signatures": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100
+        },
+        "max_identity_entries": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 256
+        },
+        "max_http2_streams": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1,
+          "default": 100
+        },
+        "max_update_frames_per_second": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "default": 10
+        },
+        "max_update_burst": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "default": 100
+        },
+        "max_ping_frames_per_second": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "default": 10
+        },
+        "max_ping_burst": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1,
+          "default": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -79,3 +79,4 @@ test-utils = [
 ]
 test-utils-network = ["test-utils", "dep:toxiproxy_rust", "xmtp_common/test-utils-network"]
 grpc_server_impls = ["tonic/codegen"]
+grpc_client_impls = ["tonic/codegen"]

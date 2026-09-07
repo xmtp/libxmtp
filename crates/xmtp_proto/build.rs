@@ -111,7 +111,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .extern_path(".google.protobuf", "::pbjson_types")
             .file_descriptor_set_path(&descriptor_path)
             .build_transport(false)
-            .build_client(false),
+            .build_client(cfg!(feature = "grpc_client_impls")),
     )
     .compile_with_config(config, &files, &[proto_root])?;
 

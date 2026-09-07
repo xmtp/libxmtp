@@ -72,7 +72,7 @@ Until Phase 5 the backend has no retained-floor signal and the client has no gap
 ### 5.1 Atomicity and idempotency
 
 - API-030: A publish request is atomic. Either every envelope in it is stored or none is.
-- API-031: A publish request has no envelope count limit. It must be at most 25 MiB, every envelope must be at most 1 MiB, and it must address at most 1000 distinct topics. A violation fails with `INVALID_ARGUMENT` and no envelope is stored. One MLS commit and its proposals stay in one atomic publish.
+- API-031: A publish request has no envelope count limit. It must be at most 25 MiB, every envelope must be at most 1 MiB, and it must address at most 1000 distinct topics. Application checks reject a violation with `INVALID_ARGUMENT` and store no envelope. A transport size rejection uses API-130 and also stores no envelope. One MLS commit and its proposals stay in one atomic publish.
 - API-032: The response lists one metadata entry per envelope, in request order.
 - API-033: An envelope whose `(topic, message_hash)` is already stored is a duplicate. The backend must not store it again and must return the stored metadata as success.
 - API-034: Two identical envelopes in one request collapse to one stored row. Both response entries carry the same metadata.
@@ -91,7 +91,7 @@ Because the hash covers the whole envelope, a re-signed or re-encrypted copy of 
 - API-044: Smart-contract-wallet signatures inside an identity update are verified over chain RPC. A chain RPC failure is `UNAVAILABLE`, not `INVALID_ARGUMENT`. An identity update carries at most 100 such signatures.
 - API-045: A welcome is stored without validation beyond parsing. The backend must not check that a welcome's installation key belongs to a registered installation; welcome pointers are addressed to random 32-byte values by design.
 - API-046: A commit-log entry must parse as a plaintext commit-log entry that carries a group id. Its signature is stored and returned, not verified.
-- API-047: The error detail for an `INVALID_ARGUMENT` names the index of the first failing envelope and a reason code. A request-level error carries no index.
+- API-047: An application-generated publish `INVALID_ARGUMENT` carries an error detail with the index of the first failing envelope and a reason code. A request-level error carries no index. A transport rejection does not require a publish-error detail.
 
 ### 5.3 Identity updates
 
@@ -208,11 +208,11 @@ The static adapter serves clients that cannot send bidirectional requests.
 | Update frames per stream | 10/s, burst 100 |
 | Client Ping frames per stream | 10/s, burst 100 |
 
-- API-130: The backend must reject a request above a structural or byte limit with `INVALID_ARGUMENT`, unless a more specific rule states otherwise. Stream token-bucket exhaustion and response-size failure use `RESOURCE_EXHAUSTED`.
+- API-130: Application checks reject requests above a structural or byte limit with `INVALID_ARGUMENT`, unless a more specific rule states otherwise. Tonic size-limit errors pass through unchanged: `OUT_OF_RANGE` for encoded or decoded message-size limits, and `RESOURCE_EXHAUSTED` for decompression-size limits. Transport rejections do not require application error details. Stream token-bucket exhaustion uses `RESOURCE_EXHAUSTED`.
 - API-131: Every limit is one named configuration value. No limit is a literal in code.
 - API-132: The backend must advertise at most 100 concurrent HTTP/2 streams per connection. A client that exceeds it queues locally; the backend does not fail the request.
 - API-133: Rate limits are Phase 6 work. Until then the backend applies no per-caller rate limit.
-- API-134: An encoded response above 25 MiB must eventually fail with `RESOURCE_EXHAUSTED`. The error may come from the transport. A successful response must not omit results to fit the byte limit or advance cursors past unsent rows. No byte-based pagination or new size-error detail is required. Oversized publish responses may fail after commit (API-037).
+- API-134: An encoded response above 25 MiB must eventually fail. Tonic size-limit errors pass through as specified in API-130; an application response-size check may return `RESOURCE_EXHAUSTED`. A successful response must not omit results to fit the byte limit or advance cursors past unsent rows. No byte-based pagination or new size-error detail is required. Oversized publish responses may fail after commit (API-037).
 
 ### 11.1 Client chunking requirements
 
@@ -231,19 +231,20 @@ The static adapter serves clients that cannot send bidirectional requests.
 
 | Condition | Code | Client action |
 | --- | --- | --- |
-| A request or an envelope violates this spec | `INVALID_ARGUMENT`, with a publish-error detail on publish | Do not retry |
+| Application validation rejects a request or envelope | `INVALID_ARGUMENT`, with a publish-error detail on publish | Do not retry |
+| Tonic rejects a message-size limit | `OUT_OF_RANGE`; decompression-size failure uses `RESOURCE_EXHAUSTED`; no application detail required | Reduce the batch or surface the error; do not blindly resend the same request |
 | An identity update lost the commit-time check | `ABORTED` | Re-read, re-validate, resend |
 | Backend or database unavailable, chain RPC failure | `UNAVAILABLE` | Retry with backoff |
 | Rate limit (Phase 6) | `RESOURCE_EXHAUSTED` | Retry after the delay |
 | Stream token bucket or slow consumer | `RESOURCE_EXHAUSTED` | Reconnect with backoff from durable per-topic cursors |
-| Oversized response | `RESOURCE_EXHAUSTED` | Reduce read batch size or query limit, or surface the error; publish outcome may be committed |
+| Oversized response | Tonic size error, or `RESOURCE_EXHAUSTED` from an application check | Reduce read batch size or query limit, or surface the error; publish outcome may be committed |
 | Unexpected storage invariant failure | `INTERNAL` | Surface the error; do not infer a partial success |
 | Get names a sequence id with no visible envelope | `NOT_FOUND` | Retry briefly only when the id came from a publish response or a stream (API-087); otherwise surface |
 
 - API-150: The backend must not rewrite the message text of a status. The text must state the condition in plain words.
 - API-151: A client must not retry `INVALID_ARGUMENT`.
 - API-152: Every unimplemented endpoint of a deprecated API returns `UNIMPLEMENTED`.
-- API-153: The client must classify status codes before it retries. `INVALID_ARGUMENT`, `UNIMPLEMENTED`, and `ABORTED` (except as API-052 states) are never retried at the transport layer. The client retries every status today; this change must land before any client depends on the backend.
+- API-153: The client must classify status codes before it retries. `INVALID_ARGUMENT`, `OUT_OF_RANGE`, `UNIMPLEMENTED`, and `ABORTED` (except as API-052 states) are never retried at the transport layer. Request-level handling may reduce a batch or query limit after a size failure. It must not require a `TOO_LARGE` detail for a transport rejection or classify errors by matching message text. A publish size failure does not prove rollback. The client retries every status today; this change must land before any client depends on the backend.
 
 ## 13. Transport
 
