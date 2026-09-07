@@ -50,6 +50,7 @@ third-party = [
 [final-excludes]
 # Portable roots do not depend on the aggregate client feature graph.
 workspace-members = [
+  "xmtp_backend",
   "xmtp_common",
   "xmtp_cryptography",
   "xmtp_configuration",
