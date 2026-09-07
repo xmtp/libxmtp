@@ -14,6 +14,7 @@ just backend-sql-check                 # verify committed .sqlx
 just backend-schema                    # regenerate public config schema
 just test-backend
 just test-backend --lib config         # one module
+just test-backend --lib https_passthrough # HTTPS streaming ingress check
 just backend-image                     # amd64 image
 just backend-image aarch64             # arm64 image
 just lint-rust

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()\n            AND wait_event_type = 'Lock' AND query LIKE 'SELECT COALESCE%'\n            AND clock_timestamp() - query_start > interval '50 milliseconds') AS \"waiting!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "waiting!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1e7d45b7b3e79b343ecddfb33b39c108e19d4d7146971175483c8548fe746756"
+}

@@ -18,6 +18,7 @@ use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
 
+mod lifecycle;
 pub(crate) mod request_logger;
 #[cfg(test)]
 mod tests;
@@ -99,14 +100,17 @@ pub async fn serve(
             "grpc-status-details-bin".parse().expect("static header"),
             "x-request-id".parse().expect("static header"),
         ]);
-    let streams = backend.streams.clone();
-    let shutdown = async move {
-        shutdown.await;
-        if let Some(streams) = streams {
-            streams.stop();
-        }
+    use futures::StreamExt;
+    let lifecycle = lifecycle::Lifecycle::new();
+    let guard = lifecycle::ShutdownGuard {
+        lifecycle: lifecycle.clone(),
+        streams: backend.streams.clone(),
     };
-    Server::builder()
+    let incoming_lifecycle = lifecycle.clone();
+    let incoming = TcpListenerStream::new(listener)
+        .map(move |socket| socket.map(|socket| incoming_lifecycle.connection(socket)));
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let serving = Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
         .layer(cors)
@@ -114,11 +118,27 @@ pub async fn serve(
             backend.config.server.request_logger,
         ))
         .layer(GrpcWebLayer::new())
+        .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .add_service(health)
         .add_service(query)
         .add_service(publish)
         .add_service(identity)
         .add_service(subscription)
-        .serve_with_incoming_shutdown(TcpListenerStream::new(listener), shutdown)
-        .await
+        .serve_with_incoming_shutdown(incoming, async {
+            let _ = stopped.await;
+        });
+    tokio::pin!(serving);
+    tokio::select! {
+        result = &mut serving => result,
+        _ = shutdown => {
+            guard.stop();
+            reporter.set_service_status("", tonic_health::ServingStatus::NotServing).await;
+            let _ = stop.send(());
+            let drain = xmtp_common::time::Duration::from_millis(backend.config.server.max_drain_duration_ms);
+            match xmtp_common::time::timeout(drain, &mut serving).await {
+                Ok(result) => result,
+                Err(_) => { lifecycle.cancel(); Ok(()) },
+            }
+        }
+    }
 }

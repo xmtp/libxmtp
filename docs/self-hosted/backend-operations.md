@@ -117,6 +117,18 @@ conversion. Preserve CORS preflight, authorization and version headers, gRPC
 trailers, and incremental response frames. Do not buffer streaming responses.
 The plaintext backend listener is not a public endpoint.
 
+The backend test suite includes an HTTPS ingress check. A test-only TLS terminator
+passes HTTP bytes to the service without gRPC conversion. The check requires a
+Started frame before publication, then requires the published envelope while the
+same response stays open. It also checks CORS, request headers, and error details.
+Run this check with `just test-backend --lib https_passthrough`.
+
+Shutdown stops request admission and ends active subscriptions. Unary requests
+already admitted can finish within `server.max_drain_duration_ms`. At the end of
+that budget, the service cancels remaining handlers and connection IO. Clients
+must reconnect to another instance with their safe topic cursors. A dropped
+response does not establish whether a publish committed.
+
 Caller authentication and caller quotas are not implemented until Phase 6.
 Do not expose this unauthenticated service to untrusted traffic.
 

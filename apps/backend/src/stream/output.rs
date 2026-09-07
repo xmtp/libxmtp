@@ -2,6 +2,7 @@ use super::OUTBOUND_FRAMES;
 use crate::{api, config::OUTBOUND_QUEUE_BYTES};
 use futures::{Stream, task::AtomicWaker};
 use parking_lot::Mutex;
+use prost::Message;
 use std::{
     pin::Pin,
     sync::{
@@ -94,20 +95,32 @@ impl Drop for Reservation {
     }
 }
 
+pub(super) enum WireResponse {
+    Native(api::SubscribeResponse),
+    Static(api::SubscribeStaticResponse),
+}
+impl WireResponse {
+    pub fn encoded_len(&self) -> usize {
+        match self {
+            Self::Native(value) => value.encoded_len(),
+            Self::Static(value) => value.encoded_len(),
+        }
+    }
+}
 pub(super) struct Frame {
-    pub value: api::SubscribeResponse,
+    pub value: WireResponse,
     pub reservation: Reservation,
     pub challenge: Option<tokio::sync::oneshot::Sender<xmtp_common::time::Instant>>,
 }
 
-pub(crate) struct NativeOutput {
+pub(super) struct SessionOutput {
     pub(super) receiver: mpsc::Receiver<Frame>,
     pub(super) terminal: Arc<Terminal>,
     ended: bool,
     task: tokio::task::JoinHandle<()>,
 }
 
-impl NativeOutput {
+impl SessionOutput {
     pub(super) fn new(
         receiver: mpsc::Receiver<Frame>,
         terminal: Arc<Terminal>,
@@ -122,8 +135,8 @@ impl NativeOutput {
     }
 }
 
-impl Stream for NativeOutput {
-    type Item = Result<api::SubscribeResponse, Status>;
+impl Stream for SessionOutput {
+    type Item = Result<WireResponse, Status>;
     /// Transport polling is the Ping handoff boundary. Release queue capacity
     /// here and start its response deadline, not when the owner queues the Ping.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -158,7 +171,7 @@ impl Stream for NativeOutput {
         }
     }
 }
-impl Drop for NativeOutput {
+impl Drop for SessionOutput {
     fn drop(&mut self) {
         self.task.abort();
         self.terminal.closed.store(true, Ordering::Release);
@@ -180,11 +193,11 @@ mod tests {
         let reservation = budget.reserve(100).unwrap();
         sender
             .send(Frame {
-                value: api::SubscribeResponse {
+                value: WireResponse::Native(api::SubscribeResponse {
                     response: Some(api::subscribe_response::Response::Ping(api::Ping {
                         nonce: 1,
                     })),
-                },
+                }),
                 reservation,
                 challenge: Some(challenge),
             })
@@ -196,7 +209,7 @@ mod tests {
         ));
         assert_eq!(budget.available(), OUTBOUND_QUEUE_BYTES - 100);
         let task = tokio::spawn(std::future::pending());
-        let mut output = NativeOutput::new(receiver, terminal, task);
+        let mut output = SessionOutput::new(receiver, terminal, task);
         let before_poll = xmtp_common::time::Instant::now();
         assert!(output.next().await.unwrap().is_ok());
         assert!(handed.await? >= before_poll);

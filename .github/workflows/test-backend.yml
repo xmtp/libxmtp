@@ -27,7 +27,7 @@ jobs:
         run: just backend-db-up
       - name: Check SQL cache
         run: just backend-sql-check
-      - name: Test backend
+      - name: Test backend, replica recovery, and HTTPS streaming
         run: just test-backend
       - name: Stop backend database
         if: always()

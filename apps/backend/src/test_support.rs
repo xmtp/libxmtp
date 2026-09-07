@@ -1,6 +1,7 @@
 use crate::{Backend, api, config::Config, server};
 mod database;
 pub use database::TestDatabase;
+pub(crate) mod grpc_web;
 pub(crate) mod native;
 pub(crate) mod replica;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
@@ -10,12 +11,27 @@ use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, SmartContractS
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 pub struct TestServer {
+    running: RunningServer,
+    database: TestDatabase,
+}
+impl std::ops::Deref for TestServer {
+    type Target = RunningServer;
+    fn deref(&self) -> &RunningServer {
+        &self.running
+    }
+}
+impl std::ops::DerefMut for TestServer {
+    fn deref_mut(&mut self) -> &mut RunningServer {
+        &mut self.running
+    }
+}
+
+pub struct RunningServer {
     pub backend: Backend,
     pub channel: Channel,
     pub url: String,
-    database: TestDatabase,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), tonic::transport::Error>>,
+    task: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
 }
 
 impl TestServer {
@@ -46,6 +62,40 @@ impl TestServer {
                     .unwrap(),
             )?);
         }
+        let running = RunningServer::from_backend(backend).await?;
+        Ok(Self {
+            running,
+            database,
+        })
+    }
+
+    pub async fn stop(mut self) -> TestResult {
+        self.running.stop().await?;
+        self.database.remove()?;
+        Ok(())
+    }
+}
+
+pub fn query_topic(topic: api::Topic, sequence_id: u64) -> api::TopicQuery {
+    api::TopicQuery {
+        topic: Some(topic),
+        cursor: Some(api::Cursor { sequence_id }),
+    }
+}
+
+pub fn topic(kind: xmtp_proto::types::TopicKind, identifier: &[u8]) -> api::Topic {
+    api::Topic {
+        topic: kind.create(identifier).to_vec(),
+    }
+}
+
+impl RunningServer {
+    /// Start an independent backend instance against an existing test database.
+    pub async fn new(config: Config) -> TestResult<Self> {
+        Self::from_backend(server::initialize(config).await?).await
+    }
+
+    async fn from_backend(backend: Backend) -> TestResult<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let url = format!("http://{}", listener.local_addr()?);
         let (stop, stopped) = oneshot::channel();
@@ -57,9 +107,8 @@ impl TestServer {
             backend,
             channel,
             url,
-            database,
             stop: Some(stop),
-            task,
+            task: Some(task),
         })
     }
 
@@ -87,34 +136,35 @@ impl TestServer {
             .envelope_metas)
     }
 
-    pub async fn stop(mut self) -> TestResult {
-        self.stop.take().expect("one stop sender").send(()).ok();
-        (&mut self.task).await??;
-        self.backend.store.primary.close().await;
-        self.backend.store.read.close().await;
-        self.database.remove()?;
-        Ok(())
-    }
-}
-
-pub fn query_topic(topic: api::Topic, sequence_id: u64) -> api::TopicQuery {
-    api::TopicQuery {
-        topic: Some(topic),
-        cursor: Some(api::Cursor { sequence_id }),
-    }
-}
-
-pub fn topic(kind: xmtp_proto::types::TopicKind, identifier: &[u8]) -> api::Topic {
-    api::Topic {
-        topic: kind.create(identifier).to_vec(),
-    }
-}
-
-impl Drop for TestServer {
-    fn drop(&mut self) {
+    pub fn shutdown(&mut self) {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
-        self.task.abort();
+    }
+
+    /// Wait for service work without closing pools needed by database assertions.
+    pub async fn wait_stopped(&mut self) -> TestResult {
+        if let Some(task) = &mut self.task {
+            let result = task.await;
+            self.task = None;
+            result??;
+        }
+        Ok(())
+    }
+
+    pub async fn stop(&mut self) -> TestResult {
+        self.shutdown();
+        self.wait_stopped().await?;
+        self.backend.store.primary.close().await;
+        self.backend.store.read.close().await;
+        Ok(())
+    }
+}
+impl Drop for RunningServer {
+    fn drop(&mut self) {
+        self.shutdown();
+        if let Some(task) = &self.task {
+            task.abort();
+        }
     }
 }

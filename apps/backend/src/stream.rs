@@ -9,7 +9,7 @@ mod tests;
 
 use crate::{config::Config, error::Error};
 pub(crate) use registry::Registry;
-pub(crate) use session::native;
+pub(crate) use session::{native, static_subscription};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinHandle};

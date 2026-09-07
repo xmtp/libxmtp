@@ -38,12 +38,26 @@ impl api::subscription_service_server::SubscriptionService for Backend {
 
     /// Handle the static subscription endpoint.
     ///
-    /// Subscription delivery is not implemented in this backend build, so the
-    /// endpoint returns `UNIMPLEMENTED`.
+    /// Static sessions share native ordering and capacity rules. The initial
+    /// fixed targets precede data, and the request ending does not end delivery.
     async fn subscribe_static(
         &self,
-        _: Request<api::SubscribeStaticRequest>,
+        request: Request<api::SubscribeStaticRequest>,
     ) -> Result<Response<Self::SubscribeStaticStream>, Status> {
-        Err(Status::unimplemented("subscriptions are not available"))
+        let hub = self
+            .streams
+            .clone()
+            .ok_or_else(|| Status::unavailable("stream service unavailable"))?;
+        let request_id = request
+            .extensions()
+            .get::<crate::server::request_logger::RequestId>()
+            .map(|id| id.0)
+            .unwrap_or_else(uuid::Uuid::new_v4);
+        Ok(Response::new(Box::pin(crate::stream::static_subscription(
+            hub,
+            self.config.clone(),
+            request.into_inner().topics,
+            request_id,
+        )?)))
     }
 }
