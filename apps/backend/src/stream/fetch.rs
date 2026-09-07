@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::Status;
 
+#[derive(Clone)]
 pub(super) struct Request {
     pub range: Range,
     pub generation: u64,
@@ -17,7 +18,8 @@ pub(super) struct ResultPage {
 
 /// Fetch one fair turn under a shared concurrency permit. Reserve output bytes
 /// before reading payloads, preserve topic prefixes at a byte cutoff, and release
-/// the snapshot before returning. Dropping the future cancels its outstanding work.
+/// the snapshot before returning. Cancellation closes its pooled connection;
+/// it does not leave an obsolete query blocking reuse of that pool slot.
 pub(super) async fn fetch(
     hub: Arc<StreamHub>,
     requests: Vec<Request>,
@@ -34,7 +36,11 @@ pub(super) async fn fetch(
         .iter()
         .map(|request| request.range.clone())
         .collect();
-    let mut tx = db::stream::snapshot(&hub.read)
+    let mut connection = db::stream::HistoryConnection::acquire(&hub.read)
+        .await
+        .map_err(|_| Status::unavailable("history database unavailable"))?;
+    let mut tx = connection
+        .snapshot()
         .await
         .map_err(|_| Status::unavailable("history database unavailable"))?;
     let candidates = db::stream::history(&mut tx, &ranges, FETCH_ROWS)
@@ -80,6 +86,7 @@ pub(super) async fn fetch(
     tx.commit()
         .await
         .map_err(|_| Status::unavailable("history snapshot failed"))?;
+    connection.release();
     let mut rows: Vec<_> = rows
         .into_iter()
         .map(|row| (selected[&row.sequence_id], row))

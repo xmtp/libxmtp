@@ -96,13 +96,21 @@ async fn future_cursor_filters_history_and_future_rows_below_its_floor() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn removal_acknowledgement_separates_old_and_new_registrations() {
-    let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
+    let server = TestServer::new(|config| {
+        config.streams.poll_interval_ms = 10;
+        config.database.max_connections = 1;
+    })
+    .await?;
+    let observer = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with((*server.backend.store.primary.connect_options()).clone())
+        .await?;
     let metas = server
         .publish((0..200).map(|value| envelope(3, value)).collect())
         .await?;
     let topic = metas[0].topic.clone().unwrap();
     let mut stream = Native::open(&server).await?;
-    let mut blocked_history = server.backend.store.primary.begin().await?;
+    let mut blocked_history = observer.begin().await?;
     sqlx::query!("LOCK TABLE envelopes IN ACCESS EXCLUSIVE MODE")
         .execute(&mut *blocked_history)
         .await?;
@@ -116,7 +124,7 @@ async fn removal_acknowledgement_separates_old_and_new_registrations() {
                 r#"SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
             AND wait_event_type = 'Lock' AND query LIKE 'SELECT wanted.ordinal%') AS "waiting!""#
             )
-            .fetch_one(&server.backend.store.primary)
+            .fetch_one(&observer)
             .await
             .unwrap()
         },
@@ -129,6 +137,18 @@ async fn removal_acknowledgement_separates_old_and_new_registrations() {
             break;
         }
     }
+    let connection = xmtp_common::time::timeout(
+        xmtp_common::time::Duration::from_secs(1),
+        server.backend.store.primary.acquire(),
+    )
+    .await??;
+    drop(connection);
+    sqlx::raw_sql(sqlx::AssertSqlSafe(
+        "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE datname = current_database()
+        AND wait_event_type = 'Lock' AND query LIKE 'SELECT wanted.ordinal%'",
+    ))
+    .execute(&observer)
+    .await?;
     stream.send(Input::Ping(api::Ping { nonce: 9 })).await?;
     assert!(matches!(stream.next().await?, Frame::Pong(pong) if pong.nonce == 9));
     stream
@@ -149,6 +169,55 @@ async fn removal_acknowledgement_separates_old_and_new_registrations() {
             .sequence_id,
         200
     );
+    drop(stream);
+    observer.close().await;
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_restarts_a_mixed_history_turn_without_losing_surviving_topics() {
+    let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
+    let metas = server
+        .publish(vec![envelope(97, 1), envelope(98, 1)])
+        .await?;
+    let removed = metas[0].topic.clone().unwrap();
+    let survivor = metas[1].topic.clone().unwrap();
+    let mut stream = Native::open(&server).await?;
+    let mut blocker = server.backend.store.primary.begin().await?;
+    sqlx::query!("LOCK TABLE envelopes IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await?;
+    stream
+        .update(
+            1,
+            vec![
+                support::query_topic(removed.clone(), 0),
+                support::query_topic(survivor, 0),
+            ],
+            vec![],
+        )
+        .await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(_)));
+    let waiting = || async {
+        sqlx::query_scalar::<_, i32>(sqlx::AssertSqlSafe(
+            "SELECT pid FROM pg_stat_activity WHERE datname = current_database()
+            AND wait_event_type = 'Lock' AND query LIKE 'SELECT wanted.ordinal%' LIMIT 1",
+        ))
+        .fetch_optional(&server.backend.store.primary)
+        .await
+        .unwrap()
+    };
+    let old_pid = xmtp_common::wait_for_some(waiting).await.unwrap();
+    stream.update(2, vec![], vec![removed]).await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(applied) if applied.id == 2));
+    sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_cancel_backend($1)"))
+        .bind(old_pid)
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    blocker.rollback().await?;
+    let rows = stream.messages(1).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].meta, Some(metas[1].clone()));
     drop(stream);
     server.stop().await?;
 }

@@ -16,11 +16,35 @@ pub(crate) struct Range {
     pub through: i64,
 }
 
-/// Read heads, candidates, and payloads from one committed database snapshot.
-pub(crate) async fn snapshot(pool: &PgPool) -> Result<Transaction<'static, Postgres>, Error> {
-    Ok(pool
-        .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        .await?)
+/// Close an interrupted history connection instead of returning a still-running
+/// query to the pool. SQLx retains its pool permit until connection close ends.
+/// PostgreSQL can finish cancellation later, subject to its statement timeout.
+pub(crate) struct HistoryConnection(Option<sqlx::pool::PoolConnection<Postgres>>);
+
+impl HistoryConnection {
+    /// Reserve one request-pool connection, including during cancellation cleanup.
+    pub(crate) async fn acquire(pool: &PgPool) -> Result<Self, Error> {
+        Ok(Self(Some(pool.acquire().await?)))
+    }
+
+    /// Read candidates and payloads from one read-only snapshot. Commit the
+    /// transaction before releasing this guard for normal connection reuse.
+    pub(crate) async fn snapshot(&mut self) -> Result<Transaction<'_, Postgres>, Error> {
+        snapshot_connection(self.0.as_mut().expect("history connection present")).await
+    }
+
+    /// Return a completed snapshot's connection to the pool for reuse.
+    pub(crate) fn release(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for HistoryConnection {
+    fn drop(&mut self) {
+        if let Some(connection) = &mut self.0 {
+            connection.close_on_drop();
+        }
+    }
 }
 
 /// Keep one tailer connection across snapshots so a disconnect cannot be hidden

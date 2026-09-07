@@ -4,6 +4,7 @@ use crate::{
     db::{self, stream::Candidate},
     error::Error,
 };
+use futures::FutureExt;
 use sqlx::PgPool;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::{sync::Notify, task::JoinHandle};
@@ -13,6 +14,9 @@ use xmtp_common::time::{Duration, Instant, sleep};
 const GAP_BATCH: usize = 128;
 const GAP_ROWS: i64 = 64;
 const FORWARD_ROWS: i64 = 1_024;
+
+#[cfg(test)]
+mod tests;
 
 struct Worker(JoinHandle<Result<(), Error>>);
 struct Recovery {
@@ -110,8 +114,9 @@ async fn bootstrap(
     }
 }
 
-/// Coalesce maintenance demand with Notify's one stored permit. A lock timeout
-/// keeps the request pending; other database failures end this worker.
+/// Coalesce demand through the cooldown into one attempt. Clear the stored
+/// permit immediately before the attempt, so signals received during that
+/// attempt can still request a newer boundary. A lock timeout retains demand.
 async fn maintain(
     primary: PgPool,
     requested: Arc<Notify>,
@@ -123,6 +128,7 @@ async fn maintain(
         requested.notified().await;
         loop {
             sleep(interval.saturating_sub(last.elapsed())).await;
+            let _ = requested.notified().now_or_never();
             last = Instant::now();
             if db::boundary::advance(&primary, wait).await?.is_some() {
                 break;

@@ -39,6 +39,10 @@ struct PendingUpdate {
     topics: Vec<Vec<u8>>,
     heads: BoxFuture<'static, Result<Vec<i64>, Status>>,
 }
+struct PendingFetch {
+    requests: Vec<Request>,
+    page: BoxFuture<'static, Result<fetch::ResultPage, Status>>,
+}
 struct Session {
     request_id: uuid::Uuid,
     hub: Arc<StreamHub>,
@@ -48,6 +52,7 @@ struct Session {
     output: mpsc::Sender<Frame>,
     topics: HashMap<Vec<u8>, Registration>,
     ready: VecDeque<(Vec<u8>, u64)>,
+    fetching: Option<PendingFetch>,
     pending_update: Option<PendingUpdate>,
     deferred_updates: VecDeque<api::subscribe_request::Update>,
     deferred_bytes: usize,
@@ -88,6 +93,7 @@ pub(crate) fn native(
         output,
         topics: HashMap::new(),
         ready: VecDeque::new(),
+        fetching: None,
         update_id: 0,
         pending_update: None,
         deferred_updates: VecDeque::new(),
@@ -128,7 +134,6 @@ impl Session {
                 keepalive_interval_ms: self.config.streams.keepalive_interval_ms as u32,
             },
         ))?;
-        let mut fetching: Option<BoxFuture<'static, Result<fetch::ResultPage, Status>>> = None;
         let mut pending_input = VecDeque::new();
         loop {
             if self.mailbox.terminal.closed() {
@@ -148,8 +153,8 @@ impl Session {
                 self.deferred_bytes -= update.encoded_len();
                 self.update(update)?;
             }
-            if fetching.is_none() {
-                fetching = self.start_fetch();
+            if self.fetching.is_none() {
+                self.fetching = self.start_fetch();
             }
             let timer = self.timer();
             let mailbox = self.mailbox.clone();
@@ -162,8 +167,8 @@ impl Session {
                 heads = async { match &mut self.pending_update { Some(update) => (&mut update.heads).await, None => pending().await } } => {
                     self.applied(heads?)?;
                 },
-                page = async { match &mut fetching { Some(future) => future.await, None => pending().await } } => {
-                    fetching = None;
+                page = async { match &mut self.fetching { Some(fetch) => (&mut fetch.page).await, None => pending().await } } => {
+                    self.fetching = None;
                     self.fetched(page?)?;
                 },
                 handed = async { match &mut self.challenge {
@@ -307,6 +312,7 @@ impl Session {
             removed_topics += usize::from(self.topics.remove(&topic.topic).is_some());
             self.hub.registry.remove(self.id, &topic.topic);
         }
+        self.cancel_removed_fetch();
         let mut added = Vec::new();
         for (topic, floor) in adds {
             if self.topics.contains_key(&topic) {
@@ -448,7 +454,7 @@ impl Session {
     }
 
     /// Reserve one bounded data frame before scheduling at most one fair turn.
-    fn start_fetch(&mut self) -> Option<BoxFuture<'static, Result<fetch::ResultPage, Status>>> {
+    fn start_fetch(&mut self) -> Option<PendingFetch> {
         if self.ready.is_empty() {
             return None;
         }
@@ -486,7 +492,38 @@ impl Session {
         if requests.is_empty() {
             return None;
         }
-        Some(fetch::fetch(self.hub.clone(), requests, budget, reservation).boxed())
+        Some(PendingFetch {
+            page: fetch::fetch(self.hub.clone(), requests.clone(), budget, reservation).boxed(),
+            requests,
+        })
+    }
+
+    /// Cancel a turn that includes a removed registration before acknowledging
+    /// removal. Its errors no longer belong to this session. No rows were
+    /// admitted, so surviving topics keep their order ahead of later ready work.
+    fn cancel_removed_fetch(&mut self) {
+        let stale = self.fetching.as_ref().is_some_and(|fetch| {
+            fetch.requests.iter().any(|request| {
+                self.topics
+                    .get(&request.range.topic)
+                    .is_none_or(|registration| registration.generation != request.generation)
+            })
+        });
+        if !stale {
+            return;
+        }
+        let fetch = self.fetching.take().expect("stale fetch exists");
+        drop(fetch.page);
+        for request in fetch.requests.into_iter().rev() {
+            if let Some(registration) = self.topics.get_mut(&request.range.topic)
+                && registration.generation == request.generation
+            {
+                registration.fetching = false;
+                registration.queued = true;
+                self.ready
+                    .push_front((request.range.topic, request.generation));
+            }
+        }
     }
 
     /// Discard stale generations, advance floors only after output admission,
