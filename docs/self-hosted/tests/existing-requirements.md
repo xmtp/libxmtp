@@ -20,7 +20,7 @@ runs on native and wasm where its owning package supports both targets.
 | P1-VAL-06, RUST-REQ-008, RUST-REQ-010 | `xmtp_id::scw_verifier::cached::tests::*` | Moves cache coverage to its shared owner and tests real wrapper hits, eviction, latest bypass, error handling, and key fields. |
 | P1-VAL-07 | `xmtp_mls_validation::test_utils` exercised by the payload matrices | Fixtures cover all five kinds without a client or service. |
 | P1-VAL-08 | `dev/check-validation` | Standalone native/wasm consumers compile with and without fixtures; normal/build graphs exclude client DBs and network test harnesses. |
-| P1-VAL-09, P1-VAL-10 | `docs/self-hosted/phase-1-mls-audit.md` plus preserved client/service tests | Complete source disposition and consumer migration. |
+| P1-VAL-09, P1-VAL-10 | [PR #4067](https://github.com/xmtp/libxmtp/pull/4067) and preserved client/service tests | Completed extraction audit and consumer migration. |
 
 RUST-REQ-009's direct third-party LRU test is removed; production eviction is
 covered by P1-VAL-06. RUST-REQ-012's expected-panic placeholder is removed; real
