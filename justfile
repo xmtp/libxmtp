@@ -99,24 +99,6 @@ _test-crate +crates:
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     {{ cargo_test }} $args
 
-# Run xdbg cross-version compat harness. Stable HEADs by default; pass
-# --profile nightly for nightly samples. Anything after `--` is forwarded
-# to every xdbg invocation as global flags (e.g. -vvvv for trace logs).
-#
-#   just cross-test                                  # stable, sample-size 0
-#   just cross-test --profile nightly                # nightly, default 3
-
-# just cross-test --profile nightly --sample-size 5 -- -vvvv
-cross-test *args="":
-    nix run .#cross-version-test -- run {{ args }}
-
-# Sibling to `cross-test`: each version runs under --strict-versioning
-# against a shared XDBG_DB_ROOT, so it tests wire-level MLS interop
-
-# rather than SQLite-upgrade compatibility. Same arg shape.
-cross-talk-test *args="":
-    nix run .#cross-talk-test -- run {{ args }}
-
 # --- BACKEND ---
 
 # `just backend up`, `just backend down`

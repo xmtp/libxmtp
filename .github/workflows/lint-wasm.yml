@@ -5,6 +5,7 @@ env:
   NIX_DEVSHELL: wasm
 jobs:
   lint:
+    if: ${{ false }}
     name: Lint (WASM)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:

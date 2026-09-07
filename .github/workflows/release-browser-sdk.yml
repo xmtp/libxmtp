@@ -42,6 +42,8 @@ env:
 
 jobs:
   setup:
+    # Deferred until the browser SDK migration phase.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -100,6 +102,7 @@ jobs:
           echo "Computed version: $VERSION"
 
   bindings:
+    if: ${{ false }}
     needs: setup
     uses: ./.github/workflows/release-wasm.yml
     with:
@@ -113,6 +116,7 @@ jobs:
     secrets: inherit
 
   build:
+    if: ${{ false }}
     needs: [setup, bindings]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
@@ -148,6 +152,7 @@ jobs:
           retention-days: 1
 
   publish:
+    if: ${{ false }}
     needs: [setup, build, bindings]
     uses: ./.github/workflows/npm-publish.yml
     with:

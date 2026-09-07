@@ -133,7 +133,7 @@ jobs:
     needs: setup
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
-      NIX_DEVSHELL: js
+      NIX_DEVSHELL: js-node
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -149,7 +149,7 @@ jobs:
       - uses: taiki-e/install-action@just
 
       - name: Stage node bindings
-        run: just js bindings
+        run: just js bindings-node
 
       - name: Install + build agent-sdk
         run: |

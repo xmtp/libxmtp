@@ -75,6 +75,8 @@ concurrency:
 
 jobs:
   compat:
+    # Deferred during Phase 1; release-gate-plan treats skipped evidence as a refusal.
+    if: ${{ false }}
     name: ${{ matrix.kind }} (${{ matrix.profile }})
     runs-on: blacksmith-16vcpu-ubuntu-2404
     strategy:

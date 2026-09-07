@@ -2,7 +2,7 @@ name: Test Agent SDK
 on:
   workflow_call:
 env:
-  NIX_DEVSHELL: js
+  NIX_DEVSHELL: js-node
 jobs:
   test:
     name: Test (agent-sdk)
