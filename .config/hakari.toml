@@ -48,7 +48,18 @@ third-party = [
 ]
 
 [final-excludes]
+# Portable roots do not depend on the aggregate client feature graph.
 workspace-members = [
+  "xmtp_common",
+  "xmtp_cryptography",
+  "xmtp_configuration",
+  "xmtp_proto",
+  "xmtp_id",
+  "xmtp_macro",
+  "xmtp_logging",
+  "xmtp_mls_validation",
+  "xmtp_mls_common",
+  "mls_validation_service",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",

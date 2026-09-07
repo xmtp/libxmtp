@@ -15,7 +15,6 @@ num_cpus = "1.17"
 proc-macro2.workspace = true
 quote.workspace = true
 syn.workspace = true
-xmtp-workspace-hack.workspace = true
 
 [lib]
 proc-macro = true

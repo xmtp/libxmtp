@@ -46,14 +46,7 @@ pub fn context() -> NewMockContext {
     }
 }
 
-pub fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
-    let signing_key = XmtpInstallationCredential::new();
-
-    let wallet = PrivateKeySigner::random();
-    let inbox_id = wallet.identifier().inbox_id(0).unwrap();
-
-    (inbox_id, signing_key)
-}
+pub use xmtp_id::utils::generate_inbox_id_credential;
 
 pub fn generate_messages_with_ids(ids: &[u64]) -> Vec<xmtp_proto::types::GroupMessage> {
     ids.iter()

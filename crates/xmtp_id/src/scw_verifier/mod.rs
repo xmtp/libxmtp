@@ -1,3 +1,5 @@
+mod cached;
+pub use cached::CachedSmartContractSignatureVerifier;
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
 use crate::associations::AccountId;

@@ -93,7 +93,10 @@ openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabb
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
+  "extensions-draft",
+  "draft-ietf-mls-pq-ciphersuites",
+] }
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23d417ac80e787ca858a5134c6ca1d9ce6", features = [
   "extensions-draft",
   "draft-ietf-mls-pq-ciphersuites",
@@ -228,6 +231,7 @@ xmtp_logging = { path = "crates/xmtp_logging" }
 xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
+xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }
 xmtp_proto = { path = "crates/xmtp_proto" }
 
 [profile.dbg]

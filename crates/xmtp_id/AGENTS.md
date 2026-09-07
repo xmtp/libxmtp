@@ -15,6 +15,8 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_id -E 'test(/associations:
 ## Gotchas
 
 - SCW tests need anvil: `just backend up`.
+- Set `ANVIL_URL` to override the test RPC address. Use `http://127.0.0.1:8545` if local IPv6 forwarding fails.
+- `test-utils` is portable. Native Anvil fixtures exported to other crates require `test-utils-anvil`.
 
 ## Conventions
 

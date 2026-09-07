@@ -102,6 +102,16 @@ _test-crate +crates:
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     {{ cargo_test }} $args
 
+# Verify the shared validation crate without workspace feature unification.
+check-validation:
+    dev/check-validation check
+
+# Run the shared validation crate tests on native and wasm Node.
+test-validation:
+    dev/check-validation test
+
+validation: check-validation test-validation
+
 # --- BACKEND ---
 
 # `just backend up`, `just backend down`

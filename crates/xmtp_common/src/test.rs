@@ -3,8 +3,6 @@ use crate::time::Expired;
 use rand::distr::SampleString;
 use rand::{RngExt, distr::Alphanumeric, seq::IteratorRandom};
 use std::future::Future;
-use std::sync::LazyLock;
-use tokio::sync;
 
 mod macros;
 
@@ -16,15 +14,11 @@ crate::if_native! {
     pub use traced_test::TestWriter;
 }
 
-use toxiproxy_rust::TOXIPROXY;
-
-static TOXIPROXY_TEST_LOCK: LazyLock<sync::Mutex<()>> = LazyLock::new(|| sync::Mutex::new(()));
-
-// TODO: can add this to the macro
-pub async fn toxiproxy_test<T, F: AsyncFn() -> T>(f: F) -> T {
-    let _g = TOXIPROXY_TEST_LOCK.lock().await;
-    TOXIPROXY.reset().await.unwrap();
-    f().await
+crate::if_native! {
+    #[cfg(any(test, feature = "test-utils-network"))]
+    mod toxiproxy;
+    #[cfg(any(test, feature = "test-utils-network"))]
+    pub use toxiproxy::toxiproxy_test;
 }
 
 pub trait Generate {

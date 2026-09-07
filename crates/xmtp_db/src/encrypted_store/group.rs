@@ -1288,68 +1288,7 @@ where
     }
 }
 
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
-pub enum ConversationType {
-    Group = 1,
-    Dm = 2,
-    Sync = 3,
-    Oneshot = 4,
-}
-
-impl ConversationType {
-    pub fn virtual_types() -> Vec<ConversationType> {
-        vec![ConversationType::Sync, ConversationType::Oneshot]
-    }
-
-    pub fn is_virtual(&self) -> bool {
-        // Use match to force exhaustive pattern matching
-        match self {
-            ConversationType::Group => false,
-            ConversationType::Dm => false,
-            ConversationType::Sync => true,
-            ConversationType::Oneshot => true,
-        }
-    }
-}
-
-impl ToSql<Integer, Sqlite> for ConversationType
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<Integer, Sqlite> for ConversationType
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(ConversationType::Group),
-            2 => Ok(ConversationType::Dm),
-            3 => Ok(ConversationType::Sync),
-            4 => Ok(ConversationType::Oneshot),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
-
-impl std::fmt::Display for ConversationType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ConversationType::*;
-        match self {
-            Group => write!(f, "group"),
-            Dm => write!(f, "dm"),
-            Sync => write!(f, "sync"),
-            Oneshot => write!(f, "oneshot"),
-        }
-    }
-}
+pub use xmtp_proto::types::ConversationType;
 
 pub trait DmIdExt {
     fn other_inbox_id(&self, id: &str) -> String;

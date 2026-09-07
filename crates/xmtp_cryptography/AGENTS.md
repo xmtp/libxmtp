@@ -18,7 +18,7 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_cryptography -E 'test(/eth
 
 ## Conventions
 
-This crate owns every primitive. `crates/xmtp_common/src/lib.rs` re-exports its `hash` and `rand` modules, so prefer the `xmtp_common::` path.
+This crate owns every primitive. `xmtp_common` re-exports the hash and random functions at its root.
 
 - Hashing (`src/hash.rs`): `sha256_bytes(&[u8]) -> Vec<u8>`, `sha256_array(&[u8]) -> [u8; 32]` (allocation-free). There is no plain `sha256` here or in `xmtp_common`. The alias at `crates/xmtp_mls/src/utils/mod.rs:15` is legacy. Do not use it in new code.
 - Native entry points must call `src/lib.rs:29 install_crypto_provider()` first. It installs the process-default rustls provider and is idempotent. Its `#[ctor]` fallback does not fire when the static library is linked into an Apple binary, so a `reqwest` client built before this call panics with "No provider set" (`bindings/node/src/client/create_client.rs:231`, `bindings/mobile/src/mls.rs:152`). Native only.

@@ -41,4 +41,12 @@ in
       }
     )
   );
+
+  flake.validation = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      pkgs.callPackage ./package/validation-check.nix { }
+    )
+  );
 }

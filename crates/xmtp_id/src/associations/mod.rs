@@ -1,3 +1,5 @@
+mod verify_updates;
+pub use verify_updates::verify_updates;
 mod association_log;
 pub mod builder;
 pub mod ident;

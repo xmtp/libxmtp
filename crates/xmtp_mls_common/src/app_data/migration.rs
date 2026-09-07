@@ -628,10 +628,10 @@ pub fn synthesize_canonical_subset_from_extensions(
         ),
     );
 
-    // Immutable seeds. Route the DB-side `ConversationType` through
+    // Immutable seeds. Route the shared `ConversationType` through
     // its `From<_> for ConversationTypeProto` impl before casting to
     // i32 — the two enums share variants today but are *separate*
-    // types with their own discriminants. Direct `as i32` on the DB
+    // types with their own discriminants. Direct `as i32` on the shared
     // enum would silently drift if either side renumbers. Mirrors the
     // pattern in `group_metadata.rs::TryFrom<GroupMetadata> for Vec<u8>`.
     let conversation_type_proto: xmtp_proto::xmtp::mls::message_contents::ConversationType =
@@ -1545,7 +1545,7 @@ mod tests {
 
     fn plain_group_metadata() -> crate::group_metadata::GroupMetadata {
         crate::group_metadata::GroupMetadata::new(
-            xmtp_db::group::ConversationType::Group,
+            xmtp_proto::types::ConversationType::Group,
             hex_inbox(0x11),
             None,
             None,
@@ -1620,7 +1620,7 @@ mod tests {
             member_two_inbox_id: hex_inbox(0x33),
         };
         let metadata = crate::group_metadata::GroupMetadata::new(
-            xmtp_db::group::ConversationType::Dm,
+            xmtp_proto::types::ConversationType::Dm,
             hex_inbox(0x22),
             Some(dm_members.clone()),
             None,
@@ -1656,7 +1656,7 @@ mod tests {
         // particular content shape.
         let oneshot = OneshotMessage { message_type: None };
         let metadata = crate::group_metadata::GroupMetadata::new(
-            xmtp_db::group::ConversationType::Group,
+            xmtp_proto::types::ConversationType::Group,
             hex_inbox(0x44),
             None,
             Some(oneshot.clone()),
@@ -1910,7 +1910,7 @@ mod tests {
         let oneshot =
             xmtp_proto::xmtp::mls::message_contents::OneshotMessage { message_type: None };
         let metadata = crate::group_metadata::GroupMetadata::new(
-            xmtp_db::group::ConversationType::Dm,
+            xmtp_proto::types::ConversationType::Dm,
             hex_inbox(0x22),
             Some(dm_members),
             Some(oneshot),

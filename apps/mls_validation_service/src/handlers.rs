@@ -1,17 +1,15 @@
-use futures::future::{join_all, try_join_all};
-use openmls::framing::ContentType;
-use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
-use openmls_rust_crypto::RustCrypto;
+use futures::future::join_all;
 use tonic::{Code, Request, Response, Status, metadata::MetadataValue};
 
 use xmtp_common::{ErrorCode, RetryableError};
-use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use xmtp_id::key_package::KeyPackageVerificationError;
 use xmtp_id::{
-    associations::{
-        self, AssociationError, DeserializationError, SignatureError, try_map_vec,
-        unverified::UnverifiedIdentityUpdate,
-    },
+    associations::{AssociationError, DeserializationError, SignatureError},
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
+};
+use xmtp_mls_validation::{
+    ValidationError, is_commit_or_proposal, parse_group_message, validate_identity_updates,
+    verify_key_package,
 };
 use xmtp_proto::xmtp::{
     identity::{
@@ -50,6 +48,9 @@ pub enum GrpcServerError {
     #[error(transparent)]
     #[error_code(inherit)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Validation(#[from] ValidationError),
 }
 
 impl RetryableError for GrpcServerError {
@@ -60,6 +61,7 @@ impl RetryableError for GrpcServerError {
             // transient error (e.g. the chain RPC), which should still be retryable.
             GrpcServerError::Association(AssociationError::Signature(e)) => e.is_retryable(),
             GrpcServerError::Conversion(e) => e.is_retryable(),
+            GrpcServerError::Validation(e) => e.is_retryable(),
             GrpcServerError::Deserialization(_) | GrpcServerError::Association(_) => false,
         }
     }
@@ -109,22 +111,22 @@ impl ValidationApi for ValidationService {
             .into_inner()
             .group_messages
             .into_iter()
-            .map(|message| {
-                match validate_group_message(message.group_message_bytes_tls_serialized) {
+            .map(
+                |message| match parse_group_message(&message.group_message_bytes_tls_serialized) {
                     Ok(res) => ValidateGroupMessageValidationResponse {
-                        group_id: res.group_id,
+                        group_id: hex::encode(res.group_id().as_slice()),
                         error_message: "".to_string(),
                         is_ok: true,
-                        is_commit: res.is_commit,
+                        is_commit: is_commit_or_proposal(&res),
                     },
                     Err(e) => ValidateGroupMessageValidationResponse {
                         group_id: "".to_string(),
-                        error_message: e,
+                        error_message: e.to_string(),
                         is_ok: false,
                         is_commit: false,
                     },
-                }
-            })
+                },
+            )
             .collect();
 
         Ok(Response::new(ValidateGroupMessagesResponse {
@@ -202,8 +204,7 @@ impl From<ValidateInboxIdKeyPackageError> for ValidateInboxIdKeyPackageResponse 
 async fn validate_inbox_id_key_package(
     key_package: Vec<u8>,
 ) -> Result<ValidateInboxIdKeyPackageResponse, ValidateInboxIdKeyPackageError> {
-    let rust_crypto = RustCrypto::default();
-    let kp = VerifiedKeyPackageV2::from_bytes(&rust_crypto, key_package.as_slice())?;
+    let kp = verify_key_package(&key_package)?;
 
     Ok(ValidateInboxIdKeyPackageResponse {
         is_ok: true,
@@ -272,62 +273,10 @@ async fn get_association_state(
     new_updates: Vec<IdentityUpdateProto>,
     scw_verifier: impl SmartContractSignatureVerifier,
 ) -> Result<GetAssociationStateResponse, GrpcServerError> {
-    let old_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(old_updates)?;
-    let new_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(new_updates)?;
-
-    let old_updates = try_join_all(
-        old_unverified_updates
-            .iter()
-            .map(|u| u.to_verified(&scw_verifier)),
-    )
-    .await?;
-    let new_updates = try_join_all(
-        new_unverified_updates
-            .iter()
-            .map(|u| u.to_verified(&scw_verifier)),
-    )
-    .await?;
-    if old_updates.is_empty() {
-        let new_state = associations::get_state(&new_updates)?;
-        return Ok(GetAssociationStateResponse {
-            association_state: Some(new_state.clone().into()),
-            state_diff: Some(new_state.as_diff().into()),
-        });
-    }
-
-    let old_state = associations::get_state(&old_updates)?;
-    let mut new_state = old_state.clone();
-    for update in new_updates {
-        new_state = associations::apply_update(new_state, update)?;
-    }
-
-    let state_diff = old_state.diff(&new_state);
-
+    let result = validate_identity_updates(old_updates, new_updates, scw_verifier).await?;
     Ok(GetAssociationStateResponse {
-        association_state: Some(new_state.into()),
-        state_diff: Some(state_diff.into()),
-    })
-}
-
-struct ValidateGroupMessageResult {
-    group_id: String,
-    is_commit: bool,
-}
-
-fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
-    let msg_result =
-        MlsMessageIn::tls_deserialize(&mut message.as_slice()).map_err(|e| e.to_string())?;
-
-    let protocol_message: ProtocolMessage = msg_result
-        .try_into_protocol_message()
-        .map_err(|e| e.to_string())?;
-
-    Ok(ValidateGroupMessageResult {
-        group_id: hex::encode(protocol_message.group_id().as_slice()),
-        is_commit: matches!(
-            protocol_message.content_type(),
-            ContentType::Commit | ContentType::Proposal
-        ),
+        association_state: Some(result.state.into()),
+        state_diff: Some(result.diff.into()),
     })
 }
 
@@ -338,32 +287,8 @@ mod tests {
     use alloy::primitives::{B256, U256};
     use alloy::providers::Provider;
     use alloy::signers::Signer;
-    use alloy::signers::local::PrivateKeySigner;
-    use associations::AccountId;
-    use openmls::{
-        extensions::{ApplicationIdExtension, Extension, Extensions},
-        key_packages::KeyPackage,
-        prelude::{Credential as OpenMlsCredential, CredentialWithKey, tls_codec::Serialize},
-    };
-    use openmls_rust_crypto::OpenMlsRustCrypto;
-    use xmtp_common::{rand_string, rand_u64};
-    use xmtp_configuration::CIPHERSUITE;
-    use xmtp_cryptography::XmtpInstallationCredential;
-    use xmtp_id::{
-        associations::{
-            Identifier,
-            test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
-            unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
-        },
-        utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet},
-    };
-    use xmtp_proto::xmtp::{
-        identity::{
-            MlsCredential as InboxIdMlsCredential,
-            associations::IdentityUpdate as IdentityUpdateProto,
-        },
-        mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
-    };
+    use xmtp_id::associations::{AccountId, test_utils::MockSmartContractSignatureVerifier};
+    use xmtp_id::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
 
     impl Default for ValidationService {
         fn default() -> Self {
@@ -371,159 +296,9 @@ mod tests {
         }
     }
 
-    fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
-        let signing_key = XmtpInstallationCredential::new();
-
-        let wallet = PrivateKeySigner::random();
-        let inbox_id = wallet.identifier().inbox_id(0).unwrap();
-
-        (inbox_id, signing_key)
-    }
-
-    fn build_key_package_bytes(
-        keypair: &XmtpInstallationCredential,
-        credential_with_key: &CredentialWithKey,
-        account_address: Option<String>,
-    ) -> Vec<u8> {
-        let rust_crypto = OpenMlsRustCrypto::default();
-
-        let kp = KeyPackage::builder();
-
-        let kp = if let Some(address) = account_address {
-            let application_id =
-                Extension::ApplicationId(ApplicationIdExtension::new(address.as_bytes()));
-            kp.leaf_node_extensions(
-                Extensions::single(application_id)
-                    .expect("application id extension is always valid in leaf nodes"),
-            )
-        } else {
-            kp
-        };
-
-        let kp = kp
-            .build(
-                CIPHERSUITE,
-                &rust_crypto,
-                keypair,
-                credential_with_key.clone(),
-            )
-            .unwrap();
-        kp.key_package().tls_serialize_detached().unwrap()
-    }
-
-    // this test will panic until signature recovery is added
-    // and `MockSignature` is updated with signatures that can be recovered
-    #[tokio::test]
-    #[should_panic]
-    async fn test_get_association_state() {
-        let account_address = rand_string::<24>();
-        let nonce = rand_u64();
-        let ident = Identifier::eth(&account_address).unwrap();
-        let inbox_id = ident.inbox_id(nonce).unwrap();
-        let update = UnverifiedIdentityUpdate::new_test(
-            vec![UnverifiedAction::new_test_create_inbox(
-                &account_address,
-                &nonce,
-            )],
-            inbox_id.clone(),
-        );
-
-        let updates = vec![update];
-
-        ValidationService::default()
-            .get_association_state(Request::new(GetAssociationStateRequest {
-                old_updates: vec![],
-                new_updates: updates
-                    .into_iter()
-                    .map(IdentityUpdateProto::from)
-                    .collect::<Vec<_>>(),
-            }))
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_validate_inbox_id_key_package_happy_path() {
-        let (inbox_id, keypair) = generate_inbox_id_credential();
-        let credential: OpenMlsCredential = InboxIdMlsCredential {
-            inbox_id: inbox_id.clone(),
-        }
-        .try_into()
-        .unwrap();
-
-        let credential_with_key = CredentialWithKey {
-            credential,
-            signature_key: keypair.public_slice().into(),
-        };
-
-        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
-        let request = ValidateKeyPackagesRequest {
-            key_packages: vec![KeyPackageProtoWrapper {
-                key_package_bytes_tls_serialized: key_package_bytes,
-                is_inbox_id_credential: false,
-            }],
-        };
-
-        let res = ValidationService::default()
-            .validate_inbox_id_key_packages(Request::new(request))
-            .await
-            .unwrap();
-
-        let res = res.into_inner();
-        let first_response = &res.responses[0];
-        assert!(first_response.is_ok);
-        assert_eq!(
-            first_response.installation_public_key,
-            keypair.public_bytes()
-        );
-        assert_eq!(
-            first_response.credential.as_ref().unwrap().inbox_id,
-            inbox_id
-        );
-    }
-
-    #[tokio::test]
-    async fn test_validate_inbox_id_key_package_failure() {
-        let (inbox_id, keypair) = generate_inbox_id_credential();
-        let (_, other_keypair) = generate_inbox_id_credential();
-
-        let credential: OpenMlsCredential = InboxIdMlsCredential {
-            inbox_id: inbox_id.clone(),
-        }
-        .try_into()
-        .unwrap();
-
-        let credential_with_key = CredentialWithKey {
-            credential,
-            signature_key: other_keypair.public_slice().into(),
-        };
-
-        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
-        let request = ValidateKeyPackagesRequest {
-            key_packages: vec![KeyPackageProtoWrapper {
-                key_package_bytes_tls_serialized: key_package_bytes,
-                is_inbox_id_credential: false,
-            }],
-        };
-
-        let res = ValidationService::default()
-            .validate_inbox_id_key_packages(Request::new(request))
-            .await
-            .unwrap();
-
-        let first_response = &res.into_inner().responses[0];
-        assert!(!first_response.is_ok);
-        assert_eq!(
-            first_response.error_message,
-            "XMTP Key Package failed mls validation: The leaf node signature is not valid."
-        );
-        assert_eq!(first_response.credential, None);
-        assert_eq!(first_response.installation_public_key, Vec::<u8>::new());
-    }
-
     #[rstest::rstest]
     #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
-    #[tokio::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_validate_scw(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             owner0: wallet,
@@ -568,7 +343,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn deserialization_error_maps_to_invalid_argument() {
         let status = Status::from(GrpcServerError::Deserialization(
             DeserializationError::InvalidAccountId,
@@ -578,7 +353,7 @@ mod tests {
         assert!(status.metadata().get("error-code").is_some());
     }
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn retryable_signature_error_maps_to_unavailable() {
         use xmtp_id::scw_verifier::VerifierError;
 

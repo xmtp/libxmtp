@@ -16,3 +16,4 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_common -E 'test(/http::/)'
 
 - Every crate depends on it. A change rebuilds the workspace.
 - Shared helpers go here. Never copy a helper into another crate.
+- `test-utils` is portable. Native Toxiproxy helpers require `test-utils-network`.

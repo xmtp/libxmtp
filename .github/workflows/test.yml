@@ -25,6 +25,7 @@ jobs:
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
       keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
+      validation: ${{ steps.filter.outputs.validation }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -135,6 +136,30 @@ jobs:
               - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-keepalive-probe.yml'
+            validation:
+              - 'proto/**'
+              - 'crates/xmtp_mls_validation/**'
+              - 'crates/xmtp_mls_common/**'
+              - 'crates/xmtp_common/**'
+              - 'crates/xmtp_configuration/**'
+              - 'crates/xmtp_cryptography/**'
+              - 'crates/xmtp_id/**'
+              - 'crates/xmtp_proto/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'dev/check-validation'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-validation.yml'
+
+  test-validation:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.validation == 'true'
+    uses: ./.github/workflows/test-validation.yml
+    secrets: inherit
 
   test-workspace:
     needs: detect-changes
@@ -218,6 +243,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - test-validation
       - test-workspace
       - test-keepalive-probe
       - test-node

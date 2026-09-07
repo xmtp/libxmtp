@@ -16,11 +16,12 @@ use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
+use xmtp_id::associations::verify_updates;
 use xmtp_id::{
     AsIdRef, InboxIdRef,
     associations::{
         AssociationError, AssociationState, AssociationStateDiff, Identifier, IdentityAction,
-        IdentityUpdate, InstallationKeyContext, MemberIdentifier, SignatureError, apply_update,
+        InstallationKeyContext, MemberIdentifier, apply_update,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         get_state,
         unverified::{
@@ -629,19 +630,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
 
     conn.insert_or_ignore_identity_updates(&to_store)?;
     Ok(updates)
-}
-
-/// Convert a list of unverified updates to verified updates using the given smart contract verifier
-async fn verify_updates(
-    updates: Vec<UnverifiedIdentityUpdate>,
-    scw_verifier: impl SmartContractSignatureVerifier,
-) -> Result<Vec<IdentityUpdate>, SignatureError> {
-    try_join_all(
-        updates
-            .iter()
-            .map(|update| update.to_verified(&scw_verifier)),
-    )
-    .await
 }
 
 /// A static lookup method to verify if an identity is a member of an inbox

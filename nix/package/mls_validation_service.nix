@@ -41,6 +41,8 @@ let
       (commonCargoSources (root + /crates/xmtp_configuration))
       (commonCargoSources (root + /crates/xmtp_cryptography))
       (commonCargoSources (root + /crates/xmtp_id))
+      (commonCargoSources (root + /crates/xmtp_mls_validation))
+      (commonCargoSources (root + /crates/xmtp_mls_common))
       (commonCargoSources (root + /crates/xmtp_proto))
       (commonCargoSources (root + /crates/xmtp_macro))
       (commonCargoSources (root + /apps/mls_validation_service))
@@ -54,7 +56,7 @@ rust.buildPackage (
   // {
     inherit src cargoArtifacts;
     pname = "mls-validation-service";
-    cargoExtraArgs = "--bin mls-validation-service";
+    cargoExtraArgs = "-p mls_validation_service --bin mls-validation-service";
     doInstallCargoArtifacts = false;
     version = xmtp.mkVersion rust;
     doCheck = false;

@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MODE=${1:-all}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+VALIDATION_TMP=$(mktemp -d "${TMPDIR:-/tmp}/xmtp-validation-check.XXXXXX")
+trap 'rm -rf "$VALIDATION_TMP"' EXIT
+export CARGO_TARGET_DIR="$REPO_ROOT/target"
+
+write_consumer() {
+  mkdir -p "$VALIDATION_TMP/src"
+  cat > "$VALIDATION_TMP/Cargo.toml" <<EOF
+[package]
+name = "xmtp-validation-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+xmtp_mls_validation = { path = "$REPO_ROOT/crates/xmtp_mls_validation", default-features = false }
+
+[features]
+default = []
+test-utils = ["xmtp_mls_validation/test-utils"]
+EOF
+
+  taplo get --output-format json -f "$REPO_ROOT/Cargo.toml" patch > "$VALIDATION_TMP/patches.json"
+  python3 - "$VALIDATION_TMP/patches.json" "$VALIDATION_TMP/Cargo.toml" "$REPO_ROOT" <<'PY'
+import json
+import pathlib
+import sys
+
+source_path, output_path, repo_root = map(pathlib.Path, sys.argv[1:])
+patches = json.loads(source_path.read_text())
+
+with output_path.open("a") as output:
+    for registry, packages in patches.items():
+        output.write(f"\n[patch.{registry}]\n")
+        for name, attributes in packages.items():
+            rendered = []
+            for key, value in attributes.items():
+                if key == "path":
+                    value = str((repo_root / value).resolve())
+                rendered.append(f"{key} = {json.dumps(value)}")
+            output.write(f"{json.dumps(name)} = {{ {', '.join(rendered)} }}\n")
+PY
+
+  cat > "$VALIDATION_TMP/src/main.rs" <<'EOF'
+use xmtp_mls_validation as _;
+
+#[cfg(feature = "test-utils")]
+use xmtp_mls_validation::test_utils::{commit_log_envelope, inline_welcome_envelope};
+
+fn main() {
+    #[cfg(feature = "test-utils")]
+    {
+        let _ = inline_welcome_envelope([0_u8; 32]);
+        let _ = commit_log_envelope([0_u8; 16]);
+    }
+}
+EOF
+}
+
+assert_isolated_graph() {
+  local target=$1
+  local with_test_utils=$2
+  local label=$3
+  local graph="$VALIDATION_TMP/tree-$label.txt"
+  local feature_args=()
+  if [[ "$with_test_utils" == "true" ]]; then
+    feature_args=(--features test-utils)
+  fi
+
+  cargo tree \
+    --locked \
+    -e normal,build \
+    --manifest-path "$VALIDATION_TMP/Cargo.toml" \
+    --target "$target" \
+    --no-default-features \
+    "${feature_args[@]}" \
+    --prefix none > "$graph"
+
+  if grep -E '^(alloy-node-bindings|alloy-rpc-types-anvil|diesel|diesel_derives|diesel_migrations|libsqlite3-sys|rusqlite|sqlite|toxiproxy_rust|xmtp-workspace-hack|xmtp_db|xmtp_mls) v' "$graph"; then
+    echo "The $label validation graph contains a forbidden dependency." >&2
+    exit 1
+  fi
+
+  cargo check \
+    --locked \
+    --manifest-path "$VALIDATION_TMP/Cargo.toml" \
+    --target "$target" \
+    --no-default-features \
+    "${feature_args[@]}"
+}
+
+check_consumer() {
+  write_consumer
+  cp "$REPO_ROOT/Cargo.lock" "$VALIDATION_TMP/Cargo.lock"
+  cargo metadata \
+    --manifest-path "$VALIDATION_TMP/Cargo.toml" \
+    --offline \
+    --format-version 1 > /dev/null
+  assert_isolated_graph "$(rustc -vV | sed -n 's/^host: //p')" false native
+  assert_isolated_graph "$(rustc -vV | sed -n 's/^host: //p')" true native-test-utils
+  assert_isolated_graph wasm32-unknown-unknown false wasm
+  assert_isolated_graph wasm32-unknown-unknown true wasm-test-utils
+}
+
+run_tests() {
+  cargo test --locked -p xmtp_mls_validation
+  cargo test --locked -p xmtp_mls_validation --features test-utils
+  WASM_BINDGEN_USE_NODE=1 cargo test \
+    --locked \
+    --profile wasm-test \
+    --target wasm32-unknown-unknown \
+    -p xmtp_mls_validation
+  WASM_BINDGEN_USE_NODE=1 cargo test \
+    --locked \
+    --profile wasm-test \
+    --target wasm32-unknown-unknown \
+    -p xmtp_mls_validation \
+    --features test-utils
+
+  for filter in \
+    scw_verifier::cached::tests \
+    key_package::construction::tests \
+    utils::passkey::tests; do
+    cargo test --locked -p xmtp_id "$filter"
+    WASM_BINDGEN_USE_NODE=1 cargo test \
+      --locked \
+      --profile wasm-test \
+      --target wasm32-unknown-unknown \
+      -p xmtp_id \
+      "$filter"
+  done
+
+  for filter in types::backend_envelope::tests types::topic::tests; do
+    cargo test --locked -p xmtp_proto "$filter"
+    WASM_BINDGEN_USE_NODE=1 cargo test \
+      --locked \
+      --profile wasm-test \
+      --target wasm32-unknown-unknown \
+      -p xmtp_proto \
+      "$filter"
+  done
+}
+
+case "$MODE" in
+  check)
+    check_consumer
+    ;;
+  test)
+    run_tests
+    ;;
+  all)
+    check_consumer
+    run_tests
+    ;;
+  *)
+    echo "Usage: dev/check-validation [check|test|all]" >&2
+    exit 2
+    ;;
+esac

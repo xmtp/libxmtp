@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMetadataV1 as GroupMetadataProto, Inbox as InboxProto, OneshotMessage,
 };
 
-use xmtp_db::group::ConversationType;
+use xmtp_proto::types::ConversationType;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupMetadataError {

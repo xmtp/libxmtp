@@ -72,8 +72,8 @@ proptest.workspace = true
 [features]
 test-utils = [
   "xmtp_api_grpc/test-utils",
-  "xmtp_common/test-utils",
-  "xmtp_proto/test-utils",
+  "xmtp_common/test-utils-network",
+  "xmtp_proto/test-utils-network",
   "dep:mockall",
   "dep:ctor",
   "dep:wasm-bindgen-test",

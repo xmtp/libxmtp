@@ -15,6 +15,8 @@ dev/nix-shell 'buf lint proto'          # lint owned protobuf sources
 
 ## Gotchas
 
+- `test-utils` is portable. Native proxy client helpers require `test-utils-network`.
+- `types::ConversationType` is shared metadata. SQL conversions require `diesel`.
 - Protobuf sources live in the root `proto/` directory.
 - The build script generates Rust and serde code in Cargo `OUT_DIR`. Do not commit generated code.
 
