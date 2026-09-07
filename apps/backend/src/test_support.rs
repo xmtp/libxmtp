@@ -63,10 +63,7 @@ impl TestServer {
             )?);
         }
         let running = RunningServer::from_backend(backend).await?;
-        Ok(Self {
-            running,
-            database,
-        })
+        Ok(Self { running, database })
     }
 
     pub async fn stop(mut self) -> TestResult {
