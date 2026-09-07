@@ -113,26 +113,11 @@ impl Config {
     /// Load, resolve environment references, and validate one TOML file.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let contents = fs::read_to_string(path).map_err(ConfigError::Read)?;
-        let mut config: Self = toml::from_str(&contents).map_err(|_| ConfigError::Parse)?;
-        config.resolve_environment()?;
+        let mut value: toml::Value = toml::from_str(&contents).map_err(|_| ConfigError::Parse)?;
+        resolve_environment(&mut value)?;
+        let config: Self = value.try_into().map_err(|_| ConfigError::Parse)?;
         config.validate()?;
         Ok(config)
-    }
-
-    /// Resolve each supported string before validation without exposing secret values.
-    fn resolve_environment(&mut self) -> Result<(), ConfigError> {
-        self.server.listen = resolve_url(&self.server.listen, "server.listen")?;
-        self.database.url = resolve_url(&self.database.url, "database.url")?;
-        self.database.replica_url = self
-            .database
-            .replica_url
-            .as_deref()
-            .map(|url| resolve_url(url, "database.replica_url"))
-            .transpose()?;
-        for url in self.chains.values_mut() {
-            *url = resolve_url(url, "chains")?;
-        }
-        Ok(())
     }
 
     /// Validate scalar values and relationships between values.
@@ -220,11 +205,32 @@ impl std::fmt::Debug for Config {
 }
 
 /// Attach the configuration field to an environment error without including its value.
-fn resolve_url(value: &str, field: &'static str) -> Result<String, ConfigError> {
-    resolve_env(value).map_err(|error| match error {
-        EnvironmentError::Missing { name } => ConfigError::Environment { name },
-        EnvironmentError::EmptyName => invalid(field, "environment variable name is empty"),
-    })
+/// Resolve string references once, before typed decoding, including string enums.
+/// Resolved values are never included in errors and are not recursively expanded.
+fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
+    match value {
+        toml::Value::String(text) => {
+            *text = resolve_env(text).map_err(|error| match error {
+                EnvironmentError::Missing { name } => ConfigError::Environment { name },
+                EnvironmentError::EmptyName => invalid(
+                    "environment reference",
+                    "environment variable name is empty",
+                ),
+            })?;
+        }
+        toml::Value::Array(values) => {
+            for value in values {
+                resolve_environment(value)?;
+            }
+        }
+        toml::Value::Table(values) => {
+            for (_, value) in values.iter_mut() {
+                resolve_environment(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Timer ranges depend on the host's monotonic clock, not an arbitrary duration cap.
@@ -412,6 +418,11 @@ impl ValidationConfig {
 pub struct ServerConfig {
     #[schemars(schema_with = "schema::socket_address")]
     pub listen: String,
+    /// Global backend log level. Request summaries and mutations use INFO.
+    #[schemars(schema_with = "schema::log_level")]
+    pub log_level: LogLevel,
+    /// Emit one summary when each gRPC response finishes or is cancelled.
+    pub request_logger: bool,
     #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
     pub max_drain_duration_ms: u64,
 }
@@ -420,7 +431,35 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             listen: DEFAULT_LISTEN.to_owned(),
+            log_level: LogLevel::Info,
+            request_logger: true,
             max_drain_duration_ms: DEFAULT_DRAIN_DURATION_MS,
+        }
+    }
+}
+
+/// Configuration and CLI representation of the shared logging levels.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
+impl From<LogLevel> for xmtp_logging::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Off => Self::Off,
+            LogLevel::Error => Self::Error,
+            LogLevel::Warn => Self::Warn,
+            LogLevel::Info => Self::Info,
+            LogLevel::Debug => Self::Debug,
+            LogLevel::Trace => Self::Trace,
         }
     }
 }

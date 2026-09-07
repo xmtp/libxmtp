@@ -1,9 +1,16 @@
-use std::{pin::Pin, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}, task::{Context, Poll}};
-use futures::{Stream, task::AtomicWaker};
-use tokio::sync::{mpsc, Notify, OwnedSemaphorePermit, Semaphore};
-use tonic::Status;
-use crate::{api, config::OUTBOUND_QUEUE_BYTES};
 use super::OUTBOUND_FRAMES;
+use crate::{api, config::OUTBOUND_QUEUE_BYTES};
+use futures::{Stream, task::AtomicWaker};
+use std::{
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Poll},
+};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc};
+use tonic::Status;
 
 #[derive(Default)]
 pub(super) struct Terminal {
@@ -15,12 +22,19 @@ pub(super) struct Terminal {
 
 impl Terminal {
     pub fn fail(&self, error: Status) {
-        self.error.lock().expect("terminal mutex").get_or_insert(error);
+        self.error
+            .lock()
+            .expect("terminal mutex")
+            .get_or_insert(error);
         self.waker.wake();
         self.wake.notify_one();
     }
-    pub fn error(&self) -> Option<Status> { self.error.lock().expect("terminal mutex").clone() }
-    pub fn closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
+    pub fn error(&self) -> Option<Status> {
+        self.error.lock().expect("terminal mutex").clone()
+    }
+    pub fn closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
 }
 
 pub(super) struct Budget {
@@ -30,17 +44,33 @@ pub(super) struct Budget {
 }
 
 impl Default for Budget {
-    fn default() -> Self { Self { bytes: Arc::new(Semaphore::new(OUTBOUND_QUEUE_BYTES)), frames: Arc::new(Semaphore::new(OUTBOUND_FRAMES)), wake: Arc::new(Notify::new()) } }
+    fn default() -> Self {
+        Self {
+            bytes: Arc::new(Semaphore::new(OUTBOUND_QUEUE_BYTES)),
+            frames: Arc::new(Semaphore::new(OUTBOUND_FRAMES)),
+            wake: Arc::new(Notify::new()),
+        }
+    }
 }
 
 impl Budget {
-    pub fn available(&self) -> usize { self.bytes.available_permits() }
+    pub fn available(&self) -> usize {
+        self.bytes.available_permits()
+    }
     /// Reserve both limits for live mail, in-flight history, or queued output.
     /// Failure never permits a caller to advance a delivery floor.
     pub fn reserve(&self, bytes: usize) -> Option<Reservation> {
         let frames = self.frames.clone().try_acquire_owned().ok()?;
-        let bytes = self.bytes.clone().try_acquire_many_owned(bytes.try_into().ok()?).ok()?;
-        Some(Reservation { bytes: Some(bytes), frames: Some(frames), wake: self.wake.clone() })
+        let bytes = self
+            .bytes
+            .clone()
+            .try_acquire_many_owned(bytes.try_into().ok()?)
+            .ok()?;
+        Some(Reservation {
+            bytes: Some(bytes),
+            frames: Some(frames),
+            wake: self.wake.clone(),
+        })
     }
 }
 
@@ -58,7 +88,13 @@ impl Reservation {
         }
     }
 }
-impl Drop for Reservation { fn drop(&mut self) { drop(self.bytes.take()); drop(self.frames.take()); self.wake.notify_one(); } }
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        drop(self.bytes.take());
+        drop(self.frames.take());
+        self.wake.notify_one();
+    }
+}
 
 pub(super) struct Frame {
     pub value: api::SubscribeResponse,
@@ -74,7 +110,18 @@ pub(crate) struct NativeOutput {
 }
 
 impl NativeOutput {
-    pub(super) fn new(receiver: mpsc::Receiver<Frame>, terminal: Arc<Terminal>, task: tokio::task::JoinHandle<()>) -> Self { Self { receiver, terminal, ended: false, task } }
+    pub(super) fn new(
+        receiver: mpsc::Receiver<Frame>,
+        terminal: Arc<Terminal>,
+        task: tokio::task::JoinHandle<()>,
+    ) -> Self {
+        Self {
+            receiver,
+            terminal,
+            ended: false,
+            task,
+        }
+    }
 }
 
 impl Stream for NativeOutput {
@@ -82,28 +129,43 @@ impl Stream for NativeOutput {
     /// Transport polling is the Ping handoff boundary. Release queue capacity
     /// here and start its response deadline, not when the owner queues the Ping.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.ended { return Poll::Ready(None); }
+        if self.ended {
+            return Poll::Ready(None);
+        }
         self.terminal.waker.register(cx.waker());
-        if let Some(error) = self.terminal.error() { self.ended = true; return Poll::Ready(Some(Err(error))); }
+        if let Some(error) = self.terminal.error() {
+            self.ended = true;
+            return Poll::Ready(Some(Err(error)));
+        }
         match self.receiver.poll_recv(cx) {
             Poll::Ready(Some(frame)) => {
-                if let Some(sent) = frame.challenge { let _ = sent.send(xmtp_common::time::Instant::now()); }
+                if let Some(sent) = frame.challenge {
+                    let _ = sent.send(xmtp_common::time::Instant::now());
+                }
                 drop(frame.reservation);
                 Poll::Ready(Some(Ok(frame.value)))
             }
-            Poll::Ready(None) => {
-                match Pin::new(&mut self.task).poll(cx) {
-                    Poll::Ready(Err(_)) => { self.ended = true; Poll::Ready(Some(Err(Status::unavailable("session task failed")))) },
-                    Poll::Ready(Ok(())) => { self.ended = true; Poll::Ready(None) },
-                    Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => match Pin::new(&mut self.task).poll(cx) {
+                Poll::Ready(Err(_)) => {
+                    self.ended = true;
+                    Poll::Ready(Some(Err(Status::unavailable("session task failed"))))
                 }
-            }
+                Poll::Ready(Ok(())) => {
+                    self.ended = true;
+                    Poll::Ready(None)
+                }
+                Poll::Pending => Poll::Pending,
+            },
             Poll::Pending => Poll::Pending,
         }
     }
 }
 impl Drop for NativeOutput {
-    fn drop(&mut self) { self.task.abort(); self.terminal.closed.store(true, Ordering::Release); self.terminal.wake.notify_one(); }
+    fn drop(&mut self) {
+        self.task.abort();
+        self.terminal.closed.store(true, Ordering::Release);
+        self.terminal.wake.notify_one();
+    }
 }
 
 #[cfg(test)]
@@ -118,8 +180,22 @@ mod tests {
         let (sender, receiver) = mpsc::channel(1);
         let (challenge, mut handed) = tokio::sync::oneshot::channel();
         let reservation = budget.reserve(100).unwrap();
-        sender.send(Frame { value: api::SubscribeResponse { response: Some(api::subscribe_response::Response::Ping(api::Ping { nonce: 1 })) }, reservation, challenge: Some(challenge) }).await.ok();
-        assert!(matches!(handed.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+        sender
+            .send(Frame {
+                value: api::SubscribeResponse {
+                    response: Some(api::subscribe_response::Response::Ping(api::Ping {
+                        nonce: 1,
+                    })),
+                },
+                reservation,
+                challenge: Some(challenge),
+            })
+            .await
+            .ok();
+        assert!(matches!(
+            handed.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
         assert_eq!(budget.available(), OUTBOUND_QUEUE_BYTES - 100);
         let task = tokio::spawn(std::future::pending());
         let mut output = NativeOutput::new(receiver, terminal, task);

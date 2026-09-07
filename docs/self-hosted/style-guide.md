@@ -54,6 +54,8 @@ See `justfile` for the commands.
 
 ## 3. Logging and tracing
 
+- Backend request-completion summaries belong in transport middleware, not repeated handler logs. Stream-interest logs contain counts and request correlation, never topic values or payloads.
+
 - `tracing` only: `println!` / `eprintln!` belong solely in `apps/*` binaries (CLI output), never in a library crate. `crates/xmtp_logging` owns the
   whole pipeline (see `crates/xmtp_logging/AGENTS.md`). Never add a second subscriber or pull `tracing-subscriber` into a new crate.
 - **Spans**: prefer the canonical attribute macros over raw `#[tracing::instrument]` — they force `err, skip_all` and the `operation` / `sentry.op` / `sentry.name`

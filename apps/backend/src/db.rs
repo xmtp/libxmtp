@@ -1,7 +1,7 @@
+pub(crate) mod boundary;
 mod identity;
 mod publish;
 mod read;
-pub(crate) mod boundary;
 pub(crate) mod stream;
 
 use crate::{config::Config, error::Error};
@@ -62,9 +62,7 @@ async fn connect_pool(url: &str, config: &Config) -> Result<PgPool, Error> {
         .max_connections(config.database.max_connections)
         .after_connect(move |connection, _| {
             let timeout = timeout.clone();
-            Box::pin(async move {
-                configure(connection, &timeout).await
-            })
+            Box::pin(async move { configure(connection, &timeout).await })
         })
         .connect(url)
         .await?)
@@ -80,6 +78,8 @@ pub(crate) async fn dedicated_read(pool: &PgPool, timeout_ms: u64) -> Result<PgC
 }
 
 async fn configure(connection: &mut PgConnection, timeout: &str) -> Result<(), sqlx::Error> {
-    sqlx::query!("SELECT set_config('statement_timeout', $1, false)", timeout).fetch_one(connection).await?;
+    sqlx::query!("SELECT set_config('statement_timeout', $1, false)", timeout)
+        .fetch_one(connection)
+        .await?;
     Ok(())
 }

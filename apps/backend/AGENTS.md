@@ -46,6 +46,10 @@ Important functions need `///` RustDoc explaining purpose, invariants, and relev
 errors or cancellation. Keep local implementation notes in `//` comments.
 Use module-local `tests.rs` or `tests/`, including for real RPC and storage tests.
 
+Basic logs use `xmtp_logging`. Set `server.log_level` (default `info`) or override
+with `--log-level`. `server.request_logger` defaults to true and logs completion,
+including stream termination. Never log payloads, topic values, or auth headers.
+
 Nix outputs: `xmtp-backend`, `backend-image`, and
 `backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`
 entry point and the `ghcr.io/xmtp/backend:self-hosted` tag.

@@ -5,7 +5,7 @@ use sqlx::{PgConnection, Postgres, Transaction};
 #[cfg(test)]
 mod tests;
 
-use super::{GLOBAL_LOCK_DOMAIN, IDENTITY_LOCK, ALLOCATION_BARRIER};
+use super::{ALLOCATION_BARRIER, GLOBAL_LOCK_DOMAIN, IDENTITY_LOCK};
 
 impl Store {
     /// Mark envelopes already present on the primary as duplicates.

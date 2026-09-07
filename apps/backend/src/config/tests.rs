@@ -1,5 +1,22 @@
 use super::*;
 
+#[xmtp_common::test(unwrap_try = true)]
+fn logging_defaults_and_overrides_are_typed() {
+    let config: Config = toml::from_str(MINIMAL)?;
+    assert!(matches!(config.server.log_level, LogLevel::Info));
+    assert!(config.server.request_logger);
+    for level in ["off", "error", "warn", "info", "debug", "trace"] {
+        let config: Config = toml::from_str(&format!(
+            "{MINIMAL}\n[server]\nlog_level = '{level}'\nrequest_logger = false"
+        ))?;
+        let shared: xmtp_logging::Level = config.server.log_level.into();
+        assert_eq!(shared.as_str(), level);
+        assert!(!config.server.request_logger);
+    }
+    assert!(
+        toml::from_str::<Config>(&format!("{MINIMAL}\n[server]\nlog_level = 'verbose'")).is_err()
+    );
+}
 const MINIMAL: &str = "[database]\nurl = 'postgres://localhost/xmtp'\n";
 const RESPONSE_TEST_ENVELOPE_BYTES: usize = 1_000_000;
 const RESPONSE_TEST_REQUEST_BYTES: usize = 2_000_000;

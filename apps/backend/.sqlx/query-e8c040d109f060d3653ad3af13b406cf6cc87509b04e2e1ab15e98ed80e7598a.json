@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CASE WHEN is_called THEN last_value ELSE 0 END AS \"boundary!\" FROM envelope_sequence",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "boundary!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e8c040d109f060d3653ad3af13b406cf6cc87509b04e2e1ab15e98ed80e7598a"
+}

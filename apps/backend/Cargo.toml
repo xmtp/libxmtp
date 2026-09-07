@@ -12,9 +12,13 @@ name = "xmtp-backend"
 path = "src/main.rs"
 
 [dependencies]
+bytes.workspace = true
 clap.workspace = true
 futures.workspace = true
 hex.workspace = true
+http.workspace = true
+http-body.workspace = true
+pin-project.workspace = true
 prost.workspace = true
 prost-types.workspace = true
 schemars.workspace = true
@@ -29,9 +33,11 @@ tonic = { workspace = true, features = ["transport", "router", "gzip"] }
 tonic-health.workspace = true
 tonic-types.workspace = true
 tonic-web.workspace = true
+tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true, features = ["cors"] }
 tracing.workspace = true
 url.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
@@ -44,11 +50,14 @@ xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 alloy-primitives.workspace = true
 async-trait.workspace = true
 http.workspace = true
+http-body-util.workspace = true
 jsonschema = { version = "0.55", default-features = false }
 reqwest.workspace = true
 tokio.workspace = true
+tonic-prost = "0.14"
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["grpc_client_impls"] }
 

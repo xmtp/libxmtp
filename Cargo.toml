@@ -75,6 +75,7 @@ hex = { package = "const-hex", version = "1.19" }
 hkdf = "0.12.4"
 hpke-rs = { version = "0.6", features = ["hazmat", "serialization", "libcrux"] }
 http = "1.4"
+http-body = "1"
 hyper = { version = "1.11", default-features = false }
 hyper-util = "0.1"
 indicatif = "0.18"
@@ -266,7 +267,8 @@ debug = "line-tables-only"
 debug = true
 
 [profile.release]
-incremental = true
+# No `incremental`: release builds run in Nix sandboxes that discard the cache,
+# so the incremental fingerprints only grow target/ without speeding anything up.
 opt-level = "s"
 panic = 'abort'
 

@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT wanted.ordinal AS \"ordinal!\", e.sequence_id, e.topic, octet_length(e.payload) AS \"payload_bytes!\"\n        FROM unnest($1::bytea[], $2::bigint[], $3::bigint[]) WITH ORDINALITY AS wanted(topic, after, through, ordinal)\n        CROSS JOIN LATERAL (SELECT sequence_id, topic, payload FROM envelopes\n            WHERE topic = wanted.topic AND sequence_id > wanted.after AND sequence_id <= wanted.through\n            ORDER BY sequence_id LIMIT $4) e ORDER BY wanted.ordinal, e.sequence_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinal!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "sequence_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "topic",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "envelopes",
+            "name": "topic"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "payload_bytes!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "ByteaArray",
+        "Int8Array",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "7de34168d26287537a0dec6457dd469f9d657f8dd63be06c77a0e8b2931cb128"
+}

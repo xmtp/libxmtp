@@ -54,6 +54,23 @@ in addition to the configured request pools. Without a replica, budget at most
 The boundary worker uses the primary pool. Keeping the tailer separate permits
 a one-connection request pool and makes a lost tailer connection observable.
 
+## Logging
+
+Set `server.log_level` to `off`, `error`, `warn`, `info`, `debug`, or `trace`.
+The default is `info`. The `--log-level` CLI flag overrides the config value.
+The service uses `xmtp_logging`; no separate subscriber or OTEL setup is needed.
+
+`server.request_logger` defaults to `true`. At INFO, it emits one completion event
+with `method`, `duration_ms`, `request_size_bytes`, and a generated `request_id`.
+Request size counts HTTP body bytes consumed, including gRPC framing and any
+compression. Bidirectional streams accumulate this count until the response ends
+or is cancelled. Headers are not counted, and request bodies are not buffered.
+
+Accepted stream mutations log added and removed topic counts at INFO. They do
+not log topic values or payloads. Turning off the request logger suppresses only
+completion events; use a higher log level to suppress INFO mutation events too.
+Full OpenTelemetry configuration is deferred to Phase 4.
+
 ## Schema changes and builds
 
 Until completion of Phase 6, edit the single backend migration. There are no

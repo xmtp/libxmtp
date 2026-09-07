@@ -9,6 +9,8 @@
       "$ref": "#/$defs/ServerConfig",
       "default": {
         "listen": "0.0.0.0:5050",
+        "log_level": "info",
+        "request_logger": true,
         "max_drain_duration_ms": 10000
       }
     },
@@ -113,6 +115,24 @@
           ],
           "default": "0.0.0.0:5050"
         },
+        "log_level": {
+          "description": "Global backend log level. Request summaries and mutations use INFO.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogLevel"
+            },
+            {
+              "type": "string",
+              "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+            }
+          ],
+          "default": "info"
+        },
+        "request_logger": {
+          "description": "Emit one summary when each gRPC response finishes or is cancelled.",
+          "type": "boolean",
+          "default": true
+        },
         "max_drain_duration_ms": {
           "type": "integer",
           "minimum": 1,
@@ -121,6 +141,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "LogLevel": {
+      "description": "Configuration and CLI representation of the shared logging levels.",
+      "type": "string",
+      "enum": [
+        "off",
+        "error",
+        "warn",
+        "info",
+        "debug",
+        "trace"
+      ]
     },
     "DatabaseConfig": {
       "type": "object",

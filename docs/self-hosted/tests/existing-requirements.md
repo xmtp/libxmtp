@@ -43,6 +43,8 @@ Requirement IDs stay in documentation, not in Rust names or comments.
 | Identity admission, normalized projection, revocation fallback, history caps, and SCW routing/results | `apps/backend/src/service/identity/tests.rs` |
 | Query paging, input coalescing, clamping, newest metadata, Get, and absence | `apps/backend/src/service/query/tests/reads.rs` |
 | Native and gRPC-Web unary transport, CORS, health, HTTP/2 settings, and transport size errors | `apps/backend/src/server/tests/transport.rs` |
+| Request-completion timing, streamed byte counts, logging controls, request IDs, and mutation-log correlation | `apps/backend/src/server/request_logger/tests.rs` |
+| Shared production log filtering and structured capture | `crates/xmtp_logging/src/test_logging/capture/tests.rs` |
 
 The dedicated backend CI job runs these tests against PostgreSQL 18. The legacy
 SDK Nix test jobs exclude this package; they do not provide its test database.

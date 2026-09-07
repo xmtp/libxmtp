@@ -5,10 +5,10 @@ pub mod db;
 pub mod error;
 pub mod server;
 pub mod service;
+mod stream;
 #[cfg(test)]
 mod test_support;
 mod validation;
-mod stream;
 
 pub use service::Backend;
 pub use xmtp_proto::xmtp::backend::v1 as api;
