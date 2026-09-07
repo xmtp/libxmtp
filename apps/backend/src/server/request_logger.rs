@@ -47,7 +47,8 @@ struct RequestLog {
     id: uuid::Uuid,
     method: String,
     started: Instant,
-    bytes: AtomicU64,
+    request_bytes: AtomicU64,
+    response_bytes: AtomicU64,
     dispatch: tracing::Dispatch,
     span: tracing::Span,
     enabled: bool,
@@ -66,7 +67,8 @@ impl Drop for Completion {
             let _span = state.span.enter();
             tracing::info!(request_id = %state.id, method = %state.method,
                 duration_ms = state.started.elapsed().as_millis() as u64,
-                request_size_bytes = state.bytes.load(Ordering::Relaxed), "gRPC request completed");
+                request_size_bytes = state.request_bytes.load(Ordering::Relaxed),
+                response_size_bytes = state.response_bytes.load(Ordering::Relaxed), "gRPC request completed");
         });
     }
 }
@@ -99,7 +101,8 @@ where
             id,
             method: request.uri().path().to_owned(),
             started: Instant::now(),
-            bytes: AtomicU64::new(0),
+            request_bytes: AtomicU64::new(0),
+            response_bytes: AtomicU64::new(0),
             dispatch: dispatch.clone(),
             span: span.clone(),
             enabled: self.enabled,
@@ -152,15 +155,8 @@ impl<B: HttpBody<Data = Bytes>> HttpBody for CountBody<B> {
     ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
         let this = self.project();
         let frame = this.inner.poll_frame(cx);
-        if let Poll::Ready(Some(Ok(frame))) = &frame
-            && let Some(data) = frame.data_ref()
-        {
-            let _ = this
-                .state
-                .bytes
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bytes| {
-                    Some(bytes.saturating_add(data.len() as u64))
-                });
+        if let Poll::Ready(Some(Ok(frame))) = &frame {
+            count_data(&this.state.request_bytes, frame);
         }
         frame
     }
@@ -182,7 +178,9 @@ impl<B: HttpBody<Data = Bytes>> HttpBody for CompleteBody<B> {
     type Data = Bytes;
     type Error = B::Error;
 
-    /// Finish on confirmed EOS or body failure; dropping an unfinished body also
+    /// Count emitted data before finishing on EOS or body failure. HTTP trailers
+    /// are not data; gRPC-Web trailer frames encoded in the body are counted.
+    /// Dropping an unfinished body also
     /// drops its guard. Taking the guard prevents a second completion event.
     fn poll_frame(
         self: Pin<&mut Self>,
@@ -190,6 +188,11 @@ impl<B: HttpBody<Data = Bytes>> HttpBody for CompleteBody<B> {
     ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
         let mut this = self.project();
         let frame = this.inner.as_mut().poll_frame(cx);
+        if let Poll::Ready(Some(Ok(frame))) = &frame
+            && let Some(completion) = this.completion.as_ref()
+        {
+            count_data(&completion.0.response_bytes, frame);
+        }
         if matches!(frame, Poll::Ready(None) | Poll::Ready(Some(Err(_))))
             || this.inner.is_end_stream()
         {
@@ -202,5 +205,14 @@ impl<B: HttpBody<Data = Bytes>> HttpBody for CompleteBody<B> {
     }
     fn size_hint(&self) -> SizeHint {
         self.inner.size_hint()
+    }
+}
+
+/// Count body data without retaining it or including HTTP headers and trailers.
+fn count_data(counter: &AtomicU64, frame: &Frame<Bytes>) {
+    if let Some(data) = frame.data_ref() {
+        let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bytes| {
+            Some(bytes.saturating_add(data.len() as u64))
+        });
     }
 }

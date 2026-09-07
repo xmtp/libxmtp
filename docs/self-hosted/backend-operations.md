@@ -61,10 +61,14 @@ The default is `info`. The `--log-level` CLI flag overrides the config value.
 The service uses `xmtp_logging`; no separate subscriber or OTEL setup is needed.
 
 `server.request_logger` defaults to `true`. At INFO, it emits one completion event
-with `method`, `duration_ms`, `request_size_bytes`, and a generated `request_id`.
+with `method`, `duration_ms`, `request_size_bytes`, `response_size_bytes`, and a generated `request_id`.
 Request size counts HTTP body bytes consumed, including gRPC framing and any
 compression. Bidirectional streams accumulate this count until the response ends
 or is cancelled. Headers are not counted, and request bodies are not buffered.
+Response size counts emitted body bytes, including gRPC-Web body framing, without
+buffering the response. It does not confirm client receipt. On cancellation or
+failure, it records only bytes emitted before completion. HTTP trailers are not
+counted; gRPC-Web trailers encoded as body data are counted.
 
 Accepted stream mutations log added and removed topic counts at INFO. They do
 not log topic values or payloads. Turning off the request logger suppresses only

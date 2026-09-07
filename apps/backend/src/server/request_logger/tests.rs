@@ -57,6 +57,7 @@ async fn completion_counts_consumed_frames_and_uses_its_own_request_id() {
     assert_eq!(logs[0]["request_id"], id);
     assert_eq!(logs[0]["method"], "/xmtp.backend.v1.QueryService/Query");
     assert_eq!(logs[0]["request_size_bytes"], 12);
+    assert_eq!(logs[0]["response_size_bytes"], 8);
     assert!(logs[0]["duration_ms"].is_u64());
     assert!(!capture.output().contains("secret-auth-token"));
     assert!(!capture.output().contains("caller-controlled-id"));
@@ -89,9 +90,13 @@ async fn streaming_completion_waits_for_body_drop_and_counts_later_input() {
         .await?;
     assert_eq!(body.frame().await.unwrap()?.into_data().unwrap().len(), 6);
     assert!(events(&capture).is_empty());
+    sender
+        .send(Ok(Frame::data(Bytes::from_static(b"not emitted"))))
+        .await?;
     drop(body);
     assert_eq!(events(&capture).len(), 1);
     assert_eq!(events(&capture)[0]["request_size_bytes"], 11);
+    assert_eq!(events(&capture)[0]["response_size_bytes"], 11);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -109,6 +114,7 @@ async fn future_errors_and_cancellation_each_complete_once_before_headers() {
     assert!(result.is_err());
     assert_eq!(events(&capture).len(), 1);
     assert_eq!(events(&capture)[0]["request_size_bytes"], 5);
+    assert_eq!(events(&capture)[0]["response_size_bytes"], 0);
 
     let mut canceled =
         RequestLoggerLayer(true).layer(service_fn(|request: Request<Body>| async move {
@@ -134,9 +140,10 @@ async fn future_errors_and_cancellation_each_complete_once_before_headers() {
 async fn response_body_failure_does_not_log_again_when_dropped() {
     let capture = LogCapture::new(Level::Info);
     let mut service = RequestLoggerLayer(true).layer(service_fn(|_: Request<Body>| async move {
-        let body = StreamBody::new(stream::iter(vec![Err::<Frame<Bytes>, _>(
-            tonic::Status::internal("body failed"),
-        )]));
+        let body = StreamBody::new(stream::iter(vec![
+            Ok(Frame::data(Bytes::from_static(b"partial"))),
+            Err::<Frame<Bytes>, _>(tonic::Status::internal("body failed")),
+        ]));
         Ok::<_, Infallible>(Response::new(Body::new(body)))
     }));
     let response = tracing::dispatcher::with_default(&capture.dispatch(), || {
@@ -145,10 +152,16 @@ async fn response_body_failure_does_not_log_again_when_dropped() {
     .await?;
     assert!(events(&capture).is_empty());
     let mut body = response.into_body();
+    assert_eq!(
+        body.frame().await.unwrap()?.into_data().unwrap(),
+        Bytes::from_static(b"partial")
+    );
+    assert!(events(&capture).is_empty());
     assert!(body.frame().await.unwrap().is_err());
     assert_eq!(events(&capture).len(), 1);
     drop(body);
     assert_eq!(events(&capture).len(), 1);
+    assert_eq!(events(&capture)[0]["response_size_bytes"], 7);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -181,10 +194,16 @@ async fn grpc_web_counts_encoded_http_bytes_before_protocol_conversion() {
             request.into_body().collect().await?.to_bytes(),
             Bytes::from_static(&[0; 5])
         );
+        let mut trailers = http::HeaderMap::new();
+        trailers.insert("grpc-status", "0".parse().unwrap());
+        let response = StreamBody::new(stream::iter([
+            Ok::<_, Infallible>(Frame::data(Bytes::from_static(&[0; 5]))),
+            Ok(Frame::trailers(trailers)),
+        ]));
         Ok::<_, tonic::Status>(
             Response::builder()
                 .header(CONTENT_TYPE, "application/grpc")
-                .body(Body::new(Full::new(Bytes::from_static(&[0; 5]))))
+                .body(Body::new(response))
                 .unwrap(),
         )
     });
@@ -193,13 +212,19 @@ async fn grpc_web_counts_encoded_http_bytes_before_protocol_conversion() {
     let request = Request::post("/xmtp.backend.v1.QueryService/Query")
         .version(http::Version::HTTP_11)
         .header(CONTENT_TYPE, "application/grpc-web-text+proto")
+        .header("accept", "application/grpc-web-text+proto")
         .body(Body::new(Full::new(Bytes::from_static(b"AAAAAAA="))))?;
     let response =
         tracing::dispatcher::with_default(&capture.dispatch(), || service.call(request)).await?;
     assert!(events(&capture).is_empty());
-    response.into_body().collect().await?;
+    let response_bytes = response.into_body().collect().await?.to_bytes();
     assert_eq!(events(&capture).len(), 1);
     assert_eq!(events(&capture)[0]["request_size_bytes"], 8);
+    assert!(response_bytes.len() > 8);
+    assert_eq!(
+        events(&capture)[0]["response_size_bytes"],
+        response_bytes.len()
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -333,17 +358,27 @@ async fn compressed_native_request_logs_compressed_body_size() {
     assert!(encoded.len() < uncompressed_size);
     let wire_size = encoded.len();
     let inner = api::query_service_server::QueryServiceServer::new(server.backend.clone())
-        .accept_compressed(CompressionEncoding::Gzip);
+        .accept_compressed(CompressionEncoding::Gzip)
+        .send_compressed(CompressionEncoding::Gzip);
     let mut service = RequestLoggerLayer(true).layer(inner);
     let capture = LogCapture::new(Level::Info);
     let mut request = request(Body::new(Full::new(encoded)));
     request
         .headers_mut()
         .insert("grpc-encoding", "gzip".parse()?);
+    request
+        .headers_mut()
+        .insert("grpc-accept-encoding", "gzip".parse()?);
     let response =
         tracing::dispatcher::with_default(&capture.dispatch(), || service.call(request)).await?;
-    response.into_body().collect().await?;
+    assert_eq!(response.headers()["grpc-encoding"], "gzip");
+    let response_bytes = response.into_body().collect().await?.to_bytes();
     assert_eq!(events(&capture).len(), 1);
     assert_eq!(events(&capture)[0]["request_size_bytes"], wire_size);
+    assert_eq!(
+        events(&capture)[0]["response_size_bytes"],
+        response_bytes.len()
+    );
+    assert_eq!(response_bytes[0], 1);
     server.stop().await?;
 }
