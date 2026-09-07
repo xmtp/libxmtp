@@ -1,5 +1,5 @@
+use crate::{config::Config, db::Store};
 use sqlx::{Connection, PgConnection};
-use xmtp_backend::{config::Config, db::Store};
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_initializers_apply_one_migration_on_an_empty_database() {

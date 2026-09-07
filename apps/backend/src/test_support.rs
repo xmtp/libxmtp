@@ -1,9 +1,7 @@
-#![allow(dead_code)]
-
+use crate::{Backend, api, config::Config, server};
 use sqlx::{Connection, PgConnection};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
-use xmtp_backend::{Backend, api, config::Config, server};
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, SmartContractSignatureVerifier};
 
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;

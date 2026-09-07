@@ -23,7 +23,10 @@ just backend-db-down
 
 Set `XMTP_DATABASE_URL` for service startup. Test and SQL recipes default to
 `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`; `DATABASE_URL` overrides it.
-Use `just test-backend --test <file> <function>` for one integration test.
+Use `just test-backend --lib service::publish::tests` for one module, or append
+a function-name filter. Tests live beside their owning modules; shared fixtures
+live in `src/test_support.rs`. The recipe defaults to four test threads to bound
+local database connections; `RUST_TEST_THREADS` overrides that value.
 Never silently skip database tests when the database is unavailable.
 
 Keep one mutable migration through completion of Phase 6. Recreate only the
@@ -36,6 +39,9 @@ with `xmtp_mls_validation` and `xmtp_proto`. Do not depend on a client database.
 Use descriptive behavior names in code, tests, and comments, not requirement IDs.
 Database helpers use internal records and typed errors, never protobuf messages or
 gRPC statuses. The API layer owns wire conversion and request normalization.
+Important functions need `///` RustDoc explaining purpose, invariants, and relevant
+errors or cancellation. Keep local implementation notes in `//` comments.
+Use module-local `tests.rs` or `tests/`, including for real RPC and storage tests.
 
 Nix outputs: `xmtp-backend`, `backend-image`, and
 `backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`

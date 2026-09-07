@@ -1,8 +1,8 @@
-mod support;
+use crate::test_support as support;
 
+use crate::api;
 use support::{TestServer, query_topic, topic};
 use tonic::Code;
-use xmtp_backend::api;
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 use xmtp_proto::types::TopicKind;
 
@@ -76,6 +76,50 @@ async fn newest_preserves_complete_metadata_without_payload_and_omits_empty_topi
         assert_eq!(result.results.len(), 1);
         assert_eq!(result.results[0].meta, Some(meta.clone()));
         assert_eq!(result.results[0].envelope, full.then(|| envelope.clone()));
+    }
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn newest_limits_accept_exact_count_and_reject_one_past_for_both_modes() {
+    let server = TestServer::new(|config| {
+        config.limits.max_newest_metadata_topics = 1;
+        config.limits.max_newest_full_topics = 1;
+    })
+    .await?;
+    let envelope = inline_welcome_envelope([4; 32]);
+    let meta = server.publish(vec![envelope.clone()]).await?.remove(0);
+    let primary_topic = meta.topic.clone().unwrap();
+    let other = topic(TopicKind::WelcomeMessagesV1, &[5; 32]);
+
+    for include_full_envelope in [false, true] {
+        let result = server
+            .query()
+            .query_newest(api::QueryNewestRequest {
+                topics: vec![primary_topic.clone()],
+                include_full_envelope,
+            })
+            .await?
+            .into_inner();
+        assert_eq!(result.results.len(), 1);
+        assert_eq!(result.results[0].meta, Some(meta.clone()));
+        assert_eq!(
+            result.results[0].envelope,
+            include_full_envelope.then(|| envelope.clone())
+        );
+
+        assert_eq!(
+            server
+                .query()
+                .query_newest(api::QueryNewestRequest {
+                    topics: vec![primary_topic.clone(), other.clone()],
+                    include_full_envelope,
+                })
+                .await
+                .unwrap_err()
+                .code(),
+            Code::InvalidArgument
+        );
     }
     server.stop().await?;
 }

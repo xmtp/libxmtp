@@ -1,5 +1,6 @@
-mod support;
+use crate::test_support as support;
 
+use crate::api;
 use alloy_primitives::Bytes;
 use std::sync::{
     Arc,
@@ -8,7 +9,6 @@ use std::sync::{
 use support::TestServer;
 use tokio::sync::Notify;
 use tonic::Code;
-use xmtp_backend::api;
 use xmtp_id::{
     associations::AccountId,
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},

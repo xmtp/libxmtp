@@ -7,7 +7,11 @@ use xmtp_proto::xmtp::identity::associations::{
     IdentifierKind, IdentityUpdate, identity_action, signature,
 };
 
-/// Normalize only lookup keys. Signed fields must never pass through this function.
+/// Parse and normalize one lookup key.
+///
+/// Lookup normalization makes equivalent Ethereum and passkey identifiers map
+/// to one projection key. Signed identity fields must never pass through this
+/// function because changing their bytes would invalidate their signatures.
 pub(crate) fn lookup_key(value: &str, kind: i32) -> Result<(String, i16), Status> {
     let kind = IdentifierKind::try_from(kind)
         .map_err(|_| Status::invalid_argument("unknown identifier kind"))?;
@@ -16,6 +20,9 @@ pub(crate) fn lookup_key(value: &str, kind: i32) -> Result<(String, i16), Status
     Ok(identifier_key(&identifier))
 }
 
+/// Convert an owned identifier to the database projection key.
+///
+/// Ethereum addresses use lowercase ASCII; passkey keys use lowercase hex.
 fn identifier_key(identifier: &Identifier) -> (String, i16) {
     match identifier {
         Identifier::Ethereum(address) => (
@@ -26,11 +33,20 @@ fn identifier_key(identifier: &Identifier) -> (String, i16) {
     }
 }
 
+/// Convert a member identifier to the normalized projection key when supported.
+///
+/// Invalid or unsupported member forms are omitted. Signed identity data is
+/// never normalized here; this helper is only for the derived lookup table.
 fn member_key(member: &MemberIdentifier) -> Option<(String, i16)> {
     let identifier: Option<Identifier> = member.clone().into();
     identifier.as_ref().map(identifier_key)
 }
 
+/// Derive projection changes from a validated identity transition.
+///
+/// The result contains only identifiers that changed active status. It compares
+/// normalized keys, while also recovering unchanged aliases from the prior state
+/// so a projection update cannot remove an association that remains active.
 pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
     let active: HashSet<_> = validation
         .state
@@ -74,6 +90,10 @@ pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
     }
 }
 
+/// Count ERC-6492 signatures in an identity update.
+///
+/// The count covers every signature-bearing action and is used for the request
+/// limit before chain verification begins.
 pub(crate) fn scw_count(update: &IdentityUpdate) -> usize {
     update
         .actions

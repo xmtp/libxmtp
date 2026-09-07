@@ -18,6 +18,14 @@ use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
 
+#[cfg(test)]
+mod tests;
+
+/// Validate startup configuration and construct storage and signature services.
+///
+/// The primary database is migrated before the backend is returned. A verifier
+/// cache is created with the configured non-zero capacity, and cryptography is
+/// installed before any chain-RPC client is built.
 pub async fn initialize(
     config: Config,
 ) -> Result<Backend, Box<dyn std::error::Error + Send + Sync>> {
@@ -36,6 +44,11 @@ pub async fn initialize(
     Ok(Backend::new(store, config, verifier))
 }
 
+/// Configure gRPC, gRPC-Web, health, size limits, and graceful shutdown.
+///
+/// The service implementations share the supplied backend. The listener and
+/// shutdown future belong to the caller, which controls when serving starts and
+/// ends.
 pub async fn serve(
     backend: Backend,
     listener: TcpListener,

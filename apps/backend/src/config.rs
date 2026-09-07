@@ -21,6 +21,8 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS,
 };
 
+mod schema;
+
 const SCHEMA_ID: &str =
     "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json";
 
@@ -72,6 +74,7 @@ enum EnvironmentError {
     EmptyName,
 }
 
+/// Resolve one environment reference. Do not expand references in the resolved value.
 fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
     let Some(name) = value.strip_prefix("env:") else {
         return Ok(value.to_owned());
@@ -98,6 +101,7 @@ pub struct Config {
     #[serde(default)]
     pub retention: RetentionConfig,
     #[serde(default)]
+    #[schemars(schema_with = "schema::chains")]
     pub chains: BTreeMap<String, String>,
     #[serde(default)]
     pub validation: ValidationConfig,
@@ -115,6 +119,7 @@ impl Config {
         Ok(config)
     }
 
+    /// Resolve each supported string before validation without exposing secret values.
     fn resolve_environment(&mut self) -> Result<(), ConfigError> {
         self.server.listen = resolve_url(&self.server.listen, "server.listen")?;
         self.database.url = resolve_url(&self.database.url, "database.url")?;
@@ -144,6 +149,7 @@ impl Config {
         Ok(())
     }
 
+    /// Require chain keys that the SCW verifier can route and HTTP(S) RPC URLs.
     fn validate_chains(&self) -> Result<(), ConfigError> {
         for (chain, url) in &self.chains {
             if xmtp_id::associations::AccountId::new(chain.clone(), "0x0".to_owned())
@@ -187,6 +193,7 @@ impl std::fmt::Debug for Config {
     }
 }
 
+/// Attach the configuration field to an environment error without including its value.
 fn resolve_url(value: &str, field: &'static str) -> Result<String, ConfigError> {
     resolve_env(value).map_err(|error| match error {
         EnvironmentError::Missing { name } => ConfigError::Environment { name },
@@ -215,6 +222,7 @@ enum UrlKind {
     Http,
 }
 
+/// Check a resolved URL and its allowed scheme without including the URL in errors.
 fn non_empty_url(value: &str, field: &'static str, kind: UrlKind) -> Result<(), ConfigError> {
     let valid_scheme = match kind {
         UrlKind::Postgres => value.starts_with("postgres://") || value.starts_with("postgresql://"),
@@ -228,6 +236,7 @@ fn non_empty_url(value: &str, field: &'static str, kind: UrlKind) -> Result<(), 
 }
 
 impl ServerConfig {
+    /// Require a numeric bind address and a positive shutdown budget.
     fn validate(&self) -> Result<(), ConfigError> {
         if self.listen.parse::<SocketAddr>().is_err() {
             return Err(invalid("server.listen", "must be a socket address"));
@@ -237,6 +246,7 @@ impl ServerConfig {
 }
 
 impl DatabaseConfig {
+    /// Check both pool URLs and the range accepted by Postgres statement timeouts.
     fn validate(&self) -> Result<(), ConfigError> {
         non_empty_url(&self.url, "database.url", UrlKind::Postgres)?;
         if self.max_statement_timeout_ms > MAX_DATABASE_TIMEOUT_MS {
@@ -257,6 +267,8 @@ impl DatabaseConfig {
 }
 
 impl PublishingConfig {
+    /// Keep transaction and barrier timeouts in the Postgres range.
+    /// The transaction budget must exceed a single statement budget.
     fn validate(&self, statement_timeout_ms: u64) -> Result<(), ConfigError> {
         if self.max_publish_duration_ms > MAX_DATABASE_TIMEOUT_MS
             || self.max_barrier_wait_ms > MAX_DATABASE_TIMEOUT_MS
@@ -278,10 +290,17 @@ impl PublishingConfig {
 }
 
 impl StreamsConfig {
+    /// Check stream capacities and timing, including the advertised wire interval.
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.poll_interval_ms, "streams.poll_interval_ms")?;
         positive(self.max_gap_ranges, "streams.max_gap_ranges")?;
         positive(self.keepalive_interval_ms, "streams.keepalive_interval_ms")?;
+        if self.keepalive_interval_ms > u32::MAX as u64 {
+            return Err(invalid(
+                "streams.keepalive_interval_ms",
+                "must fit the Started keepalive interval type",
+            ));
+        }
         if self.max_pong_wait_ms <= self.keepalive_interval_ms {
             return Err(invalid(
                 "streams.max_pong_wait_ms",
@@ -293,6 +312,7 @@ impl StreamsConfig {
 }
 
 impl RetentionConfig {
+    /// Keep positive retention periods representable in nanosecond expiry arithmetic.
     fn validate(&self) -> Result<(), ConfigError> {
         positive(
             self.group_message_seconds,
@@ -325,8 +345,9 @@ impl ValidationConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
+    #[schemars(schema_with = "schema::socket_address")]
     pub listen: String,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
     pub max_drain_duration_ms: u64,
 }
 
@@ -342,11 +363,13 @@ impl Default for ServerConfig {
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DatabaseConfig {
+    #[schemars(schema_with = "schema::postgres_url")]
     pub url: String,
     #[serde(default)]
+    #[schemars(schema_with = "schema::optional_postgres_url")]
     pub replica_url: Option<String>,
     #[serde(default = "default_max_connections")]
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_connections: u32,
     #[serde(default = "default_statement_timeout_ms")]
     #[schemars(range(min = 1, max = MAX_DATABASE_TIMEOUT_MS))]
@@ -396,13 +419,13 @@ impl Default for PublishingConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct StreamsConfig {
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
     pub poll_interval_ms: u64,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_gap_ranges: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub keepalive_interval_ms: u64,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
     pub max_pong_wait_ms: u64,
 }
 
@@ -441,7 +464,7 @@ impl Default for RetentionConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ValidationConfig {
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_scw_cache_entries: usize,
 }
 
@@ -456,51 +479,52 @@ impl Default for ValidationConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct LimitsConfig {
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_query_topics: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
     pub default_query_limit: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
     pub max_query_limit: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_newest_metadata_topics: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_newest_full_topics: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_publish_topics: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_envelope_bytes: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_request_bytes: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_response_bytes: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_update_adds: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_update_removes: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_stream_topics: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_static_topics: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_lookup_identifiers: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_scw_signatures: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_identity_entries: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_http2_streams: usize,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_update_frames_per_second: u32,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_update_burst: u32,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_ping_frames_per_second: u32,
-    #[schemars(range(min = 1))]
+    #[schemars(schema_with = "schema::positive_integer::<{ u32::MAX as u64 }>")]
     pub max_ping_burst: u32,
 }
 
 impl LimitsConfig {
+    /// Check positive limits, downstream integer ranges, and related capacities.
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.max_query_topics, "limits.max_query_topics")?;
         positive(self.default_query_limit, "limits.default_query_limit")?;
@@ -559,6 +583,8 @@ impl LimitsConfig {
         positive(self.max_ping_burst, "limits.max_ping_burst")
     }
 
+    /// Reserve worst-case metadata and framing in each request and delivery budget.
+    /// Saturating arithmetic ensures oversized configured values cannot wrap to fit.
     fn validate_envelope_fit(&self) -> Result<(), ConfigError> {
         let request_bytes = self.max_envelope_bytes.saturating_add(
             1 + prost::encoding::encoded_len_varint(self.max_envelope_bytes as u64),

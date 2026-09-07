@@ -58,6 +58,7 @@ let
     (src + /proto)
     (src + /webdriver.json)
     (lib.fileset.maybeMissing (src + /docs/schemas/backend-v1.json))
+    (src + /dev/backend/config.toml)
     (src + /.config/nextest.toml)
     # all crates in `crates/` are treated as required library crates
     (crateSources (src + /crates))

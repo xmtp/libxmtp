@@ -1,8 +1,8 @@
-mod support;
+use crate::test_support as support;
 
+use crate::api;
 use support::TestServer;
 use tonic::Code;
-use xmtp_backend::api;
 use xmtp_mls_validation::test_utils::{
     identity_envelope, identity_history_with_passkey, scw_create_inbox_update,
 };
@@ -202,6 +202,78 @@ impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for VerdictVerifier {
             error: None,
         })
     }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn lookup_limit_accepts_exact_count_and_rejects_one_past() {
+    let server = TestServer::new(|config| config.limits.max_lookup_identifiers = 1).await?;
+    let request = api::get_inbox_ids_request::Request {
+        identifier: "abcd".into(),
+        identifier_kind: IdentifierKind::Passkey.into(),
+    };
+    let response = server
+        .identity()
+        .get_inbox_ids(api::GetInboxIdsRequest {
+            requests: vec![request.clone()],
+        })
+        .await?
+        .into_inner();
+    assert_eq!(response.responses.len(), 1);
+    assert_eq!(response.responses[0].identifier, request.identifier);
+    assert_eq!(response.responses[0].inbox_id, None);
+
+    assert_eq!(
+        server
+            .identity()
+            .get_inbox_ids(api::GetInboxIdsRequest {
+                requests: vec![request.clone(), request],
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        Code::InvalidArgument
+    );
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
+    let server = TestServer::with_verifier(
+        |config| config.limits.max_scw_signatures = 1,
+        VerdictVerifier,
+    )
+    .await?;
+    let signature = api::verify_smart_contract_wallet_signatures_request::Signature {
+        account_id: "eip155:1:0x1111111111111111111111111111111111111111".into(),
+        hash: vec![1; 32],
+        signature: vec![1],
+        block_number: None,
+    };
+    let response = server
+        .identity()
+        .verify_smart_contract_wallet_signatures(api::VerifySmartContractWalletSignaturesRequest {
+            signatures: vec![signature.clone()],
+        })
+        .await?
+        .into_inner();
+    assert_eq!(response.responses.len(), 1);
+    assert!(response.responses[0].is_valid);
+    assert_eq!(response.responses[0].block_number, Some(42));
+
+    assert_eq!(
+        server
+            .identity()
+            .verify_smart_contract_wallet_signatures(
+                api::VerifySmartContractWalletSignaturesRequest {
+                    signatures: vec![signature.clone(), signature],
+                },
+            )
+            .await
+            .unwrap_err()
+            .code(),
+        Code::InvalidArgument
+    );
+    server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]

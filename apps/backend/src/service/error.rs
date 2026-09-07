@@ -7,6 +7,10 @@ use tonic::{Code, Status};
 use xmtp_common::RetryableError;
 
 impl From<Error> for Status {
+    /// Map typed backend failures to stable gRPC status classes.
+    ///
+    /// Admission errors retain their input index and reason. Database timeout
+    /// and availability failures stay distinguishable from storage invariants.
     fn from(error: Error) -> Self {
         match &error {
             Error::StaleHistory => Self::aborted("identity history changed during validation"),
@@ -33,6 +37,10 @@ impl From<Error> for Status {
     }
 }
 
+/// Build an `INVALID_ARGUMENT` status with a structured publish error detail.
+///
+/// `index` identifies the failing envelope when the error is envelope-specific.
+/// Request-level errors pass `None`; the detail still uses the same wire type.
 pub fn publish_invalid(index: Option<usize>, reason: Reason, message: impl Into<String>) -> Status {
     let message = message.into();
     let detail = PublishError {
@@ -56,6 +64,10 @@ pub fn publish_invalid(index: Option<usize>, reason: Reason, message: impl Into<
 }
 
 impl AdmissionError {
+    /// Convert an admission error for one input into its transport status.
+    ///
+    /// Retryable verifier failures become `UNAVAILABLE`; validation and size
+    /// failures remain indexed `INVALID_ARGUMENT` responses.
     fn status(&self, index: usize) -> Status {
         match self {
             Self::Validation(error) if error.is_retryable() => {

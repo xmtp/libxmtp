@@ -1,11 +1,11 @@
-mod support;
+use crate::test_support as support;
 
+use crate::api;
 use prost::Message;
 use reqwest::header::{HeaderMap, HeaderValue};
 use support::TestServer;
 use tonic::{Code, Request};
 use tonic_health::pb::{HealthCheckRequest, health_check_response, health_client::HealthClient};
-use xmtp_backend::api;
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 
 struct GrpcWebResponse {
@@ -346,7 +346,7 @@ async fn oversized_publish_response_reports_transport_error_after_commit() {
         config.limits.max_response_bytes = 66_560;
     })
     .await?;
-    let envelopes = (0_u64..800)
+    let envelopes: Vec<_> = (0_u64..800)
         .map(|id| {
             let mut installation_key = [0_u8; 32];
             installation_key[..8].copy_from_slice(&id.to_le_bytes());
@@ -355,10 +355,23 @@ async fn oversized_publish_response_reports_transport_error_after_commit() {
         .collect();
     let error = server
         .publisher()
-        .publish(api::PublishRequest { envelopes })
+        .publish(api::PublishRequest {
+            envelopes: envelopes.clone(),
+        })
         .await
         .unwrap_err();
     assert_eq!(error.code(), Code::OutOfRange);
+    let retry = server.publish(vec![envelopes[0].clone()]).await?;
+    assert_eq!(retry.len(), 1);
+    let fetched = server
+        .query()
+        .get(api::GetRequest {
+            sequence_id: retry[0].cursor.as_ref().unwrap().sequence_id,
+        })
+        .await?
+        .into_inner();
+    assert_eq!(fetched.meta, Some(retry[0].clone()));
+    assert_eq!(fetched.envelope, Some(envelopes[0].clone()));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")
         .fetch_one(&server.backend.store.primary)
         .await?;

@@ -21,6 +21,7 @@ let
         (lib.fileset.maybeMissing (root + /.sqlx))
         (lib.fileset.maybeMissing (root + /apps/backend/migrations))
         (lib.fileset.maybeMissing (root + /docs/schemas/backend-v1.json))
+        (root + /dev/backend/config.toml)
         (rust.fileset.commonCargoSources (root + /apps/backend))
         (root + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
         (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)

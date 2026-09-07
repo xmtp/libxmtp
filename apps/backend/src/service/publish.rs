@@ -13,6 +13,9 @@ use xmtp_common::time::{Duration, timeout};
 use xmtp_mls_validation::{ParsedEnvelope, parse_envelope, validate_envelope};
 use xmtp_proto::types::TopicKind;
 
+#[cfg(test)]
+mod tests;
+
 struct PublishBatch {
     pending: Vec<PendingEnvelope>,
     parsed: Vec<ParsedEnvelope>,
@@ -23,6 +26,12 @@ struct PublishBatch {
 #[tonic::async_trait]
 impl api::publish_service_server::PublishService for Backend {
     #[xmtp_common::rpc_span]
+    /// Publish a canonical, atomically admitted batch of envelopes.
+    ///
+    /// Parsing derives topics and hashes before validation. Duplicate lookup
+    /// then permits known rows to bypass validation, while the locked database
+    /// pass still handles duplicates that race with validation. New rows and
+    /// their identity projections commit together or not at all.
     async fn publish(
         &self,
         request: Request<api::PublishRequest>,
@@ -58,6 +67,11 @@ impl api::publish_service_server::PublishService for Backend {
 }
 
 impl Backend {
+    /// Parse request limits, derive routing, and retain original positions.
+    ///
+    /// This step performs no cryptographic or identity validation. It collapses
+    /// identical canonical envelopes, records the first parse error, and keeps
+    /// enough metadata for the database layer to restore response order.
     fn parse_publish(&self, request: api::PublishRequest) -> Result<PublishBatch, Status> {
         let limits = &self.config.limits;
         if request.encoded_len() > limits.max_request_bytes {
@@ -155,6 +169,12 @@ impl Backend {
         })
     }
 
+    /// Validate only pending envelopes that are not known duplicates.
+    ///
+    /// Identity updates use one complete primary history snapshot and retain
+    /// its head for the locked comparison during commit. Other payload kinds
+    /// use shared structural validation, and verifier retryability is preserved
+    /// for transport mapping.
     async fn validate_publish(
         &self,
         pending: &mut [PendingEnvelope],

@@ -1,10 +1,64 @@
-mod support;
+use crate::test_support as support;
 
+use crate::api::{self, publish_error::Reason};
 use prost::Message;
 use support::TestServer;
 use tonic::Code;
-use xmtp_backend::api::{self, publish_error::Reason};
-use xmtp_mls_validation::test_utils::{expired_key_package_envelope, inline_welcome_envelope};
+use xmtp_mls_validation::test_utils::{
+    GroupMessageKind, expired_key_package_envelope, group_message_envelope, inline_welcome_envelope,
+};
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn application_envelope_limit_accepts_exact_size_and_rejects_one_past() {
+    let envelope = group_message_envelope([1; 16], GroupMessageKind::Application, []);
+    let size = envelope.encoded_len();
+    let mut oversized = envelope.clone();
+    if let Some(api::client_envelope::Payload::GroupMessage(message)) = &mut oversized.payload {
+        message.data.push(1);
+    }
+    assert_eq!(oversized.encoded_len(), size + 1);
+
+    let server = TestServer::new(|config| config.limits.max_envelope_bytes = size).await?;
+    let exact = server.publish(vec![envelope]).await?;
+    assert_eq!(exact.len(), 1);
+
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![oversized],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!(detail.index, Some(0));
+    assert_eq!(detail.reason(), Reason::TooLarge);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_topic_limit_accepts_exact_count_and_rejects_one_past() {
+    let server = TestServer::new(|config| config.limits.max_publish_topics = 1).await?;
+    let first = inline_welcome_envelope([2; 32]);
+    let second = inline_welcome_envelope([3; 32]);
+    let third = inline_welcome_envelope([4; 32]);
+    assert_eq!(server.publish(vec![first]).await?.len(), 1);
+
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![second, third],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::InvalidArgument);
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
+    assert_eq!(detail.index, None);
+    assert_eq!(detail.reason(), Reason::TooLarge);
+    server.stop().await?;
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_retries_preserve_original_metadata_and_positions() {
@@ -125,10 +179,52 @@ async fn watermark_guard_failure_rolls_back_every_new_envelope() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn storage_constraints_reject_invalid_rows() {
+    let server = TestServer::new(|_| {}).await?;
+    server
+        .publish(vec![inline_welcome_envelope([9; 32])])
+        .await?;
+
+    for (statement, expected_code) in [
+        (
+            "INSERT INTO envelopes SELECT 0, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "23514",
+        ),
+        (
+            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "23505",
+        ),
+        (
+            "INSERT INTO envelopes SELECT sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "23505",
+        ),
+        (
+            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, 'x'::bytea, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "23514",
+        ),
+    ] {
+        let error = sqlx::query(statement)
+            .execute(&server.backend.store.primary)
+            .await
+            .expect_err("invalid storage row must be rejected");
+        let code = match error {
+            sqlx::Error::Database(error) => error.code().map(|code| code.to_string()),
+            error => panic!("expected database constraint error, got {error}"),
+        };
+        assert_eq!(code.as_deref(), Some(expected_code));
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
+            .fetch_one(&server.backend.store.primary)
+            .await?,
+        1
+    );
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn permanent_payloads_and_expired_metadata_remain_readable() {
-    use xmtp_mls_validation::test_utils::{
-        GroupMessageKind, commit_log_envelope, group_message_envelope,
-    };
+    use xmtp_mls_validation::test_utils::{commit_log_envelope, group_message_envelope};
     let server = TestServer::new(|_| {}).await?;
     let envelopes = vec![
         group_message_envelope([10; 16], GroupMessageKind::Application, [0xff]),

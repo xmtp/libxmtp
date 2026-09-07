@@ -3,6 +3,11 @@ use crate::error::Error;
 use sqlx::{Postgres, Transaction};
 
 impl Store {
+    /// Read the complete identity-topic history from the primary.
+    ///
+    /// The returned head is the sequence ID of the final payload, or zero for
+    /// an empty topic. Callers validate against this payload list and later
+    /// compare the same head while holding the identity lock.
     pub(crate) async fn history(&self, topic: &[u8]) -> Result<History, Error> {
         let rows = sqlx::query!(
             "SELECT sequence_id, payload FROM envelopes WHERE topic = $1 ORDER BY sequence_id",
@@ -16,6 +21,11 @@ impl Store {
     }
 }
 
+/// Apply the identity projection in the same transaction as its envelope.
+///
+/// Added identifiers become active at `id`; removed identifiers retain their
+/// history and receive a revocation sequence. The sequence predicates prevent
+/// an older update from overwriting a newer association or revocation.
 pub(crate) async fn apply_projection(
     tx: &mut Transaction<'_, Postgres>,
     inbox: &[u8],

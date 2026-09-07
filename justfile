@@ -119,7 +119,7 @@ build-backend:
     nix build .#xmtp-backend
 
 test-backend *args="":
-    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo test --locked -p xmtp_backend {{ args }}
+    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
 
 backend-db-up:
     docker compose -f dev/backend/compose.yml up --detach --wait

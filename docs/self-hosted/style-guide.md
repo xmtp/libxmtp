@@ -116,6 +116,10 @@ See `justfile` for the commands.
 Read `.claude/skills/writing-rust-tests/SKILL.md` and its required references before writing tests.
 The project test rules in `docs/self-hosted/guidelines.md` take precedence.
 
+- Keep tests beside the module they exercise. Use a module-local `tests.rs` for a small suite, or a `tests/` directory split by behavior for a larger suite.
+  Do not collect unrelated module tests in a crate-wide `tests/` directory. RPC and database integration tests can live in module-local test modules and must still use real service boundaries.
+  Share fixtures through one `#[cfg(test)]` test-support module. Moving tests must preserve their assertions, coverage, and inclusion in the test runner.
+
 - New Rust tests use `#[xmtp_common::test(unwrap_try = true)]`. The project exception is a crate that `xmtp_common` depends on.
   The macro selects `tokio::test` on native and `wasm_bindgen_test` on wasm and installs logging.
   Options include `flavor`, `worker_threads`, `unwrap_try`, and `disable_logging`; see `crates/xmtp_macro/src/test_macro.rs`.
@@ -137,6 +141,11 @@ The project test rules in `docs/self-hosted/guidelines.md` take precedence.
 - Running: `just test`, `just test crate <name>`, `just test v3 -p <name>`, `just test d14n -E 'test(pat)'`, `just wasm test`.
 
 ## 9. Crate and module conventions
+
+- Important functions in the backend and shared libraries use RustDoc comments (`///`), including private functions with important invariants.
+  Explain purpose, non-obvious design choices, caller obligations, and relevant failure or cancellation behavior.
+  Document returns when their meaning is not clear from the type. Do not repeat obvious code or put requirement IDs in comments.
+  Use `//` for local implementation notes, not as a substitute for function documentation.
 
 - `lib.rs` declares `mod` / `pub mod` and re-exports some of them: `pub mod retry; pub use retry::*;` (`crates/xmtp_common/src/lib.rs`). Import from the crate
   root **only for re-exported items**: in `xmtp_common` `retry`, `wasm`, `stream_handles`, `const`, `event_logging` are re-exported, while `time`, `fmt`, `hex`,

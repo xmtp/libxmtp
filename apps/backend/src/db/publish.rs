@@ -2,11 +2,19 @@ use super::{PendingEnvelope, Store, StoredMeta, identity::apply_projection};
 use crate::error::{AdmissionError, Error};
 use sqlx::{PgConnection, Postgres, Transaction};
 
+#[cfg(test)]
+mod tests;
+
 const GLOBAL_LOCK_DOMAIN: i32 = 0;
 const IDENTITY_LOCK: i32 = 1;
 const ALLOCATION_BARRIER: i32 = 2;
 
 impl Store {
+    /// Mark envelopes already present on the primary as duplicates.
+    ///
+    /// This pass runs before validation. `commit_publish` repeats it after
+    /// acquiring locks, because a copy may commit while validation is running.
+    /// The stored metadata remains attached to every original request position.
     pub(crate) async fn find_duplicates(
         &self,
         pending: &mut [PendingEnvelope],
@@ -17,6 +25,15 @@ impl Store {
         duplicates(&mut *self.primary.acquire().await?, pending).await
     }
 
+    /// Atomically finish a publish after parsing and validation.
+    ///
+    /// The transaction locks identity state and topics, repeats duplicate
+    /// lookup, checks each identity history head, inserts new rows, advances
+    /// watermarks, and applies projections before commit. A duplicate found by
+    /// the locked check succeeds even when an earlier validation for that copy
+    /// failed. A non-duplicate validation error or stale head aborts the whole
+    /// transaction. The transaction timeout bounds database work; dropping the
+    /// transaction rolls it back and releases its locks.
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],
@@ -104,6 +121,11 @@ impl Store {
     }
 }
 
+/// Find stored rows by the request's `(topic, message_hash)` keys.
+///
+/// The ordinality join maps each database match back to its pending input. It
+/// does not decide whether an absent row is valid; the caller performs that
+/// validation and may run this lookup again under the publish locks.
 async fn duplicates(
     connection: &mut PgConnection,
     pending: &mut [PendingEnvelope],
@@ -145,6 +167,12 @@ async fn duplicates(
     Ok(())
 }
 
+/// Acquire publish locks in one fixed order.
+///
+/// Identity updates share a global lock. Topic locks are derived from topic
+/// hashes, sorted, and deduplicated to avoid lock-order deadlocks. The shared
+/// allocation barrier excludes boundary maintenance while this transaction
+/// allocates sequence IDs.
 async fn lock(
     tx: &mut Transaction<'_, Postgres>,
     pending: &[PendingEnvelope],
@@ -184,6 +212,11 @@ async fn lock(
     Ok(())
 }
 
+/// Confirm that each identity update still follows the history it validated.
+///
+/// This check runs under the identity lock and compares the stored watermark
+/// with the exact head captured during validation. A mismatch returns a stale
+/// history error instead of silently validating against a newer state.
 async fn check_heads(
     tx: &mut Transaction<'_, Postgres>,
     pending: &[PendingEnvelope],
@@ -220,6 +253,12 @@ async fn check_heads(
     }
 }
 
+/// Allocate sequence IDs and insert all new envelopes in request order.
+///
+/// The statement assigns one database timestamp per row, computes expiry, and
+/// advances every affected topic watermark in the same transaction. Duplicate
+/// resolution is complete before this function; an unexpected unique conflict
+/// is therefore an invariant failure, not a successful duplicate.
 async fn insert(
     tx: &mut Transaction<'_, Postgres>,
     new: &[&PendingEnvelope],

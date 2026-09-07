@@ -6,12 +6,16 @@ use crate::xmtp::backend::v1::ClientEnvelope;
 /// Canonical outer encoding and its hash. Inner payload bytes are unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalEnvelope {
+    /// Prost's canonical field ordering for the outer envelope.
     pub bytes: Vec<u8>,
+    /// SHA-256 of `bytes`, used as the publish idempotency key.
     pub hash: [u8; 32],
 }
 
-/// Encode the envelope once for storage, retries, and hash matching.
-/// This does not validate the payload or calculate a client MLS message ID.
+/// Encode the outer envelope once for storage, retries, and hash matching.
+///
+/// Inner payload bytes are copied exactly as supplied. This function does not
+/// validate the payload or calculate the separate client MLS message ID.
 pub fn canonical_envelope(envelope: &ClientEnvelope) -> CanonicalEnvelope {
     let bytes = envelope.encode_to_vec();
     let hash = sha256_array(&bytes);

@@ -5,6 +5,10 @@ use crate::{
 use prost::Message;
 
 impl From<StoredMeta> for api::EnvelopeMeta {
+    /// Convert database metadata to the wire metadata shape.
+    ///
+    /// Stored sequence IDs, hashes, topic bytes, and retention metadata are
+    /// copied without recalculation, so retries return the original values.
     fn from(row: StoredMeta) -> Self {
         api::EnvelopeMeta {
             cursor: Some(api::Cursor {
@@ -23,6 +27,10 @@ impl From<StoredMeta> for api::EnvelopeMeta {
 
 impl TryFrom<StoredEnvelope> for api::ServerEnvelope {
     type Error = tonic::Status;
+    /// Decode the canonical stored envelope and attach its stored metadata.
+    ///
+    /// A decode failure indicates a storage invariant violation, not invalid
+    /// client input, and is returned as an internal status.
     fn try_from(row: StoredEnvelope) -> Result<Self, Self::Error> {
         let envelope = api::ClientEnvelope::decode(row.payload.as_slice())
             .map_err(|_| tonic::Status::internal("stored envelope is invalid"))?;

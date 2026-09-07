@@ -37,12 +37,12 @@ Requirement IDs stay in documentation, not in Rust names or comments.
 | Behavior | Owning tests |
 | --- | --- |
 | Config defaults, invalid values, environment references, secret redaction, and schema parity | `apps/backend/src/config.rs` |
-| Fresh and concurrent database initialization | `apps/backend/tests/database.rs` |
-| Atomic publish, original indexes, metadata, retained payload bytes, and watermark guard rollback | `apps/backend/tests/publish.rs` |
-| Duplicate and history races, topic and identity lock order, cancellation, and cumulative transaction lifetime | `apps/backend/tests/concurrency.rs` |
-| Identity admission, normalized projection, revocation fallback, history caps, and SCW routing/results | `apps/backend/tests/identity.rs` |
-| Query paging, input coalescing, clamping, newest metadata, Get, and absence | `apps/backend/tests/reads.rs` |
-| Native and gRPC-Web unary transport, CORS, health, HTTP/2 settings, and transport size errors | `apps/backend/tests/transport.rs` |
+| Fresh and concurrent database initialization | `apps/backend/src/db/tests.rs` |
+| Atomic publish, original indexes, metadata, retained payload bytes, and watermark guard rollback | `apps/backend/src/service/publish/tests.rs` |
+| Duplicate and history races, topic and identity lock order, cancellation, and cumulative transaction lifetime | `apps/backend/src/db/publish/tests.rs` |
+| Identity admission, normalized projection, revocation fallback, history caps, and SCW routing/results | `apps/backend/src/service/identity/tests.rs` |
+| Query paging, input coalescing, clamping, newest metadata, Get, and absence | `apps/backend/src/service/query/tests/reads.rs` |
+| Native and gRPC-Web unary transport, CORS, health, HTTP/2 settings, and transport size errors | `apps/backend/src/server/tests/transport.rs` |
 
 The dedicated backend CI job runs these tests against PostgreSQL 18. The legacy
 SDK Nix test jobs exclude this package; they do not provide its test database.

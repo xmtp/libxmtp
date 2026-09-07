@@ -17,6 +17,10 @@ pub struct Backend {
 }
 
 impl Backend {
+    /// Build the service state shared by all RPC implementations.
+    ///
+    /// The configuration and verifier are shared immutably. The store is cheap
+    /// to clone because its pools are reference counted by SQLx.
     pub fn new(
         store: Store,
         config: Config,

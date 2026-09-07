@@ -1,7 +1,15 @@
 use super::{EnvelopePage, Store, StoredEnvelope, StoredMeta, TopicCursor};
 use crate::error::Error;
 
+#[cfg(test)]
+mod tests;
+
 impl Store {
+    /// Read one total page from the primary using per-topic indexed probes.
+    ///
+    /// Each topic contributes at most `limit + 1` candidates, then the final
+    /// page is cut to the total limit. The page and `has_more` are computed by
+    /// one SQL statement, so they describe the same read snapshot.
     pub(crate) async fn query(
         &self,
         queries: &[TopicCursor],
@@ -50,6 +58,11 @@ impl Store {
         })
     }
 
+    /// Read the newest visible envelope for each requested topic.
+    ///
+    /// Watermarks and payload rows are joined in one query on the read pool.
+    /// With a replica, the result can lag the primary but cannot reorder a
+    /// topic. Topics without a watermark are omitted.
     pub(crate) async fn newest_envelopes(
         &self,
         topics: &[Vec<u8>],
@@ -67,6 +80,10 @@ impl Store {
         .await?)
     }
 
+    /// Read newest metadata without loading payload bytes.
+    ///
+    /// The read pool and watermark join match `newest_envelopes`; this method
+    /// only projects the fields needed for a metadata-only response.
     pub(crate) async fn newest_metadata(
         &self,
         topics: &[Vec<u8>],
@@ -84,6 +101,10 @@ impl Store {
         .await?)
     }
 
+    /// Look up one envelope by its globally allocated sequence ID.
+    ///
+    /// The read pool determines visibility. `None` has no special cause: the
+    /// ID may be absent, aborted, expired, or not yet replicated.
     pub(crate) async fn get(&self, id: i64) -> Result<Option<StoredEnvelope>, Error> {
         Ok(sqlx::query_as!(
             StoredEnvelope,
@@ -95,6 +116,11 @@ impl Store {
         .await?)
     }
 
+    /// Resolve normalized identifier keys to their latest active inbox IDs.
+    ///
+    /// The query preserves input order and returns one optional value per input.
+    /// It uses the read pool, so a replica can temporarily return an older
+    /// projection while replication catches up.
     pub(crate) async fn lookup(
         &self,
         identifiers: &[String],

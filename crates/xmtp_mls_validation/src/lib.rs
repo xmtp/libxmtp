@@ -86,7 +86,11 @@ impl RetryableError for ValidationError {
 }
 
 impl ValidationError {
-    /// The transport supplies the input index and handles retryable failures.
+    /// Classify this error for the backend publish response.
+    ///
+    /// The transport supplies the input index. Retryability is kept separate so
+    /// a provider failure can become `UNAVAILABLE` instead of a bad-payload
+    /// reason.
     pub fn reason(&self) -> Reason {
         match self {
             Self::KeyPackage(_) => Reason::InvalidKeyPackage,
@@ -99,20 +103,34 @@ impl ValidationError {
     }
 }
 
-/// Parsed routing metadata. This is not proof of valid signatures or membership.
+/// Parsed routing metadata and canonical storage bytes.
+///
+/// Parsing derives the topic and retention flag, but does not prove signatures,
+/// group membership, or key-package validity. The outer bytes and hash are
+/// stable for retries; payload byte fields remain unchanged.
 pub struct ParsedEnvelope {
+    /// The decoded client envelope, including its original payload bytes.
     pub envelope: ClientEnvelope,
+    /// The topic derived from the payload, never supplied by the client.
     pub topic: Topic,
+    /// Whether an MLS group message carries a commit or proposal content type.
     pub is_commit_or_proposal: bool,
+    /// Canonical outer protobuf bytes and their SHA-256 hash.
     pub canonical: CanonicalEnvelope,
 }
 
-/// Preserve the legacy MLS parser's acceptance of trailing bytes.
+/// Parse an MLS group message and preserve accepted trailing bytes.
+///
+/// The parser consumes the first TLS-encoded message. It returns framing or
+/// protocol errors, but does not authenticate the sender or inspect membership.
 pub fn parse_group_message(data: &[u8]) -> Result<ProtocolMessage, ValidationError> {
     Ok(MlsMessageIn::tls_deserialize(&mut &data[..])?.try_into_protocol_message()?)
 }
 
-/// Retention classification only. This does not authenticate the sender.
+/// Classify an MLS message for retention purposes.
+///
+/// Commit and proposal messages are retained without an expiry. This predicate
+/// does not authenticate the sender or validate group state.
 pub fn is_commit_or_proposal(message: &ProtocolMessage) -> bool {
     matches!(
         message.content_type(),
@@ -120,12 +138,17 @@ pub fn is_commit_or_proposal(message: &ProtocolMessage) -> bool {
     )
 }
 
+/// Build and re-parse a topic so malformed identifiers fail before storage.
 fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic, ValidationError> {
     let topic = kind.create(identifier);
     Ok(Topic::parse(&topic)?)
 }
 
-/// Derive routing and retry bytes before cryptographic or identity validation.
+/// Decode one envelope, derive its topic, and compute canonical retry bytes.
+///
+/// This is the routing phase. It performs the payload-specific decoding needed
+/// to find a topic, but leaves key-package and identity admission to
+/// [`validate_envelope`]. A malformed envelope returns before any verifier call.
 pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, ValidationError> {
     let payload = envelope
         .payload
@@ -173,7 +196,10 @@ pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, Valida
     })
 }
 
-/// Apply only the existing key-package admission checks.
+/// Apply the existing key-package admission checks to serialized bytes.
+///
+/// This function returns the verified package for callers that need it, but the
+/// backend uses it only to reject invalid packages. It does not alter the input.
 pub fn verify_key_package(
     data: &[u8],
 ) -> Result<VerifiedKeyPackageV2, KeyPackageVerificationError> {
@@ -181,11 +207,18 @@ pub fn verify_key_package(
 }
 
 pub struct AssociationValidation {
+    /// State after applying all supplied updates.
     pub state: AssociationState,
+    /// Active-member changes between the old and resulting states.
     pub diff: AssociationStateDiff,
 }
 
-/// The caller supplies one complete history snapshot. No storage is read here.
+/// Validate a new identity suffix against one complete history snapshot.
+///
+/// `old_updates` must be the ordered state read from storage, and
+/// `new_updates` must be the proposed suffix. This function performs signature
+/// verification and pure state transitions only; it does not read storage. A
+/// verifier error is returned unchanged so callers can preserve retryability.
 pub async fn validate_identity_updates(
     old_updates: Vec<IdentityUpdate>,
     new_updates: Vec<IdentityUpdate>,
@@ -209,7 +242,11 @@ pub async fn validate_identity_updates(
     Ok(AssociationValidation { state, diff })
 }
 
-/// Validate survivors after duplicate lookup. Other kinds need structural parsing only.
+/// Validate one parsed envelope after duplicate lookup.
+///
+/// Key packages receive their existing package checks. Identity updates are
+/// folded against the caller's snapshot and return a projection diff. Other
+/// kinds need no cryptographic admission beyond the parsing phase.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
     history: &[IdentityUpdate],

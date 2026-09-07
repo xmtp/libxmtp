@@ -3,14 +3,23 @@ use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 use xmtp_proto::types::{Topic, TopicKind};
 
+#[cfg(test)]
+mod tests;
+
+/// Parse a wire topic and reject unknown kinds or invalid identifier lengths.
 pub(crate) fn topic(value: &api::Topic) -> Result<Topic, Status> {
     Topic::parse(&value.topic).map_err(|_| Status::invalid_argument("invalid topic"))
 }
 
+/// Convert a wire cursor to the signed database sequence type.
+///
+/// Sequence IDs are non-negative on the wire. Values above the signed
+/// database range are rejected instead of wrapping.
 pub(crate) fn cursor(value: u64) -> Result<i64, Status> {
     i64::try_from(value).map_err(|_| Status::invalid_argument("cursor exceeds signed 64-bit range"))
 }
 
+/// Enforce a collection limit before any normalization or coalescing.
 pub(crate) fn count(actual: usize, max: usize) -> Result<(), Status> {
     if actual > max {
         Err(Status::invalid_argument("request exceeds item limit"))
@@ -22,6 +31,11 @@ pub(crate) fn count(actual: usize, max: usize) -> Result<(), Status> {
 #[tonic::async_trait]
 impl api::query_service_server::QueryService for Backend {
     #[xmtp_common::rpc_span]
+    /// Return a total-limit page across the requested topic cursors.
+    ///
+    /// Duplicate topic inputs are coalesced at their lowest cursor before the
+    /// primary read. The response converts stored rows only after the database
+    /// has computed `has_more` from the same snapshot.
     async fn query(
         &self,
         request: Request<api::QueryRequest>,
@@ -48,6 +62,10 @@ impl api::query_service_server::QueryService for Backend {
     }
 
     #[xmtp_common::rpc_span]
+    /// Return the newest visible row for each requested topic.
+    ///
+    /// Metadata-only requests avoid payload loading. Full requests use the read
+    /// pool and omit topics with no visible watermark.
     async fn query_newest(
         &self,
         request: Request<api::QueryNewestRequest>,
@@ -101,6 +119,10 @@ impl api::query_service_server::QueryService for Backend {
     }
 
     #[xmtp_common::rpc_span]
+    /// Fetch one envelope by its positive global sequence ID.
+    ///
+    /// A missing row is reported as `NOT_FOUND` without distinguishing replica
+    /// lag from any other absence.
     async fn get(
         &self,
         request: Request<api::GetRequest>,
@@ -118,6 +140,11 @@ impl api::query_service_server::QueryService for Backend {
     }
 }
 
+/// Validate and coalesce topic cursors for one query request.
+///
+/// The original input count is checked before coalescing. Every topic and
+/// cursor is still validated, and repeated topics use the lowest cursor so no
+/// requested history is skipped.
 fn coalesce_queries(queries: Vec<api::TopicQuery>, max: usize) -> Result<Vec<TopicCursor>, Status> {
     count(queries.len(), max)?;
     let mut unique = HashMap::new();
@@ -139,59 +166,4 @@ fn coalesce_queries(queries: Vec<api::TopicQuery>, max: usize) -> Result<Vec<Top
         .into_iter()
         .map(|(topic, cursor)| TopicCursor { topic, cursor })
         .collect())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn request(topic: Topic, cursor: Option<u64>) -> api::TopicQuery {
-        api::TopicQuery {
-            topic: Some(api::Topic {
-                topic: topic.to_vec(),
-            }),
-            cursor: cursor.map(|sequence_id| api::Cursor { sequence_id }),
-        }
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn duplicate_query_inputs_become_one_database_cursor_at_the_lowest_position() {
-        let first = TopicKind::WelcomeMessagesV1.create([1; 32]);
-        let second = TopicKind::WelcomeMessagesV1.create([2; 32]);
-        let queries = coalesce_queries(
-            vec![
-                request(first.clone(), Some(20)),
-                request(second.clone(), Some(30)),
-                request(first.clone(), Some(10)),
-                request(second.clone(), None),
-            ],
-            4,
-        )?;
-        assert_eq!(queries.len(), 2);
-        let actual: HashMap<_, _> = queries
-            .into_iter()
-            .map(|query| (query.topic, query.cursor))
-            .collect();
-        assert_eq!(
-            actual,
-            HashMap::from([(first.to_vec(), 10), (second.to_vec(), 0)])
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn duplicate_inputs_do_not_bypass_cursor_validation_or_original_count_limits() {
-        let topic = TopicKind::WelcomeMessagesV1.create([1; 32]);
-        let invalid_cursor = coalesce_queries(
-            vec![
-                request(topic.clone(), None),
-                request(topic.clone(), Some(u64::MAX)),
-            ],
-            2,
-        );
-        assert!(
-            matches!(invalid_cursor, Err(error) if error.code() == tonic::Code::InvalidArgument)
-        );
-        let excess = coalesce_queries(vec![request(topic.clone(), None), request(topic, None)], 1);
-        assert!(matches!(excess, Err(error) if error.code() == tonic::Code::InvalidArgument));
-    }
 }

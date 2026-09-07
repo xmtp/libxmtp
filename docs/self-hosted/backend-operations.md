@@ -17,6 +17,8 @@ The database listens on `127.0.0.1:55432`. The credentials and database name are
 in `dev/backend/compose.yml`. These credentials are for disposable local tests only.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
+Tests live beside the modules they exercise and share one test-support module.
+The test recipe uses four test threads by default to bound database connections.
 
 Set `XMTP_DATABASE_URL` before starting the service with the example config:
 

@@ -4,9 +4,17 @@ use tonic::{Request, Response, Status};
 use xmtp_common::RetryableError;
 use xmtp_id::{associations::AccountId, scw_verifier::SmartContractSignatureVerifier};
 
+#[cfg(test)]
+mod tests;
+
 #[tonic::async_trait]
 impl api::identity_service_server::IdentityService for Backend {
     #[xmtp_common::rpc_span]
+    /// Resolve identifier requests in their original order.
+    ///
+    /// Input identifiers are normalized before the read. Missing associations
+    /// stay absent in the corresponding response entry; the read pool may lag
+    /// the primary when a replica is configured.
     async fn get_inbox_ids(
         &self,
         request: Request<api::GetInboxIdsRequest>,
@@ -38,6 +46,11 @@ impl api::identity_service_server::IdentityService for Backend {
     }
 
     #[xmtp_common::rpc_span]
+    /// Verify each supplied smart-contract-wallet signature independently.
+    ///
+    /// Malformed account IDs and hashes fail before verifier calls. Provider
+    /// failures map to `UNAVAILABLE`, while a negative signature verdict is a
+    /// successful response with `is_valid` set to false.
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: Request<api::VerifySmartContractWalletSignaturesRequest>,
