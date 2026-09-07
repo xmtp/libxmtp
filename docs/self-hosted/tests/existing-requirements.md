@@ -45,6 +45,10 @@ Requirement IDs stay in documentation, not in Rust names or comments.
 | Native and gRPC-Web unary transport, CORS, health, HTTP/2 settings, and transport size errors | `apps/backend/src/server/tests/transport.rs` |
 | Request-completion timing, streamed byte counts, logging controls, request IDs, and mutation-log correlation | `apps/backend/src/server/request_logger/tests.rs` |
 | Shared production log filtering and structured capture | `crates/xmtp_logging/src/test_logging/capture/tests.rs` |
+| Registration generations, fixed targets, ordered history/live delivery, fairness, bounded cancellation, and native keepalive | `apps/backend/src/stream/tests/session.rs` |
+| Physical replica lag, late gaps, startup visibility, and connection loss | `apps/backend/src/stream/tests/replica.rs` |
+| Coalesced boundary maintenance | `apps/backend/src/stream/tailer/tests.rs` |
+| Shared live payloads, catch-up notices, outbound reservations, and Ping handoff | Module-local tests in `apps/backend/src/stream/registry.rs` and `apps/backend/src/stream/output.rs` |
 
 The dedicated backend CI job runs these tests against PostgreSQL 18. The legacy
 SDK Nix test jobs exclude this package; they do not provide its test database.

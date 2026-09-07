@@ -137,12 +137,15 @@ async fn removal_acknowledgement_separates_old_and_new_registrations() {
             break;
         }
     }
-    let connection = xmtp_common::time::timeout(
-        xmtp_common::time::Duration::from_secs(1),
+    let occupied = xmtp_common::time::timeout(
+        xmtp_common::time::Duration::from_millis(50),
         server.backend.store.primary.acquire(),
     )
-    .await??;
-    drop(connection);
+    .await;
+    assert!(
+        occupied.is_err(),
+        "pending database cleanup keeps its pool slot"
+    );
     sqlx::raw_sql(sqlx::AssertSqlSafe(
         "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE datname = current_database()
         AND wait_event_type = 'Lock' AND query LIKE 'SELECT wanted.ordinal%'",
@@ -219,6 +222,104 @@ async fn removal_restarts_a_mixed_history_turn_without_losing_surviving_topics()
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].meta, Some(metas[1].clone()));
     drop(stream);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn removed_history_stays_within_database_and_worker_bounds_under_churn() {
+    use xmtp_common::time::{Duration, timeout};
+    let server = TestServer::new(|config| {
+        config.database.max_connections = 1;
+        config.streams.poll_interval_ms = 10_000;
+    })
+    .await?;
+    let observer = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with((*server.backend.store.primary.connect_options()).clone())
+        .await?;
+    let meta = server.publish(vec![envelope(90, 1)]).await?.remove(0);
+    let topic = meta.topic.clone().unwrap();
+    let mut stream = Native::open(&server).await?;
+    let hub = server.backend.streams.as_ref().unwrap();
+    let workers = hub.fetches.available_permits();
+    let mut blocker = observer.begin().await?;
+    sqlx::query!("LOCK TABLE envelopes IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await?;
+    let blocked = || async {
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+            AND wait_event_type = 'Lock' AND query LIKE 'SELECT wanted.ordinal%'",
+        ))
+        .fetch_one(&observer)
+        .await
+        .unwrap()
+    };
+    stream
+        .update(1, vec![support::query_topic(topic.clone(), 0)], vec![])
+        .await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(_)));
+    xmtp_common::wait_for_eq(blocked, 1).await?;
+    stream.update(2, vec![], vec![topic.clone()]).await?;
+    assert!(
+        matches!(timeout(Duration::from_secs(1), stream.next()).await??,
+        Frame::Applied(applied) if applied.id == 2)
+    );
+    assert_eq!(hub.fetches.available_permits(), workers - 1);
+    stream
+        .update(3, vec![support::query_topic(topic.clone(), 0)], vec![])
+        .await?;
+    if let Ok(frame) = timeout(Duration::from_millis(200), stream.next()).await {
+        assert!(matches!(frame?, Frame::Applied(applied) if applied.id == 3));
+        let excess = timeout(
+            Duration::from_millis(200),
+            xmtp_common::wait_for_ge(blocked, 2),
+        )
+        .await;
+        assert!(
+            excess.is_err(),
+            "a replacement query exceeded the request-pool bound"
+        );
+    }
+    stream.update(4, vec![], vec![topic.clone()]).await?;
+    for n in 2..10 {
+        stream
+            .update(
+                2 * n + 1,
+                vec![support::query_topic(topic.clone(), 0)],
+                vec![],
+            )
+            .await?;
+        stream
+            .update(2 * n + 2, vec![], vec![topic.clone()])
+            .await?;
+    }
+    let excess = timeout(
+        Duration::from_millis(200),
+        xmtp_common::wait_for_ge(blocked, 2),
+    )
+    .await;
+    assert!(
+        excess.is_err(),
+        "removed history exceeded the request-pool bound"
+    );
+    assert!(
+        hub.fetches.available_permits() < workers,
+        "cleanup released its worker permit early"
+    );
+    blocker.rollback().await?;
+    loop {
+        if matches!(stream.next().await?, Frame::Applied(applied) if applied.id == 20) {
+            break;
+        }
+    }
+    stream
+        .update(21, vec![support::query_topic(topic, 0)], vec![])
+        .await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(applied) if applied.id == 21));
+    assert_eq!(stream.messages(1).await?[0].meta, Some(meta));
+    drop(stream);
+    observer.close().await;
     server.stop().await?;
 }
 

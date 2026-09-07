@@ -18,15 +18,15 @@ pub(super) struct ResultPage {
 
 /// Fetch one fair turn under a shared concurrency permit. Reserve output bytes
 /// before reading payloads, preserve topic prefixes at a byte cutoff, and release
-/// the snapshot before returning. Cancellation closes its pooled connection;
-/// it does not leave an obsolete query blocking reuse of that pool slot.
+/// the snapshot before returning. Cancellation discards local work, but retains
+/// its connection and worker permit until the database drains the statement.
 pub(super) async fn fetch(
     hub: Arc<StreamHub>,
     requests: Vec<Request>,
     budget: usize,
     reservation: Reservation,
 ) -> Result<ResultPage, Status> {
-    let _slot = hub
+    let slot = hub
         .fetches
         .clone()
         .acquire_owned()
@@ -36,7 +36,7 @@ pub(super) async fn fetch(
         .iter()
         .map(|request| request.range.clone())
         .collect();
-    let mut connection = db::stream::HistoryConnection::acquire(&hub.read)
+    let mut connection = db::stream::HistoryConnection::acquire(&hub.read, slot)
         .await
         .map_err(|_| Status::unavailable("history database unavailable"))?;
     let mut tx = connection

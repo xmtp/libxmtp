@@ -16,33 +16,62 @@ pub(crate) struct Range {
     pub through: i64,
 }
 
-/// Close an interrupted history connection instead of returning a still-running
-/// query to the pool. SQLx retains its pool permit until connection close ends.
-/// PostgreSQL can finish cancellation later, subject to its statement timeout.
-pub(crate) struct HistoryConnection(Option<sqlx::pool::PoolConnection<Postgres>>);
+/// Keep interrupted history inside both concurrency bounds until PostgreSQL
+/// finishes its statement and rollback. Local cancellation is immediate, but
+/// database cleanup can wait for the configured statement timeout.
+pub(crate) struct HistoryConnection {
+    connection: Option<sqlx::pool::PoolConnection<Postgres>>,
+    slot: Option<tokio::sync::OwnedSemaphorePermit>,
+}
 
 impl HistoryConnection {
     /// Reserve one request-pool connection, including during cancellation cleanup.
-    pub(crate) async fn acquire(pool: &PgPool) -> Result<Self, Error> {
-        Ok(Self(Some(pool.acquire().await?)))
+    pub(crate) async fn acquire(
+        pool: &PgPool,
+        slot: tokio::sync::OwnedSemaphorePermit,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            connection: Some(pool.acquire().await?),
+            slot: Some(slot),
+        })
     }
 
     /// Read candidates and payloads from one read-only snapshot. Commit the
     /// transaction before releasing this guard for normal connection reuse.
     pub(crate) async fn snapshot(&mut self) -> Result<Transaction<'_, Postgres>, Error> {
-        snapshot_connection(self.0.as_mut().expect("history connection present")).await
+        snapshot_connection(
+            self.connection
+                .as_mut()
+                .expect("history connection present"),
+        )
+        .await
     }
 
     /// Return a completed snapshot's connection to the pool for reuse.
     pub(crate) fn release(mut self) {
-        self.0.take();
+        self.connection.take();
     }
 }
 
 impl Drop for HistoryConnection {
     fn drop(&mut self) {
-        if let Some(connection) = &mut self.0 {
-            connection.close_on_drop();
+        if let Some(mut connection) = self.connection.take() {
+            let slot = self.slot.take();
+            tokio::spawn(async move {
+                // A pending statement error precedes ReadyForQuery. A second
+                // ping drains that response and the queued transaction rollback;
+                // it does not retry the statement. Never loop on a broken socket.
+                let mut result = connection.ping().await;
+                if matches!(result, Err(sqlx::Error::Database(_))) {
+                    result = connection.ping().await;
+                }
+                if result.is_err() {
+                    let _ = connection.close().await;
+                } else {
+                    drop(connection);
+                }
+                drop(slot);
+            });
         }
     }
 }
