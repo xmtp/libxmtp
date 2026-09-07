@@ -2,7 +2,12 @@ use super::{ALLOCATION_BARRIER, GLOBAL_LOCK_DOMAIN};
 use crate::error::Error;
 use sqlx::PgPool;
 
-/// A lock timeout leaves the previous boundary unchanged and requests another attempt.
+#[cfg(test)]
+mod tests;
+
+/// A lock or statement timeout while acquiring the barrier leaves the previous
+/// proof unchanged and requests another attempt. A shorter statement timeout
+/// can expire first. Errors after acquisition still fail the maintenance worker.
 pub(crate) async fn advance(pool: &PgPool, wait_ms: u64) -> Result<Option<i64>, Error> {
     let mut tx = pool
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
@@ -19,7 +24,8 @@ pub(crate) async fn advance(pool: &PgPool, wait_ms: u64) -> Result<Option<i64>, 
     .execute(&mut *tx)
     .await
     {
-        if matches!(&error, sqlx::Error::Database(error) if error.code().as_deref() == Some("55P03"))
+        if matches!(&error, sqlx::Error::Database(error)
+            if matches!(error.code().as_deref(), Some("55P03" | "57014")))
         {
             return Ok(None);
         }
