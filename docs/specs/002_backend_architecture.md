@@ -102,7 +102,7 @@ Replicas are supported from day one. Each configured replica URL names one physi
 
 ## 6. Streaming architecture
 
-- ARC-070: One read-only tailer per instance polls the selected read database. It owns no write-pool handle or advisory-lock code. A separate boundary-maintenance task uses the primary and accepts only bounded in-process maintenance signals from the tailer. No LISTEN/NOTIFY path is required. One topic registry serves all sessions and follows the closed-boundary rules above.
+- ARC-070: One read-only tailer per instance polls the selected read database on one dedicated connection outside the request pools. This adds one database connection per instance and lets connection loss end the recovery generation without starving a one-connection request pool. It owns no write-pool handle or advisory-lock code. A separate boundary-maintenance task uses the primary and accepts only bounded in-process maintenance signals from the tailer. No LISTEN/NOTIFY path is required. One topic registry serves all sessions and follows the closed-boundary rules above.
 - ARC-071: Poll at a fixed interval, default 100 ms. Polls do not overlap. Start the next wait after the previous poll completes. Drain full pages without an extra interval. Trace duration and row count.
 - ARC-072: Use existing topic types and a standard registry representation first. Do not prescribe shard counts, inline layouts, custom hashers, or bytes per topic before measurement.
 - ARC-073: Batch tailer dispatch by stream and use non-blocking sends. A slow stream must not block the tailer. Immutable payloads may be shared across deliveries.
@@ -154,7 +154,8 @@ max_drain_duration_ms = 10000
 url = "env:XMTP_DATABASE_URL"
 # Optional read replica, one instance. Reads route to it as section 5 describes (ARC-060).
 # replica_url = "env:XMTP_REPLICA_URL"
-# Connections per pool. With a replica there are two pools (ARC-060).
+# Connections per request pool. With a replica there are two pools (ARC-060).
+# The tailer uses one additional dedicated connection to the selected read database.
 max_connections = 20
 # Postgres statement_timeout applied to every statement the backend runs (ARC-051).
 max_statement_timeout_ms = 5000

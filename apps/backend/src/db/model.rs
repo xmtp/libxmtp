@@ -11,6 +11,7 @@ pub(crate) struct StoredMeta {
     pub is_commit_or_proposal: bool,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct StoredEnvelope {
     pub sequence_id: i64,
     pub topic: Vec<u8>,

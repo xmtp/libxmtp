@@ -42,7 +42,10 @@ pub async fn initialize(
     let verifier = CachedSmartContractSignatureVerifier::new(verifier, capacity)?;
     let store = Store::connect(&config).await?;
     config.retention.validate_at(store.clock_ns().await?)?;
-    Ok(Backend::new(store, config, verifier))
+    let streams = crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
+    let mut backend = Backend::new(store, config, verifier);
+    backend.streams = Some(streams);
+    Ok(backend)
 }
 
 /// Configure gRPC, gRPC-Web, health, size limits, and graceful shutdown.
@@ -78,6 +81,7 @@ pub async fn serve(
     reporter
         .set_serving::<IdentityServiceServer<Backend>>()
         .await;
+    reporter.set_serving::<SubscriptionServiceServer<Backend>>().await;
     reporter
         .set_service_status("", tonic_health::ServingStatus::Serving)
         .await;
@@ -90,6 +94,11 @@ pub async fn serve(
             "grpc-message".parse().expect("static header"),
             "grpc-status-details-bin".parse().expect("static header"),
         ]);
+    let streams = backend.streams.clone();
+    let shutdown = async move {
+        shutdown.await;
+        if let Some(streams) = streams { streams.stop(); }
+    };
     Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)

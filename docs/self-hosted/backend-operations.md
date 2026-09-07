@@ -47,6 +47,13 @@ balancer that selects independently lagging replicas. Publish and Query use the
 primary. Newest, Get, identifier lookup, and subscriptions use the selected read
 database. Those reads can lag behind a successful publish.
 
+The tailer keeps one dedicated connection to the selected read database. This is
+in addition to the configured request pools. Without a replica, budget at most
+`max_connections + 1` backend connections per instance. With a replica, budget
+`max_connections` on the primary and `max_connections + 1` on the replica.
+The boundary worker uses the primary pool. Keeping the tailer separate permits
+a one-connection request pool and makes a lost tailer connection observable.
+
 ## Schema changes and builds
 
 Until completion of Phase 6, edit the single backend migration. There are no

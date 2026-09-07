@@ -1,15 +1,21 @@
 mod identity;
 mod publish;
 mod read;
+pub(crate) mod boundary;
+pub(crate) mod stream;
 
 use crate::{config::Config, error::Error};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
 
 mod model;
 pub(crate) use model::*;
 
 #[cfg(test)]
 mod tests;
+
+const GLOBAL_LOCK_DOMAIN: i32 = 0;
+const IDENTITY_LOCK: i32 = 1;
+const ALLOCATION_BARRIER: i32 = 2;
 
 #[derive(Clone)]
 /// PostgreSQL access for durable backend state.
@@ -57,12 +63,23 @@ async fn connect_pool(url: &str, config: &Config) -> Result<PgPool, Error> {
         .after_connect(move |connection, _| {
             let timeout = timeout.clone();
             Box::pin(async move {
-                sqlx::query!("SELECT set_config('statement_timeout', $1, false)", timeout)
-                    .fetch_one(&mut *connection)
-                    .await?;
-                Ok(())
+                configure(connection, &timeout).await
             })
         })
         .connect(url)
         .await?)
+}
+
+/// Open the tailer's dedicated selected-read connection outside the request pool.
+/// Its loss must remain visible to recovery, even when the pool replaces connections.
+/// The same TLS options and statement timeout apply to both connection paths.
+pub(crate) async fn dedicated_read(pool: &PgPool, timeout_ms: u64) -> Result<PgConnection, Error> {
+    let mut connection = PgConnection::connect_with(&pool.connect_options()).await?;
+    configure(&mut connection, &format!("{timeout_ms}ms")).await?;
+    Ok(connection)
+}
+
+async fn configure(connection: &mut PgConnection, timeout: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!("SELECT set_config('statement_timeout', $1, false)", timeout).fetch_one(connection).await?;
+    Ok(())
 }

@@ -16,9 +16,10 @@ impl api::subscription_service_server::SubscriptionService for Backend {
     /// endpoint returns `UNIMPLEMENTED` without consuming the request stream.
     async fn subscribe(
         &self,
-        _: Request<Streaming<api::SubscribeRequest>>,
+        request: Request<Streaming<api::SubscribeRequest>>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
-        Err(Status::unimplemented("subscriptions are not available"))
+        let hub = self.streams.clone().ok_or_else(|| Status::unavailable("stream service unavailable"))?;
+        Ok(Response::new(Box::pin(crate::stream::native(hub, self.config.clone(), request.into_inner())?)))
     }
 
     /// Handle the static subscription endpoint.
