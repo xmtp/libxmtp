@@ -128,6 +128,7 @@ already admitted can finish within `server.max_drain_duration_ms`. At the end of
 that budget, the service cancels remaining handlers and connection IO. Clients
 must reconnect to another instance with their safe topic cursors. A dropped
 response does not establish whether a publish committed.
+Shutdown marks both aggregate health and every named RPC service `NOT_SERVING`.
 
 Caller authentication and caller quotas are not implemented until Phase 6.
 Do not expose this unauthenticated service to untrusted traffic.

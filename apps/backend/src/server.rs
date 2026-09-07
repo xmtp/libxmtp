@@ -11,7 +11,7 @@ use crate::{
 use std::{collections::HashMap, num::NonZeroUsize};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::transport::Server;
+use tonic::{server::NamedService, transport::Server};
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{AllowHeaders, Any, CorsLayer};
 use xmtp_id::scw_verifier::{
@@ -77,19 +77,7 @@ pub async fn serve(
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     let (reporter, health) = tonic_health::server::health_reporter();
-    reporter.set_serving::<QueryServiceServer<Backend>>().await;
-    reporter
-        .set_serving::<PublishServiceServer<Backend>>()
-        .await;
-    reporter
-        .set_serving::<IdentityServiceServer<Backend>>()
-        .await;
-    reporter
-        .set_serving::<SubscriptionServiceServer<Backend>>()
-        .await;
-    reporter
-        .set_service_status("", tonic_health::ServingStatus::Serving)
-        .await;
+    report_health(&reporter, tonic_health::ServingStatus::Serving).await;
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -132,7 +120,7 @@ pub async fn serve(
         result = &mut serving => result,
         _ = shutdown => {
             guard.stop();
-            reporter.set_service_status("", tonic_health::ServingStatus::NotServing).await;
+            report_health(&reporter, tonic_health::ServingStatus::NotServing).await;
             let _ = stop.send(());
             let drain = xmtp_common::time::Duration::from_millis(backend.config.server.max_drain_duration_ms);
             match xmtp_common::time::timeout(drain, &mut serving).await {
@@ -140,5 +128,22 @@ pub async fn serve(
                 Err(_) => { lifecycle.cancel(); Ok(()) },
             }
         }
+    }
+}
+
+/// Keep aggregate health and each advertised RPC service in the same lifecycle
+/// state. Named health watchers must see shutdown before connections drain.
+async fn report_health(
+    reporter: &tonic_health::server::HealthReporter,
+    status: tonic_health::ServingStatus,
+) {
+    for service in [
+        "",
+        QueryServiceServer::<Backend>::NAME,
+        PublishServiceServer::<Backend>::NAME,
+        IdentityServiceServer::<Backend>::NAME,
+        SubscriptionServiceServer::<Backend>::NAME,
+    ] {
+        reporter.set_service_status(service, status).await;
     }
 }

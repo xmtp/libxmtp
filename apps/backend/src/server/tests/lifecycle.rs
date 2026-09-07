@@ -7,6 +7,47 @@ use crate::{
 };
 use xmtp_common::time::{Duration, Instant, timeout};
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(20))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn shutdown_marks_aggregate_and_named_health_services_not_serving() {
+    use tonic_health::pb::{
+        HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
+    };
+    let mut server = TestServer::new(|config| config.server.max_drain_duration_ms = 2000).await?;
+    let mut client = HealthClient::new(server.channel.clone());
+    let mut watches = Vec::new();
+    for service in [
+        "",
+        "xmtp.backend.v1.QueryService",
+        "xmtp.backend.v1.PublishService",
+        "xmtp.backend.v1.IdentityService",
+        "xmtp.backend.v1.SubscriptionService",
+    ] {
+        let mut watch = client
+            .watch(HealthCheckRequest {
+                service: service.into(),
+            })
+            .await?
+            .into_inner();
+        assert_eq!(
+            watch.message().await?.unwrap().status(),
+            ServingStatus::Serving
+        );
+        watches.push(watch);
+    }
+    server.shutdown();
+    for mut watch in watches {
+        assert_eq!(
+            timeout(Duration::from_secs(1), watch.message())
+                .await??
+                .unwrap()
+                .status(),
+            ServingStatus::NotServing
+        );
+    }
+    server.stop().await?;
+}
+
 async fn blocked_publish(
     server: &TestServer,
 ) -> crate::test_support::TestResult<(
