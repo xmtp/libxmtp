@@ -22,6 +22,15 @@ pub struct Store {
 }
 
 impl Store {
+    /// Read the authoritative clock used to form finite expiry timestamps.
+    pub(crate) async fn clock_ns(&self) -> Result<i64, Error> {
+        Ok(sqlx::query_scalar!(
+            r#"SELECT (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint AS "now!""#
+        )
+        .fetch_one(&self.primary)
+        .await?)
+    }
+
     /// Connect to the primary, apply migrations, and configure the read pool.
     ///
     /// A replica is never used for migrations. If no replica URL is configured,

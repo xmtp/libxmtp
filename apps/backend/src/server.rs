@@ -41,6 +41,7 @@ pub async fn initialize(
         .ok_or("signature cache cannot be empty")?;
     let verifier = CachedSmartContractSignatureVerifier::new(verifier, capacity)?;
     let store = Store::connect(&config).await?;
+    config.retention.validate_at(store.clock_ns().await?)?;
     Ok(Backend::new(store, config, verifier))
 }
 

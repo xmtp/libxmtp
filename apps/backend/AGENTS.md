@@ -28,6 +28,8 @@ a function-name filter. Tests live beside their owning modules; shared fixtures
 live in `src/test_support.rs`. The recipe defaults to four test threads to bound
 local database connections; `RUST_TEST_THREADS` overrides that value.
 Never silently skip database tests when the database is unavailable.
+Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
+assertion failures and test-runtime teardown; do not add success-only cleanup.
 
 Keep one mutable migration through completion of Phase 6. Recreate only the
 disposable backend database after schema edits. Startup never deletes a database.

@@ -258,6 +258,25 @@ async fn revoking_latest_association_exposes_older_active_inbox() {
     server.stop().await?;
 }
 
+struct CountingVerifier(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for CountingVerifier {
+    async fn is_valid_signature(
+        &self,
+        _: xmtp_id::associations::AccountId,
+        _: [u8; 32],
+        _: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(xmtp_id::scw_verifier::ValidationResponse {
+            is_valid: true,
+            block_number,
+            error: None,
+        })
+    }
+}
 struct VerdictVerifier;
 
 #[xmtp_common::async_trait]
@@ -352,9 +371,10 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_update_scw_signature_limit_is_checked_before_verification() {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let server = TestServer::with_verifier(
         |config| config.limits.max_scw_signatures = 1,
-        xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier::new(true),
+        CountingVerifier(calls.clone()),
     )
     .await?;
     let update = scw_create_inbox_update();
@@ -362,8 +382,25 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
         .publish(vec![identity_envelope(update.clone())])
         .await?;
     assert_eq!(stored.len(), 1);
+    let verified = calls.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(verified > 0);
     let mut excess = update.clone();
-    excess.actions.extend(update.actions);
+    let Some(xmtp_proto::xmtp::identity::associations::identity_action::Kind::CreateInbox(create)) =
+        &mut excess.actions[0].kind
+    else {
+        panic!("expected create fixture");
+    };
+    let Some(xmtp_proto::xmtp::identity::associations::signature::Signature::Erc6492(signature)) =
+        create
+            .initial_identifier_signature
+            .as_mut()
+            .and_then(|signature| signature.signature.as_mut())
+    else {
+        panic!("expected SCW fixture");
+    };
+    signature.signature.push(0x99);
+    signature.block_number += 1;
+    excess.actions.extend(excess.actions.clone());
     let error = server
         .publisher()
         .publish(api::PublishRequest {
@@ -376,6 +413,7 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
     let detail = api::PublishError::decode(status.details[0].value.as_slice())?;
     assert_eq!(detail.index, Some(0));
     assert_eq!(detail.reason(), api::publish_error::Reason::TooLarge);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), verified);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")
         .fetch_one(&server.backend.store.primary)
         .await?;

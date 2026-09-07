@@ -137,6 +137,32 @@ impl Config {
 
     /// Validate scalar values and relationships between values.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        for (field, milliseconds) in [
+            (
+                "server.max_drain_duration_ms",
+                self.server.max_drain_duration_ms,
+            ),
+            (
+                "database.max_statement_timeout_ms",
+                self.database.max_statement_timeout_ms,
+            ),
+            (
+                "publishing.max_publish_duration_ms",
+                self.publishing.max_publish_duration_ms,
+            ),
+            (
+                "publishing.max_barrier_wait_ms",
+                self.publishing.max_barrier_wait_ms,
+            ),
+            ("streams.poll_interval_ms", self.streams.poll_interval_ms),
+            (
+                "streams.keepalive_interval_ms",
+                self.streams.keepalive_interval_ms,
+            ),
+            ("streams.max_pong_wait_ms", self.streams.max_pong_wait_ms),
+        ] {
+            validate_deadline(milliseconds, field)?;
+        }
         self.server.validate()?;
         self.database.validate()?;
         self.publishing
@@ -199,6 +225,20 @@ fn resolve_url(value: &str, field: &'static str) -> Result<String, ConfigError> 
         EnvironmentError::Missing { name } => ConfigError::Environment { name },
         EnvironmentError::EmptyName => invalid(field, "environment variable name is empty"),
     })
+}
+
+/// Timer ranges depend on the host's monotonic clock, not an arbitrary duration cap.
+fn validate_deadline(milliseconds: u64, field: &'static str) -> Result<(), ConfigError> {
+    if xmtp_common::time::Instant::now()
+        .checked_add(std::time::Duration::from_millis(milliseconds))
+        .is_none()
+    {
+        return Err(invalid(
+            field,
+            "deadline cannot be represented on this host",
+        ));
+    }
+    Ok(())
 }
 
 fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
@@ -312,6 +352,31 @@ impl StreamsConfig {
 }
 
 impl RetentionConfig {
+    /// Check finite expiry against the primary database's startup clock. The
+    /// insert still checks arithmetic after later clock changes or time advances.
+    pub(crate) fn validate_at(&self, database_ns: i64) -> Result<(), ConfigError> {
+        for (field, seconds) in [
+            (
+                "retention.group_message_seconds",
+                self.group_message_seconds,
+            ),
+            ("retention.welcome_seconds", self.welcome_seconds),
+            ("retention.key_package_seconds", self.key_package_seconds),
+        ] {
+            let expiry = i64::try_from(seconds)
+                .ok()
+                .and_then(|seconds| seconds.checked_mul(NS_IN_SEC))
+                .and_then(|duration| database_ns.checked_add(duration));
+            if database_ns < 0 || expiry.is_none() {
+                return Err(invalid(
+                    field,
+                    "expiry cannot be represented at the database clock",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Keep positive retention periods representable in nanosecond expiry arithmetic.
     fn validate(&self) -> Result<(), ConfigError> {
         positive(
@@ -638,224 +703,4 @@ impl Default for LimitsConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const MINIMAL: &str = "[database]\nurl = 'postgres://localhost/xmtp'\n";
-    const RESPONSE_TEST_ENVELOPE_BYTES: usize = 1_000_000;
-    const RESPONSE_TEST_REQUEST_BYTES: usize = 2_000_000;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn minimal_configuration_uses_defaults() {
-        let config: Config = toml::from_str(MINIMAL)?;
-        config.validate()?;
-
-        assert_eq!(config.server.listen, DEFAULT_LISTEN);
-        assert_eq!(
-            config.limits.max_request_bytes,
-            BACKEND_DEFAULT_MAX_REQUEST_BYTES
-        );
-        assert!(config.chains.is_empty());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn unknown_keys_are_rejected() {
-        let error = toml::from_str::<Config>(
-            "[database]\nurl = 'postgres://localhost/xmtp'\nextra = true\n",
-        )
-        .expect_err("unknown keys must fail");
-        assert!(error.to_string().contains("unknown field"));
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn invalid_relationship_is_rejected() {
-        let mut config: Config = toml::from_str(MINIMAL)?;
-        config.limits.max_envelope_bytes = DELIVERY_FRAME_BYTES;
-        config.limits.max_request_bytes = DELIVERY_FRAME_BYTES;
-        config.limits.max_response_bytes = DELIVERY_FRAME_BYTES;
-        assert!(config.validate().is_err());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn framing_bound_covers_maximum_metadata_and_nested_messages() {
-        use crate::api;
-        use prost::Message;
-
-        const STORED_TOPIC_BYTES: usize = 128;
-        const HASH_BYTES: usize = 32;
-        let meta = api::EnvelopeMeta {
-            cursor: Some(api::Cursor {
-                sequence_id: u64::MAX,
-            }),
-            server_ns: u64::MAX,
-            message_hash: Some(api::MessageHash {
-                hash: Some(api::message_hash::Hash::Sha256(vec![0; HASH_BYTES])),
-            }),
-            topic: Some(api::Topic {
-                topic: vec![0; STORED_TOPIC_BYTES],
-            }),
-            expiry_ns: u64::MAX,
-            is_commit_or_proposal: true,
-        };
-        assert_eq!(meta.encoded_len(), MAX_METADATA_BYTES);
-        for size in [
-            0,
-            127,
-            128,
-            16_383,
-            16_384,
-            BACKEND_DEFAULT_MAX_ENVELOPE_BYTES,
-        ] {
-            let envelope = api::ClientEnvelope {
-                payload: Some(api::client_envelope::Payload::GroupMessage(
-                    api::GroupMessage {
-                        data: vec![0; size],
-                        ..Default::default()
-                    },
-                )),
-            };
-            let bound = envelope.encoded_len() + ENVELOPE_METADATA_AND_FRAMING_BYTES;
-            let response = api::SubscribeResponse {
-                response: Some(api::subscribe_response::Response::Messages(
-                    api::subscribe_response::Messages {
-                        envelopes: vec![api::ServerEnvelope {
-                            meta: Some(meta.clone()),
-                            envelope: Some(envelope),
-                        }],
-                    },
-                )),
-            };
-            assert!(response.encoded_len() + GRPC_HEADER_BYTES <= bound);
-        }
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn every_cross_field_relationship_is_rejected() {
-        let mut config: Config = toml::from_str(MINIMAL)?;
-
-        config.publishing.max_publish_duration_ms = config.database.max_statement_timeout_ms;
-        assert!(config.validate().is_err());
-        config = toml::from_str(MINIMAL)?;
-        config.streams.max_pong_wait_ms = config.streams.keepalive_interval_ms;
-        assert!(config.validate().is_err());
-        config = toml::from_str(MINIMAL)?;
-        config.limits.max_query_limit = config.limits.default_query_limit - 1;
-        assert!(config.validate().is_err());
-        config = toml::from_str(MINIMAL)?;
-        config.limits.max_envelope_bytes = config.limits.max_request_bytes + 1;
-        assert!(config.validate().is_err());
-        config = toml::from_str(MINIMAL)?;
-        config.limits.max_envelope_bytes = RESPONSE_TEST_ENVELOPE_BYTES;
-        config.limits.max_request_bytes = RESPONSE_TEST_REQUEST_BYTES;
-        config.limits.max_response_bytes = RESPONSE_TEST_ENVELOPE_BYTES;
-        assert!(config.validate().is_err());
-        config = toml::from_str(MINIMAL)?;
-        config.limits.max_update_adds = config.limits.max_stream_topics + 1;
-        assert!(config.validate().is_err());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn missing_and_empty_environment_references_fail_without_values() {
-        let missing = write_config(
-            "missing",
-            "[database]\nurl = 'env:XMTP_BACKEND_CONFIG_MISSING_9F31'\n",
-        );
-        let missing_error = Config::load(&missing).expect_err("missing env must fail");
-        assert!(
-            missing_error
-                .to_string()
-                .contains("XMTP_BACKEND_CONFIG_MISSING_9F31")
-        );
-        std::fs::remove_file(missing)?;
-
-        let empty = write_config("empty", "[database]\nurl = 'env:'\n");
-        let empty_error = Config::load(&empty).expect_err("empty env must fail");
-        assert!(!empty_error.to_string().contains("env:"));
-        std::fs::remove_file(empty)?;
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn debug_output_redacts_urls() {
-        let config: Config =
-            toml::from_str("[database]\nurl = 'postgres://user:password@localhost/xmtp'\n")?;
-        let debug = format!("{config:?}");
-        assert!(!debug.contains("password"));
-        assert!(debug.contains("<redacted>"));
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn generated_schema_matches_published_scalar_surface() {
-        let generated = serde_json::to_value(Config::schema())?;
-        let published: serde_json::Value =
-            serde_json::from_str(include_str!("../../../docs/schemas/backend-v1.json"))?;
-        assert_eq!(generated, published);
-        assert_eq!(generated["$id"], SCHEMA_ID);
-        for section in [
-            "server",
-            "database",
-            "publishing",
-            "streams",
-            "retention",
-            "validation",
-            "limits",
-        ] {
-            assert!(generated["properties"][section].is_object());
-            assert!(published["properties"][section].is_object());
-        }
-        for field in [
-            "max_query_topics",
-            "default_query_limit",
-            "max_query_limit",
-            "max_newest_metadata_topics",
-            "max_newest_full_topics",
-            "max_publish_topics",
-            "max_envelope_bytes",
-            "max_request_bytes",
-            "max_response_bytes",
-            "max_update_adds",
-            "max_update_removes",
-            "max_stream_topics",
-            "max_static_topics",
-            "max_lookup_identifiers",
-            "max_scw_signatures",
-            "max_identity_entries",
-            "max_http2_streams",
-            "max_update_frames_per_second",
-            "max_update_burst",
-            "max_ping_frames_per_second",
-            "max_ping_burst",
-        ] {
-            assert!(schema_property(&generated, "limits", field).is_object());
-            assert_eq!(schema_property(&published, "limits", field)["minimum"], 1);
-        }
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn environment_urls_resolve_once() {
-        let path = std::env::var("PATH")?;
-        assert_eq!(resolve_env("env:PATH")?, path);
-    }
-
-    fn write_config(name: &str, source: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "xmtp-backend-config-{}-{name}.toml",
-            std::process::id()
-        ));
-        std::fs::write(&path, source).expect("write test config");
-        path
-    }
-
-    fn schema_property<'a>(
-        schema: &'a serde_json::Value,
-        section: &str,
-        field: &str,
-    ) -> &'a serde_json::Value {
-        let section_schema = &schema["properties"][section];
-        let section_schema = section_schema["$ref"]
-            .as_str()
-            .and_then(|reference| reference.strip_prefix('#'))
-            .and_then(|reference| schema.pointer(reference))
-            .unwrap_or(section_schema);
-        &section_schema["properties"][field]
-    }
-}
+mod tests;

@@ -1,5 +1,6 @@
 use crate::{Backend, api, config::Config, server};
-use sqlx::{Connection, PgConnection};
+mod database;
+pub use database::TestDatabase;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
 use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, SmartContractSignatureVerifier};
@@ -10,8 +11,7 @@ pub struct TestServer {
     pub backend: Backend,
     pub channel: Channel,
     pub url: String,
-    database: String,
-    admin_url: String,
+    database: TestDatabase,
     stop: Option<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), tonic::transport::Error>>,
 }
@@ -32,19 +32,9 @@ impl TestServer {
         change: impl FnOnce(&mut Config),
         verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
     ) -> TestResult<Self> {
-        let admin_url = std::env::var("DATABASE_URL")?;
-        let database = format!("backend_test_{}", xmtp_common::rand_hexstring());
-        let mut admin = PgConnection::connect(&admin_url).await?;
-        // The name contains only the fixed prefix and generated hexadecimal digits.
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "CREATE DATABASE \"{database}\""
-        )))
-        .execute(&mut admin)
-        .await?;
-        let mut db_url = url::Url::parse(&admin_url)?;
-        db_url.set_path(&database);
+        let database = TestDatabase::new()?;
         let mut config: Config =
-            toml::from_str(&format!("[database]\nurl = {:?}", db_url.as_str()))?;
+            toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
         change(&mut config);
         let mut backend = server::initialize(config).await?;
         if let Some(verifier) = verifier {
@@ -66,7 +56,6 @@ impl TestServer {
             channel,
             url,
             database,
-            admin_url,
             stop: Some(stop),
             task,
         })
@@ -98,16 +87,10 @@ impl TestServer {
 
     pub async fn stop(mut self) -> TestResult {
         self.stop.take().expect("one stop sender").send(()).ok();
-        self.task.await??;
+        (&mut self.task).await??;
         self.backend.store.primary.close().await;
         self.backend.store.read.close().await;
-        let mut admin = PgConnection::connect(&self.admin_url).await?;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "DROP DATABASE \"{}\" WITH (FORCE)",
-            self.database
-        )))
-        .execute(&mut admin)
-        .await?;
+        self.database.remove()?;
         Ok(())
     }
 }
@@ -122,5 +105,14 @@ pub fn query_topic(topic: api::Topic, sequence_id: u64) -> api::TopicQuery {
 pub fn topic(kind: xmtp_proto::types::TopicKind, identifier: &[u8]) -> api::Topic {
     api::Topic {
         topic: kind.create(identifier).to_vec(),
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        self.task.abort();
     }
 }

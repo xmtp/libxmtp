@@ -28,7 +28,11 @@ async fn paging_coalesces_inputs_and_uses_one_total_clamped_limit() {
         queries: vec![
             query_topic(topic_a.clone(), u64::MAX / 2),
             query_topic(topic_a.clone(), 0),
-            query_topic(topic_b.clone(), 0),
+            query_topic(topic_b.clone(), u64::MAX / 2),
+            api::TopicQuery {
+                topic: Some(topic_b.clone()),
+                cursor: None,
+            },
         ],
         limit: u32::MAX,
     };
@@ -127,7 +131,7 @@ async fn newest_limits_accept_exact_count_and_reject_one_past_for_both_modes() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
     let server = TestServer::new(|config| {
-        config.limits.max_query_topics = 1;
+        config.limits.max_query_topics = 2;
         config.limits.max_newest_metadata_topics = 1;
         config.limits.max_newest_full_topics = 1;
     })
@@ -138,7 +142,11 @@ async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
         vec![query_topic(topic(TopicKind::KeyPackagesV1, &[6; 32]), 0)],
         vec![api::TopicQuery::default()],
         vec![query_topic(api::Topic { topic: vec![255] }, 0)],
-        vec![query_topic(valid.clone(), 0), query_topic(valid.clone(), 0)],
+        vec![
+            query_topic(valid.clone(), 0),
+            query_topic(valid.clone(), u64::MAX),
+        ],
+        vec![query_topic(valid.clone(), 0); 3],
     ] {
         assert_eq!(
             server

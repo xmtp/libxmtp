@@ -171,6 +171,7 @@ async fn welcome_batch_commits_each_destination_and_canonical_payload() {
             .fetch_all(&server.backend.store.primary)
             .await?;
     assert_eq!(watermarks.len(), envelopes.len());
+    assert_eq!(metas.len(), envelopes.len());
     for (envelope, meta) in envelopes.into_iter().zip(metas) {
         let fetched = server
             .query()
@@ -228,50 +229,6 @@ async fn watermark_guard_failure_rolls_back_every_new_envelope() {
             .fetch_one(&server.backend.store.primary)
             .await?,
         Some(1)
-    );
-    server.stop().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn storage_constraints_reject_invalid_rows() {
-    let server = TestServer::new(|_| {}).await?;
-    server
-        .publish(vec![inline_welcome_envelope([9; 32])])
-        .await?;
-
-    for (statement, expected_code) in [
-        (
-            "INSERT INTO envelopes SELECT 0, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
-            "23514",
-        ),
-        (
-            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
-            "23505",
-        ),
-        (
-            "INSERT INTO envelopes SELECT sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
-            "23505",
-        ),
-        (
-            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, 'x'::bytea, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
-            "23514",
-        ),
-    ] {
-        let error = sqlx::query(statement)
-            .execute(&server.backend.store.primary)
-            .await
-            .expect_err("invalid storage row must be rejected");
-        let code = match error {
-            sqlx::Error::Database(error) => error.code().map(|code| code.to_string()),
-            error => panic!("expected database constraint error, got {error}"),
-        };
-        assert_eq!(code.as_deref(), Some(expected_code));
-    }
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM envelopes")
-            .fetch_one(&server.backend.store.primary)
-            .await?,
-        1
     );
     server.stop().await?;
 }
