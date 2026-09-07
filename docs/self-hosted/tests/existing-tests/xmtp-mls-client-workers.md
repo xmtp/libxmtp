@@ -33,7 +33,7 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/client.rs | client::tests::close_cancels_callback_stream | async XMTP; ignored on wasm | `SHARED-IDENTITY-REQ-019` |
 | crates/xmtp_mls/src/client.rs | client::tests::reconnect_after_close_errors | async XMTP | `SHARED-IDENTITY-REQ-019` |
 | crates/xmtp_mls/src/identity.rs | identity::tests::ensure_pq_keys_are_deleted | async XMTP | `MLS-REQ-027` |
-| crates/xmtp_mls/src/identity.rs | identity::tests::test_app_data_update_capability_advertised_on_key_package | async XMTP | `MLS-REQ-028` |
+| crates/xmtp_id/src/key_package/construction.rs | key_package::construction::tests::generated_package_preserves_options_and_verifies | sync XMTP | `MLS-REQ-028` |
 | crates/xmtp_mls/src/identity.rs | identity::tests::test_generate_post_quantum_key_error_codes | plain sync | `MLS-REQ-029` |
 | crates/xmtp_mls/src/identity.rs | identity::tests::test_identity_error_codes | plain sync; many enum variants | `MLS-REQ-029` |
 | crates/xmtp_mls/src/identity.rs | identity::tests::test_identity_error_inherited_codes | plain sync | `MLS-REQ-029` |
