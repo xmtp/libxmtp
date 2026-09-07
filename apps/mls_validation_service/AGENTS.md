@@ -18,5 +18,7 @@ nix build .#validation-service-image     # docker image. `just backend up` does 
 
 - Needs `just backend up` (anvil for SCW checks).
 - Payload admission is in `xmtp_mls_validation`; the SCW cache is in `xmtp_id`.
-- This transport shell remains until Phase 2. Do not add standalone features.
+- The legacy release Dockerfile uses Debian Bookworm for both stages. Keep builder
+  and runtime bases aligned and supported; never bypass apt metadata expiry checks.
+- This transport shell remains until Phase 3 SDK integration. Do not add standalone features.
 - Tests use `#[xmtp_common::test(unwrap_try = true)]`.
