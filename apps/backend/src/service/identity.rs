@@ -31,7 +31,7 @@ impl api::identity_service_server::IdentityService for Backend {
             .map(|(value, inbox_id)| api::get_inbox_ids_response::Response {
                 identifier: value.identifier,
                 identifier_kind: value.identifier_kind,
-                inbox_id,
+                inbox_id: inbox_id.map(hex::encode),
             })
             .collect();
         Ok(Response::new(api::GetInboxIdsResponse { responses }))

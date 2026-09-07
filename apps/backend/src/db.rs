@@ -2,11 +2,11 @@ mod identity;
 mod publish;
 mod read;
 
-use crate::{api, config::Config, error::Error};
-use prost::Message;
+use crate::{config::Config, error::Error};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
-pub(crate) use publish::PendingEnvelope;
+mod model;
+pub(crate) use model::*;
 
 #[derive(Clone)]
 pub struct Store {
@@ -41,59 +41,4 @@ async fn connect_pool(url: &str, config: &Config) -> Result<PgPool, Error> {
         })
         .connect(url)
         .await?)
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct StoredMeta {
-    pub sequence_id: i64,
-    pub topic: Vec<u8>,
-    pub server_ns: i64,
-    pub expiry_ns: Option<i64>,
-    pub message_hash: Vec<u8>,
-    pub is_commit_or_proposal: bool,
-}
-
-impl StoredMeta {
-    pub fn wire(self) -> api::EnvelopeMeta {
-        api::EnvelopeMeta {
-            cursor: Some(api::Cursor {
-                sequence_id: self.sequence_id as u64,
-            }),
-            topic: Some(api::Topic { topic: self.topic }),
-            server_ns: self.server_ns as u64,
-            expiry_ns: self.expiry_ns.unwrap_or_default() as u64,
-            message_hash: Some(api::MessageHash {
-                hash: Some(api::message_hash::Hash::Sha256(self.message_hash)),
-            }),
-            is_commit_or_proposal: self.is_commit_or_proposal,
-        }
-    }
-}
-
-pub(crate) struct StoredEnvelope {
-    pub sequence_id: i64,
-    pub topic: Vec<u8>,
-    pub server_ns: i64,
-    pub expiry_ns: Option<i64>,
-    pub message_hash: Vec<u8>,
-    pub is_commit_or_proposal: bool,
-    pub payload: Vec<u8>,
-}
-
-impl StoredEnvelope {
-    pub fn wire(self) -> Result<api::ServerEnvelope, Error> {
-        let envelope = api::ClientEnvelope::decode(self.payload.as_slice())?;
-        let meta = StoredMeta {
-            sequence_id: self.sequence_id,
-            topic: self.topic,
-            server_ns: self.server_ns,
-            expiry_ns: self.expiry_ns,
-            message_hash: self.message_hash,
-            is_commit_or_proposal: self.is_commit_or_proposal,
-        };
-        Ok(api::ServerEnvelope {
-            meta: Some(meta.wire()),
-            envelope: Some(envelope),
-        })
-    }
 }

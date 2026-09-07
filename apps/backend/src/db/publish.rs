@@ -1,37 +1,41 @@
-use super::{Store, StoredMeta, identity::apply_projection};
-use crate::{error::Error, validation::Projection};
+use super::{PendingEnvelope, Store, StoredMeta, identity::apply_projection};
+use crate::error::{AdmissionError, Error};
 use sqlx::{PgConnection, Postgres, Transaction};
-use tonic::Status;
-use xmtp_mls_validation::ParsedEnvelope;
-use xmtp_proto::types::TopicKind;
 
 const GLOBAL_LOCK_DOMAIN: i32 = 0;
 const IDENTITY_LOCK: i32 = 1;
 const ALLOCATION_BARRIER: i32 = 2;
-
-pub(crate) struct PendingEnvelope {
-    pub parsed: ParsedEnvelope,
-    pub index: usize,
-    pub duplicate: Option<StoredMeta>,
-    pub validation: Result<Option<Projection>, Status>,
-    pub head: i64,
-    pub retention_ns: Option<i64>,
-}
 
 impl Store {
     pub(crate) async fn find_duplicates(
         &self,
         pending: &mut [PendingEnvelope],
     ) -> Result<(), Error> {
+        if pending.is_empty() {
+            return Ok(());
+        }
         duplicates(&mut *self.primary.acquire().await?, pending).await
     }
 
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],
-        parse_error: Option<(usize, Status)>,
+        parse_error: Option<(usize, AdmissionError)>,
         max_duration_ms: u64,
-    ) -> Result<Vec<StoredMeta>, Status> {
+    ) -> Result<Vec<StoredMeta>, Error> {
+        if pending.iter().all(|item| item.duplicate.is_some()) {
+            if let Some((index, error)) = parse_error {
+                return Err(Error::Admission { index, error });
+            }
+            return pending
+                .iter()
+                .map(|item| {
+                    item.duplicate
+                        .clone()
+                        .ok_or(Error::Invariant("publish metadata missing"))
+                })
+                .collect();
+        }
         let mut tx = self
             .primary
             .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
@@ -46,6 +50,8 @@ impl Store {
         .await
         .map_err(Error::from)?;
         lock(&mut tx, pending).await?;
+        // A committed copy overrides an earlier validation failure. Retain its
+        // original metadata before checking admission for the remaining inputs.
         duplicates(&mut tx, pending).await?;
         check_heads(&mut tx, pending).await?;
         let validation_error = pending
@@ -57,12 +63,12 @@ impl Store {
                     .err()
                     .map(|error| (item.index, error.clone()))
             });
-        if let Some((_, error)) = validation_error
+        if let Some((index, error)) = validation_error
             .into_iter()
             .chain(parse_error)
             .min_by_key(|(index, _)| *index)
         {
-            return Err(error);
+            return Err(Error::Admission { index, error });
         }
         let new: Vec<_> = pending
             .iter()
@@ -73,7 +79,11 @@ impl Store {
             if let Ok(Some(changes)) = &item.validation {
                 apply_projection(
                     &mut tx,
-                    item.parsed.topic.identifier(),
+                    &item
+                        .identity
+                        .as_ref()
+                        .ok_or(Error::Invariant("projection without identity"))?
+                        .inbox_id,
                     meta.sequence_id,
                     changes,
                 )
@@ -88,7 +98,7 @@ impl Store {
                 item.duplicate
                     .clone()
                     .or_else(|| inserted.next())
-                    .ok_or_else(|| Status::internal("publish metadata missing"))
+                    .ok_or(Error::Invariant("publish metadata missing"))
             })
             .collect()
     }
@@ -98,13 +108,13 @@ async fn duplicates(
     connection: &mut PgConnection,
     pending: &mut [PendingEnvelope],
 ) -> Result<(), Error> {
-    let topics: Vec<_> = pending
-        .iter()
-        .map(|item| item.parsed.topic.to_vec())
-        .collect();
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let topics: Vec<_> = pending.iter().map(|item| item.topic.clone()).collect();
     let hashes: Vec<_> = pending
         .iter()
-        .map(|item| item.parsed.canonical.hash.to_vec())
+        .map(|item| item.message_hash.to_vec())
         .collect();
     let rows = sqlx::query!(
         r#"SELECT wanted.ordinality AS "ordinality!", e.sequence_id, e.topic, e.server_ns,
@@ -139,10 +149,7 @@ async fn lock(
     tx: &mut Transaction<'_, Postgres>,
     pending: &[PendingEnvelope],
 ) -> Result<(), Error> {
-    if pending
-        .iter()
-        .any(|item| item.parsed.topic.kind() == TopicKind::IdentityUpdatesV1)
-    {
+    if pending.iter().any(|item| item.identity.is_some()) {
         sqlx::query!(
             "SELECT pg_advisory_xact_lock($1::integer, $2::integer)",
             GLOBAL_LOCK_DOMAIN,
@@ -154,7 +161,7 @@ async fn lock(
     let mut keys: Vec<_> = pending
         .iter()
         .map(|item| {
-            let hash = xmtp_common::sha256_array(&item.parsed.topic);
+            let hash = xmtp_common::sha256_array(&item.topic);
             let mut key = [0; 8];
             key.copy_from_slice(&hash[..8]);
             i64::from_be_bytes(key)
@@ -180,18 +187,19 @@ async fn lock(
 async fn check_heads(
     tx: &mut Transaction<'_, Postgres>,
     pending: &[PendingEnvelope],
-) -> Result<(), Status> {
+) -> Result<(), Error> {
     let identities: Vec<_> = pending
         .iter()
-        .filter(|item| {
-            item.duplicate.is_none() && item.parsed.topic.kind() == TopicKind::IdentityUpdatesV1
-        })
+        .filter(|item| item.duplicate.is_none() && item.identity.is_some())
         .collect();
-    let topics: Vec<_> = identities
+    if identities.is_empty() {
+        return Ok(());
+    }
+    let topics: Vec<_> = identities.iter().map(|item| item.topic.clone()).collect();
+    let heads: Vec<_> = identities
         .iter()
-        .map(|item| item.parsed.topic.to_vec())
+        .filter_map(|item| item.identity.as_ref().map(|identity| identity.head))
         .collect();
-    let heads: Vec<_> = identities.iter().map(|item| item.head).collect();
     let stale = sqlx::query!(
         r#"SELECT EXISTS (
             SELECT 1 FROM unnest($1::bytea[], $2::bigint[]) AS wanted(topic, head)
@@ -206,9 +214,7 @@ async fn check_heads(
     .map_err(Error::from)?
     .stale;
     if stale {
-        Err(Status::aborted(
-            "identity history changed during validation",
-        ))
+        Err(Error::StaleHistory)
     } else {
         Ok(())
     }
@@ -218,37 +224,37 @@ async fn insert(
     tx: &mut Transaction<'_, Postgres>,
     new: &[&PendingEnvelope],
 ) -> Result<Vec<StoredMeta>, Error> {
+    if new.is_empty() {
+        return Ok(Vec::new());
+    }
     let count =
         i64::try_from(new.len()).map_err(|_| Error::Invariant("publish input count overflow"))?;
     let ids = sqlx::query!(
         r#"SELECT nextval('envelope_sequence') AS "id!" FROM generate_series(1, $1::bigint) ordinal ORDER BY ordinal"#, count
     ).fetch_all(&mut **tx).await?.into_iter().map(|row| row.id).collect::<Vec<_>>();
-    let topics: Vec<_> = new.iter().map(|item| item.parsed.topic.to_vec()).collect();
-    let hashes: Vec<_> = new
-        .iter()
-        .map(|item| item.parsed.canonical.hash.to_vec())
-        .collect();
-    let flags: Vec<_> = new
-        .iter()
-        .map(|item| item.parsed.is_commit_or_proposal)
-        .collect();
-    let payloads: Vec<_> = new
-        .iter()
-        .map(|item| item.parsed.canonical.bytes.clone())
-        .collect();
+    let topics: Vec<_> = new.iter().map(|item| item.topic.clone()).collect();
+    let hashes: Vec<_> = new.iter().map(|item| item.message_hash.to_vec()).collect();
+    let flags: Vec<_> = new.iter().map(|item| item.is_commit_or_proposal).collect();
+    let payloads: Vec<_> = new.iter().map(|item| item.payload.clone()).collect();
     let retention: Vec<_> = new.iter().map(|item| item.retention_ns).collect();
+    // Duplicate resolution is complete. A remaining unique conflict is an invariant
+    // failure; DO NOTHING would hide it and omit required response metadata.
+    // Postgres materializes the multiply referenced input and new_heads CTEs.
+    // The volatile stamped CTE cannot be inlined; explicit MATERIALIZED is redundant.
+    // The clock is evaluated once per row. Later CTEs consume RETURNING rows,
+    // not a new read of tables changed by sibling CTEs.
     let rows = sqlx::query!(
-        r#"WITH input AS MATERIALIZED (
+        r#"WITH input AS (
             SELECT * FROM unnest($1::bigint[], $2::bytea[], $3::bytea[], $4::boolean[], $5::bytea[], $6::bigint[])
             WITH ORDINALITY AS r(sequence_id, topic, message_hash, is_commit_or_proposal, payload, retention_ns, ordinal)
-        ), stamped AS MATERIALIZED (
+        ), stamped AS (
             SELECT input.*, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint AS server_ns FROM input
         ), inserted AS (
             INSERT INTO envelopes (sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, expiry_ns)
             SELECT sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, server_ns + retention_ns
             FROM stamped ORDER BY ordinal
             RETURNING sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal
-        ), new_heads AS MATERIALIZED (
+        ), new_heads AS (
             SELECT topic, max(sequence_id) AS sequence_id FROM inserted GROUP BY topic
         ), advanced AS (
             INSERT INTO topic_watermark AS current (topic, last_sequence_id)

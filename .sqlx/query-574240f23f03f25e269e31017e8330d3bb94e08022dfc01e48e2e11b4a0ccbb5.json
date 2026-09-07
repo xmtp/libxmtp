@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH wanted AS (\n                SELECT r.topic, min(r.cursor) AS cursor\n                FROM unnest($1::bytea[], $2::bigint[]) AS r(topic, cursor) GROUP BY r.topic\n            ), candidates AS MATERIALIZED (\n                SELECT e.sequence_id FROM wanted CROSS JOIN LATERAL (\n                    SELECT sequence_id FROM envelopes\n                    WHERE topic = wanted.topic AND sequence_id > wanted.cursor\n                    ORDER BY sequence_id LIMIT ($3::bigint + 1)\n                ) AS e ORDER BY e.sequence_id LIMIT ($3::bigint + 1)\n            ), page AS (\n                SELECT sequence_id FROM candidates ORDER BY sequence_id LIMIT $3::bigint\n            )\n            SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                e.message_hash, e.is_commit_or_proposal, e.payload,\n                (SELECT count(*) > $3::bigint FROM candidates) AS \"has_more!\"\n            FROM page JOIN envelopes AS e USING (sequence_id) ORDER BY e.sequence_id",
+  "query": "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                e.message_hash, e.is_commit_or_proposal, e.payload\n            FROM topic_watermark w JOIN envelopes e\n                ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic\n            WHERE w.topic = ANY($1::bytea[])",
   "describe": {
     "columns": [
       {
@@ -79,19 +79,11 @@
             "name": "payload"
           }
         }
-      },
-      {
-        "ordinal": 7,
-        "name": "has_more!",
-        "type_info": "Bool",
-        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "ByteaArray",
-        "Int8Array",
-        "Int8"
+        "ByteaArray"
       ]
     },
     "nullable": [
@@ -101,9 +93,8 @@
       true,
       false,
       false,
-      false,
-      null
+      false
     ]
   },
-  "hash": "719588a14d4fac3aa355a8be83161166fad2c8fe10354aa86dafcad16b1d2cbf"
+  "hash": "574240f23f03f25e269e31017e8330d3bb94e08022dfc01e48e2e11b4a0ccbb5"
 }

@@ -1,17 +1,17 @@
-use super::{Store, StoredEnvelope, StoredMeta};
-use crate::{api, error::Error};
+use super::{EnvelopePage, Store, StoredEnvelope, StoredMeta, TopicCursor};
+use crate::error::Error;
 
 impl Store {
     pub(crate) async fn query(
         &self,
-        topics: Vec<Vec<u8>>,
-        cursors: Vec<i64>,
+        queries: &[TopicCursor],
         limit: i64,
-    ) -> Result<api::QueryResponse, Error> {
+    ) -> Result<EnvelopePage, Error> {
+        let topics: Vec<_> = queries.iter().map(|query| query.topic.clone()).collect();
+        let cursors: Vec<_> = queries.iter().map(|query| query.cursor).collect();
         let rows = sqlx::query!(
             r#"WITH wanted AS (
-                SELECT r.topic, min(r.cursor) AS cursor
-                FROM unnest($1::bytea[], $2::bigint[]) AS r(topic, cursor) GROUP BY r.topic
+                SELECT * FROM unnest($1::bytea[], $2::bigint[]) AS r(topic, cursor)
             ), candidates AS MATERIALIZED (
                 SELECT e.sequence_id FROM wanted CROSS JOIN LATERAL (
                     SELECT sequence_id FROM envelopes
@@ -34,96 +34,72 @@ impl Store {
         let has_more = rows.first().is_some_and(|row| row.has_more);
         let envelopes = rows
             .into_iter()
-            .map(|row| {
-                StoredEnvelope {
-                    sequence_id: row.sequence_id,
-                    topic: row.topic,
-                    server_ns: row.server_ns,
-                    expiry_ns: row.expiry_ns,
-                    message_hash: row.message_hash,
-                    is_commit_or_proposal: row.is_commit_or_proposal,
-                    payload: row.payload,
-                }
-                .wire()
+            .map(|row| StoredEnvelope {
+                sequence_id: row.sequence_id,
+                topic: row.topic,
+                server_ns: row.server_ns,
+                expiry_ns: row.expiry_ns,
+                message_hash: row.message_hash,
+                is_commit_or_proposal: row.is_commit_or_proposal,
+                payload: row.payload,
             })
-            .collect::<Result<_, _>>()?;
-        Ok(api::QueryResponse {
+            .collect();
+        Ok(EnvelopePage {
             envelopes,
-            continuation: Some(api::Continuation { has_more }),
+            has_more,
         })
     }
 
-    pub(crate) async fn newest(
+    pub(crate) async fn newest_envelopes(
         &self,
-        topics: Vec<Vec<u8>>,
-        full: bool,
-    ) -> Result<api::QueryNewestResponse, Error> {
-        let results = if full {
-            sqlx::query_as!(
-                StoredEnvelope,
-                "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
-                    e.message_hash, e.is_commit_or_proposal, e.payload
-                FROM topic_watermark w JOIN envelopes e
-                    ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic
-                WHERE w.topic = ANY($1::bytea[])",
-                &topics
-            )
-            .fetch_all(&self.read)
-            .await?
-            .into_iter()
-            .map(|row| {
-                let wire = row.wire()?;
-                Ok(api::query_newest_response::Result {
-                    topic: wire.meta.as_ref().and_then(|meta| meta.topic.clone()),
-                    meta: wire.meta,
-                    envelope: wire.envelope,
-                })
-            })
-            .collect::<Result<Vec<_>, Error>>()?
-        } else {
-            sqlx::query_as!(
-                StoredMeta,
-                "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
-                    e.message_hash, e.is_commit_or_proposal
-                FROM topic_watermark w JOIN envelopes e
-                    ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic
-                WHERE w.topic = ANY($1::bytea[])",
-                &topics
-            )
-            .fetch_all(&self.read)
-            .await?
-            .into_iter()
-            .map(|row| {
-                let meta = row.wire();
-                api::query_newest_response::Result {
-                    topic: meta.topic.clone(),
-                    meta: Some(meta),
-                    envelope: None,
-                }
-            })
-            .collect()
-        };
-        Ok(api::QueryNewestResponse { results })
+        topics: &[Vec<u8>],
+    ) -> Result<Vec<StoredEnvelope>, Error> {
+        Ok(sqlx::query_as!(
+            StoredEnvelope,
+            "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
+                e.message_hash, e.is_commit_or_proposal, e.payload
+            FROM topic_watermark w JOIN envelopes e
+                ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic
+            WHERE w.topic = ANY($1::bytea[])",
+            topics
+        )
+        .fetch_all(&self.read)
+        .await?)
     }
 
-    pub(crate) async fn get(&self, id: i64) -> Result<Option<api::ServerEnvelope>, Error> {
-        sqlx::query_as!(
+    pub(crate) async fn newest_metadata(
+        &self,
+        topics: &[Vec<u8>],
+    ) -> Result<Vec<StoredMeta>, Error> {
+        Ok(sqlx::query_as!(
+            StoredMeta,
+            "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,
+                e.message_hash, e.is_commit_or_proposal
+            FROM topic_watermark w JOIN envelopes e
+                ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic
+            WHERE w.topic = ANY($1::bytea[])",
+            topics
+        )
+        .fetch_all(&self.read)
+        .await?)
+    }
+
+    pub(crate) async fn get(&self, id: i64) -> Result<Option<StoredEnvelope>, Error> {
+        Ok(sqlx::query_as!(
             StoredEnvelope,
             "SELECT sequence_id, topic, server_ns, expiry_ns, message_hash,
                 is_commit_or_proposal, payload FROM envelopes WHERE sequence_id = $1",
             id
         )
         .fetch_optional(&self.read)
-        .await?
-        .map(StoredEnvelope::wire)
-        .transpose()
+        .await?)
     }
 
     pub(crate) async fn lookup(
         &self,
         identifiers: &[String],
         kinds: &[i16],
-    ) -> Result<Vec<Option<String>>, Error> {
+    ) -> Result<Vec<Option<Vec<u8>>>, Error> {
         Ok(sqlx::query!(
             "SELECT active.inbox_id FROM unnest($1::text[], $2::smallint[])
                 WITH ORDINALITY AS wanted(identifier, identifier_kind, ordinality)
@@ -139,7 +115,7 @@ impl Store {
         .fetch_all(&self.read)
         .await?
         .into_iter()
-        .map(|row| row.inbox_id.map(hex::encode))
+        .map(|row| row.inbox_id)
         .collect())
     }
 }

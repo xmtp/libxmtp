@@ -1,3 +1,4 @@
+use crate::db::Projection;
 use std::collections::HashSet;
 use tonic::Status;
 use xmtp_id::associations::{Identifier, MemberIdentifier};
@@ -28,11 +29,6 @@ fn identifier_key(identifier: &Identifier) -> (String, i16) {
 fn member_key(member: &MemberIdentifier) -> Option<(String, i16)> {
     let identifier: Option<Identifier> = member.clone().into();
     identifier.as_ref().map(identifier_key)
-}
-
-pub(crate) struct Projection {
-    pub added: HashSet<(String, i16)>,
-    pub removed: HashSet<(String, i16)>,
 }
 
 pub(crate) fn projection(validation: &AssociationValidation) -> Projection {

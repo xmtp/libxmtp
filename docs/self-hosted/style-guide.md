@@ -83,6 +83,9 @@ See `justfile` for the commands.
   Match the outcome or call `into_continued` to get the value. See `crates/xmtp_db/src/xmtp_openmls_provider.rs`.
 - The backend uses Postgres and the access layer defined by spec 002. Client database conventions do not apply to backend storage.
   Do not add Postgres to a client crate.
+- Backend database helpers take and return internal records and value types, not protobuf messages or gRPC statuses.
+  Treat stored payload bytes as opaque. The API layer owns protobuf encoding, decoding, and conversion to wire responses.
+  Database errors stay typed; the API layer maps them to transport errors. Validate and normalize request collections before database calls.
 
 ## 6. Protobuf and types
 

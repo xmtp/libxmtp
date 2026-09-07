@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                    e.message_hash, e.is_commit_or_proposal, e.payload\n                FROM topic_watermark w JOIN envelopes e\n                    ON e.sequence_id = w.last_sequence_id AND e.topic = w.topic\n                WHERE w.topic = ANY($1::bytea[])",
+  "query": "WITH wanted AS (\n                SELECT * FROM unnest($1::bytea[], $2::bigint[]) AS r(topic, cursor)\n            ), candidates AS MATERIALIZED (\n                SELECT e.sequence_id FROM wanted CROSS JOIN LATERAL (\n                    SELECT sequence_id FROM envelopes\n                    WHERE topic = wanted.topic AND sequence_id > wanted.cursor\n                    ORDER BY sequence_id LIMIT ($3::bigint + 1)\n                ) AS e ORDER BY e.sequence_id LIMIT ($3::bigint + 1)\n            ), page AS (\n                SELECT sequence_id FROM candidates ORDER BY sequence_id LIMIT $3::bigint\n            )\n            SELECT e.sequence_id, e.topic, e.server_ns, e.expiry_ns,\n                e.message_hash, e.is_commit_or_proposal, e.payload,\n                (SELECT count(*) > $3::bigint FROM candidates) AS \"has_more!\"\n            FROM page JOIN envelopes AS e USING (sequence_id) ORDER BY e.sequence_id",
   "describe": {
     "columns": [
       {
@@ -79,11 +79,19 @@
             "name": "payload"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "has_more!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "ByteaArray"
+        "ByteaArray",
+        "Int8Array",
+        "Int8"
       ]
     },
     "nullable": [
@@ -93,8 +101,9 @@
       true,
       false,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "3ecc4945f494c5badb5830d159e5422c3611c2cba5f4bec945ead395b3d20abd"
+  "hash": "19a2479dd9986a1aa5af1809c9e1390f9965bf644fb905d4a6afa854909ae72f"
 }

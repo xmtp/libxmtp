@@ -1,21 +1,23 @@
+use super::error::publish_invalid;
 use crate::{
     Backend,
     api::{self, client_envelope::Payload, publish_error::Reason},
-    db::PendingEnvelope,
-    error::{publish_invalid, validation_status},
+    db::{IdentityAdmission, PendingEnvelope},
+    error::AdmissionError,
     validation::{projection, scw_count},
 };
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use tonic::{Request, Response, Status};
 use xmtp_common::time::{Duration, timeout};
-use xmtp_mls_validation::{parse_envelope, validate_envelope};
+use xmtp_mls_validation::{ParsedEnvelope, parse_envelope, validate_envelope};
 use xmtp_proto::types::TopicKind;
 
 struct PublishBatch {
     pending: Vec<PendingEnvelope>,
+    parsed: Vec<ParsedEnvelope>,
     positions: Vec<usize>,
-    parse_error: Option<(usize, Status)>,
+    parse_error: Option<(usize, AdmissionError)>,
 }
 
 #[tonic::async_trait]
@@ -28,10 +30,14 @@ impl api::publish_service_server::PublishService for Backend {
         let request = request.into_inner();
         let PublishBatch {
             mut pending,
+            parsed,
             positions,
             parse_error,
         } = self.parse_publish(request)?;
-        self.validate_publish(&mut pending).await?;
+        self.validate_publish(&mut pending, &parsed).await?;
+        for (item, parsed) in pending.iter_mut().zip(parsed) {
+            item.payload = parsed.canonical.bytes;
+        }
         let duration = Duration::from_millis(self.config.publishing.max_publish_duration_ms);
         let metas = timeout(
             duration,
@@ -45,7 +51,7 @@ impl api::publish_service_server::PublishService for Backend {
         .map_err(|_| Status::deadline_exceeded("publish timed out"))??;
         let envelope_metas = positions
             .into_iter()
-            .map(|position| metas[position].clone().wire())
+            .map(|position| metas[position].clone().into())
             .collect();
         Ok(Response::new(api::PublishResponse { envelope_metas }))
     }
@@ -65,20 +71,21 @@ impl Backend {
         let mut topics = HashSet::new();
         let mut identity_topics = HashSet::new();
         let mut pending = Vec::new();
+        let mut parsed_envelopes = Vec::new();
         let mut positions = Vec::with_capacity(request.envelopes.len());
         let mut parse_error = None;
         for (index, envelope) in request.envelopes.into_iter().enumerate() {
             if envelope.encoded_len() > limits.max_envelope_bytes {
                 parse_error.get_or_insert((
                     index,
-                    publish_invalid(Some(index), Reason::TooLarge, "envelope exceeds byte limit"),
+                    AdmissionError::TooLarge("envelope exceeds byte limit"),
                 ));
                 continue;
             }
             let parsed = match parse_envelope(envelope) {
                 Ok(parsed) => parsed,
                 Err(error) => {
-                    parse_error.get_or_insert((index, validation_status(index, error)));
+                    parse_error.get_or_insert((index, AdmissionError::from(error)));
                     continue;
                 }
             };
@@ -92,11 +99,7 @@ impl Backend {
             {
                 parse_error.get_or_insert((
                     index,
-                    publish_invalid(
-                        Some(index),
-                        Reason::InvalidIdentityUpdate,
-                        "distinct updates address one inbox",
-                    ),
+                    AdmissionError::InvalidIdentity("distinct updates address one inbox"),
                 ));
                 continue;
             }
@@ -127,54 +130,81 @@ impl Backend {
                 })
                 .transpose()?;
             pending.push(PendingEnvelope {
-                parsed,
+                topic: parsed.topic.to_vec(),
+                message_hash: parsed.canonical.hash,
+                payload: Vec::new(),
+                is_commit_or_proposal: parsed.is_commit_or_proposal,
+                identity: (parsed.topic.kind() == TopicKind::IdentityUpdatesV1).then(|| {
+                    IdentityAdmission {
+                        inbox_id: parsed.topic.identifier().to_vec(),
+                        head: 0,
+                    }
+                }),
                 index,
                 duplicate: None,
                 validation: Ok(None),
-                head: 0,
                 retention_ns,
             });
+            parsed_envelopes.push(parsed);
         }
         Ok(PublishBatch {
             pending,
+            parsed: parsed_envelopes,
             positions,
             parse_error,
         })
     }
 
-    async fn validate_publish(&self, pending: &mut [PendingEnvelope]) -> Result<(), Status> {
+    async fn validate_publish(
+        &self,
+        pending: &mut [PendingEnvelope],
+        parsed: &[ParsedEnvelope],
+    ) -> Result<(), Status> {
         self.store.find_duplicates(pending).await?;
-        for item in pending {
+        for (item, parsed) in pending.iter_mut().zip(parsed) {
             if item.duplicate.is_some() {
                 continue;
             }
-            let history =
-                if let Some(Payload::IdentityUpdate(update)) = &item.parsed.envelope.payload {
-                    let history = self.store.history(&item.parsed.topic).await?;
-                    item.head = history.head;
-                    if scw_count(update) > self.config.limits.max_scw_signatures {
-                        item.validation = Err(publish_invalid(
-                            Some(item.index),
-                            Reason::TooLarge,
-                            "identity update exceeds signature limit",
-                        ));
-                        continue;
-                    }
-                    history.updates
-                } else {
-                    Vec::new()
-                };
-            item.validation = validate_envelope(&item.parsed, &history, &self.verifier)
+            let history = if let Some(Payload::IdentityUpdate(update)) = &parsed.envelope.payload {
+                let history = self.store.history(&item.topic).await?;
+                item.identity
+                    .as_mut()
+                    .ok_or_else(|| Status::internal("identity metadata missing"))?
+                    .head = history.head;
+                if scw_count(update) > self.config.limits.max_scw_signatures {
+                    item.validation = Err(AdmissionError::TooLarge(
+                        "identity update exceeds signature limit",
+                    ));
+                    continue;
+                }
+                if history.payloads.len() >= self.config.limits.max_identity_entries {
+                    item.validation = Err(AdmissionError::InvalidIdentity(
+                        "identity history limit reached",
+                    ));
+                    continue;
+                }
+                history
+                    .payloads
+                    .into_iter()
+                    .map(|payload| {
+                        match api::ClientEnvelope::decode(payload.as_slice())
+                            .map_err(|_| Status::internal("stored identity envelope is invalid"))?
+                            .payload
+                        {
+                            Some(Payload::IdentityUpdate(update)) => Ok(update),
+                            _ => Err(Status::internal(
+                                "identity history contains another payload kind",
+                            )),
+                        }
+                    })
+                    .collect::<Result<Vec<_>, Status>>()?
+            } else {
+                Vec::new()
+            };
+            item.validation = validate_envelope(parsed, &history, &self.verifier)
                 .await
                 .map(|result| result.as_ref().map(projection))
-                .map_err(|error| validation_status(item.index, error));
-            if item.validation.is_ok() && history.len() >= self.config.limits.max_identity_entries {
-                item.validation = Err(publish_invalid(
-                    Some(item.index),
-                    Reason::InvalidIdentityUpdate,
-                    "identity history limit reached",
-                ));
-            }
+                .map_err(AdmissionError::from);
         }
         Ok(())
     }

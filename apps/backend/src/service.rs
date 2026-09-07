@@ -1,3 +1,5 @@
+mod conversion;
+mod error;
 mod identity;
 mod publish;
 mod query;

@@ -1,17 +1,6 @@
-use super::Store;
-use crate::{
-    api::{ClientEnvelope, client_envelope::Payload},
-    error::Error,
-    validation::Projection,
-};
-use prost::Message;
+use super::{History, Projection, Store};
+use crate::error::Error;
 use sqlx::{Postgres, Transaction};
-use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
-
-pub(crate) struct History {
-    pub head: i64,
-    pub updates: Vec<IdentityUpdate>,
-}
 
 impl Store {
     pub(crate) async fn history(&self, topic: &[u8]) -> Result<History, Error> {
@@ -22,18 +11,8 @@ impl Store {
         .fetch_all(&self.primary)
         .await?;
         let head = rows.last().map_or(0, |row| row.sequence_id);
-        let updates = rows
-            .into_iter()
-            .map(
-                |row| match ClientEnvelope::decode(row.payload.as_slice())?.payload {
-                    Some(Payload::IdentityUpdate(update)) => Ok(update),
-                    _ => Err(Error::Invariant(
-                        "identity history contains another payload kind",
-                    )),
-                },
-            )
-            .collect::<Result<_, _>>()?;
-        Ok(History { head, updates })
+        let payloads = rows.into_iter().map(|row| row.payload).collect();
+        Ok(History { head, payloads })
     }
 }
 

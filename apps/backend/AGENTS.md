@@ -34,6 +34,8 @@ workspace `.sqlx` cache for builds without a database.
 Read the approved specs and style guide. Share payload validation and encoding
 with `xmtp_mls_validation` and `xmtp_proto`. Do not depend on a client database.
 Use descriptive behavior names in code, tests, and comments, not requirement IDs.
+Database helpers use internal records and typed errors, never protobuf messages or
+gRPC statuses. The API layer owns wire conversion and request normalization.
 
 Nix outputs: `xmtp-backend`, `backend-image`, and
 `backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`
