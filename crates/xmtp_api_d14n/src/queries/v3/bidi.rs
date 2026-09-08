@@ -1,4 +1,4 @@
-//! XIP-83 bidirectional Subscribe transport for the v3 backend (native-only).
+//! Backend subscription transport for the retained client wrapper (native-only).
 
 use crate::V3Client;
 use crate::protocol::CursorStore;
@@ -8,9 +8,9 @@ use prost::bytes::Bytes;
 use xmtp_proto::ApiEndpoint;
 use xmtp_proto::api::{ApiClientError, Client, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::mls_v1::{SubscribeRequest, SubscribeResponse};
+use xmtp_proto::backend_v1::{SubscribeRequest, SubscribeResponse};
 
-const SUBSCRIBE_PATH: &str = "/xmtp.mls.api.v1.MlsApi/Subscribe";
+const SUBSCRIBE_PATH: &str = "/xmtp.backend.v1.SubscriptionService/Subscribe";
 
 #[xmtp_common::async_trait]
 impl<C, Store> XmtpMlsBidiStreams for V3Client<C, Store>
@@ -62,27 +62,23 @@ mod tests {
     use xmtp_common::BoxDynStream;
     use xmtp_proto::api::BytesStream;
     use xmtp_proto::api::mock::MockNetworkClient;
-    use xmtp_proto::mls_v1::subscribe_request::v1::Mutate;
-    use xmtp_proto::mls_v1::{Ping, Pong, subscribe_request, subscribe_response};
+    use xmtp_proto::backend_v1::subscribe_request::Update;
+    use xmtp_proto::backend_v1::{Ping, Pong, subscribe_request, subscribe_response};
 
-    fn req(request: subscribe_request::v1::Request) -> SubscribeRequest {
+    fn req(request: subscribe_request::Request) -> SubscribeRequest {
         SubscribeRequest {
-            version: Some(subscribe_request::Version::V1(subscribe_request::V1 {
-                request: Some(request),
-            })),
+            request: Some(request),
         }
     }
 
-    fn resp(response: subscribe_response::v1::Response) -> SubscribeResponse {
+    fn resp(response: subscribe_response::Response) -> SubscribeResponse {
         SubscribeResponse {
-            version: Some(subscribe_response::Version::V1(subscribe_response::V1 {
-                response: Some(response),
-            })),
+            response: Some(response),
         }
     }
 
     fn ping_req(nonce: u64) -> SubscribeRequest {
-        req(subscribe_request::v1::Request::Ping(Ping { nonce }))
+        req(subscribe_request::Request::Ping(Ping { nonce }))
     }
 
     /// `subscribe_bidi` must prost-encode each outbound `SubscribeRequest` in
@@ -97,16 +93,17 @@ mod tests {
         let mut mock = MockNetworkClient::new();
         mock.expect_bidi_stream()
             .return_once(move |_req, path, body| {
-                assert_eq!(path.path(), "/xmtp.mls.api.v1.MlsApi/Subscribe");
+                assert_eq!(
+                    path.path(),
+                    "/xmtp.backend.v1.SubscriptionService/Subscribe"
+                );
                 *sink.lock().unwrap() = Some(body);
                 let frames: Vec<Result<Bytes, ApiClientError>> = vec![
                     Ok(Bytes::from(
-                        resp(subscribe_response::v1::Response::Ping(Ping { nonce: 7 }))
-                            .encode_to_vec(),
+                        resp(subscribe_response::Response::Ping(Ping { nonce: 7 })).encode_to_vec(),
                     )),
                     Ok(Bytes::from(
-                        resp(subscribe_response::v1::Response::Pong(Pong { nonce: 9 }))
-                            .encode_to_vec(),
+                        resp(subscribe_response::Response::Pong(Pong { nonce: 9 })).encode_to_vec(),
                     )),
                 ];
                 Ok(http::Response::new(BytesStream::new(stream::iter(frames))))
@@ -114,7 +111,10 @@ mod tests {
 
         let client = V3Client::new(mock, NoCursorStore);
         let outbound = stream::iter(vec![
-            req(subscribe_request::v1::Request::Mutate(Mutate::default())),
+            req(subscribe_request::Request::Update(Update {
+                id: 1,
+                ..Default::default()
+            })),
             ping_req(3),
         ])
         .boxed();
@@ -124,8 +124,8 @@ mod tests {
         assert_eq!(
             decoded,
             vec![
-                resp(subscribe_response::v1::Response::Ping(Ping { nonce: 7 })),
-                resp(subscribe_response::v1::Response::Pong(Pong { nonce: 9 })),
+                resp(subscribe_response::Response::Ping(Ping { nonce: 7 })),
+                resp(subscribe_response::Response::Pong(Pong { nonce: 9 })),
             ],
         );
 
@@ -141,7 +141,10 @@ mod tests {
         assert_eq!(
             sent,
             vec![
-                req(subscribe_request::v1::Request::Mutate(Mutate::default())),
+                req(subscribe_request::Request::Update(Update {
+                    id: 1,
+                    ..Default::default()
+                })),
                 ping_req(3),
             ],
         );
@@ -170,7 +173,7 @@ mod tests {
         // `XmtpStream` isn't `Debug`, so match instead of `unwrap_err`.
         match client.subscribe_bidi(outbound).await {
             Err(ApiClientError::ClientWithEndpoint { endpoint, .. }) => {
-                assert_eq!(endpoint, "/xmtp.mls.api.v1.MlsApi/Subscribe");
+                assert_eq!(endpoint, "/xmtp.backend.v1.SubscriptionService/Subscribe");
             }
             Err(other) => panic!("expected ClientWithEndpoint, got {other:?}"),
             Ok(_) => panic!("subscribe_bidi should error when the transport fails to open"),

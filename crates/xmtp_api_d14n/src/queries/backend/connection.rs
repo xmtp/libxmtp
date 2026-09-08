@@ -173,7 +173,7 @@ mod tests {
     use tokio::sync::mpsc;
     use xmtp_proto::api::ApiClientError;
     use xmtp_proto::backend_v1::subscribe_request::Update as Mutate;
-    use xmtp_proto::types::{Topic, TopicKind};
+    use xmtp_proto::types::TopicKind;
 
     /// A scripted peer: captures every frame the client sends and lets the test
     /// play server frames into the connection.
