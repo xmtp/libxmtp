@@ -15,6 +15,47 @@ use xmtp_id::{
 };
 use xmtp_mls_validation::test_utils::{identity_envelope, scw_create_inbox_update};
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn new_envelopes_use_transaction_start_time_even_after_a_wait() {
+    let server = TestServer::new(|_| {}).await?;
+    let mut pending = Vec::new();
+    for index in 0..2 {
+        let parsed = xmtp_mls_validation::parse_envelope(
+            xmtp_mls_validation::test_utils::inline_welcome_envelope([index as u8; 32]),
+        )?;
+        pending.push(super::PendingEnvelope {
+            topic: parsed.topic.to_vec(),
+            message_hash: parsed.canonical.hash,
+            payload: parsed.canonical.bytes,
+            is_commit_or_proposal: false,
+            identity: None,
+            index,
+            duplicate: None,
+            validation: Ok(None),
+            retention_ns: Some(xmtp_common::NS_IN_SEC),
+        });
+    }
+    let mut tx = server.backend.store.primary.begin().await?;
+    let started: i64 =
+        sqlx::query_scalar("SELECT (extract(epoch FROM CURRENT_TIMESTAMP) * $1::bigint)::bigint")
+            .bind(xmtp_common::NS_IN_SEC)
+            .fetch_one(&mut *tx)
+            .await?;
+    super::lock(&mut tx, &pending).await?;
+    // Let the database clock advance without changing the transaction timestamp.
+    sqlx::query("SELECT pg_sleep(0.01)")
+        .execute(&mut *tx)
+        .await?;
+    let rows = super::insert(&mut tx, &pending.iter().collect::<Vec<_>>()).await?;
+    assert_eq!(rows.len(), pending.len());
+    for row in rows {
+        assert_eq!(row.server_ns, started);
+        assert_eq!(row.expiry_ns, Some(started + xmtp_common::NS_IN_SEC));
+    }
+    tx.commit().await?;
+    server.stop().await?;
+}
+
 struct PausedVerifier {
     calls: AtomicUsize,
     entered: Arc<Notify>,

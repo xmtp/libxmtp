@@ -54,7 +54,7 @@ let
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
     (lib.fileset.maybeMissing (src + /apps/backend/migrations))
-    (lib.fileset.maybeMissing (src + /.sqlx))
+    (lib.fileset.maybeMissing (src + /apps/backend/.sqlx))
     (src + /proto)
     (src + /webdriver.json)
     (lib.fileset.maybeMissing (src + /docs/schemas/backend-v1.json))

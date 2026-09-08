@@ -34,7 +34,8 @@ assertion failures and test-runtime teardown; do not add success-only cleanup.
 Keep one mutable migration through completion of Phase 6. Recreate only the
 disposable backend database after schema edits. Startup never deletes a database.
 Keep SQLx and sqlx-cli versions aligned. SQLx query macros use the committed
-workspace `.sqlx` cache for builds without a database.
+`apps/backend/.sqlx` cache for builds without a database. Run SQLx prepare/check
+from the backend directory through the root recipes; do not use `--workspace`.
 
 Read the approved specs and style guide. Share payload validation and encoding
 with `xmtp_mls_validation` and `xmtp_proto`. Do not depend on a client database.

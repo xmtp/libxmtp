@@ -43,7 +43,7 @@ Use three domain tables, one singleton boundary table, and one global positive b
 - ARC-032: Identity publishes first hold a global identity transaction lock. Identity update sequence order therefore equals commit order across inboxes. Other topics retain only per-topic order.
 - ARC-033: Per-topic locks make per-topic sequence order equal commit order. Every read from the primary or the single configured replica sees a committed topic prefix. This does not imply that global sequence order equals global commit order.
 - ARC-034: Advance each inserted topic's watermark only to a greater sequence ID. An unexpected failure of this guard aborts the whole transaction with `INTERNAL` and an error log. It must not terminate the process or return partial success. Operational metrics are added in Phase 4.
-- ARC-035: Read `server_ns` from the database clock inside the insert. Do not read the previous timestamp to clamp it. Equal or backwards timestamps are allowed; sequence IDs, not timestamps, determine order. Check arithmetic when computing finite expiry.
+- ARC-035: Use the database transaction-start timestamp (`CURRENT_TIMESTAMP`) for `server_ns`. New rows in one publish transaction share that value, including when insertion waits for locks. Do not read the previous timestamp to clamp it. Equal or backwards timestamps are allowed; sequence IDs, not timestamps, determine order. Check arithmetic when computing finite expiry.
 - ARC-036: Publish transactions use `READ COMMITTED`. Duplicate rechecks, identity-head checks, and watermark updates use fresh statements after lock acquisition. Data read before the locks must be rechecked as specified below.
 
 ### Closed sequence boundaries

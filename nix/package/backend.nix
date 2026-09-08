@@ -18,7 +18,7 @@ let
       [
         (root + /Cargo.toml)
         (root + /proto)
-        (lib.fileset.maybeMissing (root + /.sqlx))
+        (lib.fileset.maybeMissing (root + /apps/backend/.sqlx))
         (lib.fileset.maybeMissing (root + /apps/backend/migrations))
         (lib.fileset.maybeMissing (root + /docs/schemas/backend-v1.json))
         (root + /dev/backend/config.toml)

@@ -137,11 +137,11 @@ backend-schema:
 
 backend-sql-prepare:
     DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
-    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare --workspace -- --package xmtp_backend --all-targets
+    cd apps/backend && DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare -- --all-targets
 
 backend-sql-check:
     DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
-    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare --check --workspace -- --package xmtp_backend --all-targets
+    cd apps/backend && DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare --check -- --all-targets
 
 backend-image arch="x86_64":
     nix build .#backend-image-{{ arch }}-unknown-linux-musl

@@ -255,7 +255,7 @@ async fn check_heads(
 
 /// Allocate sequence IDs and insert all new envelopes in request order.
 ///
-/// The statement assigns one database timestamp per row, computes expiry, and
+/// The statement uses the transaction timestamp for new rows, computes expiry, and
 /// advances every affected topic watermark in the same transaction. Duplicate
 /// resolution is complete before this function; an unexpected unique conflict
 /// is therefore an invariant failure, not a successful duplicate.
@@ -276,22 +276,16 @@ async fn insert(
     let flags: Vec<_> = new.iter().map(|item| item.is_commit_or_proposal).collect();
     let payloads: Vec<_> = new.iter().map(|item| item.payload.clone()).collect();
     let retention: Vec<_> = new.iter().map(|item| item.retention_ns).collect();
-    // Duplicate resolution is complete. A remaining unique conflict is an invariant
-    // failure; DO NOTHING would hide it and omit required response metadata.
-    // Postgres materializes the multiply referenced input and new_heads CTEs.
-    // The volatile stamped CTE cannot be inlined; explicit MATERIALIZED is redundant.
-    // The clock is evaluated once per row. Later CTEs consume RETURNING rows,
-    // not a new read of tables changed by sibling CTEs.
+    // Advance watermarks from RETURNING rows; sibling CTEs share one snapshot.
     let rows = sqlx::query!(
         r#"WITH input AS (
-            SELECT * FROM unnest($1::bigint[], $2::bytea[], $3::bytea[], $4::boolean[], $5::bytea[], $6::bigint[])
+            SELECT r.*, (extract(epoch FROM CURRENT_TIMESTAMP) * 1000000000)::bigint AS server_ns
+            FROM unnest($1::bigint[], $2::bytea[], $3::bytea[], $4::boolean[], $5::bytea[], $6::bigint[])
             WITH ORDINALITY AS r(sequence_id, topic, message_hash, is_commit_or_proposal, payload, retention_ns, ordinal)
-        ), stamped AS (
-            SELECT input.*, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint AS server_ns FROM input
         ), inserted AS (
             INSERT INTO envelopes (sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, expiry_ns)
             SELECT sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, server_ns + retention_ns
-            FROM stamped ORDER BY ordinal
+            FROM input ORDER BY ordinal
             RETURNING sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal
         ), new_heads AS (
             SELECT topic, max(sequence_id) AS sequence_id FROM inserted GROUP BY topic

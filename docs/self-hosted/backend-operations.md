@@ -65,7 +65,8 @@ recovered. Service startup never deletes a database when a migration has changed
 At completion of Phase 6, freeze the migration and use new migrations for later
 schema changes.
 
-Commit `.sqlx` metadata with the SQL change. SQLx and its CLI must use matching
+Commit `apps/backend/.sqlx` metadata with the SQL change. The root recipes run
+prepare/check from that package, without `--workspace`. SQLx and its CLI must use matching
 versions. The backend uses SQLx 0.9 because 0.8 conflicts with the workspace's
 SQLite bindings during Cargo dependency resolution. Postgres remains a
 backend-only dependency.

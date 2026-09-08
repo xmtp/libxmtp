@@ -52,7 +52,7 @@ Every stored envelope carries the metadata below. The backend assigns all of it.
 | Field | Rule |
 | --- | --- |
 | `cursor` | The sequence id. |
-| `server_ns` | Assigned from the database clock inside the insert, in nanoseconds. Equal values and backwards values after clock adjustment or failover are allowed. The client uses it as the envelope's created time, never as a cursor. |
+| `server_ns` | The database transaction-start timestamp, in nanoseconds. New envelopes in one publish transaction share this value; it can precede lock waits. Equal and backwards values are allowed. The client uses it as the envelope's created time, never as a cursor. |
 | `message_hash` | SHA-256 of the stored envelope bytes. |
 | `topic` | The derived topic. |
 | `expiry_ns` | Earliest eligibility for deletion: `server_ns` plus the retention period. Zero when the row never expires. Not a message expiry or a promise of immediate deletion. |
