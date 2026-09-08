@@ -18,10 +18,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::{
-    TrackedStatsClient,
-    protocol::{CursorStore, XmtpQuery},
-};
+use xmtp_api_d14n::{TrackedStatsClient, protocol::XmtpQuery};
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
@@ -107,7 +104,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) allow_offline: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
-    pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
     pub(crate) worker_config: crate::worker::WorkerConfig,
 }
@@ -167,7 +163,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: false,
             disable_commit_log_worker: false,
             mls_storage: None,
-            cursor_store: None,
             disable_workers: false,
             worker_config: crate::worker::WorkerConfig::default(),
         }
@@ -198,7 +193,6 @@ where
             allow_offline: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
-            cursor_store: None,
             disable_workers: false,
             worker_config: client.context.worker_config.clone(),
         }
@@ -281,7 +275,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline,
             disable_commit_log_worker,
             mut mls_storage,
-            // cursor_store,
             disable_workers,
             worker_config,
             ..
@@ -523,7 +516,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
         }
@@ -559,7 +551,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .db(),
             )),
             store: self.store,
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
         })
@@ -579,7 +570,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: Some(mls_storage),
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
         }
@@ -632,19 +622,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
-        }
-    }
-
-    pub fn cursor_store(
-        self,
-        cursor_store: Arc<dyn CursorStore>,
-    ) -> ClientBuilder<ApiClient, S, Db> {
-        Self {
-            cursor_store: Some(cursor_store),
-            ..self
         }
     }
 
@@ -723,7 +702,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
         })
@@ -747,7 +725,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
         }
@@ -780,7 +757,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
-            cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
         })
