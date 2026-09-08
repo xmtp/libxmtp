@@ -22,7 +22,6 @@ export type {
   ArchiveMetadata,
   ArchiveOptions,
   Attachment,
-  AvailableArchiveInfo,
   Backend,
   BackendBuilder,
   Consent,

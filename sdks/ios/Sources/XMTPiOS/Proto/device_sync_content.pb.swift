@@ -31,28 +31,12 @@ public struct Xmtp_DeviceSync_Content_DeviceSyncContent: Sendable {
 
   public var content: Xmtp_DeviceSync_Content_DeviceSyncContent.OneOf_Content? = nil
 
-  public var request: Xmtp_DeviceSync_Content_DeviceSyncRequest {
-    get {
-      if case .request(let v)? = content {return v}
-      return Xmtp_DeviceSync_Content_DeviceSyncRequest()
-    }
-    set {content = .request(newValue)}
-  }
-
   public var acknowledge: Xmtp_DeviceSync_Content_DeviceSyncAcknowledge {
     get {
       if case .acknowledge(let v)? = content {return v}
       return Xmtp_DeviceSync_Content_DeviceSyncAcknowledge()
     }
     set {content = .acknowledge(newValue)}
-  }
-
-  public var reply: Xmtp_DeviceSync_Content_DeviceSyncReply {
-    get {
-      if case .reply(let v)? = content {return v}
-      return Xmtp_DeviceSync_Content_DeviceSyncReply()
-    }
-    set {content = .reply(newValue)}
   }
 
   public var preferenceUpdates: Xmtp_DeviceSync_Content_PreferenceUpdates {
@@ -66,9 +50,7 @@ public struct Xmtp_DeviceSync_Content_DeviceSyncContent: Sendable {
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum OneOf_Content: Equatable, Sendable {
-    case request(Xmtp_DeviceSync_Content_DeviceSyncRequest)
     case acknowledge(Xmtp_DeviceSync_Content_DeviceSyncAcknowledge)
-    case reply(Xmtp_DeviceSync_Content_DeviceSyncReply)
     case preferenceUpdates(Xmtp_DeviceSync_Content_PreferenceUpdates)
 
   }
@@ -164,112 +146,6 @@ public struct Xmtp_DeviceSync_Content_HmacKeyUpdate: @unchecked Sendable {
   public init() {}
 }
 
-/// Initiator or new installation id requesting a sync payload send a request
-public struct Xmtp_DeviceSync_Content_DeviceSyncRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  /// Unique identifier for each request
-  public var requestID: String = String()
-
-  /// NOTE: This field was marked as deprecated in the .proto file.
-  public var pinCode: String = String()
-
-  /// NOTE: This field was marked as deprecated in the .proto file.
-  public var kind: Xmtp_DeviceSync_BackupElementSelection = .unspecified
-
-  public var options: Xmtp_DeviceSync_BackupOptions {
-    get {return _options ?? Xmtp_DeviceSync_BackupOptions()}
-    set {_options = newValue}
-  }
-  /// Returns true if `options` has been explicitly set.
-  public var hasOptions: Bool {return self._options != nil}
-  /// Clears the value of `options`. Subsequent reads from it will return its default value.
-  public mutating func clearOptions() {self._options = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _options: Xmtp_DeviceSync_BackupOptions? = nil
-}
-
-/// Pre-existing installation id capable of supplying a sync payload sends this reply
-public struct Xmtp_DeviceSync_Content_DeviceSyncReply: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  /// Must match an existing request_id from a message history request
-  public var requestID: String = String()
-
-  /// Where the messages can be retrieved from
-  public var url: String = String()
-
-  /// Encryption key
-  public var encryptionKey: Xmtp_DeviceSync_Content_DeviceSyncKeyType {
-    get {return _encryptionKey ?? Xmtp_DeviceSync_Content_DeviceSyncKeyType()}
-    set {_encryptionKey = newValue}
-  }
-  /// Returns true if `encryptionKey` has been explicitly set.
-  public var hasEncryptionKey: Bool {return self._encryptionKey != nil}
-  /// Clears the value of `encryptionKey`. Subsequent reads from it will return its default value.
-  public mutating func clearEncryptionKey() {self._encryptionKey = nil}
-
-  /// ns unix timestamp of when the reply was sent
-  ///
-  /// NOTE: This field was marked as deprecated in the .proto file.
-  public var timestampNs: UInt64 = 0
-
-  /// request kind
-  ///
-  /// NOTE: This field was marked as deprecated in the .proto file.
-  public var kind: Xmtp_DeviceSync_BackupElementSelection = .unspecified
-
-  /// Metadata about the backup
-  public var metadata: Xmtp_DeviceSync_BackupMetadataSave {
-    get {return _metadata ?? Xmtp_DeviceSync_BackupMetadataSave()}
-    set {_metadata = newValue}
-  }
-  /// Returns true if `metadata` has been explicitly set.
-  public var hasMetadata: Bool {return self._metadata != nil}
-  /// Clears the value of `metadata`. Subsequent reads from it will return its default value.
-  public mutating func clearMetadata() {self._metadata = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _encryptionKey: Xmtp_DeviceSync_Content_DeviceSyncKeyType? = nil
-  fileprivate var _metadata: Xmtp_DeviceSync_BackupMetadataSave? = nil
-}
-
-/// Key used to encrypt the message-bundle
-public struct Xmtp_DeviceSync_Content_DeviceSyncKeyType: @unchecked Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var key: Xmtp_DeviceSync_Content_DeviceSyncKeyType.OneOf_Key? = nil
-
-  public var aes256Gcm: Data {
-    get {
-      if case .aes256Gcm(let v)? = key {return v}
-      return Data()
-    }
-    set {key = .aes256Gcm(newValue)}
-  }
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public enum OneOf_Key: Equatable, @unchecked Sendable {
-    case aes256Gcm(Data)
-
-  }
-
-  public init() {}
-}
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
@@ -278,9 +154,7 @@ fileprivate let _protobuf_package = "xmtp.device_sync.content"
 extension Xmtp_DeviceSync_Content_DeviceSyncContent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DeviceSyncContent"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "request"),
     2: .same(proto: "acknowledge"),
-    3: .same(proto: "reply"),
     4: .standard(proto: "preference_updates"),
   ]
 
@@ -290,19 +164,6 @@ extension Xmtp_DeviceSync_Content_DeviceSyncContent: SwiftProtobuf.Message, Swif
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try {
-        var v: Xmtp_DeviceSync_Content_DeviceSyncRequest?
-        var hadOneofValue = false
-        if let current = self.content {
-          hadOneofValue = true
-          if case .request(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.content = .request(v)
-        }
-      }()
       case 2: try {
         var v: Xmtp_DeviceSync_Content_DeviceSyncAcknowledge?
         var hadOneofValue = false
@@ -314,19 +175,6 @@ extension Xmtp_DeviceSync_Content_DeviceSyncContent: SwiftProtobuf.Message, Swif
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
           self.content = .acknowledge(v)
-        }
-      }()
-      case 3: try {
-        var v: Xmtp_DeviceSync_Content_DeviceSyncReply?
-        var hadOneofValue = false
-        if let current = self.content {
-          hadOneofValue = true
-          if case .reply(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.content = .reply(v)
         }
       }()
       case 4: try {
@@ -353,17 +201,9 @@ extension Xmtp_DeviceSync_Content_DeviceSyncContent: SwiftProtobuf.Message, Swif
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
     switch self.content {
-    case .request?: try {
-      guard case .request(let v)? = self.content else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    }()
     case .acknowledge?: try {
       guard case .acknowledge(let v)? = self.content else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    }()
-    case .reply?: try {
-      guard case .reply(let v)? = self.content else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     }()
     case .preferenceUpdates?: try {
       guard case .preferenceUpdates(let v)? = self.content else { preconditionFailure() }
@@ -580,169 +420,6 @@ extension Xmtp_DeviceSync_Content_HmacKeyUpdate: SwiftProtobuf.Message, SwiftPro
   public static func ==(lhs: Xmtp_DeviceSync_Content_HmacKeyUpdate, rhs: Xmtp_DeviceSync_Content_HmacKeyUpdate) -> Bool {
     if lhs.key != rhs.key {return false}
     if lhs.cycledAtNs != rhs.cycledAtNs {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Xmtp_DeviceSync_Content_DeviceSyncRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".DeviceSyncRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "request_id"),
-    2: .standard(proto: "pin_code"),
-    3: .same(proto: "kind"),
-    4: .same(proto: "options"),
-  ]
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.pinCode) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
-      case 4: try { try decoder.decodeSingularMessageField(value: &self._options) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.requestID.isEmpty {
-      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
-    }
-    if !self.pinCode.isEmpty {
-      try visitor.visitSingularStringField(value: self.pinCode, fieldNumber: 2)
-    }
-    if self.kind != .unspecified {
-      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 3)
-    }
-    try { if let v = self._options {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Xmtp_DeviceSync_Content_DeviceSyncRequest, rhs: Xmtp_DeviceSync_Content_DeviceSyncRequest) -> Bool {
-    if lhs.requestID != rhs.requestID {return false}
-    if lhs.pinCode != rhs.pinCode {return false}
-    if lhs.kind != rhs.kind {return false}
-    if lhs._options != rhs._options {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Xmtp_DeviceSync_Content_DeviceSyncReply: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".DeviceSyncReply"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "request_id"),
-    2: .same(proto: "url"),
-    3: .standard(proto: "encryption_key"),
-    4: .standard(proto: "timestamp_ns"),
-    5: .same(proto: "kind"),
-    6: .same(proto: "metadata"),
-  ]
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.url) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._encryptionKey) }()
-      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.timestampNs) }()
-      case 5: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._metadata) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.requestID.isEmpty {
-      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
-    }
-    if !self.url.isEmpty {
-      try visitor.visitSingularStringField(value: self.url, fieldNumber: 2)
-    }
-    try { if let v = self._encryptionKey {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    if self.timestampNs != 0 {
-      try visitor.visitSingularUInt64Field(value: self.timestampNs, fieldNumber: 4)
-    }
-    if self.kind != .unspecified {
-      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 5)
-    }
-    try { if let v = self._metadata {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Xmtp_DeviceSync_Content_DeviceSyncReply, rhs: Xmtp_DeviceSync_Content_DeviceSyncReply) -> Bool {
-    if lhs.requestID != rhs.requestID {return false}
-    if lhs.url != rhs.url {return false}
-    if lhs._encryptionKey != rhs._encryptionKey {return false}
-    if lhs.timestampNs != rhs.timestampNs {return false}
-    if lhs.kind != rhs.kind {return false}
-    if lhs._metadata != rhs._metadata {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Xmtp_DeviceSync_Content_DeviceSyncKeyType: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".DeviceSyncKeyType"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "aes_256_gcm"),
-  ]
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try {
-        var v: Data?
-        try decoder.decodeSingularBytesField(value: &v)
-        if let v = v {
-          if self.key != nil {try decoder.handleConflictingOneOf()}
-          self.key = .aes256Gcm(v)
-        }
-      }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if case .aes256Gcm(let v)? = self.key {
-      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Xmtp_DeviceSync_Content_DeviceSyncKeyType, rhs: Xmtp_DeviceSync_Content_DeviceSyncKeyType) -> Bool {
-    if lhs.key != rhs.key {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

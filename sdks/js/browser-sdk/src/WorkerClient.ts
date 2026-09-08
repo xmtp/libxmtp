@@ -2,7 +2,6 @@ import {
   verifySignedWithPublicKey,
   type ArchiveMetadata,
   type ArchiveOptions,
-  type AvailableArchiveInfo,
   type Client,
   type GroupSyncSummary,
   type Identifier,
@@ -216,25 +215,6 @@ export class WorkerClient {
     ) as Promise<Map<string, KeyPackageStatus>>;
   }
 
-  async sendSyncRequest(options: ArchiveOptions, serverUrl: string) {
-    return this.#client.device_sync().sendSyncRequest(options, serverUrl);
-  }
-
-  async sendSyncArchive(
-    options: ArchiveOptions,
-    serverUrl: string,
-    pin: string,
-  ) {
-    return this.#client.device_sync().sendSyncArchive(options, serverUrl, pin);
-  }
-
-  async processSyncArchive(archivePin?: string | null) {
-    return this.#client.device_sync().processSyncArchive(archivePin);
-  }
-
-  listAvailableArchives(daysCutoff: number): AvailableArchiveInfo[] {
-    return this.#client.device_sync().listAvailableArchives(BigInt(daysCutoff));
-  }
 
   async createArchive(
     opts: ArchiveOptions,

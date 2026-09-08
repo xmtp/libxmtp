@@ -1,7 +1,6 @@
 import type {
   ArchiveMetadata,
   ArchiveOptions,
-  AvailableArchiveInfo,
   GroupSyncSummary,
   Identifier,
   KeyPackageStatus,
@@ -236,41 +235,6 @@ export type ClientAction =
       result: Map<string, KeyPackageStatus>;
       data: {
         installationIds: string[];
-      };
-    }
-  | {
-      action: "client.sendSyncRequest";
-      id: string;
-      result: undefined;
-      data: {
-        options: ArchiveOptions;
-        serverUrl: string;
-      };
-    }
-  | {
-      action: "client.sendSyncArchive";
-      id: string;
-      result: undefined;
-      data: {
-        options: ArchiveOptions;
-        serverUrl: string;
-        pin: string;
-      };
-    }
-  | {
-      action: "client.processSyncArchive";
-      id: string;
-      result: undefined;
-      data: {
-        archivePin?: string | null;
-      };
-    }
-  | {
-      action: "client.listAvailableArchives";
-      id: string;
-      result: AvailableArchiveInfo[];
-      data: {
-        daysCutoff: number;
       };
     }
   | {

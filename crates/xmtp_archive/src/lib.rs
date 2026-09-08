@@ -28,8 +28,6 @@ pub enum ArchiveError {
     IO(#[from] std::io::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
 }
 
 #[derive(Default)]

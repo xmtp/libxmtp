@@ -1,4 +1,3 @@
-use crate::client::ClientError;
 use crate::context::XmtpSharedContext;
 use crate::groups::InitialMembershipValidator;
 use crate::groups::ValidateGroupMembership;
@@ -305,28 +304,6 @@ where
             .into_iter()
             .filter(|group| group_ids_needing_sync.contains(&group.group_id))
             .collect::<Vec<_>>())
-    }
-
-    pub async fn sync_all_welcomes_and_history_sync_groups(
-        &self,
-    ) -> Result<GroupSyncSummary, ClientError> {
-        let db = self.context.db();
-        self.sync_welcomes().await?;
-        let groups = db
-            .all_sync_groups()?
-            .into_iter()
-            .map(|g| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    g.id,
-                    g.dm_id,
-                    g.conversation_type,
-                    g.created_at_ns,
-                )
-            })
-            .collect();
-
-        Ok(self.sync_all_groups(groups).await?)
     }
 
     /// Sweep every paused group and clear the pause flag for any

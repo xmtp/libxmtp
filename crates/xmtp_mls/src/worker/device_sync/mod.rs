@@ -3,7 +3,6 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
-        welcome_sync::WelcomeService,
     },
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
@@ -16,15 +15,12 @@ use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
-use xmtp_archive::{ArchiveError, BackupMetadata};
+use xmtp_archive::ArchiveError;
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::tasks::NewTask;
-use xmtp_db::{
-    NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
-    group_message::StoredGroupMessage,
-};
+use xmtp_db::{NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs};
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
@@ -77,11 +73,6 @@ pub enum DeviceSyncError {
     #[error("storage error: {0}")]
     #[error_code(inherit)]
     Storage(#[from] StorageError),
-    /// HTTP request error.
-    ///
-    /// HTTP request for sync payload failed. Retryable.
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
     /// Type conversion error.
     ///
     /// Internal type conversion failed. Retryable.
@@ -98,11 +89,6 @@ pub enum DeviceSyncError {
     #[error("group error: {0}")]
     #[error_code(inherit)]
     Group(#[from] GroupError),
-    /// No pending request.
-    ///
-    /// No pending sync request to reply to. Retryable.
-    #[error("no pending request to reply to")]
-    NoPendingRequest,
     /// Invalid payload.
     ///
     /// Sync message payload is malformed. Retryable.
@@ -113,11 +99,6 @@ pub enum DeviceSyncError {
     /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
-    /// Sync payload too old.
-    ///
-    /// Sync reply is outdated. Retryable.
-    #[error("sync reply is too old")]
-    SyncPayloadTooOld,
     #[error(transparent)]
     #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
@@ -139,21 +120,6 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
-    /// Already acknowledged.
-    ///
-    /// Sync interaction already acknowledged. Not retryable.
-    #[error("Sync interaction is already acknowledged by another installation")]
-    AlreadyAcknowledged,
-    /// Missing options.
-    ///
-    /// Sync request options not provided. Retryable.
-    #[error("Sync request is missing options")]
-    MissingOptions,
-    /// Missing sync server URL.
-    ///
-    /// Sync server URL not configured. Not retryable.
-    #[error("Missing sync server url")]
-    MissingSyncServerUrl,
     /// Missing sync group.
     ///
     /// Sync group not found. Not retryable.
@@ -182,13 +148,6 @@ pub enum DeviceSyncError {
     /// Required field not present. Retryable.
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
-    /// Missing payload.
-    ///
-    /// Sync payload not found for PIN. Retryable. The PIN itself is a secret
-    /// archive reference token and must never appear in the error (it is
-    /// logged on the FFI error path), only whether one was provided.
-    #[error("Could not find payload (pin provided: {0})")]
-    MissingPayload(bool),
 }
 
 #[derive(Debug)]
@@ -226,10 +185,7 @@ impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
         !matches!(
             self,
-            Self::AlreadyAcknowledged
-                | Self::MissingSyncGroup
-                | Self::MissingSyncServerUrl
-                | Self::UnspecifiedDeviceSyncKind
+            Self::MissingSyncGroup | Self::UnspecifiedDeviceSyncKind
         )
     }
 }
@@ -243,7 +199,6 @@ impl From<NotFound> for DeviceSyncError {
 #[derive(Clone)]
 pub struct DeviceSyncClient<Context> {
     pub(crate) context: Context,
-    pub(crate) welcome_service: WelcomeService<Context>,
     pub(crate) mls_store: MlsStore<Context>,
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
@@ -252,7 +207,6 @@ impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
     pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
         Self {
             context: context.clone(),
-            welcome_service: WelcomeService::new(context.clone()),
             mls_store: MlsStore::new(context),
             metrics,
         }
@@ -436,28 +390,11 @@ where
     }
 }
 
-pub trait IterWithContent<A, B> {
-    fn iter_with_content(self) -> impl DoubleEndedIterator<Item = (A, B)>;
-}
-
-impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
-    fn iter_with_content(
-        self,
-    ) -> impl DoubleEndedIterator<Item = (StoredGroupMessage, ContentProto)> {
-        self.into_iter().flat_map(|msg| {
-            let result = (|| {
-                let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;
-                let content = DeviceSyncContentProto::decode(&*encoded_content.content).ok()?;
-                content.content.map(|c| (msg, c))
-            })();
-
-            result.into_iter()
-        })
-    }
-}
-
-pub struct AvailableArchive {
-    pub pin: String,
-    pub metadata: BackupMetadata,
-    pub sent_by_installation: Vec<u8>,
+/// Decode only device-sync content that this client supports.
+///
+/// Old archive transfer fields decode as an unset oneof after their field
+/// numbers became reserved. Ignore them so older installations do not make
+/// the sync worker fail or retry the message.
+fn decode_supported_content(bytes: &[u8]) -> Option<ContentProto> {
+    DeviceSyncContentProto::decode(bytes).ok()?.content
 }

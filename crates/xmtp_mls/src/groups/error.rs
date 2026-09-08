@@ -696,7 +696,7 @@ mod tests {
         // Regression lock: while non-retryable, a membership add racing a
         // new installation's identity propagation burned all publish
         // attempts instantly and permanently failed the sync-group add
-        // (surfaced as the DeviceSync sendSyncRequest CI failures).
+        // (surfaced by device-sync CI failures).
         assert!(GroupError::MissingSequenceId.is_retryable());
     }
 

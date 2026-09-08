@@ -16,13 +16,6 @@ pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
 /// - connect to nodes and perform a health check
 pub const MULTI_NODE_TIMEOUT_MS: u64 = 30_000;
 
-pub struct DeviceSyncUrls;
-impl DeviceSyncUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network";
-}
-
 /// Docker URLS accessible from the Host
 pub struct DockerUrls;
 impl DockerUrls {
@@ -146,8 +139,6 @@ impl GrpcUrlsToxic {
     pub const XMTPD: &'static str = "http://localhost:6030";
     /// URL to ToxiProxy version of Payer Gateway
     pub const GATEWAY: &'static str = "http://localhost:6040";
-    /// Url to ToxiProxy version of History Server
-    pub const HISTORY_SERVER: &'static str = "http://localhost:6050";
     /// Url to ToxiProxy version of Anvil
     pub const ANVIL: &'static str = "http://localhost:6060";
 }

@@ -56,6 +56,9 @@ message PlaintextEnvelope {
 
   // Version 2 of the encrypted envelope
   message V2 {
+    reserved 3, 4;
+    reserved "device_sync_request", "device_sync_reply";
+
     // A unique value that can be used to ensure that the same content can
     // produce different hashes. May be the sender timestamp.
     string idempotency_key = 1;
@@ -63,10 +66,6 @@ message PlaintextEnvelope {
     oneof message_type {
       // Expected to be EncodedContent
       bytes content = 2;
-      // Initiator sends a request to receive sync payload
-      xmtp.device_sync.content.DeviceSyncRequest device_sync_request = 3;
-      // Some other authorized installation sends a reply with a link to payload
-      xmtp.device_sync.content.DeviceSyncReply device_sync_reply = 4;
       // A serialized user preference update
       xmtp.device_sync.content.V1UserPreferenceUpdate user_preference_update = 5;
     }

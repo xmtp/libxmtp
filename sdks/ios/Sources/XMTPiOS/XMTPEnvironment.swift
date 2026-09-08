@@ -11,9 +11,6 @@ public func getLocalAddressFromEnvironment() -> String? {
 	ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"]
 }
 
-public func getHistorySyncUrlFromEnvironment() -> String? {
-	ProcessInfo.processInfo.environment["XMTP_HISTORY_SERVER_ADDRESS"]
-}
 
 /// Contains hosts an `ApiClient` can connect to
 public enum XMTPEnvironment: String, Sendable {
@@ -23,7 +20,6 @@ public enum XMTPEnvironment: String, Sendable {
 
 	// Optional override for the local environment
 	public static var customLocalAddress: String?
-	public static var customHistorySyncUrl: String?
 
 	var address: String {
 		switch self {
@@ -61,14 +57,4 @@ public enum XMTPEnvironment: String, Sendable {
 		url.starts(with: "https")
 	}
 
-	public func getHistorySyncUrl() -> String {
-		switch self {
-		case .production:
-			"https://message-history.production.ephemera.network"
-		case .local:
-			XMTPEnvironment.customHistorySyncUrl ?? "http://localhost:5558"
-		case .dev:
-			"https://message-history.dev.ephemera.network"
-		}
-	}
 }

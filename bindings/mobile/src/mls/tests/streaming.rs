@@ -1,9 +1,5 @@
 //! Tests for message and conversation streaming
 
-use xmtp_configuration::DeviceSyncUrls;
-
-use crate::device_sync::FfiArchiveOptions;
-
 use super::*;
 
 #[ignore]
@@ -408,47 +404,6 @@ async fn test_stream_consent() {
         .await
         .unwrap();
 
-    alix_b
-        .send_sync_request(
-            FfiArchiveOptions::default(),
-            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
-        )
-        .await
-        .unwrap();
-    alix_a.sync_all_device_sync_groups().await.unwrap();
-
-    alix_a
-        .worker()
-        .register_interest(SyncMetric::PayloadTaskScheduled, 1)
-        .wait()
-        .await
-        .unwrap();
-
-    alix_a
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
-        .wait()
-        .await
-        .unwrap();
-    alix_a
-        .worker()
-        .register_interest(SyncMetric::HmacSent, 1)
-        .wait()
-        .await
-        .unwrap();
-
-    alix_b.sync_all_device_sync_groups().await.unwrap();
-    alix_b
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 1)
-        .wait()
-        .await
-        .unwrap();
-    alix_a
-        .inner_client
-        .test_has_same_sync_group_as(&alix_b.inner_client)
-        .await
-        .unwrap();
     alix_b
         .worker()
         .register_interest(SyncMetric::HmacReceived, 1)
