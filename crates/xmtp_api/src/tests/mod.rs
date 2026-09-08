@@ -188,15 +188,20 @@ async fn publish_size_errors_split_between_atomic_units(#[case] code: tonic::Cod
     assert_ne!(result[0].topic, result[2].topic);
 }
 
+#[rstest]
+#[case(tonic::Code::OutOfRange)]
+#[case(tonic::Code::InvalidArgument)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn one_rejected_atomic_unit_stops_without_splitting() {
+async fn one_rejected_atomic_unit_stops_without_splitting(#[case] code: tonic::Code) {
     let mut mock = MockBackendClient::new();
     mock.expect_publish()
         .times(1)
-        .returning(|_| Err(size_status(tonic::Code::ResourceExhausted)));
+        .returning(move |_| Err(size_status(code)));
     assert!(
         wrapper(mock)
-            .publish_units(vec![PublishUnit::new(vec![welcome(1), welcome(2)])?])
+            .publish_units(vec![
+                PublishUnit::new(vec![welcome(1), welcome(2)]).unwrap()
+            ])
             .await
             .is_err()
     );
@@ -640,4 +645,106 @@ async fn signature_checks_chunk_and_keep_result_order() {
             .collect::<Vec<_>>(),
         (0..=BACKEND_DEFAULT_MAX_SCW_SIGNATURES as u64).collect::<Vec<_>>()
     );
+}
+
+fn backoff_retry() -> Retry<ExponentialBackoff> {
+    Retry::builder()
+        .retries(2)
+        .with_strategy(
+            ExponentialBackoff::builder()
+                .duration(Duration::from_millis(5))
+                .max_jitter(Duration::ZERO)
+                .build(),
+        )
+        .build()
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn single_publish_retries_resource_exhausted_with_backoff() {
+    let retry = backoff_retry();
+    let budget = retry.retries();
+    let mut mock = MockBackendClient::new();
+    mock.expect_publish()
+        .times(budget + 1)
+        .returning(|request| {
+            assert_eq!(request.envelopes.len(), 1);
+            Err(status(tonic::Code::ResourceExhausted))
+        });
+    let client = ApiClientWrapper::new(mock, retry);
+    let started = xmtp_common::time::Instant::now();
+    let error = client
+        .publish_units(vec![PublishUnit::single(welcome(1))?])
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() >= Duration::from_millis(5) * budget as u32);
+    assert!(error.is_retryable());
+    assert_eq!(
+        grpc_status(&error).unwrap().code(),
+        tonic::Code::ResourceExhausted
+    );
+    assert_eq!(grpc_status(&error).unwrap().message(), "arbitrary message");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn minimum_query_retries_resource_exhausted_with_backoff() {
+    let retry = backoff_retry();
+    let budget = retry.retries();
+    let mut mock = MockBackendClient::new();
+    mock.expect_query().times(budget + 1).returning(|request| {
+        assert_eq!(request.queries.len(), 1);
+        assert_eq!(request.limit, 1);
+        Err(status(tonic::Code::ResourceExhausted))
+    });
+    let client = ApiClientWrapper::new(mock, retry);
+    let started = xmtp_common::time::Instant::now();
+    let error = client
+        .query_all(
+            HashMap::from([(Topic::new_group_message([1; 16]), Cursor(0))]),
+            1,
+        )
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() >= Duration::from_millis(5) * budget as u32);
+    assert!(error.is_retryable());
+    assert_eq!(
+        grpc_status(&error).unwrap().code(),
+        tonic::Code::ResourceExhausted
+    );
+    assert_eq!(grpc_status(&error).unwrap().message(), "arbitrary message");
+}
+
+#[rstest]
+#[case(tonic::Code::OutOfRange)]
+#[case(tonic::Code::InvalidArgument)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn minimum_query_size_errors_remain_terminal(#[case] code: tonic::Code) {
+    let mut mock = MockBackendClient::new();
+    mock.expect_query()
+        .times(1)
+        .returning(move |_| Err(size_status(code)));
+    let error = wrapper(mock)
+        .query_all(
+            HashMap::from([(Topic::new_group_message([1; 16]), Cursor(0))]),
+            1,
+        )
+        .await
+        .unwrap_err();
+    assert!(!error.is_retryable());
+    assert_eq!(grpc_status(&error).unwrap().code(), code);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn invalid_input_returns_invalid_request_without_rpc() {
+    let error = PublishUnit::new(vec![]).unwrap_err();
+    assert!(matches!(
+        error,
+        ApiError::InvalidRequest("empty publish unit")
+    ));
+    assert!(!error.is_retryable());
+    let client = wrapper(MockBackendClient::new());
+    for limit in [0, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32 + 1] {
+        let error = client.query_all(HashMap::new(), limit).await.unwrap_err();
+        assert!(matches!(error, ApiError::InvalidRequest("query limit")));
+        assert!(!error.is_retryable());
+    }
 }

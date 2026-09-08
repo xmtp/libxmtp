@@ -52,6 +52,9 @@ pub enum ApiError {
     /// A single-topic response still exceeds a backend limit. Not retryable.
     #[error("one envelope response exceeds a backend limit")]
     ResponseTooLarge,
+    /// The request has invalid input. Not retryable.
+    #[error("invalid backend request: {0}")]
+    InvalidRequest(&'static str),
     /// A response does not match the request. Not retryable.
     #[error("invalid backend response: {0}")]
     InvalidResponse(&'static str),

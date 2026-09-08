@@ -7,10 +7,7 @@ use std::{
     future::Future,
 };
 use tonic::Code;
-use xmtp_common::{
-    RetryableError,
-    time::{Instant, sleep},
-};
+use xmtp_common::{RetryableError, retry_async};
 use xmtp_configuration::*;
 use xmtp_proto::{
     api::grpc_status,
@@ -37,7 +34,7 @@ pub struct PublishUnit {
 impl PublishUnit {
     pub fn new(envelopes: Vec<wire::ClientEnvelope>) -> Result<Self> {
         if envelopes.is_empty() {
-            return Err(ApiError::InvalidResponse("empty publish unit"));
+            return Err(ApiError::InvalidRequest("empty publish unit"));
         }
         let envelopes = envelopes
             .into_iter()
@@ -54,7 +51,9 @@ impl PublishUnit {
             })
             .collect::<Result<Vec<_>>>()?;
         let unit = Self { envelopes };
-        if !fits(std::slice::from_ref(&unit)) {
+        let mut measure = PublishMeasure::default();
+        measure.add(&unit);
+        if !measure.fits() {
             return Err(ApiError::UnitTooLarge);
         }
         Ok(unit)
@@ -72,25 +71,44 @@ pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
             .collect(),
     }
 }
-fn fits(units: &[PublishUnit]) -> bool {
-    let topics: HashSet<_> = units
-        .iter()
-        .flat_map(|unit| unit.envelopes.iter().map(|e| &e.topic))
-        .collect();
-    topics.len() <= BACKEND_DEFAULT_MAX_PUBLISH_TOPICS
-        && request(units).encoded_len() <= BACKEND_DEFAULT_MAX_REQUEST_BYTES
+/// Measure repeated envelope fields without cloning or encoding the request.
+#[derive(Default)]
+struct PublishMeasure<'a> {
+    bytes: usize,
+    topics: HashSet<&'a Topic>,
+}
+impl<'a> PublishMeasure<'a> {
+    fn add(&mut self, unit: &'a PublishUnit) {
+        for envelope in &unit.envelopes {
+            let len = envelope.canonical.bytes.len();
+            self.bytes += 1 + prost::length_delimiter_len(len) + len;
+            self.topics.insert(&envelope.topic);
+        }
+    }
+
+    fn fits(&self) -> bool {
+        self.bytes <= BACKEND_DEFAULT_MAX_REQUEST_BYTES
+            && self.topics.len() <= BACKEND_DEFAULT_MAX_PUBLISH_TOPICS
+    }
 }
 
 pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
     let mut chunks = Vec::new();
     let mut start = 0;
-    for end in 0..units.len() {
-        if !fits(&units[start..=end]) {
+    let mut measure = PublishMeasure::default();
+    for (end, unit) in units.iter().enumerate() {
+        measure.add(unit);
+        if !measure.fits() {
             if start == end {
                 return Err(ApiError::UnitTooLarge);
             }
             chunks.push(&units[start..end]);
             start = end;
+            measure = PublishMeasure::default();
+            measure.add(unit);
+            if !measure.fits() {
+                return Err(ApiError::UnitTooLarge);
+            }
         }
     }
     if start < units.len() {
@@ -119,6 +137,23 @@ pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
     }
 }
 
+/// Size failures bypass backoff while the caller can reduce the request.
+#[derive(Debug, thiserror::Error)]
+enum CallError<E> {
+    #[error(transparent)]
+    Resize(E),
+    #[error(transparent)]
+    Retry(E),
+}
+impl<E: RetryableError> RetryableError for CallError<E> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Resize(_) => false,
+            Self::Retry(error) => error.is_retryable(),
+        }
+    }
+}
+
 impl<C> ApiClientWrapper<C> {
     pub(crate) async fn retry_call<T, E, F, Fut>(
         &self,
@@ -130,27 +165,21 @@ impl<C> ApiClientWrapper<C> {
         F: FnMut() -> Fut,
         Fut: Future<Output = std::result::Result<T, E>>,
     {
-        let started = Instant::now();
-        let mut attempts = 0;
-        loop {
-            match call().await {
-                Ok(value) => return Ok(value),
-                Err(error) => {
-                    if !error.is_retryable()
-                        || (resize && size_error(&error))
-                        || attempts >= self.retry_strategy.retries()
-                    {
-                        return Err(error);
+        retry_async!(
+            self.retry_strategy,
+            (async {
+                call().await.map_err(|error| {
+                    if resize && size_error(&error) {
+                        CallError::Resize(error)
+                    } else {
+                        CallError::Retry(error)
                     }
-                    let Some(delay) = self.retry_strategy.backoff(attempts, started) else {
-                        return Err(error);
-                    };
-                    attempts += 1;
-                    tracing::debug!(attempts, error = %error, "retry backend request");
-                    sleep(delay).await;
-                }
-            }
-        }
+                })
+            })
+        )
+        .map_err(|error| match error {
+            CallError::Resize(error) | CallError::Retry(error) => error,
+        })
     }
 }
 
@@ -180,7 +209,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         while let Some(units) = pending.pop_front() {
             let request = request(units);
             match self
-                .retry_call(|| self.api_client.publish(request.clone()), true)
+                .retry_call(|| self.api_client.publish(request.clone()), units.len() > 1)
                 .await
             {
                 Ok(response) => {
@@ -206,7 +235,6 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     pending.push_front(right);
                     pending.push_front(left);
                 }
-                Err(error) if size_error(&error) => return Err(ApiError::UnitTooLarge),
                 Err(error) => return Err(dyn_err(error)),
             }
         }
@@ -220,7 +248,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         limit: u32,
     ) -> Result<Vec<wire::ServerEnvelope>> {
         if limit == 0 || limit as usize > BACKEND_DEFAULT_MAX_QUERY_LIMIT {
-            return Err(ApiError::InvalidResponse("query limit"));
+            return Err(ApiError::InvalidRequest("query limit"));
         }
         let topics: Vec<_> = cursors.into_iter().collect();
         let results: Vec<Vec<_>> = stream::iter(
@@ -256,7 +284,10 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     limit,
                 };
                 match self
-                    .retry_call(|| self.api_client.query(request.clone()), true)
+                    .retry_call(
+                        || self.api_client.query(request.clone()),
+                        limit > 1 || topics.len() > 1,
+                    )
                     .await
                 {
                     Ok(response) => {
@@ -314,7 +345,6 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                         let right = topics.split_off(topics.len() / 2);
                         pending.push_front((right, limit));
                     }
-                    Err(error) if size_error(&error) => return Err(ApiError::ResponseTooLarge),
                     Err(error) => return Err(dyn_err(error)),
                 }
             }
@@ -366,7 +396,10 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 include_full_envelope: full,
             };
             match self
-                .retry_call(|| self.api_client.query_newest(request.clone()), true)
+                .retry_call(
+                    || self.api_client.query_newest(request.clone()),
+                    topics.len() > 1,
+                )
                 .await
             {
                 Ok(response) => {
@@ -401,10 +434,36 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     pending.push_front(right);
                     pending.push_front(left);
                 }
-                Err(error) if size_error(&error) => return Err(ApiError::ResponseTooLarge),
                 Err(error) => return Err(dyn_err(error)),
             }
         }
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xmtp_mls_validation::test_utils::{
+        GroupMessageKind, group_message_envelope, inline_welcome_envelope,
+    };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn running_publish_measure_matches_encoded_mixed_request() {
+        let units = [
+            PublishUnit::single(inline_welcome_envelope([1; 32]))?,
+            PublishUnit::new(vec![
+                group_message_envelope([2; 16], GroupMessageKind::Proposal, [0; 127]),
+                group_message_envelope([2; 16], GroupMessageKind::Commit, [0; 16384]),
+            ])?,
+            PublishUnit::single(inline_welcome_envelope([1; 32]))?,
+            PublishUnit::single(inline_welcome_envelope([3; 32]))?,
+        ];
+        let mut measure = PublishMeasure::default();
+        for (index, unit) in units.iter().enumerate() {
+            measure.add(unit);
+            assert_eq!(measure.bytes, request(&units[..=index]).encoded_len());
+        }
+        assert_eq!(measure.topics.len(), 3);
     }
 }
