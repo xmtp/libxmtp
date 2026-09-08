@@ -1,24 +1,5 @@
+use crate::{BackendClient, TrackedStatsClient};
 use std::sync::Arc;
-
-use xmtp_api_grpc::GrpcClient;
-use xmtp_proto::api::ApiClientError;
-
-use crate::{
-    D14nClient, MultiNodeClient, ReadWriteClient, V3Client,
-    protocol::{CursorStore, FullXmtpApiArc, NoCursorStore},
-};
-
-xmtp_common::if_v3! {
-    pub type ApiClient = crate::V3Client<GrpcClient, NoCursorStore>;
-}
-
-xmtp_common::if_d14n! {
-    pub type ApiClient = crate::D14nClient<ReadWriteClient<GrpcClient, GrpcClient>, NoCursorStore>;
-}
-
-pub type FullD14nClient =
-    D14nClient<ReadWriteClient<MultiNodeClient<GrpcClient>, GrpcClient>, Arc<dyn CursorStore>>;
-
-pub type FullV3Client = V3Client<GrpcClient, Arc<dyn CursorStore>>;
-
-pub type XmtpApiClient = FullXmtpApiArc<ApiClientError>;
+use xmtp_proto::api::ArcClient;
+pub type ApiClient = BackendClient<ArcClient>;
+pub type XmtpApiClient = Arc<TrackedStatsClient<ApiClient>>;

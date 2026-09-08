@@ -38,6 +38,8 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
+xmtp_mls_common.workspace = true
+xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 
 # Test Utils
@@ -46,6 +48,7 @@ mockall = { workspace = true, optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
 
 [dev-dependencies]
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 futures-test.workspace = true
 hex.workspace = true
 mockall.workspace = true
@@ -78,6 +81,4 @@ test-utils = [
   "dep:ctor",
   "dep:wasm-bindgen-test",
 ]
-v3 = []
-d14n = []
 dev = ["xmtp_configuration/dev", "xmtp_proto/dev"]

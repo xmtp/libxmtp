@@ -1,339 +1,178 @@
-use super::ApiClientWrapper;
-use crate::ApiError;
-use crate::Result;
-use futures::future::try_join_all;
+use crate::{
+    ApiClientWrapper, ApiError, PublishUnit, Result, chunk::MAX_READ_CHUNKS_IN_FLIGHT, dyn_err,
+};
+use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::HashMap;
-use xmtp_common::RetryableError;
-use xmtp_common::retry_async;
-use xmtp_proto::prelude::XmtpIdentityClient;
-use xmtp_proto::types::ApiIdentifier;
-use xmtp_proto::xmtp::identity::api::v1::{
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-    PublishIdentityUpdateRequest,
-    get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
-    get_identity_updates_response::IdentityUpdateLog,
-    get_inbox_ids_request::Request as GetInboxIdsRequestProto,
+use xmtp_configuration::{
+    BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
+    BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
 };
-use xmtp_proto::xmtp::identity::api::v1::{
-    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+use xmtp_proto::{
+    api::grpc_status,
+    api_client::XmtpBackendClient,
+    backend_v1 as wire,
+    types::{ApiIdentifier, Cursor, IdentityUpdateLog, Topic, TopicCursor},
+    xmtp::identity::associations::{IdentifierKind, IdentityUpdate},
 };
-use xmtp_proto::xmtp::identity::associations::{IdentifierKind, IdentityUpdate};
 
-const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
-
+/// Read updates after the exclusive sequence id on this inbox topic.
 #[derive(Debug)]
-/// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
     pub inbox_id: String,
     pub sequence_id: Option<u64>,
 }
 
-impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
-    fn from(filter: &GetIdentityUpdatesV2Filter) -> Self {
-        Self {
-            inbox_id: filter.inbox_id.clone(),
-            sequence_id: filter.sequence_id.unwrap_or(0),
-        }
-    }
-}
-
-/// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type IdentifierToInboxIdMap = HashMap<ApiIdentifier, String>;
-
-impl<ApiClient> ApiClientWrapper<ApiClient>
-where
-    ApiClient: XmtpIdentityClient,
-{
+impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     #[xmtp_common::rpc_span]
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(
         &self,
         update: U,
-    ) -> Result<Option<xmtp_proto::types::Cursor>> {
-        let update: IdentityUpdate = update.into();
-        let cursor = retry_async!(
-            self.retry_strategy,
-            (async {
-                self.api_client
-                    .publish_identity_update(PublishIdentityUpdateRequest {
-                        identity_update: Some(update.clone()),
-                    })
-                    .await
-            })
-        )
-        .map_err(crate::dyn_err)?;
-        Ok(cursor)
+    ) -> Result<Cursor> {
+        let unit = PublishUnit::single(wire::ClientEnvelope {
+            payload: Some(wire::client_envelope::Payload::IdentityUpdate(
+                update.into(),
+            )),
+        })?;
+        match self.publish_units(vec![unit]).await {
+            Ok(metas) => metas
+                .into_iter()
+                .next()
+                .and_then(|meta| meta.cursor)
+                .map(Into::into)
+                .ok_or(ApiError::InvalidResponse("identity publish cursor")),
+            Err(error)
+                if grpc_status(&error)
+                    .is_some_and(|status| status.code() == tonic::Code::Aborted) =>
+            {
+                Err(ApiError::IdentityUpdateConflict)
+            }
+            Err(error) => Err(error),
+        }
     }
-
     #[xmtp_common::rpc_span]
-    pub async fn get_identity_updates_v2<T>(
+    pub async fn get_identity_updates_v2(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
-    ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
-    where
-        T: TryFrom<IdentityUpdateLog>,
-        <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + 'static,
-    {
-        if filters.is_empty() {
-            return Ok(vec![].into_iter());
-        }
-        let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
-
-        let res = try_join_all(chunks.map(|chunk| async move {
-            let result = retry_async!(
-                self.retry_strategy,
-                (async {
-                    self.api_client
-                        .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                            requests: chunk.iter().map(|filter| filter.into()).collect(),
-                        })
-                        .await
+    ) -> Result<HashMap<String, Vec<IdentityUpdateLog>>> {
+        let mut cursors = TopicCursor::new();
+        let mut result = HashMap::new();
+        for filter in filters {
+            let bytes =
+                hex::decode(&filter.inbox_id).map_err(|_| ApiError::InvalidResponse("inbox id"))?;
+            let topic = Topic::new_identity_update(bytes);
+            Topic::parse(&topic)?;
+            cursors
+                .entry(topic)
+                .and_modify(|cursor| {
+                    *cursor = (*cursor).min(Cursor(filter.sequence_id.unwrap_or(0)))
                 })
-            )
-            .map_err(crate::dyn_err)?;
-            let result = result.responses.into_iter().map(|item| {
-                let deser_items = item
-                    .updates
-                    .into_iter()
-                    .map(move |update| update.try_into().map_err(crate::dyn_err))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok::<_, ApiError>((item.inbox_id, deser_items))
-            });
-            Ok::<_, ApiError>(result)
-        }))
-        .await?
-        .into_iter()
-        .flatten()
-        .collect::<Result<Vec<(String, Vec<T>)>>>()?
-        .into_iter();
-
-        Ok(res)
+                .or_insert(Cursor(filter.sequence_id.unwrap_or(0)));
+            result.entry(filter.inbox_id).or_insert_with(Vec::new);
+        }
+        for envelope in self
+            .query_all(cursors, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32)
+            .await?
+        {
+            let update = xmtp_api_d14n::envelope::decode_identity_update(envelope)?;
+            result
+                .get_mut(&update.update.inbox_id)
+                .ok_or(ApiError::InvalidResponse("unrequested inbox"))?
+                .push(update);
+        }
+        Ok(result)
     }
-
+    /// Return one optional inbox id for every input, in the same order.
     #[xmtp_common::rpc_span]
     pub async fn get_inbox_ids(
         &self,
-        account_identifiers: Vec<ApiIdentifier>,
-    ) -> Result<IdentifierToInboxIdMap> {
-        tracing::info!(
-            "Getting inbox_ids for account identities: {:?}",
-            &account_identifiers
-        );
-        let requests: Vec<_> = account_identifiers
-            .into_iter()
-            .map(|r| GetInboxIdsRequestProto {
-                identifier: r.identifier,
-                identifier_kind: r.identifier_kind as i32,
-            })
+        identifiers: Vec<ApiIdentifier>,
+    ) -> Result<Vec<Option<String>>> {
+        if identifiers
+            .iter()
+            .any(|id| id.identifier_kind == IdentifierKind::Unspecified)
+        {
+            return Err(ApiError::InvalidResponse("unspecified identifier kind"));
+        }
+        let requests: Vec<_> = identifiers
+            .chunks(BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS)
+            .map(<[_]>::to_vec)
             .collect();
-
-        let result = retry_async!(
-            self.retry_strategy,
-            (async {
-                self.api_client
-                    .get_inbox_ids(GetInboxIdsRequest {
-                        requests: requests.clone(),
-                    })
-                    .await
-            })
-        )
-        .map_err(crate::dyn_err)?;
-
-        Ok(result
-            .responses
-            .into_iter()
-            .filter_map(|resp| {
-                let kind = match resp.identifier_kind() {
-                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
-                    kind => kind,
+        let mut chunks: Vec<_> = stream::iter(requests.into_iter().enumerate().map(
+            |(index, chunk)| async move {
+                let request = wire::GetInboxIdsRequest {
+                    requests: chunk
+                        .iter()
+                        .map(|id| wire::get_inbox_ids_request::Request {
+                            identifier: id.identifier.clone(),
+                            identifier_kind: id.identifier_kind as i32,
+                        })
+                        .collect(),
                 };
-                Some((
-                    ApiIdentifier {
-                        identifier_kind: kind,
-                        identifier: resp.identifier,
-                    },
-                    resp.inbox_id?,
-                ))
-            })
-            .collect())
+                let response = self
+                    .retry_call(|| self.api_client.get_inbox_ids(request.clone()), false)
+                    .await
+                    .map_err(dyn_err)?;
+                if response.responses.len() != chunk.len() {
+                    return Err(ApiError::InvalidResponse("inbox result count"));
+                }
+                let mut values = Vec::with_capacity(chunk.len());
+                for (response, input) in response.responses.into_iter().zip(&chunk) {
+                    if IdentifierKind::try_from(response.identifier_kind)
+                        .ok()
+                        .filter(|kind| *kind != IdentifierKind::Unspecified)
+                        != Some(input.identifier_kind)
+                        || response.identifier != input.identifier
+                    {
+                        return Err(ApiError::InvalidResponse("inbox result identity"));
+                    }
+                    values.push(response.inbox_id);
+                }
+                Ok((index, values))
+            },
+        ))
+        .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
+        .try_collect()
+        .await?;
+        chunks.sort_by_key(|(index, _)| *index);
+        Ok(chunks.into_iter().flat_map(|(_, values)| values).collect())
     }
-
     #[xmtp_common::rpc_span]
     pub async fn verify_smart_contract_wallet_signatures(
         &self,
-        request: VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<VerifySmartContractWalletSignaturesResponse> {
-        retry_async!(
-            self.retry_strategy,
-            (async {
-                self.api_client
-                    .verify_smart_contract_wallet_signatures(request.clone())
+        request: wire::VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<wire::VerifySmartContractWalletSignaturesResponse> {
+        let requests: Vec<_> = request
+            .signatures
+            .chunks(BACKEND_DEFAULT_MAX_SCW_SIGNATURES)
+            .map(<[_]>::to_vec)
+            .collect();
+        let mut chunks: Vec<_> = stream::iter(requests.into_iter().enumerate().map(
+            |(index, chunk)| async move {
+                let request = wire::VerifySmartContractWalletSignaturesRequest {
+                    signatures: chunk.to_vec(),
+                };
+                let response = self
+                    .retry_call(
+                        || {
+                            self.api_client
+                                .verify_smart_contract_wallet_signatures(request.clone())
+                        },
+                        false,
+                    )
                     .await
-            })
-        )
-        .map_err(crate::dyn_err)
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::super::test_utils::*;
-    use super::GetIdentityUpdatesV2Filter;
-    use crate::{ApiClientWrapper, identity::ApiIdentifier};
-    use std::collections::HashMap;
-    use xmtp_api_d14n::MockApiClient;
-    use xmtp_common::rand_hexstring;
-    use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
-    use xmtp_proto::xmtp::identity::{
-        api::v1::{
-            GetIdentityUpdatesResponse, GetInboxIdsResponse,
-            get_identity_updates_response::{
-                IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
+                    .map_err(dyn_err)?;
+                if response.responses.len() != chunk.len() {
+                    return Err(ApiError::InvalidResponse("signature result count"));
+                }
+                Ok((index, response.responses))
             },
-            get_inbox_ids_response::Response as GetInboxIdsResponseItem,
-        },
-        associations::IdentifierKind,
-    };
-
-    fn create_identity_update(inbox_id: String) -> UnverifiedIdentityUpdate {
-        UnverifiedIdentityUpdate::new_test(
-            // TODO:nm Add default actions
-            vec![],
-            inbox_id,
-        )
-    }
-
-    #[xmtp_common::test]
-    async fn publish_identity_update() {
-        let mut mock_api = MockApiClient::new();
-        let inbox_id = rand_hexstring();
-        let identity_update = create_identity_update(inbox_id.clone());
-
-        mock_api
-            .expect_publish_identity_update()
-            .withf(move |req| req.identity_update.as_ref().unwrap().inbox_id.eq(&inbox_id))
-            .returning(move |_| Ok(None));
-
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
-        let result = wrapper.publish_identity_update(identity_update).await;
-
-        assert!(result.is_ok());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn publish_identity_update_wrapper_returns_option_cursor() {
-        use crate::Result;
-        use xmtp_proto::types::Cursor;
-
-        let mut mock_api = MockApiClient::new();
-        mock_api
-            .expect_publish_identity_update()
-            .returning(move |_| Ok(None));
-
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
-        let dummy_update = create_identity_update(rand_hexstring());
-        let result: Result<Option<Cursor>> = wrapper.publish_identity_update(dummy_update).await;
-        assert!(result.is_ok());
-    }
-
-    #[xmtp_common::test]
-    async fn get_identity_update_v2() {
-        pub struct InboxIdentityUpdate {
-            inbox_id: String,
-        }
-        impl TryFrom<IdentityUpdateLog> for InboxIdentityUpdate {
-            type Error = crate::ApiError;
-            fn try_from(v: IdentityUpdateLog) -> Result<InboxIdentityUpdate, Self::Error> {
-                Ok(InboxIdentityUpdate {
-                    inbox_id: v.update.unwrap().inbox_id,
-                })
-            }
-        }
-
-        let mut mock_api = MockApiClient::new();
-        let inbox_id = rand_hexstring();
-        let inbox_id_clone = inbox_id.clone();
-        let inbox_id_clone_2 = inbox_id.clone();
-        mock_api
-            .expect_get_identity_updates_v2()
-            .withf(move |req| req.requests.first().unwrap().inbox_id.eq(&inbox_id))
-            .returning(move |_| {
-                let identity_update = create_identity_update(inbox_id_clone.clone());
-                Ok(GetIdentityUpdatesResponse {
-                    responses: vec![GetIdentityUpdatesResponseItem {
-                        inbox_id: inbox_id_clone.clone(),
-                        updates: vec![IdentityUpdateLog {
-                            sequence_id: 1,
-                            server_timestamp_ns: 1,
-                            update: Some(identity_update.into()),
-                        }],
-                    }],
-                })
-            });
-
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
-        let result = wrapper
-            .get_identity_updates_v2(vec![GetIdentityUpdatesV2Filter {
-                inbox_id: inbox_id_clone_2.clone(),
-                sequence_id: None,
-            }])
-            .await
-            .expect("should work")
-            .collect::<HashMap<_, Vec<InboxIdentityUpdate>>>();
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result.get(&inbox_id_clone_2).unwrap().len(), 1);
-        assert_eq!(
-            result
-                .get(&inbox_id_clone_2)
-                .unwrap()
-                .first()
-                .unwrap()
-                .inbox_id,
-            inbox_id_clone_2
-        );
-    }
-
-    #[xmtp_common::test]
-    async fn get_inbox_ids() {
-        let mut mock_api = MockApiClient::new();
-        let inbox_id = rand_hexstring();
-        let inbox_id_clone = inbox_id.clone();
-        let inbox_id_clone_2 = inbox_id.clone();
-        let address = rand_hexstring();
-        let address_clone = address.clone();
-        let address_clone_2 = address.clone();
-
-        mock_api
-            .expect_get_inbox_ids()
-            .withf(move |req| req.requests.first().unwrap().identifier.eq(&address_clone))
-            .returning(move |_| {
-                Ok(GetInboxIdsResponse {
-                    responses: vec![GetInboxIdsResponseItem {
-                        identifier: address_clone_2.clone(),
-                        identifier_kind: IdentifierKind::Ethereum as i32,
-                        inbox_id: Some(inbox_id_clone.clone()),
-                    }],
-                })
-            });
-
-        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
-        let result = wrapper
-            .get_inbox_ids(vec![ApiIdentifier {
-                identifier: address.clone(),
-                identifier_kind: IdentifierKind::Ethereum,
-            }])
-            .await
-            .expect("should work");
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(
-            result
-                .get(&ApiIdentifier {
-                    identifier: address,
-                    identifier_kind: IdentifierKind::Ethereum
-                })
-                .unwrap(),
-            &inbox_id_clone_2
-        );
+        ))
+        .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
+        .try_collect()
+        .await?;
+        chunks.sort_by_key(|(index, _)| *index);
+        Ok(wire::VerifySmartContractWalletSignaturesResponse {
+            responses: chunks.into_iter().flat_map(|(_, values)| values).collect(),
+        })
     }
 }

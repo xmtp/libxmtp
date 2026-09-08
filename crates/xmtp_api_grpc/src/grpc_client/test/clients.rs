@@ -1,154 +1,26 @@
 use toxiproxy_rust::TOXIPROXY;
-use xmtp_configuration::{GrpcUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsToxic};
-use xmtp_proto::{
-    api_client::{ToxicProxies, ToxicTestClient, XmtpTestClient},
-    prelude::NetConnectConfig,
-};
-
+use xmtp_proto::{api_client::{ToxicProxies, ToxicTestClient, XmtpTestClient}, prelude::NetConnectConfig};
 use crate::{ClientBuilder, GrpcClient};
 
+use xmtp_configuration::{BACKEND_TEST_URL, BACKEND_TEST_TOXIC_URL};
 fn build_client(host: &str) -> ClientBuilder {
     let mut client = GrpcClient::builder();
-    client.set_host(host.parse().unwrap());
+    client.set_host(host.parse().expect("test backend URL is valid"));
     client
 }
-/// Client connected to the local/dev (feature flag) XmtpdClient
-pub struct XmtpdClient;
-impl XmtpTestClient for XmtpdClient {
+pub struct BackendTestClient;
+impl XmtpTestClient for BackendTestClient {
     type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrls::XMTPD)
-    }
+    fn create() -> Self::Builder { build_client(&std::env::var("XMTP_BACKEND_URL").unwrap_or_else(|_| BACKEND_TEST_URL.into())) }
 }
-
-/// Client connected to the local/dev (feature flag) Payer Gateway
-pub struct GatewayClient;
-impl XmtpTestClient for GatewayClient {
+pub struct ToxicBackendTestClient;
+impl XmtpTestClient for ToxicBackendTestClient {
     type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrls::GATEWAY)
-    }
+    fn create() -> Self::Builder { build_client(BACKEND_TEST_TOXIC_URL) }
 }
-
-/// A client connected to the local/dev (feature flag) Xmtp Node Go container
-pub struct NodeGoClient;
-impl XmtpTestClient for NodeGoClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrls::NODE)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct DevNodeGoClient;
-impl XmtpTestClient for DevNodeGoClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::NODE)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct DevGatewayClient;
-impl XmtpTestClient for DevGatewayClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::GATEWAY)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct DevXmtpdClient;
-impl XmtpTestClient for DevXmtpdClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::XMTPD)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct LocalXmtpdClient;
-impl XmtpTestClient for LocalXmtpdClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsLocal::XMTPD)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct LocalNodeGoClient;
-impl XmtpTestClient for LocalNodeGoClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsLocal::NODE)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct LocalGatewayClient;
-impl XmtpTestClient for LocalGatewayClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsLocal::GATEWAY)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct ToxicXmtpdClient;
-impl XmtpTestClient for ToxicXmtpdClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsToxic::XMTPD)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct ToxicNodeGoClient;
-impl XmtpTestClient for ToxicNodeGoClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsToxic::NODE)
-    }
-}
-
-/// Client connected to xmtp-node-go on the dev network
-pub struct ToxicGatewayClient;
-impl XmtpTestClient for ToxicGatewayClient {
-    type Builder = ClientBuilder;
-
-    fn create() -> Self::Builder {
-        build_client(GrpcUrlsToxic::GATEWAY)
-    }
-}
-
 #[xmtp_common::async_trait]
-impl ToxicTestClient for ToxicXmtpdClient {
+impl ToxicTestClient for ToxicBackendTestClient {
     async fn proxies() -> ToxicProxies {
-        ToxicProxies::new([TOXIPROXY.find_proxy("xmtpd").await.unwrap()])
-    }
-}
-
-#[xmtp_common::async_trait]
-impl ToxicTestClient for ToxicNodeGoClient {
-    async fn proxies() -> ToxicProxies {
-        ToxicProxies::new([TOXIPROXY.find_proxy("node-go").await.unwrap()])
-    }
-}
-
-#[xmtp_common::async_trait]
-impl ToxicTestClient for ToxicGatewayClient {
-    async fn proxies() -> ToxicProxies {
-        ToxicProxies::new([TOXIPROXY.find_proxy("gateway").await.unwrap()])
+        ToxicProxies::new([TOXIPROXY.find_proxy("backend").await.expect("backend proxy exists")])
     }
 }

@@ -62,7 +62,7 @@ pub enum GrpcError {
     /// gRPC status error.
     ///
     /// Retryability depends on the gRPC status code.
-    #[error(transparent)]
+    #[error("{0}")]
     Status(#[from] tonic::Status),
     /// Not found.
     ///
@@ -181,5 +181,22 @@ mod tests {
             let error = GrpcError::Status(Status::new(code, message));
             assert_eq!(error.is_retryable(), retryable, "{code:?}: {message}");
         }
+    }
+}
+
+#[cfg(test)]
+mod status_sources {
+    use super::GrpcError;
+    use xmtp_proto::api::{ApiClientError, grpc_status};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn typed_status_survives_client_error_wrappers() {
+        let error =
+            ApiClientError::client(GrpcError::Status(tonic::Status::aborted("unchanged text")));
+        assert_eq!(grpc_status(&error)?.code(), tonic::Code::Aborted);
+        let error = ApiClientError::other(GrpcError::Status(tonic::Status::out_of_range(
+            "unchanged text",
+        )));
+        assert_eq!(grpc_status(&error)?.code(), tonic::Code::OutOfRange);
     }
 }

@@ -1,19 +1,8 @@
-use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_proto::api::IsConnectedCheck;
-use xmtp_proto::prelude::ApiBuilder;
-
+/// Client shell retained for the bidi binding until that lane is merged.
 #[derive(Clone)]
 pub struct V3Client<C, Store> {
     pub(super) client: C,
-    pub(super) cursor_store: Store,
-}
-
-impl<C: std::fmt::Debug, Store> std::fmt::Debug for V3Client<C, Store> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("V3Client")
-            .field("client", &self.client)
-            .finish()
-    }
+    pub cursor_store: Store,
 }
 
 impl<C, Store> V3Client<C, Store> {
@@ -22,53 +11,5 @@ impl<C, Store> V3Client<C, Store> {
             client,
             cursor_store,
         }
-    }
-
-    pub fn client_mut(&mut self) -> &mut C {
-        &mut self.client
-    }
-}
-
-#[cfg_attr(any(test, feature = "test-utils"), derive(Clone))]
-pub struct V3ClientBuilder<Builder, Store> {
-    client: Builder,
-    store: Store,
-}
-
-impl<Builder, Store> V3ClientBuilder<Builder, Store> {
-    pub fn new(client: Builder, store: Store) -> Self {
-        Self { client, store }
-    }
-
-    pub fn cursor_store(&mut self, store: Store) -> &mut Self {
-        self.store = store;
-        self
-    }
-}
-
-impl<Builder, Store> ApiBuilder for V3ClientBuilder<Builder, Store>
-where
-    Builder: ApiBuilder,
-    Store: MaybeSend + MaybeSync,
-{
-    type Output = V3Client<<Builder as ApiBuilder>::Output, Store>;
-
-    type Error = <Builder as ApiBuilder>::Error;
-    fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(V3Client {
-            client: <Builder as ApiBuilder>::build(self.client)?,
-            cursor_store: self.store,
-        })
-    }
-}
-
-#[xmtp_common::async_trait]
-impl<C, Store> IsConnectedCheck for V3Client<C, Store>
-where
-    C: IsConnectedCheck,
-    Store: MaybeSend + MaybeSync,
-{
-    async fn is_connected(&self) -> bool {
-        self.client.is_connected().await
     }
 }

@@ -39,3 +39,6 @@ mod tests {
         assert_eq!(topic_kind as u8, expected_value);
     }
 }
+
+mod backend_records;
+pub use backend_records::*;

@@ -142,3 +142,8 @@ impl GrpcUrlsToxic {
     /// Url to ToxiProxy version of Anvil
     pub const ANVIL: &'static str = "http://localhost:6060";
 }
+
+/// Local backend URL for client tests.
+pub const BACKEND_TEST_URL: &str = "http://localhost:5050";
+/// Local backend proxy URL for fault tests.
+pub const BACKEND_TEST_TOXIC_URL: &str = "http://localhost:6030";

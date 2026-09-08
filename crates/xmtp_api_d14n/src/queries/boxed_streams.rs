@@ -1,159 +1,112 @@
-use crate::protocol::XmtpQuery;
-use std::pin::Pin;
-use xmtp_proto::api::HasStats;
-use xmtp_proto::api::IsConnectedCheck;
-use xmtp_proto::api_client::ApiStats;
-use xmtp_proto::api_client::IdentityStats;
-use xmtp_proto::api_client::XmtpMlsClient;
-use xmtp_proto::identity_v1;
-use xmtp_proto::mls_v1;
-use xmtp_proto::prelude::XmtpIdentityClient;
-use xmtp_proto::prelude::XmtpMlsStreams;
-use xmtp_proto::types::InstallationId;
-use xmtp_proto::types::TopicCursor;
-use xmtp_proto::types::WelcomeMessage;
-use xmtp_proto::types::{GroupId, GroupMessage};
-/// Wraps an ApiClient to allow turning
-/// a concretely-typed client into type-erased a [`BoxableXmtpApi`]
-/// allowing for the transformation into a type-erased Api Client
-#[derive(Clone)]
+use xmtp_proto::{
+    api_client::{XmtpBackendClient, XmtpMlsStreams},
+    backend_v1::*,
+    types::{GroupId, InstallationId, TopicCursor},
+};
+#[derive(Clone, Debug)]
 pub struct BoxedStreamsClient<C> {
     inner: C,
 }
-
 impl<C> BoxedStreamsClient<C> {
     pub fn new(inner: C) -> Self {
         Self { inner }
     }
-}
-
-#[xmtp_common::async_trait]
-impl<C> XmtpMlsClient for BoxedStreamsClient<C>
-where
-    C: XmtpMlsClient,
-{
-    type Error = <C as XmtpMlsClient>::Error;
-
-    async fn upload_key_package(
-        &self,
-        request: mls_v1::UploadKeyPackageRequest,
-    ) -> Result<(), Self::Error> {
-        self.inner.upload_key_package(request).await
-    }
-
-    async fn fetch_key_packages(
-        &self,
-        request: mls_v1::FetchKeyPackagesRequest,
-    ) -> Result<mls_v1::FetchKeyPackagesResponse, Self::Error> {
-        self.inner.fetch_key_packages(request).await
-    }
-
-    async fn send_group_messages(
-        &self,
-        request: mls_v1::SendGroupMessagesRequest,
-    ) -> Result<(), Self::Error> {
-        self.inner.send_group_messages(request).await
-    }
-
-    async fn send_welcome_messages(
-        &self,
-        request: mls_v1::SendWelcomeMessagesRequest,
-    ) -> Result<(), Self::Error> {
-        self.inner.send_welcome_messages(request).await
-    }
-    async fn query_group_messages(
-        &self,
-        group_id: GroupId,
-    ) -> Result<Vec<GroupMessage>, Self::Error> {
-        self.inner.query_group_messages(group_id).await
-    }
-
-    async fn query_latest_group_message(
-        &self,
-        group_id: GroupId,
-    ) -> Result<Option<GroupMessage>, Self::Error> {
-        self.inner.query_latest_group_message(group_id).await
-    }
-
-    async fn query_welcome_messages(
-        &self,
-        installation_key: InstallationId,
-    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
-        self.inner.query_welcome_messages(installation_key).await
-    }
-
-    async fn publish_commit_log(
-        &self,
-        request: mls_v1::BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
-        self.inner.publish_commit_log(request).await
-    }
-
-    async fn query_commit_log(
-        &self,
-        request: mls_v1::BatchQueryCommitLogRequest,
-    ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
-        self.inner.query_commit_log(request).await
-    }
-
-    async fn get_newest_group_message(
-        &self,
-        request: mls_v1::GetNewestGroupMessageRequest,
-    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessageMetadata>>, Self::Error> {
-        self.inner.get_newest_group_message(request).await
+    pub fn inner(&self) -> &C {
+        &self.inner
     }
 }
-
 #[xmtp_common::async_trait]
-impl<C> XmtpIdentityClient for BoxedStreamsClient<C>
-where
-    C: XmtpIdentityClient,
-{
-    type Error = <C as XmtpIdentityClient>::Error;
-
-    async fn publish_identity_update(
-        &self,
-        request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<Option<xmtp_proto::types::Cursor>, Self::Error> {
-        self.inner.publish_identity_update(request).await
+impl<C: XmtpBackendClient> XmtpBackendClient for BoxedStreamsClient<C> {
+    type Error = C::Error;
+    async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
+        self.inner.publish(request).await
     }
-
-    async fn get_identity_updates_v2(
-        &self,
-        request: identity_v1::GetIdentityUpdatesRequest,
-    ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
-        self.inner.get_identity_updates_v2(request).await
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
+        self.inner.query(request).await
     }
-
+    async fn query_newest(
+        &self,
+        request: QueryNewestRequest,
+    ) -> Result<QueryNewestResponse, Self::Error> {
+        self.inner.query_newest(request).await
+    }
+    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
+        self.inner.get(request).await
+    }
     async fn get_inbox_ids(
         &self,
-        request: identity_v1::GetInboxIdsRequest,
-    ) -> Result<identity_v1::GetInboxIdsResponse, Self::Error> {
+        request: GetInboxIdsRequest,
+    ) -> Result<GetInboxIdsResponse, Self::Error> {
         self.inner.get_inbox_ids(request).await
     }
-
     async fn verify_smart_contract_wallet_signatures(
         &self,
-        request: identity_v1::VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         self.inner
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
 }
-
+#[xmtp_common::async_trait]
+impl<C: XmtpMlsStreams> XmtpMlsStreams for BoxedStreamsClient<C>
+where
+    C::GroupMessageStream: 'static,
+    C::WelcomeMessageStream: 'static,
+{
+    type Error = C::Error;
+    type GroupMessageStream = xmtp_proto::api_client::BoxedGroupS<C::Error>;
+    type WelcomeMessageStream = xmtp_proto::api_client::BoxedWelcomeS<C::Error>;
+    async fn subscribe_group_messages(
+        &self,
+        groups: &[&GroupId],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        Ok(Box::pin(self.inner.subscribe_group_messages(groups).await?))
+    }
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups: &TopicCursor,
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        Ok(Box::pin(
+            self.inner
+                .subscribe_group_messages_with_cursors(groups)
+                .await?,
+        ))
+    }
+    async fn subscribe_welcome_messages(
+        &self,
+        installations: &[&InstallationId],
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
+        Ok(Box::pin(
+            self.inner.subscribe_welcome_messages(installations).await?,
+        ))
+    }
+    async fn subscribe_welcome_messages_with_cursors(
+        &self,
+        installations: &TopicCursor,
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
+        Ok(Box::pin(
+            self.inner
+                .subscribe_welcome_messages_with_cursors(installations)
+                .await?,
+        ))
+    }
+}
 xmtp_common::if_native! {
-    // Same erasure for the XIP-83 bidi stream (native-only, like the trait):
-    // pin the concrete subscribe stream behind `BoxedSubscribeS` so the
-    // boxed client can flow into `dyn` full-API objects.
+    use xmtp_proto::api_client::XmtpMlsBidiStreams;
+
+    // `XmtpMlsBidiStreams` is native-only, so this forward is gated like the
+    // trait. It carries no per-call stat (the bidi stream is opened once and
+    // mutated in place, not counted per RPC like the unary/stream calls above);
+    // it exists so the stats wrapper is bidi-capable, letting the standard
+    // feature-switched test client open a `BidiConnection`.
     #[xmtp_common::async_trait]
-    impl<C> xmtp_proto::api_client::XmtpMlsBidiStreams for BoxedStreamsClient<C>
+    impl<C> XmtpMlsBidiStreams for BoxedStreamsClient<C>
     where
-        C: xmtp_proto::api_client::XmtpMlsBidiStreams,
-        C::SubscribeStream: 'static,
+        C: XmtpMlsBidiStreams,
     {
-        type SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<Self::Error>;
-        type Error = <C as xmtp_proto::api_client::XmtpMlsBidiStreams>::Error;
+        type SubscribeStream = <C as XmtpMlsBidiStreams>::SubscribeStream;
+        type Error = <C as XmtpMlsBidiStreams>::Error;
 
         fn host(&self) -> &str {
             self.inner.host()
@@ -163,97 +116,29 @@ xmtp_common::if_native! {
             &self,
             requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
         ) -> Result<Self::SubscribeStream, Self::Error> {
-            let s = self.inner.subscribe_bidi(requests).await?;
-            Ok(Box::pin(s) as Pin<Box<_>>)
+
+            self.inner.subscribe_bidi(requests).await
         }
     }
 }
 
 #[xmtp_common::async_trait]
-impl<C> XmtpMlsStreams for BoxedStreamsClient<C>
-where
-    C: XmtpMlsStreams,
-    C::GroupMessageStream: 'static,
-    C::WelcomeMessageStream: 'static,
-{
-    type GroupMessageStream = xmtp_proto::api_client::BoxedGroupS<Self::Error>;
-    type WelcomeMessageStream = xmtp_proto::api_client::BoxedWelcomeS<Self::Error>;
-    type Error = <C as XmtpMlsStreams>::Error;
-
-    async fn subscribe_group_messages(
-        &self,
-        group_ids: &[&GroupId],
-    ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let s = self.inner.subscribe_group_messages(group_ids).await?;
-        Ok(Box::pin(s) as Pin<Box<_>>)
-    }
-
-    async fn subscribe_group_messages_with_cursors(
-        &self,
-        groups_with_cursors: &TopicCursor,
-    ) -> Result<Self::GroupMessageStream, Self::Error> {
-        let s = self
-            .inner
-            .subscribe_group_messages_with_cursors(groups_with_cursors)
-            .await?;
-        Ok(Box::pin(s) as Pin<Box<_>>)
-    }
-
-    async fn subscribe_welcome_messages(
-        &self,
-        installations: &[&InstallationId],
-    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        let s = self.inner.subscribe_welcome_messages(installations).await?;
-        Ok(Box::pin(s) as Pin<Box<_>>)
-    }
-}
-
-impl<C> HasStats for BoxedStreamsClient<C>
-where
-    C: HasStats,
-{
-    fn aggregate_stats(&self) -> xmtp_proto::api_client::AggregateStats {
-        self.inner.aggregate_stats()
-    }
-
-    fn mls_stats(&self) -> ApiStats {
-        self.inner.mls_stats()
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        self.inner.identity_stats()
-    }
-}
-
-#[xmtp_common::async_trait]
-impl<C> IsConnectedCheck for BoxedStreamsClient<C>
-where
-    C: IsConnectedCheck,
+impl<C: xmtp_proto::api::IsConnectedCheck> xmtp_proto::api::IsConnectedCheck
+    for BoxedStreamsClient<C>
 {
     async fn is_connected(&self) -> bool {
         self.inner.is_connected().await
     }
 }
 
-#[xmtp_common::async_trait]
-impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
-    type Error = <C as XmtpQuery>::Error;
-
-    fn is_d14n(&self) -> Result<bool, Self::Error> {
-        <C as XmtpQuery>::is_d14n(&self.inner)
+impl<C: xmtp_proto::api::HasStats> xmtp_proto::api::HasStats for BoxedStreamsClient<C> {
+    fn aggregate_stats(&self) -> xmtp_proto::api_client::AggregateStats {
+        self.inner.aggregate_stats()
     }
-
-    async fn query_at(
-        &self,
-        topic: xmtp_proto::types::Topic,
-        at: Option<xmtp_proto::types::GlobalCursor>,
-    ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
-        <C as XmtpQuery>::query_at(&self.inner, topic, at).await
+    fn mls_stats(&self) -> xmtp_proto::api_client::ApiStats {
+        self.inner.mls_stats()
     }
-
-    async fn get_node_clients(
-        &self,
-    ) -> Result<std::collections::HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
-        <C as XmtpQuery>::get_node_clients(&self.inner).await
+    fn identity_stats(&self) -> xmtp_proto::api_client::IdentityStats {
+        self.inner.identity_stats()
     }
 }

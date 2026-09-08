@@ -17,6 +17,10 @@ hex.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true
+tonic.workspace = true
+tonic-types.workspace = true
+xmtp_configuration.workspace = true
+xmtp_mls_validation.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
@@ -27,6 +31,9 @@ xmtp_proto.workspace = true
 
 # test utils
 [dev-dependencies]
+prost-types.workspace = true
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
+rstest.workspace = true
 chrono.workspace = true
 http = "1.4"
 tls_codec.workspace = true
@@ -46,12 +53,9 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 ctor.workspace = true
 
 [features]
-default = ["v3"]
 test-utils = [
   "xmtp_common/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
   "xmtp_api_d14n/test-utils",
 ]
-v3 = []
-d14n = []

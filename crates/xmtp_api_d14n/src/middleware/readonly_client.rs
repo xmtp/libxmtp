@@ -9,23 +9,14 @@ use prost::bytes::Bytes;
 use xmtp_proto::api::{ApiClientError, Client};
 use xmtp_proto::api::{BytesStream, IsConnectedCheck};
 
-const DENY: &[&str] = &[
-    "UploadKeyPackage",
-    "RevokeInstallation",
-    "BatchPublishCommitLog",
-    "SendWelcomeMessages",
-    "RegisterInstallation",
-    "PublishIdentityUpdate",
-    "PublishClientEnvelopes",
-    "PublishCommitLog",
-];
+const PUBLISH_PATH: &str = "/xmtp.backend.v1.PublishService/Publish";
 
 /// A client that will error on requests that write to the network.
 #[derive(Debug, Builder, Default, Clone)]
 #[builder(public)]
 pub struct ReadonlyClient<Client> {
     #[builder(public)]
-    pub(super) inner: Client,
+    pub(crate) inner: Client,
 }
 
 impl<C: Clone> ReadonlyClient<C> {
@@ -50,7 +41,7 @@ where
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError> {
         let p = path.path();
-        if DENY.iter().any(|d| p.contains(d)) {
+        if p == PUBLISH_PATH {
             return Err(ApiClientError::WritesDisabled);
         }
 
@@ -64,7 +55,7 @@ where
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let p = path.path();
-        if DENY.iter().any(|d| p.contains(d)) {
+        if p == PUBLISH_PATH {
             return Err(ApiClientError::WritesDisabled);
         }
 
@@ -78,7 +69,7 @@ where
         body: xmtp_common::BoxDynStream<'static, Bytes>,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let p = path.path();
-        if DENY.iter().any(|d| p.contains(d)) {
+        if p == PUBLISH_PATH {
             return Err(ApiClientError::WritesDisabled);
         }
 
@@ -121,7 +112,7 @@ xmtp_common::if_test! {
 
 #[cfg(test)]
 mod tests {
-    use crate::{d14n::GetInboxIds, v3::PublishIdentityUpdate};
+    use crate::backend::{GetInboxIds, Publish};
 
     use super::*;
     use rstest::*;
@@ -143,14 +134,14 @@ mod tests {
             .expect_request()
             .times(1)
             .returning(|_, _, _| Ok(http::Response::new(vec![].into())));
-        let mut e = GetInboxIds::builder().addresses(Vec::default()).build()?;
+        let mut e = GetInboxIds(Default::default());
         e.query(&ro).await?;
     }
 
     #[rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_errors_on_write(ro: MockClient) {
-        let mut e = PublishIdentityUpdate::builder().build()?;
+        let mut e = Publish(Default::default());
         let result = e.query(&ro).await;
         assert!(matches!(result, Err(ApiClientError::WritesDisabled)));
     }

@@ -11526,9 +11526,13 @@ dependencies = [
  "futures",
  "http 1.4.2",
  "prost",
+ "prost-types",
+ "rstest",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
  "tokio",
+ "tonic",
+ "tonic-types",
  "tracing",
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
@@ -11538,6 +11542,7 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
+ "xmtp_mls_validation",
  "xmtp_proto",
 ]
 
@@ -11580,6 +11585,8 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
+ "xmtp_mls_common",
+ "xmtp_mls_validation",
  "xmtp_proto",
 ]
 

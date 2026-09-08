@@ -121,7 +121,7 @@ impl RetryableError for ApiClientError {
             Client { source } => retryable!(*source),
             ClientWithEndpoint { source, .. } => retryable!(source),
             Body(e) => retryable!(e),
-            Http(_) => true,
+            Http(_) => false,
             DecodeError(_) => false,
             Conversion(_) => false,
             ProtoError(_) => false,
@@ -152,5 +152,21 @@ pub enum BodyError {
 impl RetryableError for BodyError {
     fn is_retryable(&self) -> bool {
         false
+    }
+}
+
+/// Find a typed gRPC status through transport and wrapper error sources.
+pub fn grpc_status<'a>(
+    mut error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a tonic::Status> {
+    loop {
+        if let Some(status) = error.downcast_ref::<tonic::Status>() {
+            return Some(status);
+        }
+        error = match error.downcast_ref::<ApiClientError>() {
+            Some(ApiClientError::Other(inner)) => inner.as_ref(),
+            Some(ApiClientError::OtherUnretryable(inner)) => inner.as_ref(),
+            _ => error.source()?,
+        };
     }
 }

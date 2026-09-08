@@ -23,6 +23,10 @@ pub struct GroupMessage {
     /// Payload hash of the message
     /// TODO: make payload hash constant array
     pub payload_hash: Vec<u8>,
+    #[builder(default)]
+    pub envelope_hash: Option<Vec<u8>>,
+    #[builder(default)]
+    pub expiry_ns: Option<u64>,
 }
 
 impl GroupMessage {
@@ -56,6 +60,8 @@ impl xmtp_common::Generate for GroupMessage {
             sender_hmac: xmtp_common::rand_vec::<2>(),
             should_push: true,
             payload_hash: xmtp_common::rand_vec::<32>(),
+            envelope_hash: None,
+            expiry_ns: None,
         }
     }
 }

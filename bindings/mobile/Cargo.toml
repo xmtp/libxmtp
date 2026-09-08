@@ -88,7 +88,6 @@ bench = [
   "dep:fdlimit",
   "dep:alloy",
 ]
-d14n = []
 dev = ["xmtp_configuration/dev", "xmtp_mls/dev"]
 
 [[bench]]

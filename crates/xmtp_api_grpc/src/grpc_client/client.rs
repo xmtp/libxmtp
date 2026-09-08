@@ -333,7 +333,7 @@ impl GrpcClient {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::grpc_client::test::DevNodeGoClient;
+    use crate::grpc_client::test::BackendTestClient;
     use prost::Message;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
@@ -342,7 +342,7 @@ pub mod tests {
 
     #[xmtp_common::test]
     async fn metadata_test() {
-        let mut client = DevNodeGoClient::create();
+        let mut client = BackendTestClient::create();
         let app_version = AppVersion::from("test/1.0.0");
         let libxmtp_version = "0.0.1".to_string();
         client.set_app_version(app_version.clone()).unwrap();
