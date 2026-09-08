@@ -3050,12 +3050,57 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn deref_purges_only_the_dropped_leases_unsent_updates() {
-        let mut outbox: Outbox<u32> = Outbox::default();
-        outbox.updates.extend([(1, 10), (2, 20), (3, 30), (4, 40)]);
-        let purged = outbox.purge(&HashSet::from([1, 4]));
-        assert_eq!(purged, vec![1, 4]);
-        let remaining: Vec<u32> = outbox.updates.iter().map(|(_, update)| *update).collect();
-        assert_eq!(remaining, vec![20, 30]);
+        let mut ledger = Ledger::<BackendBinding>::default();
+        let (a, _events_a) = mpsc::channel(8);
+        let (b, _events_b) = mpsc::channel(8);
+        let (g1, g3, g4) = (group_topic(b"g1"), group_topic(b"g3"), group_topic(b"g4"));
+        let alpha = ledger.register(&[(g1.clone(), 0), (g4.clone(), 0)], a);
+        let beta = ledger.register(&[(g3.clone(), 0)], b);
+        let mut outbox = Outbox::default();
+        outbox
+            .updates
+            .extend(ledger.prepare_adds(vec![(g1.clone(), 0)]));
+        outbox
+            .updates
+            .extend(ledger.prepare_removes(vec![group_topic(b"g2")]));
+        outbox.updates.extend(ledger.prepare_adds(vec![(g3, 0)]));
+        outbox
+            .updates
+            .extend(ledger.prepare_adds(vec![(g4.clone(), 0)]));
+        let (cmds, receiver) = mpsc::unbounded_channel();
+        let mut task = LedgerTask {
+            opener: Box::new(
+                |_| -> BoxDynFuture<'static, Result<Connection<BackendBinding>, OpenError>> {
+                    Box::pin(std::future::pending())
+                },
+            ),
+            cmds: receiver,
+            lease_cmds: cmds.downgrade(),
+            ledger,
+            conn: None,
+            reconnect_delay: RECONNECT_INITIAL_DELAY,
+            reconnect_at: tokio::time::Instant::now(),
+            wire_opened_at: None,
+            wire_span: None,
+            suspended: false,
+            wire_opens: 0,
+            resume_notify: vec![],
+            outbox,
+            deferred: std::collections::VecDeque::new(),
+        };
+        let removed: HashSet<_> = task.drop_leases(vec![alpha]).into_iter().collect();
+        assert_eq!(removed, HashSet::from([g1, g4]));
+        let remaining: Vec<_> = task.outbox.updates.iter().map(|(id, _)| *id).collect();
+        assert_eq!(remaining, vec![2, 3]);
+        assert_eq!(
+            task.ledger
+                .pending_updates
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            HashSet::from([2, 3])
+        );
+        assert!(task.ledger.leases.contains_key(&beta));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
