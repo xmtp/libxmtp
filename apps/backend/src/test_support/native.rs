@@ -1,7 +1,7 @@
 use crate::api::{
     self, subscribe_request::Request as Input, subscribe_response::Response as Frame,
 };
-use crate::test_support::{TestResult, TestServer};
+use crate::test_support::{RunningServer, TestResult};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Status, Streaming};
@@ -12,7 +12,7 @@ pub struct Native {
     pub output: Streaming<api::SubscribeResponse>,
 }
 impl Native {
-    pub async fn open(server: &TestServer) -> TestResult<Self> {
+    pub async fn open(server: &RunningServer) -> TestResult<Self> {
         let (input, receiver) = mpsc::channel(128);
         let output = api::subscription_service_client::SubscriptionServiceClient::new(
             server.channel.clone(),

@@ -8,6 +8,9 @@ use tonic::{Code, Request};
 use tonic_health::pb::{HealthCheckRequest, health_check_response, health_client::HealthClient};
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 
+#[path = "https_ingress.rs"]
+mod https_ingress;
+
 struct GrpcWebResponse {
     status: reqwest::StatusCode,
     headers: HeaderMap,
@@ -50,7 +53,7 @@ impl GrpcWebResponse {
     }
 }
 
-fn encode_frame(message: impl Message) -> Vec<u8> {
+pub(super) fn encode_frame(message: impl Message) -> Vec<u8> {
     let bytes = message.encode_to_vec();
     let mut frame = Vec::with_capacity(5 + bytes.len());
     frame.push(0);

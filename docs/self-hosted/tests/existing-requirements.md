@@ -49,6 +49,10 @@ Requirement IDs stay in documentation, not in Rust names or comments.
 | Physical replica lag, late gaps, startup visibility, and connection loss | `apps/backend/src/stream/tests/replica.rs` |
 | Coalesced boundary maintenance | `apps/backend/src/stream/tailer/tests.rs` |
 | Shared live payloads, catch-up notices, outbound reservations, and Ping handoff | Module-local tests in `apps/backend/src/stream/registry.rs` and `apps/backend/src/stream/output.rs` |
+| Static targets, static-only limits, one-way keepalive, and request-log correlation | `apps/backend/src/stream/tests/static.rs` |
+| Reconnect to an independent instance with safe cursors | `apps/backend/src/stream/tests/recovery.rs` |
+| Direct gRPC-Web streaming and HTTPS ingress | `apps/backend/src/server/tests/grpc_web.rs` and `apps/backend/src/server/tests/https_ingress.rs` |
+| Shutdown admission, unary drain, and flow-controlled connection termination | `apps/backend/src/server/tests/lifecycle.rs` and `apps/backend/src/server/tests/drain_io.rs` |
 
 The dedicated backend CI job runs these tests against PostgreSQL 18. The legacy
 SDK Nix test jobs exclude this package; they do not provide its test database.

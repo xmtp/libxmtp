@@ -1,7 +1,7 @@
 use super::{
     ENVELOPE_OVERHEAD, FETCH_TOPICS, OUTBOUND_FRAMES, StreamHub, fetch,
     keepalive::{Bucket, Challenge},
-    output::{Frame, NativeOutput, Reservation},
+    output::{Frame, Reservation, SessionOutput, WireResponse},
     registry::{LiveBatch, Mailbox},
 };
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
 use futures::{
     FutureExt, StreamExt,
     future::{BoxFuture, pending},
+    stream::BoxStream,
 };
 use prost::Message;
 use std::{
@@ -44,6 +45,7 @@ struct PendingFetch {
     page: BoxFuture<'static, Result<fetch::ResultPage, Status>>,
 }
 struct Session {
+    static_subscription: bool,
     request_id: uuid::Uuid,
     hub: Arc<StreamHub>,
     id: u64,
@@ -77,14 +79,59 @@ pub(crate) fn native(
     config: Arc<Config>,
     input: Streaming<api::SubscribeRequest>,
     request_id: uuid::Uuid,
-) -> Result<NativeOutput, Status> {
+) -> Result<impl futures::Stream<Item = Result<api::SubscribeResponse, Status>> + Send, Status> {
+    Ok(
+        start(hub, config, Box::pin(input), request_id, None)?.map(|result| {
+            result.and_then(|value| match value {
+                WireResponse::Native(value) => Ok(value),
+                _ => Err(Status::internal("native response mismatch")),
+            })
+        }),
+    )
+}
+
+/// Use the same ordered delivery owner with a fixed interest set. The unary
+/// request's end is not connected to the native half-close signal.
+pub(crate) fn static_subscription(
+    hub: Arc<StreamHub>,
+    config: Arc<Config>,
+    topics: Vec<api::TopicQuery>,
+    request_id: uuid::Uuid,
+) -> Result<impl futures::Stream<Item = Result<api::SubscribeStaticResponse, Status>> + Send, Status>
+{
+    if topics.is_empty() || topics.len() > config.limits.max_static_topics {
+        return Err(Status::invalid_argument("invalid static topic count"));
+    }
+    Ok(start(
+        hub,
+        config,
+        Box::pin(futures::stream::pending()),
+        request_id,
+        Some(topics),
+    )?
+    .map(|result| {
+        result.and_then(|value| match value {
+            WireResponse::Static(value) => Ok(value),
+            _ => Err(Status::internal("static response mismatch")),
+        })
+    }))
+}
+
+fn start(
+    hub: Arc<StreamHub>,
+    config: Arc<Config>,
+    input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
+    request_id: uuid::Uuid,
+    initial: Option<Vec<api::TopicQuery>>,
+) -> Result<SessionOutput, Status> {
     let mailbox = Arc::new(Mailbox {
         frame_bytes: DELIVERY_FRAME_BYTES.min(config.limits.max_response_bytes.saturating_add(5)),
         ..Default::default()
     });
     let id = hub.registry.connect(mailbox.clone())?;
     let (output, receiver) = mpsc::channel(OUTBOUND_FRAMES);
-    let session = Session {
+    let mut session = Session {
+        static_subscription: initial.is_some(),
         hub,
         id,
         request_id,
@@ -110,6 +157,13 @@ pub(crate) fn native(
         challenge: None,
         nonce: 0,
     };
+    if let Some(topics) = initial {
+        session.update(api::subscribe_request::Update {
+            id: 1,
+            adds: topics,
+            removes: Vec::new(),
+        })?;
+    }
     let terminal = mailbox.terminal.clone();
     let span = tracing::Span::current();
     let dispatch = tracing::dispatcher::get_default(Clone::clone);
@@ -122,18 +176,23 @@ pub(crate) fn native(
         .instrument(span)
         .with_subscriber(dispatch),
     );
-    Ok(NativeOutput::new(receiver, terminal, task))
+    Ok(SessionOutput::new(receiver, terminal, task))
 }
 
 impl Session {
     /// Serialize control, targets, history, live data, and timers in one owner.
     /// Target reads and history remain cancellable while input is processed.
-    async fn run(mut self, mut input: Streaming<api::SubscribeRequest>) -> Result<(), Status> {
-        self.control(api::subscribe_response::Response::Started(
-            api::subscribe_response::Started {
-                keepalive_interval_ms: self.config.streams.keepalive_interval_ms as u32,
-            },
-        ))?;
+    async fn run(
+        mut self,
+        mut input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
+    ) -> Result<(), Status> {
+        if !self.static_subscription {
+            self.control(api::subscribe_response::Response::Started(
+                api::subscribe_response::Started {
+                    keepalive_interval_ms: self.config.streams.keepalive_interval_ms as u32,
+                },
+            ))?;
+        }
         let mut pending_input = VecDeque::new();
         loop {
             if self.mailbox.terminal.closed() {
@@ -207,6 +266,9 @@ impl Session {
     }
 
     fn timer(&self) -> BoxFuture<'static, ()> {
+        if self.static_subscription && self.pending_update.is_some() {
+            return pending().boxed();
+        }
         let deadline = match &self.challenge {
             Some(challenge) => challenge.deadline,
             None => Some(
@@ -223,9 +285,16 @@ impl Session {
     /// Other frames remain ordered for later processing; inbound traffic is not activity.
     fn on_timer(
         &mut self,
-        input: &mut Streaming<api::SubscribeRequest>,
+        input: &mut BoxStream<'static, Result<api::SubscribeRequest, Status>>,
         pending_input: &mut VecDeque<api::SubscribeRequest>,
     ) -> Result<(), Status> {
+        if self.static_subscription {
+            return self.wire_control(WireResponse::Static(api::SubscribeStaticResponse {
+                response: Some(api::subscribe_static_response::Response::Keepalive(
+                    api::subscribe_static_response::Keepalive {},
+                )),
+            }));
+        }
         if self.challenge.is_some() {
             let mut bytes = 0;
             while let Some(frame) = input.next().now_or_never() {
@@ -262,7 +331,7 @@ impl Session {
             .budget
             .reserve(frame.encoded_len() + 5)
             .ok_or_else(capacity)?;
-        self.admit(frame, reservation, Some(sent))?;
+        self.admit(WireResponse::Native(frame), reservation, Some(sent))?;
         self.challenge = Some(Challenge {
             nonce: self.nonce,
             handed,
@@ -396,9 +465,13 @@ impl Session {
                 added_targets: targets,
             },
         ))?;
-        tracing::info!(request_id = %self.request_id, update_id = update.id,
-            added_topics = update.topics.len(), removed_topics = update.removed_topics,
-            "subscription interests updated");
+        if self.static_subscription {
+            tracing::info!(request_id = %self.request_id, added_topics = update.topics.len(),
+                removed_topics = update.removed_topics, "static subscription started");
+        } else {
+            tracing::info!(request_id = %self.request_id, update_id = update.id,
+                added_topics = update.topics.len(), removed_topics = update.removed_topics, "subscription interests updated");
+        }
         for (topic, head) in update.topics.into_iter().zip(heads) {
             if let Some(registration) = self.topics.get_mut(&topic) {
                 registration.needed = registration.needed.max(head);
@@ -416,7 +489,12 @@ impl Session {
         let limits = &self.config.limits;
         if update.id == 0
             || update.id <= self.update_id
-            || update.adds.len() > limits.max_update_adds
+            || update.adds.len()
+                > if self.static_subscription {
+                    limits.max_static_topics
+                } else {
+                    limits.max_update_adds
+                }
             || update.removes.len() > limits.max_update_removes
         {
             return Err(Status::invalid_argument("invalid update id or item count"));
@@ -445,7 +523,13 @@ impl Session {
             }
             total -= usize::from(self.topics.contains_key(&topic.topic));
         }
-        if total > limits.max_stream_topics {
+        if total
+            > if self.static_subscription {
+                limits.max_static_topics
+            } else {
+                limits.max_stream_topics
+            }
+        {
             return Err(Status::invalid_argument("stream topic limit exceeded"));
         }
         Ok(adds)
@@ -641,10 +725,18 @@ impl Session {
         envelopes: Vec<api::ServerEnvelope>,
         reservation: Reservation,
     ) -> Result<(), Status> {
-        let value = api::SubscribeResponse {
-            response: Some(api::subscribe_response::Response::Messages(
-                api::subscribe_response::Messages { envelopes },
-            )),
+        let value = if self.static_subscription {
+            WireResponse::Static(api::SubscribeStaticResponse {
+                response: Some(api::subscribe_static_response::Response::Messages(
+                    api::subscribe_static_response::Messages { envelopes },
+                )),
+            })
+        } else {
+            WireResponse::Native(api::SubscribeResponse {
+                response: Some(api::subscribe_response::Response::Messages(
+                    api::subscribe_response::Messages { envelopes },
+                )),
+            })
         };
         if value.encoded_len() + 5 > self.mailbox.frame_bytes {
             return Err(capacity());
@@ -653,9 +745,27 @@ impl Session {
     }
 
     fn control(&mut self, response: api::subscribe_response::Response) -> Result<(), Status> {
-        let value = api::SubscribeResponse {
-            response: Some(response),
+        let value = if self.static_subscription {
+            let api::subscribe_response::Response::Applied(applied) = response else {
+                return Err(Status::internal("static control mismatch"));
+            };
+            WireResponse::Static(api::SubscribeStaticResponse {
+                response: Some(api::subscribe_static_response::Response::Started(
+                    api::subscribe_static_response::Started {
+                        keepalive_interval_ms: self.config.streams.keepalive_interval_ms as u32,
+                        targets: applied.added_targets,
+                    },
+                )),
+            })
+        } else {
+            WireResponse::Native(api::SubscribeResponse {
+                response: Some(response),
+            })
         };
+        self.wire_control(value)
+    }
+
+    fn wire_control(&mut self, value: WireResponse) -> Result<(), Status> {
         let bytes = value.encoded_len() + 5;
         if value.encoded_len() > self.config.limits.max_response_bytes {
             return Err(capacity());
@@ -668,7 +778,7 @@ impl Session {
     /// frame while allowing the caller to advance its delivery floor.
     fn admit(
         &mut self,
-        value: api::SubscribeResponse,
+        value: WireResponse,
         mut reservation: Reservation,
         challenge: Option<tokio::sync::oneshot::Sender<Instant>>,
     ) -> Result<(), Status> {

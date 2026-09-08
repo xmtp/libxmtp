@@ -11,13 +11,14 @@ use crate::{
 use std::{collections::HashMap, num::NonZeroUsize};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::transport::Server;
+use tonic::{server::NamedService, transport::Server};
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{AllowHeaders, Any, CorsLayer};
 use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
 
+mod lifecycle;
 pub(crate) mod request_logger;
 #[cfg(test)]
 mod tests;
@@ -76,19 +77,7 @@ pub async fn serve(
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     let (reporter, health) = tonic_health::server::health_reporter();
-    reporter.set_serving::<QueryServiceServer<Backend>>().await;
-    reporter
-        .set_serving::<PublishServiceServer<Backend>>()
-        .await;
-    reporter
-        .set_serving::<IdentityServiceServer<Backend>>()
-        .await;
-    reporter
-        .set_serving::<SubscriptionServiceServer<Backend>>()
-        .await;
-    reporter
-        .set_service_status("", tonic_health::ServingStatus::Serving)
-        .await;
+    report_health(&reporter, tonic_health::ServingStatus::Serving).await;
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -99,14 +88,17 @@ pub async fn serve(
             "grpc-status-details-bin".parse().expect("static header"),
             "x-request-id".parse().expect("static header"),
         ]);
-    let streams = backend.streams.clone();
-    let shutdown = async move {
-        shutdown.await;
-        if let Some(streams) = streams {
-            streams.stop();
-        }
+    use futures::StreamExt;
+    let lifecycle = lifecycle::Lifecycle::new();
+    let guard = lifecycle::ShutdownGuard {
+        lifecycle: lifecycle.clone(),
+        streams: backend.streams.clone(),
     };
-    Server::builder()
+    let incoming_lifecycle = lifecycle.clone();
+    let incoming = TcpListenerStream::new(listener)
+        .map(move |socket| socket.map(|socket| incoming_lifecycle.connection(socket)));
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let serving = Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
         .layer(cors)
@@ -114,11 +106,44 @@ pub async fn serve(
             backend.config.server.request_logger,
         ))
         .layer(GrpcWebLayer::new())
+        .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .add_service(health)
         .add_service(query)
         .add_service(publish)
         .add_service(identity)
         .add_service(subscription)
-        .serve_with_incoming_shutdown(TcpListenerStream::new(listener), shutdown)
-        .await
+        .serve_with_incoming_shutdown(incoming, async {
+            let _ = stopped.await;
+        });
+    tokio::pin!(serving);
+    tokio::select! {
+        result = &mut serving => result,
+        _ = shutdown => {
+            guard.stop();
+            report_health(&reporter, tonic_health::ServingStatus::NotServing).await;
+            let _ = stop.send(());
+            let drain = xmtp_common::time::Duration::from_millis(backend.config.server.max_drain_duration_ms);
+            match xmtp_common::time::timeout(drain, &mut serving).await {
+                Ok(result) => result,
+                Err(_) => { lifecycle.cancel(); Ok(()) },
+            }
+        }
+    }
+}
+
+/// Keep aggregate health and each advertised RPC service in the same lifecycle
+/// state. Named health watchers must see shutdown before connections drain.
+async fn report_health(
+    reporter: &tonic_health::server::HealthReporter,
+    status: tonic_health::ServingStatus,
+) {
+    for service in [
+        "",
+        QueryServiceServer::<Backend>::NAME,
+        PublishServiceServer::<Backend>::NAME,
+        IdentityServiceServer::<Backend>::NAME,
+        SubscriptionServiceServer::<Backend>::NAME,
+    ] {
+        reporter.set_service_status(service, status).await;
+    }
 }

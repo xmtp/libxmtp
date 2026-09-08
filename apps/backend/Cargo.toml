@@ -50,11 +50,17 @@ xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 [dev-dependencies]
 alloy-primitives.workspace = true
 async-trait.workspace = true
+h2 = "0.4"
 http.workspace = true
 http-body-util.workspace = true
 jsonschema = { version = "0.55", default-features = false }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
 reqwest.workspace = true
+rustls.workspace = true
 tokio.workspace = true
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "ring",
+] }
 tonic-prost = "0.14"
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
