@@ -159,28 +159,48 @@ impl Session {
             let timer = self.timer();
             let mailbox = self.mailbox.clone();
             tokio::select! {
+                // Recheck cancellation and terminal errors on the next turn.
                 _ = mailbox.terminal.wake.notified() => {},
+                // Process the next client request, or close on end of stream.
                 frame = input.next() => match frame {
                     Some(frame) => self.input(frame?)?,
                     None => return Ok(()),
                 },
-                heads = async { match &mut self.pending_update { Some(update) => (&mut update.heads).await, None => pending().await } } => {
+                // Queue the update acknowledgement before scheduling its history.
+                heads = async {
+                    match &mut self.pending_update {
+                        Some(update) => (&mut update.heads).await,
+                        None => pending().await,
+                    }
+                } => {
                     self.applied(heads?)?;
                 },
-                page = async { match &mut self.fetching { Some(fetch) => (&mut fetch.page).await, None => pending().await } } => {
+                // Admit a history page, rejecting stale registration generations.
+                page = async {
+                    match &mut self.fetching {
+                        Some(fetch) => (&mut fetch.page).await,
+                        None => pending().await,
+                    }
+                } => {
                     self.fetching = None;
                     self.fetched(page?)?;
                 },
-                handed = async { match &mut self.challenge {
-                    Some(challenge) if challenge.deadline.is_none() => (&mut challenge.handed).await.ok(),
-                    _ => pending().await,
-                }} => {
+                // Start the Pong deadline after the challenge is handed off.
+                handed = async {
+                    match &mut self.challenge {
+                        Some(challenge) if challenge.deadline.is_none() => (&mut challenge.handed).await.ok(),
+                        _ => pending().await,
+                    }
+                } => {
                     if let (Some(sent), Some(challenge)) = (handed, &mut self.challenge) {
                         challenge.start_deadline(sent, Duration::from_millis(self.config.streams.max_pong_wait_ms))?;
                     }
                 },
+                // Process new tailer notices and live payloads on the next turn.
                 _ = mailbox.wake.notified() => {},
+                // Resume fetching when outbound frames release capacity.
                 _ = mailbox.budget.wake.notified() => {},
+                // Send an idle keepalive or check the outstanding Pong deadline.
                 _ = timer => self.on_timer(&mut input, &mut pending_input)?,
             }
         }
