@@ -11,13 +11,18 @@ services:
     volumes: ["../../../../dev/backend/local.toml:/config.toml:ro"]
     command: ["--config", "/config.toml"]
     ports: ["5050:5050"]
+    healthcheck:
+      test: ["CMD", "/bin/grpc-health-probe", "-addr=127.0.0.1:5050"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
   anvil:            # chain for the backend's SCW verification and for the existing SCW tests
     image: ghcr.io/foundry-rs/foundry
     entrypoint: ["anvil", "--host", "0.0.0.0", "--base-fee", "100"]
     ports: ["8545:8545"]
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.12.0
-    depends_on: [backend]
+    depends_on: { backend: { condition: service_healthy } }
     ports: ["8474:8474", "6010:6010"]
     volumes: ["../../../../dev/docker/toxiproxy/config.json:/etc/toxiproxy/config.json:ro"]
     entrypoint: ["/toxiproxy"]

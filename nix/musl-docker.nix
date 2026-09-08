@@ -23,7 +23,10 @@
           name = "ghcr.io/xmtp/backend";
           tag = "self-hosted";
           inherit architecture;
-          contents = [ pkgs.cacert ];
+          contents = [
+            pkgs.cacert
+            crossPkgs.${target}.grpc-health-probe
+          ];
           config.Entrypoint = [ "${self'.packages.${"xmtp-backend-${target}"}}/bin/xmtp-backend" ];
         };
 
