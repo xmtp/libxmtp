@@ -17,13 +17,23 @@ fn unknown_device_sync_content_is_ignored() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_preference_sync() {
-    tester!(alix1, sync_worker);
+    tester!(alix1, stream, sync_worker);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
     tester!(alix2, from: alix1);
     alix1.test_has_same_sync_group_as(&alix2).await?;
+
+    // The TaskRunner adds alix2 to alix1's existing DM. Poll while alix2
+    // syncs welcomes because both the membership commit and welcome delivery
+    // are asynchronous.
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2.sync_welcomes().await;
+        alix2.group(&dm.group_id).ok().map(|_| ())
+    })
+    .await
+    .expect("alix2 must receive the DM via the TaskRunner membership add");
 
     alix1
         .worker()
