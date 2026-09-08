@@ -66,9 +66,8 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::Instrument;
 
-use xmtp_api_d14n::v3::{V3ProtoGroupMessage, V3ProtoWelcomeMessage};
 use xmtp_api_d14n::{
-    BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, TopicLease, TransportError, V3Binding,
+    BackendBinding, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, TopicLease, TransportError,
 };
 use xmtp_common::task::JoinSet;
 use xmtp_db::consent_record::ConsentState;
@@ -76,8 +75,8 @@ use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
 use xmtp_db::refresh_state::EntityKind;
-use xmtp_proto::mls_v1;
-use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, InstallationId, SequenceId, Topic};
+use xmtp_proto::backend_v1;
+use xmtp_proto::types::{Cursor, GroupId, InstallationId, SequenceId, Topic};
 
 use xmtp_db::group::GroupQueryArgs;
 
@@ -184,7 +183,7 @@ where
 {
     /// Create a router over `transport`. The transport decides where the wire
     /// goes; this router only assumes its own client's topics live there.
-    pub fn new(context: Context, transport: BidiTransport<V3Binding>) -> Self {
+    pub fn new(context: Context, transport: BidiTransport<BackendBinding>) -> Self {
         let (cmds, cmds_rx) = mpsc::unbounded_channel();
         let (ends_tx, ends_rx) = mpsc::unbounded_channel();
         let task = RouterTask {
@@ -309,7 +308,7 @@ where
 /// `CatchUpComplete` closes exactly the topics that lease added (a stream
 /// that grows mid-flight has one lease per addition, each with its own
 /// window). The seen-set is shared across open windows — exact identity is
-/// safe across groups, a `(sequence_id, originator)` pair names one
+/// safe across groups, a sequence id names one
 /// message globally — and drops when the last window closes.
 struct StreamDedup {
     /// Topics still inside their catch-up window.
@@ -386,7 +385,7 @@ struct ConsumerHandle {
 
 struct RouterTask<Context> {
     context: Context,
-    transport: BidiTransport<V3Binding>,
+    transport: BidiTransport<BackendBinding>,
     consumers: HashMap<u64, ConsumerHandle>,
     next_id: u64,
     ends: mpsc::UnboundedSender<u64>,
@@ -676,7 +675,7 @@ where
 /// replayed and delivered.
 pub(crate) struct GroupSeeds {
     /// Per-topic durable resume points: the lease's cursored adds.
-    pub(crate) floors: HashMap<Topic, GlobalCursor>,
+    pub(crate) floors: HashMap<Topic, Cursor>,
     /// The window's exact-identity seen-set: the stored identities above
     /// their groups' durable cursors.
     pub(crate) seen: HashSet<Cursor>,
@@ -689,7 +688,7 @@ impl GroupSeeds {
     pub(crate) fn subs(&self) -> Vec<(Topic, SequenceId)> {
         self.floors
             .iter()
-            .map(|(topic, floor)| (topic.clone(), floor.max()))
+            .map(|(topic, floor)| (topic.clone(), floor.0))
             .collect()
     }
 }
@@ -709,8 +708,7 @@ pub(crate) fn seed_groups(
         let floor = seeds.get(group_id.as_slice()).cloned().unwrap_or_default();
         floors.insert(Topic::new_group_message(*group_id), floor);
     }
-    // Exact identity is safe to pool across groups: a (sequence_id,
-    // originator) pair names one message globally.
+    // Exact identity is safe to pool across groups: a sequence id names one message globally.
     let seen = stored.into_iter().map(|(_, cursor)| cursor).collect();
     Ok(GroupSeeds { floors, seen })
 }
@@ -726,7 +724,7 @@ pub(crate) fn welcome_seed(
         .get(installation.as_slice())
         .cloned()
         .unwrap_or_default()
-        .v3_welcome())
+        .0)
 }
 
 /// The welcome cursors that already became groups, above the stream's
@@ -741,7 +739,7 @@ pub(crate) fn known_welcomes_above(
     Ok(db
         .group_cursors()?
         .into_iter()
-        .filter(|cursor| cursor.sequence_id > floor)
+        .filter(|cursor| cursor.0 > floor)
         .collect())
 }
 
@@ -771,11 +769,15 @@ struct LeaseSet {
 }
 
 type LeaseFeed = std::pin::Pin<
-    Box<dyn futures::Stream<Item = (Arc<[Topic]>, Option<LeaseEvent<V3Binding>>)> + Send + 'static>,
+    Box<
+        dyn futures::Stream<Item = (Arc<[Topic]>, Option<LeaseEvent<BackendBinding>>)>
+            + Send
+            + 'static,
+    >,
 >;
 
 impl LeaseSet {
-    fn new(lease: TopicLease<V3Binding>) -> Self {
+    fn new(lease: TopicLease<BackendBinding>) -> Self {
         let mut set = Self {
             feeds: futures::stream::SelectAll::new(),
         };
@@ -783,7 +785,7 @@ impl LeaseSet {
         set
     }
 
-    fn push(&mut self, lease: TopicLease<V3Binding>) {
+    fn push(&mut self, lease: TopicLease<BackendBinding>) {
         // Captured once at push: the topics this lease's `CatchUpComplete`
         // closes. The lease lives inside its feed; a `None` event marks its
         // death.
@@ -807,7 +809,7 @@ impl LeaseSet {
     /// means a lease closed — the wire died or the transport dropped this
     /// consumer — and the stream ends (recovery is a re-subscribe from
     /// durable cursors, same as before).
-    async fn next(&mut self) -> Option<(Arc<[Topic]>, LeaseEvent<V3Binding>)> {
+    async fn next(&mut self) -> Option<(Arc<[Topic]>, LeaseEvent<BackendBinding>)> {
         use futures::StreamExt;
         match self.feeds.next().await? {
             (topics, Some(event)) => Some((topics, event)),
@@ -879,6 +881,7 @@ pub(crate) struct WelcomeIntake<Context> {
     /// Arrivals past the cap, in arrival order; capped at
     /// [`MAX_WELCOME_BACKLOG`].
     backlog: VecDeque<WelcomeOrGroup>,
+    pub(crate) decode_failures: u64,
 }
 
 impl<Context> WelcomeIntake<Context>
@@ -902,23 +905,23 @@ where
             consent_states,
             tasks: JoinSet::new(),
             backlog: VecDeque::new(),
+            decode_failures: 0,
         }
     }
 
     /// Wire welcomes: decode, drop the already-processed, queue the rest.
     /// Returns `false` when the backlog overflowed (the stream must end).
-    pub(crate) fn absorb_batch(&mut self, batch: Vec<mls_v1::WelcomeMessage>) -> bool {
+    pub(crate) fn absorb_batch(&mut self, batch: Vec<backend_v1::ServerEnvelope>) -> bool {
         for proto in batch {
-            let typed = match xmtp_proto::types::WelcomeMessage::try_from(
-                V3ProtoWelcomeMessage::from(proto),
-            ) {
+            let typed = match xmtp_api_d14n::envelope::decode_welcome_message(proto) {
                 Ok(typed) => typed,
                 Err(e) => {
+                    self.decode_failures += 1;
                     tracing::warn!("stream router: skipping undecodable welcome: {e}");
                     continue;
                 }
             };
-            if typed.cursor.sequence_id <= self.floor {
+            if typed.cursor.0 <= self.floor {
                 // At-or-below the durable cursor: already processed, whether
                 // or not it became a group — a below-floor replay must not
                 // re-run the pipeline (see `floor`).
@@ -1034,11 +1037,8 @@ where
         }
     }
 
-    /// Test-only seam: park a task that dies by panic, for the
-    /// panic-surfacing regression on [`Self::next_outcome`]. Gated like its
-    /// only caller (`stream_router_tests`): under `d14n` those tests are
-    /// compiled out and this would be dead code.
-    #[cfg(all(test, not(feature = "d14n")))]
+    /// Spawn a task that panics to test error reporting in `next_outcome`.
+    #[cfg(test)]
     pub(crate) fn spawn_panicking_task(&mut self) {
         self.tasks.spawn(async { panic!("boom") });
     }
@@ -1076,7 +1076,7 @@ enum ReflexWake<Context> {
 /// completion. Sync-group traffic belongs to the device-sync worker, and
 /// only the subscribe-time interception set carries it there.
 struct Reflex<Context> {
-    transport: BidiTransport<V3Binding>,
+    transport: BidiTransport<BackendBinding>,
     /// Locally-created groups — no welcome will ever arrive for these, so
     /// they grow the stream through the same add-path as welcomes.
     local_events: broadcast::Receiver<LocalEvents>,
@@ -1155,7 +1155,7 @@ where
     async fn drive(&mut self, kill: &mut oneshot::Receiver<()>) -> &'static str {
         loop {
             enum Wake<Context> {
-                Lease(Arc<[Topic]>, LeaseEvent<V3Binding>),
+                Lease(Arc<[Topic]>, LeaseEvent<BackendBinding>),
                 Reflex(ReflexWake<Context>),
             }
             let wake = tokio::select! {
@@ -1197,9 +1197,6 @@ where
                         windows_open = self.dedup.syncing.len(),
                         "stream router: message stream caught up"
                     );
-                }
-                Wake::Lease(_, LeaseEvent::TopicsLive(topics)) => {
-                    tracing::debug!(?topics, "stream router: topics live");
                 }
                 Wake::Lease(_, LeaseEvent::WelcomeMessages(batch)) => match self.reflex.as_mut() {
                     Some(reflex) => {
@@ -1356,20 +1353,19 @@ where
     /// Returns `false` when the stream must end (its `RouterStream` is gone).
     async fn deliver_batch(
         &mut self,
-        batch: Vec<mls_v1::GroupMessage>,
+        batch: Vec<backend_v1::ServerEnvelope>,
         kill: &mut oneshot::Receiver<()>,
     ) -> bool {
         let batch_started = std::time::Instant::now();
         let batch_size = batch.len();
         for proto in batch {
-            let typed =
-                match xmtp_proto::types::GroupMessage::try_from(V3ProtoGroupMessage::from(proto)) {
-                    Ok(typed) => typed,
-                    Err(e) => {
-                        tracing::warn!("stream router: skipping undecodable group message: {e}");
-                        continue;
-                    }
-                };
+            let typed = match xmtp_api_d14n::envelope::decode_group_message(proto) {
+                Ok(typed) => typed,
+                Err(e) => {
+                    tracing::warn!("stream router: skipping undecodable group message: {e}");
+                    continue;
+                }
+            };
             let topic = Topic::new_group_message(typed.group_id);
             let cursor = typed.cursor;
             if !self.tracked.contains(&topic) {
@@ -1415,10 +1411,7 @@ where
                             // envelope needs no hold: its envelope already
                             // passed (strictly increasing per topic), so
                             // one would never be consumed.
-                            let identity = Cursor::new(
-                                message.sequence_id as u64,
-                                message.originator_id as u32,
-                            );
+                            let identity = Cursor(message.sequence_id as u64);
                             if identity > cursor {
                                 self.dedup.record_surfaced_ahead(identity);
                             }
@@ -1475,7 +1468,7 @@ where
 /// records its welcome cursor, so the wire replay of that welcome does not
 /// surface the conversation a second time.
 struct WelcomeConsumer<Context> {
-    lease: TopicLease<V3Binding>,
+    lease: TopicLease<BackendBinding>,
     tx: mpsc::Sender<Result<MlsGroup<Context>>>,
     local_events: broadcast::Receiver<LocalEvents>,
     intake: WelcomeIntake<Context>,
@@ -1502,7 +1495,7 @@ where
     async fn drive(&mut self, kill: &mut oneshot::Receiver<()>) -> &'static str {
         loop {
             enum Wake<Context> {
-                Lease(LeaseEvent<V3Binding>),
+                Lease(LeaseEvent<BackendBinding>),
                 Local(LocalWake),
                 Outcome(Result<WelcomeOutcome<Context>>),
             }
@@ -1538,7 +1531,6 @@ where
                     // Exact-identity dedup needs no window; nothing to flip.
                     tracing::debug!("stream router: conversation stream caught up");
                 }
-                Wake::Lease(LeaseEvent::TopicsLive(_)) => {}
                 Wake::Lease(LeaseEvent::GroupMessages(_)) => {
                     tracing::warn!("stream router: group delivery on a welcome lease");
                 }
@@ -1593,15 +1585,15 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn window_dedups_by_stored_identity_only() {
         let topic = Topic::new_group_message([7u8; 16]);
-        let stored = Cursor::new(60, 0u32);
+        let stored = Cursor(60);
         let mut dedup =
             StreamDedup::syncing(HashSet::from([topic.clone()]), HashSet::from([stored]));
 
         // The stored identity is skipped; the gap below it still delivers
         // (6 and 8 stored, 7 missed: 7 must come through the replay).
         assert!(dedup.suppress(&topic, &stored));
-        assert!(!dedup.suppress(&topic, &Cursor::new(51, 0u32)));
-        assert!(!dedup.suppress(&topic, &Cursor::new(100, 0u32)));
+        assert!(!dedup.suppress(&topic, &Cursor(51)));
+        assert!(!dedup.suppress(&topic, &Cursor(100)));
 
         // Window closed: even the stored identity is no longer checked —
         // the wire will not repeat it.
@@ -1617,18 +1609,18 @@ mod tests {
         let early = Topic::new_group_message([1u8; 16]);
         let late = Topic::new_group_message([2u8; 16]);
         let mut dedup = StreamDedup::syncing(HashSet::from([early.clone()]), HashSet::new());
-        dedup.open_window([late.clone()], [Cursor::new(60, 0u32)]);
+        dedup.open_window([late.clone()], [Cursor(60)]);
 
         // Closing the early topic stops its checks...
         dedup.complete(std::slice::from_ref(&early));
-        assert!(!dedup.suppress(&early, &Cursor::new(60, 0u32)));
+        assert!(!dedup.suppress(&early, &Cursor(60)));
         // ...while the late topic still dedups by the shared seen-set.
-        assert!(dedup.suppress(&late, &Cursor::new(60, 0u32)));
-        assert!(!dedup.suppress(&late, &Cursor::new(61, 0u32)));
+        assert!(dedup.suppress(&late, &Cursor(60)));
+        assert!(!dedup.suppress(&late, &Cursor(61)));
 
         // The last window closing drops the seen-set.
         dedup.complete(std::slice::from_ref(&late));
-        assert!(!dedup.suppress(&late, &Cursor::new(60, 0u32)));
+        assert!(!dedup.suppress(&late, &Cursor(60)));
     }
 
     /// The recovery-sync fallback can deliver a message whose cursor differs
@@ -1642,7 +1634,7 @@ mod tests {
         let mut dedup = StreamDedup::syncing(HashSet::from([topic.clone()]), HashSet::new());
 
         // Envelope 10 errors mid-window; recovery surfaces stored message 11.
-        dedup.record_surfaced_ahead(Cursor::new(11, 0u32));
+        dedup.record_surfaced_ahead(Cursor(11));
 
         // The window closes before 11's own envelope arrives.
         dedup.complete(std::slice::from_ref(&topic));
@@ -1652,10 +1644,10 @@ mod tests {
         // identity is a genuinely new message... which cannot happen for
         // the same cursor, but the consume keeps the set self-cleaning.
         assert!(
-            dedup.suppress(&topic, &Cursor::new(11, 0u32)),
+            dedup.suppress(&topic, &Cursor(11)),
             "the surfaced-ahead identity's own envelope must not deliver it twice"
         );
-        assert!(!dedup.suppress(&topic, &Cursor::new(11, 0u32)));
+        assert!(!dedup.suppress(&topic, &Cursor(11)));
     }
 
     /// A growth lease's window folds its stored identities into the shared
@@ -1665,8 +1657,8 @@ mod tests {
     async fn growth_lease_folds_stored_identities_into_open_windows() {
         let early = Topic::new_group_message([1u8; 16]);
         let late = Topic::new_group_message([2u8; 16]);
-        let early_stored = Cursor::new(50, 0u32);
-        let late_stored = Cursor::new(60, 0u32);
+        let early_stored = Cursor(50);
+        let late_stored = Cursor(60);
         let mut dedup = StreamDedup::syncing(
             HashSet::from([early.clone()]),
             HashSet::from([early_stored]),
@@ -1680,6 +1672,6 @@ mod tests {
         // The seen-set is shared: identities are globally unique, so the
         // cross-topic check is safe (and cheap) rather than wrong.
         assert!(dedup.suppress(&late, &early_stored));
-        assert!(!dedup.suppress(&late, &Cursor::new(61, 0u32)));
+        assert!(!dedup.suppress(&late, &Cursor(61)));
     }
 }

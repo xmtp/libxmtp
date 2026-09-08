@@ -70,6 +70,8 @@ pub struct ProcessedMessage {
     pub group_id: GroupId,
     pub next_message: Cursor,
     pub tried_to_process: Cursor,
+    /// Failures reported by the recovery sync.
+    pub failed: u64,
 }
 
 impl<Context> ProcessMessageFuture<Context>
@@ -100,7 +102,7 @@ where
 /// Dedup (skipping already-seen cursors) and cursor bookkeeping are intentionally
 /// **not** handled here — they are the caller's responsibility, because different
 /// consumers track them differently. The live [`super::stream_messages`] stream uses
-/// a per-stream `GroupList`; the XIP-83 bidi multiplexing manager keeps central
+/// a per-stream `GroupList`; the backend bidi transport keeps central
 /// per-topic high-water marks plus per-subscriber in-flight cursors. This seam is
 /// only the decode half (DB fast-path, then decrypt/store + recovery-sync), so both
 /// consumers decode identically.
@@ -116,6 +118,8 @@ pub struct Processed {
     pub next_cursor: Cursor,
     /// The cursor of the envelope we attempted to process (for tracking/logging).
     pub tried: Cursor,
+    /// Failures reported while processing this envelope or its recovery batch.
+    pub failed: u64,
 }
 
 /// The result of [`prepare`]: the synchronous pre-step of the pipeline. Either the
@@ -159,13 +163,14 @@ pub(crate) fn finish(processed: ProcessedMessage) -> Processed {
         group_id: processed.group_id,
         next_cursor: processed.next_message,
         tried: processed.tried_to_process,
+        failed: processed.failed,
     }
 }
 
 /// Run a single raw group message through the shared processing pipeline.
 ///
 /// 1. **Fast path:** if the message is already stored locally (e.g. a replayed
-///    envelope after a cursor'd re-add — see XIP-83 client integration), return it
+///    envelope after a cursor'd re-add — see the backend client integration), return it
 ///    without decrypting.
 /// 2. Otherwise run the full decrypt/store pipeline (which may trigger a recovery
 ///    sync for out-of-order / commit-dependent messages) and surface whatever it
@@ -189,6 +194,7 @@ pub async fn process_one<'a>(
             group_id,
             next_cursor: cursor,
             tried: cursor,
+            failed: 0,
         }),
         Prepared::NeedsProcessing(msg) => Ok(finish(factory.create(msg).await?)),
     }
@@ -231,11 +237,11 @@ mod tests {
         let current_message = generate_message(current_message, &GroupId::generate());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        let oid = current_message.originator_id();
+
         mock_db
             .expect_last_cursor()
             .times(1)
-            .returning(move |_| Ok(Cursor::new(3, oid).into()));
+            .returning(move |_| Ok(Cursor(3)));
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -272,12 +278,12 @@ mod tests {
             generate_message(*success.first().unwrap_or(&55), &GroupId::generate());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        let oid = current_message.originator_id();
+
         // the last cursor is
         mock_db
             .expect_last_cursor()
             .times(1)
-            .returning(move |_| Ok(Cursor::new(50, oid).into()));
+            .returning(move |_| Ok(Cursor(50)));
         // `lookup_stored_from_sync` may probe other successful cursors in the batch after the
         // primary lookup returns `None`.
         mock_db.expect_msg().times(1..).returning(|_, _| Ok(None));
@@ -297,10 +303,7 @@ mod tests {
         let processed = MessageProcessor::new(mock_syncer, mock_db)
             .process(current_message)
             .await;
-        assert_eq!(
-            processed.unwrap().next_message,
-            Cursor::v3_messages(expected)
-        );
+        assert_eq!(processed.unwrap().next_message, Cursor(expected));
     }
 
     /// Regression test for missed stream messages after a valid error.
@@ -321,8 +324,8 @@ mod tests {
 
         let gid = GroupId::generate();
         let stream_msg = generate_message(10, &gid);
-        let oid = stream_msg.originator_id();
-        let stored_11 = generate_stored_msg(Cursor::new(11, oid), gid);
+
+        let stored_11 = generate_stored_msg(Cursor(11), gid);
 
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
@@ -331,7 +334,7 @@ mod tests {
         mock_db
             .expect_last_cursor()
             .times(1)
-            .returning(move |_| Ok(Cursor::new(5, oid).into()));
+            .returning(move |_| Ok(Cursor(5)));
 
         // Primary probe (id = None for cursor 10) misses; fallback probe for cursor 11 hits.
         let stored_for_mock = stored_11.clone();
@@ -340,7 +343,7 @@ mod tests {
             .times(1..=2)
             .returning(move |id, _| match id {
                 None => Ok(None),
-                Some(i) if i.cursor.sequence_id == 11 => Ok(Some(stored_for_mock.clone())),
+                Some(i) if i.cursor.0 == 11 => Ok(Some(stored_for_mock.clone())),
                 Some(other) => panic!("unexpected probe for cursor {:?}", other.cursor),
             });
 
@@ -361,23 +364,23 @@ mod tests {
 
         // Without the fallback: message would be None and next_message would be 12.
         assert!(processed.message.is_some());
-        assert_eq!(processed.next_message, Cursor::new(11, oid));
+        assert_eq!(processed.next_message, Cursor(11));
         assert_eq!(processed.tried_to_process, stream_msg.cursor);
     }
 
     #[rstest]
     #[case(None)]
-    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_proto::types::GroupId::ZERO)))]
+    #[case(Some(generate_stored_msg(Cursor(55), xmtp_proto::types::GroupId::ZERO)))]
     #[xmtp_common::test]
     pub async fn test_cursor_no_sync(#[case] message: Option<StoredGroupMessage>) {
         let current_message = generate_message(55, &xmtp_proto::types::GroupId::ZERO);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        let oid = current_message.originator_id();
+
         mock_db
             .expect_last_cursor()
             .times(1)
-            .returning(move |_| Ok(Cursor::new(100, oid).into()));
+            .returning(move |_| Ok(Cursor(100)));
         let mocked_m = message.clone();
         mock_db
             .expect_msg()
@@ -386,10 +389,7 @@ mod tests {
         let processed = MessageProcessor::new(mock_syncer, mock_db)
             .process(current_message)
             .await;
-        assert_eq!(
-            processed.as_ref().unwrap().next_message,
-            Cursor::v3_messages(55)
-        );
+        assert_eq!(processed.as_ref().unwrap().next_message, Cursor(55));
         if message.is_some() {
             assert!(processed.unwrap().message.is_some())
         }
@@ -417,6 +417,7 @@ mod tests {
                 "process_one called create() on a DB fast-path hit"
             );
             let processed = ProcessedMessage {
+                failed: 0,
                 message: self.create_message.clone(),
                 group_id: self.create_group,
                 next_message: self.create_next,
@@ -440,13 +441,13 @@ mod tests {
         use xmtp_common::Generate as _;
         let gid = GroupId::generate();
         let msg = generate_message(55, &gid);
-        let oid = msg.originator_id();
+
         let factory = StubFactory {
-            retrieve: Some(generate_stored_msg(Cursor::new(55, oid), gid)),
+            retrieve: Some(generate_stored_msg(Cursor(55), gid)),
             create_message: None,
             create_group: gid,
-            create_next: Cursor::new(0, oid),
-            create_tried: Cursor::new(0, oid),
+            create_next: Cursor(0),
+            create_tried: Cursor(0),
             allow_create: false,
         };
         let processed = process_one(&factory, msg.clone()).await?;
@@ -463,8 +464,8 @@ mod tests {
         use xmtp_common::Generate as _;
         let gid = GroupId::generate();
         let msg = generate_message(10, &gid);
-        let oid = msg.originator_id();
-        let next = Cursor::new(11, oid);
+
+        let next = Cursor(11);
         let factory = StubFactory {
             retrieve: None,
             create_message: Some(generate_stored_msg(next, gid)),

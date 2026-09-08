@@ -1,11 +1,12 @@
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
+use futures::{Stream, StreamExt};
 use process_welcome::ProcessWelcomeFuture;
+use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
-use xmtp_api_d14n::stream;
-use xmtp_proto::types::{GroupId, WelcomeMessage};
+use xmtp_api_d14n::envelope::decode_welcome_message;
+use xmtp_proto::backend_v1::ServerEnvelope;
+use xmtp_proto::types::GroupId;
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -15,19 +16,16 @@ use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-// Live integration tests for the XIP-83 bidi connection (native-only —
-// full-duplex HTTP/2 is unavailable on the wasm gRPC-Web transport). They run
-// against the v3 wire types, so they are gated on the backend feature switch.
-#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+// Live backend tests require native full-duplex HTTP/2.
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod bidi_tests;
 // Randomized delivery fuzz over the live node (same gating as `bidi_tests`).
-#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod bidi_fuzz_tests;
 // One-shot bounded catch-up over the bidi wire (native-only, like the
 // connection it rides).
 #[cfg(not(target_arch = "wasm32"))]
 pub mod catch_up;
-pub(crate) mod d14n_compat;
 pub mod process_message;
 pub mod process_welcome;
 mod stream_all;
@@ -39,15 +37,12 @@ pub mod stream_messages;
 pub mod stream_router;
 // Live integration tests for the router (v3 wire; same gating rationale as
 // `bidi_tests` above).
-#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod stream_router_tests;
-// Callback adapters over the router: the process-shared transport, the
-// `XMTP_BIDI_STREAMS_ENABLED` gate with its unsupported-backend latch, and
-// the dispatch entry points the bindings call (native-only, like the
-// router).
+// Native callback adapters over the shared backend transport.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
-#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "d14n")))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod router_callbacks_tests;
 pub(crate) mod watchdog;
 
@@ -61,7 +56,6 @@ use crate::{
     context::XmtpSharedContext,
     groups::{GroupError, MlsGroup, mls_sync::GroupMessageProcessingError},
     messages::decoded_message::DecodedMessage,
-    subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
 use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
@@ -274,9 +268,9 @@ pub enum SubscribeError {
     Conversion(#[from] xmtp_proto::ConversionError),
     /// Envelope error.
     ///
-    /// Decentralized API envelope error. May be retryable.
+    /// Invalid backend envelope. Not retryable.
     #[error(transparent)]
-    Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+    Envelope(#[from] xmtp_api_d14n::envelope::EnvelopeError),
     /// Enriched Message Error.
     #[error("error occured during subscription {0}")]
     Enriched(#[from] EnrichMessageError),
@@ -386,29 +380,8 @@ where
     ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
         let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?);
-        let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
-        let welcomes: Vec<_> = match welcome {
-            V3OrD14n::D14n(envelope) => {
-                let messages = vec![envelope];
-                stream::try_extractor::<_, WelcomeMessageExtractor>(future_stream::once(
-                    future::ready(Ok::<_, EnvelopeError>(messages)),
-                ))
-                .try_collect()
-                .now_or_never()
-                .expect("stream has no pending operations, created with one item")
-            }
-            V3OrD14n::V3(message) => {
-                let s: Vec<WelcomeMessage> = stream::try_extractor::<_, V3WelcomeMessageExtractor>(
-                    future_stream::iter(vec![Ok::<_, EnvelopeError>(vec![message])]),
-                )
-                .try_collect::<Vec<WelcomeMessage>>()
-                .now_or_never()
-                .expect("stream must not fail because it is statically created with one item")?
-                .into_iter()
-                .collect();
-                Ok(s)
-            }
-        }?;
+        let welcome = decode_welcome_message(ServerEnvelope::decode(envelope_bytes.as_slice())?)?;
+        let welcomes = vec![welcome];
 
         let mut out = Vec::with_capacity(welcomes.len());
         for welcome in welcomes {
@@ -710,7 +683,6 @@ pub enum StreamKind {
 pub(crate) mod tests {
     use crate::context::XmtpSharedContext;
     use crate::tester;
-    use xmtp_api_d14n::protocol::XmtpQuery;
 
     /// A macro for asserting that a stream yields a specific decrypted message.
     ///
@@ -756,105 +728,30 @@ pub(crate) mod tests {
         };
     }
 
-    #[cfg(not(feature = "d14n"))]
     #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
-    async fn test_process_streamed_welcome_message_v3() {
+    async fn test_process_streamed_welcome_message() {
         use prost::Message;
-
+        use xmtp_proto::types::{Cursor, Topic};
         tester!(alix);
         tester!(bo);
-
-        // Alix creates a group and adds Bo
         let alix_group = alix.create_group(None, None)?;
         alix_group.add_members(&[bo.inbox_id()]).await?;
-
-        // Query the welcome message envelope using query_at
-        let envelope = alix
+        let envelopes = alix
             .context
             .api()
-            .query_at(
-                xmtp_proto::types::TopicKind::WelcomeMessagesV1
-                    .create(bo.context.installation_id()),
-                None,
+            .query_all(
+                [(
+                    Topic::new_welcome_message(bo.context.installation_id()),
+                    Cursor(0),
+                )]
+                .into(),
+                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
             )
             .await?;
-
-        // Get the welcome messages and encode the first one as V3 protobuf
-        let welcomes = envelope.welcome_messages()?;
-        assert!(!welcomes.is_empty(), "Should have at least one welcome");
-
-        let welcome = &welcomes[0];
-        let v1 = welcome.as_v1().expect("Should be a V1 welcome");
-
-        // Manually construct the protobuf welcome message from V1 fields
-        let mut envelope_bytes = Vec::new();
-        let proto_welcome = xmtp_proto::xmtp::mls::api::v1::WelcomeMessage {
-            version: Some(
-                xmtp_proto::xmtp::mls::api::v1::welcome_message::Version::V1(
-                    xmtp_proto::xmtp::mls::api::v1::welcome_message::V1 {
-                        id: welcome.sequence_id(),
-                        created_ns: welcome.timestamp() as u64,
-                        installation_key: v1.installation_key.to_vec(),
-                        data: v1.data.clone(),
-                        hpke_public_key: v1.hpke_public_key.clone(),
-                        wrapper_algorithm: v1.wrapper_algorithm as i32,
-                        welcome_metadata: v1.welcome_metadata.clone(),
-                    },
-                ),
-            ),
-        };
-        proto_welcome.encode(&mut envelope_bytes)?;
-
-        // Process the streamed welcome message
-        let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
-
-        assert_eq!(groups.len(), 1, "Should have exactly one group");
-    }
-
-    #[cfg(feature = "d14n")]
-    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
-    async fn test_process_streamed_welcome_message_d14n() {
-        use prost::Message;
-        use xmtp_api_d14n::protocol::extractors::test_utils::TestEnvelopeBuilder;
-        use xmtp_proto::types::TopicKind;
-
-        tester!(alix);
-        tester!(bo);
-
-        // Alix creates a group and adds Bo
-        let alix_group = alix.create_group(None, None)?;
-        alix_group.add_members(&[bo.inbox_id()]).await?;
-
-        // Query the welcome envelope using query_at for D14n format
-        let envelope = alix
-            .context
-            .api()
-            .query_at(
-                TopicKind::WelcomeMessagesV1.create(bo.context.installation_id()),
-                None,
-            )
+        assert!(!envelopes.is_empty(), "Should have at least one welcome");
+        let groups = bo
+            .process_streamed_welcome_message(envelopes[0].encode_to_vec())
             .await?;
-
-        let client_env = envelope
-            .client_envelopes()?
-            .into_iter()
-            .next()
-            .expect("expected at least one welcome envelope");
-        let cursor = envelope
-            .cursors()?
-            .into_iter()
-            .next()
-            .expect("expected at least one welcome cursor");
-        let envelope_bytes = TestEnvelopeBuilder::new()
-            .with_cursor(cursor)
-            .with_originator_ns(1_000_000)
-            .with_client_envelope(client_env)
-            .build()
-            .encode_to_vec();
-
-        // Process the streamed welcome message
-        let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
-
         assert_eq!(groups.len(), 1, "Should have exactly one group");
     }
 }

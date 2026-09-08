@@ -1,88 +1,27 @@
-//! One-shot bounded catch-up over the XIP-83 bidi wire.
+//! Bounded catch-up on a dedicated backend subscription.
 //!
-//! [`Client::catch_up_to_live`] brings the local store current with the
-//! server — every pending welcome joined, every leased-topic message replayed
-//! and processed — and then stops, leaving nothing running. XIP-83 bounded
-//! sync: one `Subscribe` stream carrying a `history_only` Mutate for every
-//! topic this client owns (each from its durable cursor) — chunked to the
-//! shared per-`Mutate` frame limit, so a large account opens with a bounded
-//! first frame and the rest follow as their own waves — a half-close once
-//! everything owed has arrived, and a server-side close in reply. The shape
-//! for "sync me, then let the process sleep" callers — an agent priming
-//! before it serves, a mobile background fetch — where a live stream would be
-//! wasted.
-//!
-//! ## Its own wire, not the shared transport
-//!
-//! The process-shared [`BidiTransport`](xmtp_api_d14n::BidiTransport) is a
-//! live-delivery machine: its ledger assumes every wave crosses to live
-//! delivery, keeps wire positions for reconnects, and holds the wire open for
-//! its leases. A `history_only` wave never registers for live delivery, so it
-//! has no place in that bookkeeping — and a bounded run has no reconnect
-//! state worth keeping. Each call opens its own [`BidiConnection`], which
-//! also means a concurrently-running live stream is untouched: both paths
-//! store through the same pipeline, whose DB fast-path makes double delivery
-//! a cheap lookup, and each keeps its own delivery dedup. For the same
-//! reason this call deliberately ignores the stream-suspend intent (the
-//! app-lifecycle suspend/resume pair): a backgrounded app calling it IS the
-//! background fetch, and the bounded wire closes when the run does.
-//!
-//! ## The discovery loop
-//!
-//! Welcomes can join groups whose own history is then owed too. Processing a
-//! welcome that becomes a group issues a follow-up `history_only` Mutate for
-//! that group's topic on the same stream (joins run their own group sync, so
-//! the follow-up wave usually replays nothing — it exists to close the gap
-//! between the join's sync and this run's live edge). The half-close waits
-//! until no wave is outstanding and no welcome is still processing, so
-//! chained discoveries extend the run instead of escaping it.
-//!
-//! Two things deliberately do NOT extend the run: groups created locally
-//! mid-run (their creator already holds their state; nothing is owed from
-//! the server) and messages published after a topic's wave was frozen (the
-//! next call — or a live stream — picks them up; "live" here means the
-//! server's freeze point per wave).
-//!
-//! ## Durable cursors
-//!
-//! Group messages are processed exactly as the streaming pipeline does —
-//! stored without advancing the durable message cursor — so a failed message
-//! is never skipped past and a later query-path sync retries it. The cost is
-//! symmetric too: a repeat call re-requests the tail since the last durable
-//! advance and drops the already-stored copies at the seed's seen-set.
-//! Welcomes are the same on this path: they are processed with the cursor
-//! increment OFF (`process_new_welcome(.., false, ..)`), so the streamed and
-//! catch-up arms do NOT advance the durable welcome cursor either — a
-//! re-processed welcome is dropped by group-existence dedup (the seed's
-//! `known_welcomes_above`), not by the cursor. Only the legacy full-sync
-//! fallback advances the welcome cursor.
-//!
-//! ## Fallback
-//!
-//! Dispatch mirrors the stream entry points: the bidi path when
-//! [`bidi_streams_active`], the legacy full sync otherwise. A backend that
-//! refuses the bidi surface latches its destination onto legacy (same
-//! per-destination latch the streams use) and this call completes on the
-//! legacy path — the caller never sees the refusal.
+//! Each Update must receive Applied. Process envelopes through the fixed
+//! targets, including groups discovered by welcomes within those targets.
+//! Later traffic does not extend the run. Processing failures are counted
+//! and keep completed false. Durable cursors remain available for recovery.
 
-use std::collections::{HashSet, VecDeque};
-use std::time::Duration;
+use std::collections::{HashMap, HashSet, VecDeque};
+use xmtp_common::time::{Duration, Instant};
 
 use tracing::Instrument;
-use xmtp_api_d14n::v3::V3ProtoGroupMessage;
-use xmtp_api_d14n::{BidiConnection, BidiEvent, OpenError, TryMutateError, chunk_mutate_adds};
+use xmtp_api_d14n::{
+    BackendBinding, BidiConnection, BidiEvent, OpenError, TransportBinding, TryMutateError,
+    chunk_mutate_adds,
+};
 use xmtp_common::{ErrorCode, RetryableError, retryable};
 use xmtp_db::group::{ConversationType, GroupQueryArgs};
 use xmtp_db::prelude::*;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::mls_v1::subscribe_request::v1::{Mutate, mutate::Subscription};
+use xmtp_proto::backend_v1::{ServerEnvelope, subscribe_request::Update};
 use xmtp_proto::types::{Cursor, GroupId, SequenceId, Topic};
 
 use super::process_message::{ProcessMessageFuture, process_one};
-use super::router_callbacks::{
-    bidi_streams_active, latch_bidi_unsupported, open_is_backend_refusal,
-};
 use super::stream_router::{WelcomeIntake, known_welcomes_above, seed_groups, welcome_seed};
 use super::{SubscribeError, SyncWorkerEvent};
 use crate::Client;
@@ -96,11 +35,6 @@ const MAX_ATTEMPTS: u32 = 3;
 
 /// Base backoff between attempts (scaled by the attempt number).
 const RETRY_BACKOFF: Duration = Duration::from_millis(500);
-
-/// How long to wait for the server's close after the half-close. By this
-/// point every wave has completed — the drain is courtesy, not correctness —
-/// so a peer that never closes only costs this much patience.
-const POST_FINISH_DRAIN: Duration = Duration::from_secs(5);
 
 /// What one [`Client::catch_up_to_live`] call brought home — counts of what
 /// it PERSISTED, not what the wire replayed: retries reseed from durable
@@ -118,10 +52,12 @@ pub struct CatchUpSummary {
     pub messages: u64,
     /// Conversations newly joined by this call.
     pub conversations: u64,
+    /// Envelopes or processing steps that failed during this call.
+    pub failed: u64,
     /// Whether the run reached the live edge before its optional deadline.
-    /// `false` means a `timeout` cut it short; the counts above are then the
-    /// partial total persisted so far (bidi path) or zero (legacy fallback),
-    /// and a later call resumes from durable state.
+    /// `false` means a timeout or processing failure prevented completion.
+    /// The counts contain the partial total. A later call resumes from
+    /// durable state.
     pub completed: bool,
 }
 
@@ -131,14 +67,9 @@ pub enum CatchUpError {
     #[error(transparent)]
     #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
-    /// Bidi unsupported.
-    ///
-    /// The backend refuses the bidi surface — the latch-worthy verdict
-    /// ([`open_is_backend_refusal`]). The dispatch layer falls back to the
-    /// legacy sync; this never escapes [`Client::catch_up_to_live`]. Not
-    /// retryable.
-    #[error("the backend does not support bidi streams: {0}")]
-    Unsupported(OpenError),
+    /// The requested set exceeds the backend wire limit. Not retryable.
+    #[error("catch-up exceeds the backend topic limit")]
+    TooManyTopics,
     /// Catch-up stream could not open.
     ///
     /// A wire open no redial can fix, without a capability verdict. The
@@ -159,9 +90,8 @@ impl RetryableError for CatchUpError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Subscribe(e) => retryable!(e),
-            // The backend verdict is latched process-wide, and a dead-end
-            // open is unretryable by definition — redialing changes neither.
-            Self::Unsupported(_) | Self::DeadEnd(_) => false,
+            // A permanent open error cannot be retried.
+            Self::TooManyTopics | Self::DeadEnd(_) => false,
             // Wire deaths are transient; a fresh call resumes from durable
             // state.
             Self::Exhausted { .. } => true,
@@ -171,48 +101,72 @@ impl RetryableError for CatchUpError {
 
 /// How one bounded run over the wire ended.
 enum AttemptEnd {
-    /// Every wave completed and every welcome resolved — the store is
-    /// current to each topic's freeze point.
+    /// Every update is acknowledged, every target is reached, and intake is idle.
     Complete,
     /// The wire died (or the welcome backlog overflowed) mid-run; retry
     /// from durable state.
     WireDied,
 }
 
-/// The one `history_only` wave shape this module sends: cursored adds, no
-/// removes, bounded catch-up only (XIP-83 bounded sync).
-fn history_only_mutate(adds: Vec<(Topic, SequenceId)>, mutate_id: u64) -> Mutate {
-    Mutate {
-        adds: adds
-            .into_iter()
-            .map(|(topic, cursor)| Subscription {
-                topic: topic.to_bytes().into_vec(),
-                id_cursor: cursor,
-            })
-            .collect(),
-        removes: vec![],
-        history_only: true,
-        mutate_id,
+/// Build updates with increasing IDs and enforce the per-wire topic cap.
+fn catch_up_update(
+    subs: Vec<(Topic, SequenceId)>,
+    first_id: u64,
+) -> Result<Vec<Update>, CatchUpError> {
+    if subs.len() > xmtp_configuration::BACKEND_DEFAULT_MAX_STREAM_TOPICS {
+        return Err(CatchUpError::TooManyTopics);
     }
+    Ok(chunk_mutate_adds(subs)
+        .into_iter()
+        .enumerate()
+        .map(|(offset, adds)| BackendBinding::build_mutate(adds, [], first_id + offset as u64))
+        .collect())
 }
 
-/// Plan the opening waves for a bounded run: the whole subscription set,
-/// chunked to the shared `Mutate` frame limit so a client with very many
-/// conversations never opens with one oversized `history_only` frame. The
-/// first chunk seeds the open (wave `1`); each remaining chunk is a follow-up
-/// wave (ids `2..`) queued below and completed like a discovery add. Wave ids
-/// are contiguous from `1`, so the caller derives the outstanding set and the
-/// next free id from the overflow count alone.
-fn plan_catch_up_waves(subs: Vec<(Topic, SequenceId)>) -> (Mutate, Vec<Mutate>) {
-    // `subs` always carries at least the welcome topic, so there is always a
-    // first chunk; `unwrap_or_default` only guards the impossible empty case.
-    let mut chunks = chunk_mutate_adds(subs).into_iter();
-    let open = history_only_mutate(chunks.next().unwrap_or_default(), 1);
-    let overflow = chunks
-        .enumerate()
-        .map(|(i, chunk)| history_only_mutate(chunk, i as u64 + 2))
-        .collect();
-    (open, overflow)
+/// Restrict processing to each registration's fixed target.
+fn within_targets(envelope: &ServerEnvelope, targets: &HashMap<Topic, u64>) -> bool {
+    // Keep malformed metadata so the decoder records a processing failure.
+    let Some(meta) = envelope.meta.as_ref() else {
+        return true;
+    };
+    let Some(topic) = meta
+        .topic
+        .as_ref()
+        .and_then(|topic| Topic::parse(&topic.topic).ok())
+    else {
+        return true;
+    };
+    let Some(cursor) = meta.cursor.as_ref() else {
+        return true;
+    };
+    targets
+        .get(&topic)
+        .is_some_and(|target| cursor.sequence_id <= *target)
+}
+
+/// Receipt of a target envelope settles intake only after its batch is processed.
+fn settle_targets(batch: &[ServerEnvelope], outstanding: &mut HashMap<Topic, u64>) {
+    for envelope in batch {
+        let Some(meta) = envelope.meta.as_ref() else {
+            continue;
+        };
+        let Some(topic) = meta
+            .topic
+            .as_ref()
+            .and_then(|topic| Topic::parse(&topic.topic).ok())
+        else {
+            continue;
+        };
+        let Some(cursor) = meta.cursor.as_ref() else {
+            continue;
+        };
+        if outstanding
+            .get(&topic)
+            .is_some_and(|target| cursor.sequence_id >= *target)
+        {
+            outstanding.remove(&topic);
+        }
+    }
 }
 
 impl<Context> Client<Context>
@@ -249,32 +203,24 @@ where
         // count over the FFI) degrades to "no deadline" instead of panicking on
         // the Instant overflow — a caller asking to wait ~forever gets exactly
         // that.
-        let deadline = timeout.and_then(|d| tokio::time::Instant::now().checked_add(d));
-        let host = self.context.api().api_client.host().to_owned();
-        if bidi_streams_active(&host) {
-            match self.catch_up_bidi(deadline).await {
-                Ok(summary) => return Ok(summary),
-                Err(CatchUpError::Unsupported(e)) => {
-                    tracing::error!(
-                        "bidi catch-up refused by the backend, \
-                         latching {host} onto the legacy streams: {e}"
-                    );
-                    latch_bidi_unsupported(&host);
-                }
-                Err(CatchUpError::DeadEnd(e)) => {
-                    tracing::warn!(
-                        "bidi catch-up open failed unretryably, \
-                         serving this call on the legacy path: {e}"
-                    );
-                }
-                Err(e) => return Err(e),
+        let deadline = timeout.and_then(|d| Instant::now().checked_add(d));
+        match self.catch_up_bidi(deadline).await {
+            Ok(summary) => return Ok(summary),
+            Err(CatchUpError::DeadEnd(error)) => {
+                tracing::warn!("catch-up open failed without retry: {error}");
             }
+            Err(error) => return Err(error),
         }
         // The legacy arm computes a terminal store diff, so it has no partial to
         // hand back mid-flight: on the deadline return an empty, `completed=false`
         // summary (its stores are still persisted; a later call resumes them).
         match deadline {
-            Some(dl) => match tokio::time::timeout_at(dl, self.catch_up_legacy()).await {
+            Some(dl) => match xmtp_common::time::timeout(
+                dl.saturating_duration_since(Instant::now()),
+                self.catch_up_legacy(),
+            )
+            .await
+            {
                 Ok(res) => res,
                 Err(_) => Ok(CatchUpSummary::default()),
             },
@@ -291,13 +237,18 @@ where
     /// earned before the cut survive the cancelled attempt.
     pub(crate) async fn catch_up_bidi(
         &self,
-        deadline: Option<tokio::time::Instant>,
+        deadline: Option<Instant>,
     ) -> Result<CatchUpSummary, CatchUpError> {
         let mut summary = CatchUpSummary::default();
         for attempt in 1..=MAX_ATTEMPTS {
             let end = match deadline {
                 Some(dl) => {
-                    match tokio::time::timeout_at(dl, self.catch_up_attempt(&mut summary)).await {
+                    match xmtp_common::time::timeout(
+                        dl.saturating_duration_since(Instant::now()),
+                        self.catch_up_attempt(&mut summary),
+                    )
+                    .await
+                    {
                         Ok(res) => res?,
                         // Deadline hit mid-attempt: `summary` holds everything
                         // processed so far (`completed` stays false).
@@ -308,7 +259,7 @@ where
             };
             match end {
                 AttemptEnd::Complete => {
-                    summary.completed = true;
+                    summary.completed = summary.failed == 0;
                     return Ok(summary);
                 }
                 AttemptEnd::WireDied => {
@@ -319,11 +270,11 @@ where
                     // bounded backoff can't actually overflow, but if it ever
                     // did we'd treat it as "past the deadline" and stop rather
                     // than sleep for an unrepresentable duration.
-                    let wake = tokio::time::Instant::now().checked_add(backoff);
+                    let wake = Instant::now().checked_add(backoff);
                     if matches!(deadline, Some(dl) if wake.is_none_or(|w| w >= dl)) {
                         return Ok(summary);
                     }
-                    tokio::time::sleep(backoff).await;
+                    xmtp_common::time::sleep(backoff).await;
                 }
             }
         }
@@ -390,15 +341,12 @@ where
                 !sync_ids.contains(group_id) && !pre_stored.contains(cursor)
             })
             .count() as u64;
-        summary.completed = true;
+        summary.completed = summary.failed == 0;
         Ok(summary)
     }
 
-    /// One bounded run: subscribe everything `history_only`, process what
-    /// arrives (welcomes may add follow-up waves), half-close once nothing
-    /// is owed, and let the server close. Newly persisted items count into
-    /// `summary`; replays of already-stored history do not (the seeded
-    /// seen-set and the intake's known/floor guards drop them first).
+    /// Process through the fixed targets, then drop the dedicated connection.
+    /// Welcomes can add group topics. Count only newly stored items.
     async fn catch_up_attempt(
         &self,
         summary: &mut CatchUpSummary,
@@ -438,25 +386,19 @@ where
         let mut seen = seeds.seen;
 
         let api = self.context.api().api_client.clone();
-        // Defensive: `subs` always carries the welcome topic (pushed above), so
-        // it is never empty — but an empty set would seed an adds-nothing open
-        // frame that never earns a `CatchUpComplete`, stalling the run until the
-        // watchdog fires. Nothing owed means nothing to catch up.
-        if subs.is_empty() {
-            return Ok(AttemptEnd::Complete);
-        }
-        // Chunk the subscription set so a very large account never opens with
-        // one oversized frame; the overflow chunks ride the follow-up queue
-        // below as their own waves.
-        let (open, overflow) = plan_catch_up_waves(subs);
-        let overflow_waves = overflow.len() as u64;
+        // Keep each update within the backend limits.
+        let mut floors: HashMap<Topic, u64> = subs.iter().cloned().collect();
+        let updates = catch_up_update(subs, 1)?;
+        let mut next_update_id = updates.len() as u64 + 1;
+        let mut queued: VecDeque<Update> = updates.into();
+        let open = queued
+            .pop_front()
+            .expect("welcome topic requires an update");
         let mut conn = match BidiConnection::open(&api, open).await {
             Ok(conn) => conn,
             Err(e) => {
                 let open = OpenError::new(e);
-                return if open_is_backend_refusal(&open) {
-                    Err(CatchUpError::Unsupported(open))
-                } else if open.is_retryable() {
+                return if open.is_retryable() {
                     // A transient dial failure consumes an attempt.
                     Ok(AttemptEnd::WireDied)
                 } else {
@@ -468,64 +410,70 @@ where
         let factory = ProcessMessageFuture::new(self.context.clone());
         let mut intake =
             WelcomeIntake::new(self.context.clone(), welcome_floor, known, None, true, None);
-        // Waves whose CatchUpComplete is still owed (including queued,
-        // not-yet-sent follow-ups) — `1` is the initial wave, `2..=1+overflow`
-        // its chunked remainder (all pre-queued below).
-        let mut outstanding: HashSet<u64> = (1..=1 + overflow_waves).collect();
-        let mut next_mutate_id: u64 = 2 + overflow_waves;
-        // Follow-up waves awaiting a command slot. `try_mutate`, never
-        // `mutate`: this task is the sole event drainer, and parking on the
-        // command channel while events back up is the documented deadlock.
-        // Seeded with the initial set's overflow chunks; discovery appends more.
-        let mut queued: VecDeque<Mutate> = overflow.into_iter().collect();
+        let mut pending_updates = HashSet::from([1]);
+        let mut outstanding = HashMap::new();
+        let mut targets = HashMap::new();
 
         loop {
-            while let Some(wave) = queued.pop_front() {
-                match conn.try_mutate(wave) {
-                    Ok(()) => {}
-                    Err(TryMutateError::Full(wave)) => {
+            while let Some(update) = queued.pop_front() {
+                let id = update.id;
+                match conn.try_mutate(update) {
+                    Ok(()) => {
+                        pending_updates.insert(id);
+                    }
+                    Err(TryMutateError::Full(update)) => {
                         // Retried next turn; replay frames keep arriving (or
                         // the watchdog ends the wire and the bounded attempt
                         // retry takes over), so the loop keeps turning —
                         // drainage is bounded by wire liveness, not by luck.
                         tracing::debug!(
-                            queued_waves = queued.len() + 1,
-                            "catch-up follow-up wave deferred on a full command slot"
+                            queued_updates = queued.len() + 1,
+                            "catch-up update deferred on a full command slot"
                         );
-                        queued.push_front(wave);
+                        queued.push_front(update);
                         break;
                     }
                     Err(TryMutateError::Closed(_)) => return Ok(AttemptEnd::WireDied),
                 }
             }
-            if outstanding.is_empty() && queued.is_empty() && intake.is_idle() {
+            if pending_updates.is_empty()
+                && outstanding.is_empty()
+                && queued.is_empty()
+                && intake.is_idle()
+            {
                 break;
             }
             tokio::select! {
                 event = conn.next() => match event {
                     None => return Ok(AttemptEnd::WireDied),
-                    Some(BidiEvent::GroupMessages { messages, .. }) => {
-                        self.process_group_batch(&factory, messages, &mut seen, &sync_groups, summary)
-                            .await;
+                    Some(BidiEvent::GroupMessages { messages }) => {
+                        let messages: Vec<_> = messages.into_iter().filter(|message| within_targets(message, &targets)).collect();
+                        self.process_group_batch(&factory, messages.clone(), &mut seen, &sync_groups, summary).await;
+                        settle_targets(&messages, &mut outstanding);
                     }
-                    Some(BidiEvent::WelcomeMessages { messages, .. }) => {
-                        if !intake.absorb_batch(messages) {
-                            tracing::warn!(
-                                outstanding_waves = outstanding.len(),
-                                queued_waves = queued.len(),
-                                "catch-up welcome backlog overflowed; \
-                                 ending the attempt to retry from durable state"
-                            );
+                    Some(BidiEvent::WelcomeMessages { messages }) => {
+                        let messages: Vec<_> = messages.into_iter().filter(|message| within_targets(message, &targets)).collect();
+                        settle_targets(&messages, &mut outstanding);
+                        let accepted = intake.absorb_batch(messages);
+                        summary.failed += std::mem::take(&mut intake.decode_failures);
+                        if !accepted {
+                            summary.failed += 1;
                             return Ok(AttemptEnd::WireDied);
                         }
                     }
-                    Some(BidiEvent::CatchUpComplete { mutate_id }) => {
-                        outstanding.remove(&mutate_id);
+                    Some(BidiEvent::Applied { id, targets: added }) => {
+                        pending_updates.remove(&id);
+                        for (topic, target) in added {
+                            if target > floors.get(&topic).copied().unwrap_or_default() {
+                                outstanding.insert(topic.clone(), target);
+                            }
+                            targets.insert(topic, target);
+                        }
                     }
-                    // No wave of ours registers for live delivery, so no
-                    // topic ever crosses; tolerate the marker anyway.
-                    Some(BidiEvent::Started { .. }) | Some(BidiEvent::TopicsLive { .. }) => {}
+                    Some(BidiEvent::Started { .. }) => {}
+
                 },
+                _ = xmtp_common::time::sleep(Duration::from_millis(25)), if !queued.is_empty() => {},
                 outcome = intake.next_outcome() => match outcome {
                     Ok(outcome) => {
                         if let Some(group) = outcome.group {
@@ -540,11 +488,14 @@ where
                                 let gseeds = seed_groups(&db, &[group.group_id])?;
                                 let adds = gseeds.subs();
                                 seen.extend(gseeds.seen);
+                                if tracked.len() + 2 > xmtp_configuration::BACKEND_DEFAULT_MAX_STREAM_TOPICS {
+                                    return Err(CatchUpError::TooManyTopics);
+                                }
                                 tracked.insert(topic);
-                                let mutate_id = next_mutate_id;
-                                next_mutate_id += 1;
-                                outstanding.insert(mutate_id);
-                                queued.push_back(history_only_mutate(adds, mutate_id));
+                                floors.extend(adds.iter().cloned());
+                                let updates = catch_up_update(adds, next_update_id)?;
+                                next_update_id += updates.len() as u64;
+                                queued.extend(updates);
                             }
                         }
                         if let Some(cursor) = outcome.seen {
@@ -554,30 +505,16 @@ where
                     // The welcome stays unrecorded, so it replays on the
                     // next call (or any welcome stream/sync) — same recovery
                     // as a live stream surfacing the error.
-                    Err(e) => tracing::warn!("catch-up welcome processing failed: {e}"),
+                    Err(e) => {
+                        summary.failed += 1;
+                        tracing::warn!("catch-up welcome processing failed: {e}");
+                    },
                 },
             }
         }
 
-        // Bounded-sync half-close (XIP-83): we are done sending; the server
-        // finishes and closes its side. Everything owed has already arrived
-        // and been attempted, so from here the run is complete no matter how
-        // gracefully the wire goes down. Time-box the whole close — the
-        // half-close send AND the drain: `finish()` blocks on the connection's
-        // command channel, which a wedged actor (parked emitting into a full
-        // event channel) could hold forever, so the courtesy close must never
-        // outlast the run (mirrors the transport's `close_gracefully` budget).
-        let close = async {
-            if conn.finish().await.is_ok() {
-                while conn.next().await.is_some() {}
-            }
-        };
-        if tokio::time::timeout(POST_FINISH_DRAIN, close)
-            .await
-            .is_err()
-        {
-            tracing::debug!("catch-up half-close did not settle in time; dropping the wire");
-        }
+        // Drop cancels the dedicated stream after all processing settles.
+        drop(conn);
         Ok(AttemptEnd::Complete)
     }
 
@@ -587,27 +524,27 @@ where
     async fn process_group_batch(
         &self,
         factory: &ProcessMessageFuture<Context>,
-        batch: Vec<xmtp_proto::mls_v1::GroupMessage>,
+        batch: Vec<ServerEnvelope>,
         seen: &mut HashSet<Cursor>,
         sync_groups: &HashSet<GroupId>,
         summary: &mut CatchUpSummary,
     ) {
-        let batch_started = std::time::Instant::now();
+        let batch_started = Instant::now();
         let batch_size = batch.len();
         for proto in batch {
-            let typed =
-                match xmtp_proto::types::GroupMessage::try_from(V3ProtoGroupMessage::from(proto)) {
-                    Ok(typed) => typed,
-                    Err(e) => {
-                        tracing::warn!("catch-up skipping undecodable group message: {e}");
-                        continue;
-                    }
-                };
+            let typed = match xmtp_api_d14n::envelope::decode_group_message(proto) {
+                Ok(typed) => typed,
+                Err(e) => {
+                    summary.failed += 1;
+                    tracing::warn!("catch-up skipping undecodable group message: {e}");
+                    continue;
+                }
+            };
             if !seen.insert(typed.cursor) {
                 continue;
             }
             let (topic, cursor) = (Topic::new_group_message(typed.group_id), typed.cursor);
-            let started = std::time::Instant::now();
+            let started = Instant::now();
             let result = process_one(factory, typed)
                 .instrument(tracing::debug_span!("process_envelope", %topic, ?cursor))
                 .await;
@@ -619,14 +556,12 @@ where
             );
             match result {
                 Ok(processed) => {
+                    summary.failed += processed.failed;
                     if let Some(message) = processed.message {
                         // The pipeline may store ahead of the envelope it was
                         // handed (recovery sync) — record the surfaced
                         // identity too, so its own replay frame is skipped.
-                        seen.insert(Cursor::new(
-                            message.sequence_id as u64,
-                            message.originator_id as u32,
-                        ));
+                        seen.insert(Cursor(message.sequence_id as u64));
                         if sync_groups.contains(&message.group_id) {
                             let _ = self
                                 .context
@@ -643,11 +578,10 @@ where
                 // The identity is in the log so a message that fails every
                 // catch-up (a poison message pinning its durable cursor) is
                 // traceable across runs.
-                Err(e) => tracing::warn!(
-                    %topic,
-                    ?cursor,
-                    "catch-up message processing failed (durable cursor held; a later sync retries): {e}"
-                ),
+                Err(e) => {
+                    summary.failed += 1;
+                    tracing::warn!(%topic, ?cursor, "catch-up message processing failed: {e}");
+                }
             }
         }
         tracing::debug!(
@@ -658,17 +592,51 @@ where
     }
 }
 
-/// Live integration tests over a real v3 backend (docker node), like
-/// `bidi_tests` — native-only, v3-only.
-#[cfg(all(test, not(feature = "d14n")))]
+/// Live integration tests against the backend.
+#[cfg(test)]
 mod tests {
     use super::CatchUpSummary;
     use crate::tester;
     use crate::utils::MlsGroupExt;
     use xmtp_db::group_message::MsgQueryArgs;
 
+    /// A stored envelope with invalid ciphertext must prevent completion.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn catch_up_reports_message_processing_failures() {
+        use crate::context::XmtpSharedContext;
+        use xmtp_proto::backend_v1::client_envelope::Payload;
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = bo.create_group(None, None)?;
+        group.invite(&alix).await?;
+        group.send_msg(b"valid message").await;
+        let mut envelope = bo
+            .context
+            .api()
+            .query_group_messages(group.group_id)
+            .await?;
+        let cursor = envelope.pop().unwrap().cursor;
+        let stored = bo.context.api().get_envelope(cursor.0).await?;
+        let mut payload = stored.envelope.unwrap();
+        let Some(Payload::GroupMessage(message)) = payload.payload.as_mut() else {
+            panic!("expected a group message");
+        };
+        *message.data.last_mut().unwrap() ^= 1;
+        bo.context
+            .api()
+            .send_group_messages(vec![xmtp_api::PublishUnit::single(payload)?])
+            .await?;
+        let summary = alix
+            .catch_up_bidi(Some(
+                xmtp_common::time::Instant::now() + xmtp_common::time::Duration::from_secs(10),
+            ))
+            .await?;
+        assert!(summary.failed > 0, "invalid ciphertext must be reported");
+        assert!(!summary.completed, "processing failures prevent completion");
+    }
+
     /// A client that has never streamed or synced catches up: the pending
-    /// welcome joins the group (discovery adds a follow-up wave on the same
+    /// welcome joins the group (discovery adds an update on the same
     /// stream) and the group's history lands in the store.
     #[xmtp_common::test(unwrap_try = true)]
     async fn catch_up_joins_pending_groups_and_stores_history() {
@@ -746,7 +714,7 @@ mod tests {
     }
 
     /// Nothing owed at all — a fresh client's run is just the welcome-topic
-    /// wave, the half-close, and the server's close.
+    /// update acknowledgement and the empty target set.
     #[xmtp_common::test(unwrap_try = true)]
     async fn catch_up_with_nothing_owed_completes() {
         tester!(alix);
@@ -798,64 +766,52 @@ mod tests {
     }
 }
 
-/// Pure planning tests — no wire, no backend, feature-independent.
 #[cfg(test)]
 mod plan_tests {
-    use super::plan_catch_up_waves;
+    use super::{CatchUpError, catch_up_update};
+    use xmtp_configuration::BACKEND_DEFAULT_MAX_STREAM_TOPICS;
     use xmtp_proto::types::Topic;
 
-    /// A subscription set far larger than one frame's topic cap splits into
-    /// several bounded waves: ids contiguous from `1`, every wave an add-only
-    /// `history_only` frame, and every topic carried exactly once. Guards the
-    /// bounded-open invariant that keeps a large account from opening catch-up
-    /// with one oversized frame.
-    #[xmtp_common::test]
-    fn plan_splits_a_large_subscription_set_into_bounded_waves() {
-        let n: u32 = 5000;
-        let subs: Vec<(Topic, u64)> = (0..n)
-            .map(|i| (Topic::new_group_message(i.to_le_bytes()), i as u64))
+    #[xmtp_common::test(unwrap_try = true)]
+    fn plan_splits_a_large_subscription_set_into_bounded_updates() {
+        let cap = BACKEND_DEFAULT_MAX_STREAM_TOPICS;
+        let subs = (0..cap)
+            .map(|i| {
+                let mut id = [0u8; 16];
+                id[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                (Topic::new_group_message(id), i as u64)
+            })
             .collect();
-
-        let (open, overflow) = plan_catch_up_waves(subs);
-
-        // The cap is well under 5000, so the set must have split.
-        assert!(!overflow.is_empty(), "a 5000-topic set must split");
-        assert_eq!(open.mutate_id, 1, "the open is always wave 1");
-
-        let waves: Vec<_> = std::iter::once(&open).chain(overflow.iter()).collect();
-        let cap = open.adds.len();
-        for (i, wave) in waves.iter().enumerate() {
-            assert_eq!(
-                wave.mutate_id,
-                i as u64 + 1,
-                "wave ids run contiguously from 1"
-            );
-            assert!(
-                wave.history_only && wave.removes.is_empty(),
-                "every catch-up wave is an add-only history frame"
-            );
-            assert!(!wave.adds.is_empty(), "no empty wave is ever emitted");
-            assert!(
-                wave.adds.len() <= cap,
-                "no wave exceeds the first (full) frame"
-            );
+        let updates = catch_up_update(subs, 7)?;
+        assert!(!updates.is_empty());
+        assert_eq!(
+            updates
+                .iter()
+                .map(|update| update.adds.len())
+                .sum::<usize>(),
+            cap
+        );
+        for (index, update) in updates.iter().enumerate() {
+            assert_eq!(update.id, index as u64 + 7);
+            assert!(update.removes.is_empty());
+            assert!(!update.adds.is_empty());
+            assert!(update.adds.len() <= cap);
         }
-        let total: usize = waves.iter().map(|w| w.adds.len()).sum();
-        assert_eq!(total as u32, n, "every topic is carried exactly once");
+        let too_many = vec![(Topic::new_group_message([0; 16]), 0); cap + 1];
+        assert!(matches!(
+            catch_up_update(too_many, 1),
+            Err(CatchUpError::TooManyTopics)
+        ));
     }
 
-    /// The common case — a set that fits in one frame — opens with a single
-    /// wave and queues no overflow.
-    #[xmtp_common::test]
-    fn plan_keeps_a_small_set_in_one_wave() {
-        let subs: Vec<(Topic, u64)> = (0u32..3)
-            .map(|i| (Topic::new_group_message(i.to_le_bytes()), i as u64))
+    #[xmtp_common::test(unwrap_try = true)]
+    fn plan_keeps_a_small_set_in_one_update() {
+        let subs = (0u8..3)
+            .map(|i| (Topic::new_group_message([i; 16]), i as u64))
             .collect();
-
-        let (open, overflow) = plan_catch_up_waves(subs);
-
-        assert!(overflow.is_empty(), "a 3-topic set fits one frame");
-        assert_eq!(open.mutate_id, 1);
-        assert_eq!(open.adds.len(), 3, "all three topics ride the open");
+        let updates = catch_up_update(subs, 1)?;
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].id, 1);
+        assert_eq!(updates[0].adds.len(), 3);
     }
 }

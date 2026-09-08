@@ -1,62 +1,7 @@
-//! Randomized bidi delivery fuzz against the live containerized node.
-//!
-//! The scripted transport tests (`xmtp_api_d14n`) prove the client ledger
-//! against a *model* of the server; these prove the model — and the pair —
-//! against the real thing. A seeded RNG drives random operation schedules
-//! (publish bursts, cursored leases at random floors, lower re-adds that
-//! yank topics between waves, deliberate unsubscribes, stalled consumers,
-//! suspend/resume) at the two layers, and invariant checkers assert the
-//! no-loss contract on what actually arrives over the wire:
-//!
-//! - [`fuzz_server_honors_the_bidi_wave_contract`] drives up to ten raw
-//!   [`BidiConnection`]s at once — each with its own checker — and checks
-//!   the XIP-83 *server* guarantees frame by frame: every Mutate is acked
-//!   (always-ack), a wave's frames precede its `CatchUpComplete` in
-//!   per-kind cursor order, no live frame arrives for a wave-owned topic
-//!   before that wave completes, and everything above the lowest add
-//!   cursor is eventually served — on every connection independently.
-//! - [`fuzz_transport_delivery_never_loses_above_the_floor`] drives up to
-//!   ten real [`BidiTransport`]s — one per proxied subscriber client, each
-//!   on its own faultable wire — and checks the *client* delivery contract
-//!   per lease: above its floor, strictly increasing (exactly once, in
-//!   cursor order, nothing at-or-below the floor); every lease alive at
-//!   the end holds the complete suffix; a lease dropped for backpressure
-//!   recovers by re-leasing from what it received (the durable-cursor
-//!   recovery shape), and the chain's union is complete.
-//!
-//! Both layers race the readers against up to ten *producers* — real
-//! member clients publishing concurrently into the same groups — so the
-//! node's per-topic sequencer and delivery fan-out are exercised under
-//! write contention, not just a single well-behaved publisher. Random
-//! lease floors are drawn against the GLOBAL publish cursor (`latest`,
-//! advanced by every producer across all groups): a mid-history floor is
-//! meaningful only because the racing producers keep every group's
-//! history moving past it.
-//!
-//! Reproducibility: the seed is printed at the start and carried in every
-//! assertion; replay with `XMTP_BIDI_FUZZ_SEED=<seed>`. The seed replays
-//! the operation *schedule* — wire timing still varies run to run, so a
-//! failure is a real bug but may take a few replays to re-trigger. Scale
-//! the run with `XMTP_BIDI_FUZZ_ROUNDS`. Schedule telemetry (yanks armed,
-//! drops recovered, blips, racing bursts, …) is logged at the end of each
-//! run: if a lever reads zero across soaks, that path has gone dark —
-//! tighten the schedule.
-//!
-//! Deliberately NOT asserted, and why:
-//! - Silence after a remove's ack: the node's delivery fan-out can have
-//!   frames in flight when the unsubscribe processes, so removed topics
-//!   trail a few live frames. The client drops frames for unheld topics at
-//!   demux, so nothing depends on remove promptness.
-//! - Cross-topic per-kind cursor order within one wave: the ledger stopped
-//!   relying on it (owed-history routing is per topic); per-topic order IS
-//!   asserted.
-//! - `TopicsLive` content/position and `history_only` Mutates: the former
-//!   is informational to this client; the latter is covered by the bounded
-//!   catch-up's own live tests (a raw `history_only` re-add of an
-//!   already-live topic is server-rejected, which would kill the shared
-//!   fuzz connection).
-//!
-//! Native-only, v3-only, needs the docker backend — like `bidi_tests`.
+//! Randomized backend subscription and transport delivery tests.
+//! The server test checks every update acknowledgement, per-topic ordering,
+//! and fixed target completion. The transport test checks delivery across
+//! lease changes, slow consumers, and connection failures.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -73,11 +18,10 @@ use crate::context::XmtpSharedContext;
 use crate::tester;
 use crate::utils::{LocalTesterBuilder, MlsGroupExt, TesterBuilder};
 use xmtp_api_d14n::{
-    BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, OpenError,
-    TopicLease, V3Binding,
+    BackendBinding, BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
+    OpenError, TopicLease, TransportBinding,
 };
-use xmtp_proto::mls_v1;
-use xmtp_proto::mls_v1::subscribe_request::v1::{Mutate, mutate::Subscription};
+use xmtp_proto::backend_v1::{ServerEnvelope, subscribe_request::Update};
 use xmtp_proto::types::Topic;
 
 /// Wall-clock guard for the settle phases (catch-up completion, sentinel
@@ -106,48 +50,24 @@ fn fuzz_rounds(default: usize) -> usize {
     }
 }
 
-/// `(topic, cursor)` of a group-message frame; `None` for an undecodable one.
-fn gm_parts(m: &mls_v1::GroupMessage) -> Option<(Topic, u64)> {
-    use mls_v1::group_message::Version;
-    match &m.version {
-        Some(Version::V1(v1)) => Some((Topic::new_group_message(&v1.group_id[..]), v1.id)),
-        None => None,
-    }
-}
-
-fn mutate(adds: Vec<(Topic, u64)>, mutate_id: u64) -> Mutate {
-    Mutate {
-        adds: adds
-            .into_iter()
-            .map(|(topic, cursor)| Subscription {
-                topic: topic.to_bytes().into_vec(),
-                id_cursor: cursor,
-            })
-            .collect(),
-        removes: vec![],
-        history_only: false,
-        mutate_id,
-    }
-}
-
-/// Cursor of a welcome frame (both variants); `None` if undecodable. Each
-/// collector knows the one welcome topic its consumer can lease, so the
-/// topic needs no deriving.
-fn wm_cursor(m: &mls_v1::WelcomeMessage) -> Option<u64> {
-    xmtp_proto::types::WelcomeMessage::try_from(xmtp_api_d14n::v3::V3ProtoWelcomeMessage::from(
-        m.clone(),
+fn gm_parts(message: &ServerEnvelope) -> Option<(Topic, u64)> {
+    let meta = message.meta.as_ref()?;
+    Some((
+        Topic::parse(&meta.topic.as_ref()?.topic).ok()?,
+        meta.cursor.as_ref()?.sequence_id,
     ))
-    .ok()
-    .map(|typed| typed.cursor.sequence_id)
 }
 
-fn remove_mutate(topic: Topic, mutate_id: u64) -> Mutate {
-    Mutate {
-        adds: vec![],
-        removes: vec![topic.to_bytes().into_vec()],
-        history_only: false,
-        mutate_id,
-    }
+fn mutate(adds: Vec<(Topic, u64)>, id: u64) -> Update {
+    BackendBinding::build_mutate(adds, [], id)
+}
+
+fn wm_cursor(message: &ServerEnvelope) -> Option<u64> {
+    Some(message.meta.as_ref()?.cursor.as_ref()?.sequence_id)
+}
+
+fn remove_mutate(topic: Topic, id: u64) -> Update {
+    BackendBinding::build_mutate([], [topic], id)
 }
 
 /// A random resume floor: the beginning of time, roughly mid-history,
@@ -164,11 +84,11 @@ fn random_floor(rng: &mut StdRng, latest: u64) -> u64 {
 /// The server's authoritative per-topic message ids, queried over the
 /// regular unary API — the same source of truth the durable path syncs from.
 async fn ground_truth<C>(
-    api: &C,
+    api: &xmtp_api::ApiClientWrapper<C>,
     groups: &[(xmtp_proto::types::GroupId, Topic)],
 ) -> HashMap<Topic, BTreeSet<u64>>
 where
-    C: xmtp_proto::api_client::XmtpMlsClient,
+    C: xmtp_proto::api_client::XmtpBackendClient,
 {
     let mut truth: HashMap<Topic, BTreeSet<u64>> = HashMap::new();
     for (group_id, topic) in groups {
@@ -178,48 +98,22 @@ where
             .unwrap_or_else(|_| panic!("ground-truth query failed"));
         let ids = truth.entry(topic.clone()).or_default();
         for message in &messages {
-            ids.insert(message.cursor.sequence_id);
+            ids.insert(message.cursor.0);
         }
-        // Every completeness check rests on this query returning the FULL
-        // history in one page — fail loudly before the cap creeps past it.
-        assert!(
-            ids.len() < 95,
-            "ground truth is approaching the query page size ({} messages); \
-             lower PUBLISH_CAP or add paging",
-            ids.len()
-        );
     }
     truth
 }
 
-/// The server-contract checker's mirror of what WE sent, folded with every
-/// frame the server replies — each fold asserts the XIP-83 wire guarantees.
+/// Mirror updates and validate the server's ordered response stream.
 struct ContractState {
     seed: u64,
-    /// Waves awaiting their `CatchUpComplete`, with the topics they added.
-    unacked: HashMap<u64, Vec<Topic>>,
+    unacked: HashMap<u64, Update>,
     acked: HashSet<u64>,
-    /// Yanking adds whose live-hold is not yet armed: the guarantee is
-    /// ordered on the SERVER's stream, and live frames emitted before the
-    /// server processed the Mutate are legal — so the hold arms only at the
-    /// wave's first tagged frame (proof the server has processed it; the
-    /// stream is ordered, so nothing older can arrive after).
-    pending_own: HashMap<u64, HashSet<Topic>>,
-    /// Topics inside at least one armed, unacked wave: the live lane must
-    /// stay silent for them until every claiming wave completes.
-    owned: HashMap<Topic, HashSet<u64>>,
-    /// Per-(wave, topic) last replay cursor — a wave's replay is ordered.
-    wave_last: HashMap<(u64, Topic), u64>,
-    live_last: HashMap<Topic, u64>,
+    active: HashMap<Topic, u64>,
+    targets: HashMap<Topic, u64>,
+    last: HashMap<Topic, u64>,
     received: HashMap<Topic, BTreeSet<u64>>,
-    latest_seen: u64,
-    /// Removes-only waves awaiting their always-ack echo.
     pending_remove: HashMap<u64, Topic>,
-    /// Topics removed at any point: exempt from the final completeness
-    /// check (their delivery obligation ended mid-run).
-    exempt: HashSet<Topic>,
-    /// Schedule telemetry: how many yank live-holds actually armed.
-    armed_yanks: usize,
 }
 
 impl ContractState {
@@ -228,171 +122,116 @@ impl ContractState {
             seed,
             unacked: HashMap::new(),
             acked: HashSet::new(),
-            pending_own: HashMap::new(),
-            owned: HashMap::new(),
-            wave_last: HashMap::new(),
-            live_last: HashMap::new(),
+            active: HashMap::new(),
+            targets: HashMap::new(),
+            last: HashMap::new(),
             received: HashMap::new(),
-            latest_seen: 0,
             pending_remove: HashMap::new(),
-            exempt: HashSet::new(),
-            armed_yanks: 0,
         }
     }
 
-    /// Record a wave we sent. `owns` marks adds provably BELOW the topic's
-    /// server-side position — only those move the topic into the wave and
-    /// hold its live lane (an equal-or-higher re-add is a waveless no-op,
-    /// XIP-83). We can only prove "below" against what we've already
-    /// received, so the shield check is skipped — never falsely armed — for
-    /// adds in the unprovable middle.
-    fn sent(&mut self, wave: u64, topic: &Topic, owns: bool) {
-        self.unacked.entry(wave).or_default().push(topic.clone());
-        if owns {
-            self.pending_own
-                .entry(wave)
-                .or_default()
-                .insert(topic.clone());
-        }
+    fn sent(&mut self, update: Update) {
+        assert!(self.unacked.insert(update.id, update).is_none());
     }
 
-    /// Record a removes-only wave we sent. The topic's completeness
-    /// obligation ends here; the silence obligation arms at the ack.
-    fn sent_remove(&mut self, wave: u64, topic: &Topic) {
-        self.unacked.entry(wave).or_default();
-        self.pending_remove.insert(wave, topic.clone());
-        self.exempt.insert(topic.clone());
+    fn sent_remove(&mut self, id: u64, topic: &Topic) {
+        self.pending_remove.insert(id, topic.clone());
+        self.sent(remove_mutate(topic.clone(), id));
     }
 
-    /// A strict lower bound on the topic's server-side position: the highest
-    /// id we've received for it (positions only grow).
     fn position_bound(&self, topic: &Topic) -> u64 {
-        self.received
-            .get(topic)
-            .and_then(|ids| ids.last())
-            .copied()
-            .unwrap_or(0)
+        self.last.get(topic).copied().unwrap_or(0)
     }
 
     fn observe(&mut self, event: BidiEvent) {
         let seed = self.seed;
         match event {
-            BidiEvent::Started { .. } | BidiEvent::TopicsLive { .. } => {}
-            BidiEvent::CatchUpComplete { mutate_id } => {
-                assert_ne!(mutate_id, 0, "untagged CatchUpComplete (seed={seed})");
+            BidiEvent::Started { .. } => {}
+            BidiEvent::Applied { id, targets } => {
                 assert!(
-                    !self.acked.contains(&mutate_id),
-                    "wave {mutate_id} acked twice (seed={seed})"
+                    self.acked.insert(id),
+                    "update {id} acked twice (seed={seed})"
                 );
-                let topics = self.unacked.remove(&mutate_id).unwrap_or_else(|| {
-                    panic!("ack for a wave we never sent: {mutate_id} (seed={seed})")
-                });
-                self.acked.insert(mutate_id);
-                // An empty replay acks without ever arming — clear both.
-                self.pending_own.remove(&mutate_id);
-                for topic in topics {
-                    if let Some(waves) = self.owned.get_mut(&topic) {
-                        waves.remove(&mutate_id);
+                let update = self.unacked.remove(&id).expect("ack for an unsent update");
+                for wire_topic in update.removes {
+                    let topic = Topic::parse(&wire_topic.topic).expect("remove topic");
+                    self.active.remove(&topic);
+                    self.last.remove(&topic);
+                    self.targets.remove(&topic);
+                    self.received.remove(&topic);
+                }
+                self.pending_remove.remove(&id);
+                let mut added = HashSet::new();
+                for subscription in update.adds {
+                    let topic =
+                        Topic::parse(&subscription.topic.expect("subscription topic").topic)
+                            .expect("add topic");
+                    let floor = subscription.cursor.unwrap_or_default().sequence_id;
+                    if let std::collections::hash_map::Entry::Vacant(entry) =
+                        self.active.entry(topic.clone())
+                    {
+                        entry.insert(floor);
+                        self.last.insert(topic.clone(), floor);
+                        added.insert(topic);
                     }
                 }
-                self.pending_remove.remove(&mutate_id);
+                let mut seen = HashSet::new();
+                for (topic, target) in targets {
+                    assert!(
+                        added.contains(&topic),
+                        "target for an ineffective add (seed={seed})"
+                    );
+                    assert!(seen.insert(topic.clone()), "duplicate target (seed={seed})");
+                    if target > self.active[&topic] {
+                        self.targets.insert(topic, target);
+                    }
+                }
             }
-            BidiEvent::GroupMessages {
-                messages,
-                mutate_id,
-            } => {
-                // The wave's first tagged frame proves the server processed
-                // its Mutate: arm the live-hold for its yanked topics.
-                if mutate_id != 0
-                    && let Some(topics) = self.pending_own.remove(&mutate_id)
-                {
-                    for topic in topics {
-                        self.owned.entry(topic).or_default().insert(mutate_id);
-                        self.armed_yanks += 1;
-                    }
-                }
+            BidiEvent::GroupMessages { messages } | BidiEvent::WelcomeMessages { messages } => {
                 for message in &messages {
-                    let Some((topic, id)) = gm_parts(message) else {
-                        continue;
-                    };
-                    // The topic's high-water across BOTH lanes, before this
-                    // frame is folded in — the live lane must stay strictly
-                    // above it, or a held segment leaked out of its wave.
-                    let bound = self.position_bound(&topic);
-                    self.received.entry(topic.clone()).or_default().insert(id);
-                    self.latest_seen = self.latest_seen.max(id);
-                    if mutate_id != 0 {
-                        assert!(
-                            self.unacked.contains_key(&mutate_id),
-                            "frame tagged {mutate_id} outside its wave's lifetime \
-                             (unknown or already acked; seed={seed})"
-                        );
-                        let last = self
-                            .wave_last
-                            .entry((mutate_id, topic.clone()))
-                            .or_insert(0);
-                        assert!(
-                            id > *last,
-                            "wave {mutate_id} replay not cursor-ordered on {topic}: \
-                             {id} after {last} (seed={seed})"
-                        );
-                        *last = id;
-                    } else {
-                        let owners = self.owned.get(&topic).map(|w| w.len()).unwrap_or(0);
-                        assert_eq!(
-                            owners, 0,
-                            "live frame for wave-owned topic {topic} before its \
-                             CatchUpComplete (seed={seed})"
-                        );
-                        // NOT asserted: silence after a remove's ack. The
-                        // node's delivery fan-out can have frames in flight
-                        // when the unsubscribe processes, so removed topics
-                        // may trail a few live frames. The client is
-                        // indifferent — frames for unheld topics are dropped
-                        // at demux — so nothing depends on remove promptness.
-                        // Strictly above the cross-lane high-water: a live
-                        // frame at-or-below it is a held segment leaking out
-                        // of its wave — exactly what the client ledger's
-                        // live-order shield would silently drop.
-                        assert!(
-                            id > bound,
-                            "live frame {id} at-or-below the high-water {bound} on \
-                             {topic} (seed={seed})"
-                        );
-                        let last = self.live_last.entry(topic.clone()).or_insert(0);
-                        assert!(
-                            id > *last,
-                            "live lane not cursor-ordered on {topic}: {id} after {last} \
-                             (seed={seed})"
-                        );
-                        *last = id;
+                    let (topic, cursor) = gm_parts(message).expect("valid envelope metadata");
+                    let last = self
+                        .last
+                        .get_mut(&topic)
+                        .expect("delivery on an inactive topic");
+                    assert!(
+                        cursor > *last,
+                        "cursor {cursor} follows {last} on {topic} (seed={seed})"
+                    );
+                    *last = cursor;
+                    self.received
+                        .entry(topic.clone())
+                        .or_default()
+                        .insert(cursor);
+                    if self
+                        .targets
+                        .get(&topic)
+                        .is_some_and(|target| cursor >= *target)
+                    {
+                        self.targets.remove(&topic);
                     }
                 }
             }
-            BidiEvent::WelcomeMessages { .. } => {}
         }
     }
 }
 
-/// One raw connection under fuzz, with its own checker and wave counter —
-/// the server scopes `mutate_id`s per stream, so each connection mints its
+/// One raw connection under fuzz, with its own checker and update counter —
+/// the server scopes `Update.id` values per stream, so each connection mints its
 /// own and audits its own contract.
 struct FuzzConn<C> {
     conn: C,
     state: ContractState,
-    next_wave: u64,
-    /// Per-topic lowest floor this connection ever asked for — the bound of
-    /// its completeness obligation.
-    min_added: HashMap<Topic, u64>,
+    next_update_id: u64,
 }
 
-/// XIP-83 server-contract fuzz: random subscription churn on up to ten raw
+/// Backend server-contract fuzz: random subscription churn on up to ten raw
 /// connections while up to ten member clients race publishes into the same
 /// groups, with every frame checked against the wire guarantees the client
 /// ledger is built on — independently per connection.
 #[xmtp_common::timeout(Duration::from_secs(300))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn fuzz_server_honors_the_bidi_wave_contract() {
+async fn fuzz_server_honors_update_acknowledgements_and_targets() {
     let seed = fuzz_seed();
     let rounds = fuzz_rounds(60);
     let mut rng = StdRng::seed_from_u64(seed);
@@ -408,7 +247,7 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
     for i in 0..n_producers {
         producers.push(
             TesterBuilder::new()
-                .with_name(&format!("wave_prod_{i}"))
+                .with_name(&format!("update_prod_{i}"))
                 .build()
                 .await,
         );
@@ -457,7 +296,7 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
 
     // The initial adds use REAL cursors (queried), not just zero, so the
     // nonzero-floor boundary — everything strictly above F — is exercised
-    // against the server from the first wave. One pre-open snapshot serves
+    // against the server from the first update. One pre-open snapshot serves
     // every connection: positions only grow, so `floor < latest_at_query`
     // proves "below the server-side position" at any later open too.
     let api = alix.context.api();
@@ -467,7 +306,7 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
             .query_latest_group_message(group.group_id)
             .await
             .expect("latest query failed")
-            .map(|m| m.cursor.sequence_id)
+            .map(|m| m.cursor.0)
             .unwrap_or(0);
         known_floor.insert(topic.clone(), latest);
     }
@@ -490,15 +329,11 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
             .await
             .expect("open failed");
         let mut state = ContractState::new(seed);
-        for (topic, floor) in &initial {
-            // The pre-open query is an authoritative position lower bound.
-            state.sent(1, topic, *floor < known_floor[topic]);
-        }
+        state.sent(mutate(initial.clone(), 1));
         conns.push(FuzzConn {
             conn,
             state,
-            next_wave: 2,
-            min_added: initial.into_iter().collect(),
+            next_update_id: 2,
         });
     }
     let mut removes_sent = 0usize;
@@ -519,7 +354,7 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
                 let g = rng.random_range(0..groups.len());
                 let k = rng.random_range(1..=3usize.min(n_producers));
                 let mut picks: Vec<usize> = (0..n_producers).collect();
-                picks.partial_shuffle(&mut rng, k);
+                let _ = picks.partial_shuffle(&mut rng, k);
                 for p in picks.into_iter().take(k) {
                     let count = rng.random_range(1..5usize);
                     let group = producer_groups[p][g].clone();
@@ -536,18 +371,18 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
                 }
             }
             // A cursored (re-)add on a random connection — lower re-adds
-            // yank topics between waves. Floors are biased around the
+            // yank topics between updates. Floors are biased around the
             // topic's OWN observed position, so yanks (and their
             // live-holds) actually arm; occasionally two topics ride one
-            // wave.
+            // update.
             4..=6 => {
                 let c = rng.random_range(0..conns.len());
                 let mut picks: Vec<usize> = (0..groups.len()).collect();
-                picks.partial_shuffle(&mut rng, 2);
+                let _ = picks.partial_shuffle(&mut rng, 2);
                 let n = if rng.random_range(0..3u8) == 0 { 2 } else { 1 };
                 let fc = &mut conns[c];
-                let wave = fc.next_wave;
-                fc.next_wave += 1;
+                let update = fc.next_update_id;
+                fc.next_update_id += 1;
                 let mut adds = Vec::new();
                 for g in picks.into_iter().take(n) {
                     let topic = &groups[g].1;
@@ -562,15 +397,10 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
                     adds.push((topic.clone(), floor));
                 }
                 fc.conn
-                    .mutate(mutate(adds.clone(), wave))
+                    .mutate(mutate(adds.clone(), update))
                     .await
                     .expect("mutate failed");
-                for (topic, floor) in adds {
-                    let owns = floor < fc.state.position_bound(&topic);
-                    fc.state.sent(wave, &topic, owns);
-                    let entry = fc.min_added.entry(topic).or_insert(floor);
-                    *entry = (*entry).min(floor);
-                }
+                fc.state.sent(mutate(adds, update));
             }
             // A removes-only Mutate on a random connection: always acked
             // (echoing the minted id), and that connection owes the topic
@@ -579,16 +409,14 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
                 let c = rng.random_range(0..conns.len());
                 let (_, topic) = &groups[rng.random_range(0..groups.len())];
                 let fc = &mut conns[c];
-                if !fc.state.exempt.contains(topic)
-                    && !fc.state.pending_remove.values().any(|t| t == topic)
-                {
-                    let wave = fc.next_wave;
-                    fc.next_wave += 1;
+                if !fc.state.pending_remove.values().any(|t| t == topic) {
+                    let update = fc.next_update_id;
+                    fc.next_update_id += 1;
                     fc.conn
-                        .mutate(remove_mutate(topic.clone(), wave))
+                        .mutate(remove_mutate(topic.clone(), update))
                         .await
                         .expect("remove mutate failed");
-                    fc.state.sent_remove(wave, topic);
+                    fc.state.sent_remove(update, topic);
                     removes_sent += 1;
                 }
             }
@@ -617,41 +445,44 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
         res.expect("publish burst panicked");
     }
 
-    // Always-ack: every wave every connection sent must resolve.
+    // Always-ack: every update every connection sent must resolve.
     for fc in conns.iter_mut() {
         let deadline = tokio::time::Instant::now() + SETTLE;
-        while !fc.state.unacked.is_empty() {
+        while !fc.state.unacked.is_empty() || !fc.state.targets.is_empty() {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             let pending: Vec<u64> = fc.state.unacked.keys().copied().collect();
             assert!(
                 !remaining.is_zero(),
-                "waves never acked: {pending:?} (seed={seed})"
+                "updates never acked: {pending:?} (seed={seed})"
             );
             match tokio::time::timeout(remaining, fc.conn.next()).await {
                 Ok(Some(event)) => fc.state.observe(event),
                 Ok(None) => panic!("connection died awaiting acks (seed={seed})"),
-                Err(_) => panic!("waves never acked: {pending:?} (seed={seed})"),
+                Err(_) => panic!("updates never acked: {pending:?} (seed={seed})"),
             }
         }
     }
 
-    // Sentinels mark the live edge; with every wave acked they arrive on
+    // Sentinels mark the live edge; with every update acked they arrive on
     // the live lane, and receiving them bounds each connection's
     // completeness check.
     for (group, _) in &groups {
         group.send_msg(b"sentinel").await;
     }
-    let truth = ground_truth(&api.api_client, &group_keys).await;
+    let truth = ground_truth(api, &group_keys).await;
     for fc in conns.iter_mut() {
         let deadline = tokio::time::Instant::now() + SETTLE;
         loop {
             let done = groups.iter().all(|(_, topic)| {
-                if fc.state.exempt.contains(topic) {
-                    return true; // removed: its sentinel never arrives
-                }
+                let Some(floor) = fc.state.active.get(topic) else {
+                    return true;
+                };
                 let Some(max) = truth.get(topic).and_then(|ids| ids.last()) else {
                     return true;
                 };
+                if max <= floor {
+                    return true;
+                }
                 fc.state
                     .received
                     .get(topic)
@@ -674,13 +505,10 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
     }
 
     // No loss, per connection: everything above the lowest cursor it ever
-    // asked for was served — by some wave or the live lane. Removed topics
+    // asked for was served — by some update or the live lane. Removed topics
     // are exempt: their delivery obligation ended mid-run.
     for (c, fc) in conns.iter().enumerate() {
-        for (topic, min) in &fc.min_added {
-            if fc.state.exempt.contains(topic) {
-                continue;
-            }
+        for (topic, min) in &fc.state.active {
             let Some(truth_ids) = truth.get(topic) else {
                 continue;
             };
@@ -697,11 +525,10 @@ async fn fuzz_server_honors_the_bidi_wave_contract() {
             );
         }
     }
-    let waves: u64 = conns.iter().map(|fc| fc.next_wave - 1).sum();
-    let armed: usize = conns.iter().map(|fc| fc.state.armed_yanks).sum();
+    let updates: u64 = conns.iter().map(|fc| fc.next_update_id - 1).sum();
     tracing::info!(
         "bidi server-contract fuzz done: seed={seed} conns={} producers={n_producers} \
-         races={n_races} waves={waves} armed_yanks={armed} removes={removes_sent}",
+         races={n_races} updates={updates} removes={removes_sent}",
         conns.len(),
     );
 }
@@ -732,7 +559,7 @@ struct Link {
 
 #[allow(clippy::too_many_arguments)]
 fn spawn_collector(
-    mut lease: TopicLease<V3Binding>,
+    mut lease: TopicLease<BackendBinding>,
     state: Arc<std::sync::Mutex<Collected>>,
     stall_ms: Arc<AtomicU64>,
     mut die: oneshot::Receiver<()>,
@@ -749,17 +576,17 @@ fn spawn_collector(
             }
             tokio::select! {
                 _ = &mut die => {
-                    state.lock().unwrap().ended = true;
+                    state.lock().expect("checker lock").ended = true;
                     return; // dropping the lease derefs its topics
                 }
                 event = lease.next() => match event {
                     None => {
-                        state.lock().unwrap().ended = true;
+                        state.lock().expect("checker lock").ended = true;
                         let _ = ends.send(index);
                         return;
                     }
                     Some(LeaseEvent::GroupMessages(batch)) => {
-                        let mut state = state.lock().unwrap();
+                        let mut state = state.lock().expect("checker lock");
                         for message in &batch {
                             if let Some((topic, id)) = gm_parts(message) {
                                 latest.fetch_max(id, Ordering::Relaxed);
@@ -768,7 +595,7 @@ fn spawn_collector(
                         }
                     }
                     Some(LeaseEvent::WelcomeMessages(batch)) => {
-                        let mut state = state.lock().unwrap();
+                        let mut state = state.lock().expect("checker lock");
                         for message in &batch {
                             if let Some(id) = wm_cursor(message) {
                                 state
@@ -780,9 +607,8 @@ fn spawn_collector(
                         }
                     }
                     Some(LeaseEvent::CatchUpComplete) => {
-                        state.lock().unwrap().catch_ups += 1;
+                        state.lock().expect("checker lock").catch_ups += 1;
                     }
-                    Some(LeaseEvent::TopicsLive(_)) => {}
                 },
             }
         }
@@ -879,7 +705,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     }
 
     let api = alix.context.api();
-    let mut transports: Vec<BidiTransport<V3Binding>> = Vec::new();
+    let mut transports: Vec<BidiTransport<BackendBinding>> = Vec::new();
     let mut welcome_topics = Vec::new();
     for consumer in &consumers {
         let api = consumer.context.api().api_client.clone();
@@ -991,7 +817,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 let consumer = links[index].consumer;
                 let mut floors = chains[&chain].clone();
                 for link in links.iter().filter(|l| l.chain == chain) {
-                    let state = link.state.lock().unwrap();
+                    let state = link.state.lock().expect("checker lock");
                     for (topic, ids) in &state.ids {
                         if let (Some(floor), Some(max)) = (floors.get_mut(topic), ids.iter().max())
                         {
@@ -1022,7 +848,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 if g < initial_groups {
                     let k = rng.random_range(1..=3usize.min(n_producers));
                     let mut picks: Vec<usize> = (0..n_producers).collect();
-                    picks.partial_shuffle(&mut rng, k);
+                    let _ = picks.partial_shuffle(&mut rng, k);
                     for p in picks.into_iter().take(k) {
                         let count = rng.random_range(1..6usize);
                         let group = producer_groups[p][g].clone();
@@ -1060,7 +886,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 let mut floors = HashMap::new();
                 let mut picks: Vec<usize> = (0..groups.len()).collect();
                 let n = rng.random_range(1..4usize).min(groups.len());
-                picks.partial_shuffle(&mut rng, n);
+                let _ = picks.partial_shuffle(&mut rng, n);
                 for g in picks.into_iter().take(n) {
                     let topic = groups[g].1.clone();
                     let floor = random_floor(&mut rng, latest.load(Ordering::Relaxed));
@@ -1085,7 +911,9 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 let alive: Vec<usize> = links
                     .iter()
                     .enumerate()
-                    .filter(|(_, l)| l.die.is_some() && !l.state.lock().unwrap().ended)
+                    .filter(|(_, l)| {
+                        l.die.is_some() && !l.state.lock().expect("checker lock").ended
+                    })
                     .map(|(i, _)| i)
                     .collect();
                 if !alive.is_empty() {
@@ -1125,7 +953,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 for &c in &targets {
                     consumers[c]
                         .for_each_proxy(async |p| {
-                            p.disable().await.unwrap();
+                            p.disable().await.expect("disable proxy");
                         })
                         .await;
                 }
@@ -1133,7 +961,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 for &c in &targets {
                     consumers[c]
                         .for_each_proxy(async |p| {
-                            p.enable().await.unwrap();
+                            p.enable().await.expect("enable proxy");
                         })
                         .await;
                 }
@@ -1160,7 +988,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
             18 if welcome_groups < 12 => {
                 let k = rng.random_range(1..=2usize.min(n_consumers));
                 let mut picks: Vec<usize> = (0..n_consumers).collect();
-                picks.partial_shuffle(&mut rng, k);
+                let _ = picks.partial_shuffle(&mut rng, k);
                 let members: Vec<_> = picks[..k]
                     .iter()
                     .map(|&c| consumers[c].inbox_id())
@@ -1223,14 +1051,14 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
         .iter()
         .map(|(group, topic)| (group.group_id, topic.clone()))
         .collect();
-    let mut truth = ground_truth(&api.api_client, &group_keys).await;
+    let mut truth = ground_truth(api, &group_keys).await;
     for (c, consumer) in consumers.iter().enumerate() {
         let welcome_truth: BTreeSet<u64> = api
             .query_welcome_messages(consumer.context.installation_id())
             .await
             .expect("welcome ground-truth query failed")
             .iter()
-            .map(|w| w.cursor.sequence_id)
+            .map(|w| w.cursor.0)
             .collect();
         truth.insert(welcome_topics[c].clone(), welcome_truth);
     }
@@ -1250,9 +1078,9 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
         let lagging: Vec<String> = links
             .iter()
             .enumerate()
-            .filter(|(_, link)| !link.killed && !link.state.lock().unwrap().ended)
+            .filter(|(_, link)| !link.killed && !link.state.lock().expect("checker lock").ended)
             .flat_map(|(i, link)| {
-                let state = link.state.lock().unwrap();
+                let state = link.state.lock().expect("checker lock");
                 let mut lags = Vec::new();
                 if state.catch_ups == 0 {
                     lags.push(format!("link {i}: no CatchUpComplete"));
@@ -1282,7 +1110,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
 
     let n_drops = links
         .iter()
-        .filter(|l| !l.killed && l.state.lock().unwrap().ended)
+        .filter(|l| !l.killed && l.state.lock().expect("checker lock").ended)
         .count();
     tracing::info!(
         "bidi transport fuzz schedule: seed={seed} producers={n_producers} \
@@ -1297,7 +1125,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     // leaked through (both demux lanes honor the holder's floor; only
     // cursor-less frames fail open, and those never reach a collector).
     for (i, link) in links.iter().enumerate() {
-        let state = link.state.lock().unwrap();
+        let state = link.state.lock().expect("checker lock");
         assert!(
             state.catch_ups <= 1,
             "link {i} caught up {} times (seed={seed})",
@@ -1346,15 +1174,14 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     for (chain, floors) in &chains {
         let deliberately_ended = links
             .iter()
-            .filter(|l| l.chain == *chain)
-            .next_back()
+            .rfind(|l| l.chain == *chain)
             .is_some_and(|l| l.killed);
         if deliberately_ended {
             continue;
         }
         let mut union: HashMap<Topic, BTreeSet<u64>> = HashMap::new();
         for link in links.iter().filter(|l| l.chain == *chain) {
-            let state = link.state.lock().unwrap();
+            let state = link.state.lock().expect("checker lock");
             for (topic, ids) in &state.ids {
                 union.entry(topic.clone()).or_default().extend(ids);
             }

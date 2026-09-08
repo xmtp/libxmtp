@@ -31,7 +31,7 @@ use std::{
 };
 use xmtp_common::{BoxDynFuture, Event};
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, SequenceId};
+use xmtp_proto::types::{Cursor, SequenceId};
 use xmtp_proto::types::{GroupId, Topic};
 use xmtp_proto::{api_client::XmtpMlsStreams, types::TopicCursor};
 
@@ -200,13 +200,13 @@ where
                 .get(group_id.as_slice())
                 .cloned()
                 .unwrap_or_default();
-            topic_cursor.add(Topic::new_group_message(*group_id), cursor);
+            topic_cursor.insert(Topic::new_group_message(*group_id), cursor);
         }
 
         let groups_list = GroupList::new(topic_cursor, seen_cursors.clone());
 
         let subscription = api
-            .subscribe_group_messages(&groups.iter().collect::<Vec<_>>())
+            .subscribe_group_messages_with_cursors(groups_list.groups_with_positions())
             .await?;
 
         Ok(Self {
@@ -296,11 +296,7 @@ where
             .api()
             .subscribe_group_messages_with_cursors(&topic_cursor)
             .await?;
-        Ok((
-            stream,
-            new_group.to_vec(),
-            Some(Cursor::new(1 as SequenceId, 0 as OriginatorId)),
-        ))
+        Ok((stream, new_group.to_vec(), Some(Cursor(1))))
     }
 }
 
@@ -486,7 +482,7 @@ where
         );
         let this = self.as_mut().project();
         if !this.groups.contains(group.group_id) {
-            this.groups.add(group.group_id, GlobalCursor::default());
+            this.groups.add(group.group_id, Cursor::default());
         }
         let groups_with_positions = self.groups.groups_with_positions().clone();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
@@ -562,10 +558,7 @@ where
             tracing::trace!("message @cursor=[{}] finished processing", processed.tried);
             let this = self.as_mut().project();
             if let Some(msg) = processed.message {
-                this.returned.push(Cursor::new(
-                    msg.sequence_id as SequenceId,
-                    msg.originator_id as OriginatorId,
-                ));
+                this.returned.push(Cursor(msg.sequence_id as SequenceId));
                 self.as_mut()
                     .set_cursor(msg.group_id.as_slice(), processed.next_cursor);
                 tracing::trace!(
