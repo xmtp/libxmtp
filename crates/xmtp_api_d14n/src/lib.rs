@@ -12,4 +12,6 @@ pub use middleware::*;
 pub mod definitions;
 pub mod protocol;
 pub use definitions::XmtpApiClient;
-xmtp_common::if_test! { mod test; pub use test::*; }
+#[cfg(any(test, feature = "test-utils"))]
+mod test;
+xmtp_common::if_test! { pub use test::*; }

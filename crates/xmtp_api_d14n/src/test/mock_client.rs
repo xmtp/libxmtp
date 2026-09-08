@@ -1,4 +1,9 @@
-use xmtp_proto::{api::ApiClientError, api_client::{XmtpBackendClient, XmtpMlsStreams, BoxedGroupS, BoxedWelcomeS}, backend_v1::*, types::{GroupId, InstallationId, TopicCursor}};
+use xmtp_proto::{
+    api::ApiClientError,
+    api_client::{BoxedGroupS, BoxedWelcomeS, XmtpBackendClient, XmtpMlsStreams},
+    backend_v1::*,
+    types::{GroupId, InstallationId, TopicCursor},
+};
 mockall::mock! {
  pub BackendClient {}
  #[xmtp_common::async_trait]
