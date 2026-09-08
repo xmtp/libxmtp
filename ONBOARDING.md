@@ -26,9 +26,9 @@ This is the core client SDK. It fetches and publishes payloads from the [backend
 
 It's recommended to start by understanding [envelope types](https://docs.xmtp.org/protocol/envelope-types) and [intents](https://docs.xmtp.org/protocol/intents), before moving onto deeper level concepts in the Core Concepts section below.
 
-#### Validation Service
+#### Shared payload validation
 
-This is simply a library in the libxmtp repo for validating payloads that is used in both the backend and client.
+The `crates/xmtp_mls_validation` library validates payloads for the backend and client.
 
 #### Platform SDK's
 

@@ -13,7 +13,6 @@ exclude = ["apps/android"]
 # Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
   "apps/backend",
-  "apps/mls_validation_service",
   # Bindings
   "bindings/*",
   # Core crates

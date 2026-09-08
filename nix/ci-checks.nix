@@ -3,7 +3,7 @@
 #
 #   - nextest: requires Docker services that aren't available in sandboxed builds.
 #     test-workspace.yml starts Docker first, then builds them directly via
-#     `nix build .#nextest.<system>.v3`.
+#     `nix build .#nextest.<system>`.
 #   - cargo-clippy: per-crate clippy gates (currently just `xdbg`) that the
 #     existing workspace-wide lint job skips because their crates aren't in
 #     `default-members`. They build fine in the standard sandbox; they live
@@ -22,12 +22,7 @@ in
     system:
     withSystem system (
       { pkgs, ... }:
-      {
-        v3 = pkgs.callPackage ./package/nextest.nix { };
-        d14n = pkgs.callPackage ./package/nextest.nix { d14n = true; };
-        wasm-v3 = pkgs.callPackage ./package/wasm-nextest.nix { };
-        wasm-d14n = pkgs.callPackage ./package/wasm-nextest.nix { d14n = true; };
-      }
+      pkgs.callPackage ./package/nextest.nix { }
     )
   );
 

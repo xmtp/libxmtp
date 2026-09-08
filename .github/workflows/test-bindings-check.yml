@@ -40,5 +40,7 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
       - uses: taiki-e/install-action@just
+      - name: Start backend
+        run: just backend up
       - name: Check Android bindings compile
         run: just android check

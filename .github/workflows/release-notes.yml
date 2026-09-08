@@ -132,7 +132,7 @@ jobs:
 
             Include changes to:
             - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
-              xmtp_proto, xmtp_api, xmtp_api_d14n) that affect SDK behavior
+              xmtp_proto, xmtp_api) that affect SDK behavior
             - The SDK's own bindings directory (e.g., bindings/mobile and sdks/ios for iOS)
 
             Exclude changes to:
@@ -229,7 +229,7 @@ jobs:
 
             Include changes to:
             - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
-              xmtp_proto, xmtp_api, xmtp_api_d14n) that affect SDK behavior
+              xmtp_proto, xmtp_api) that affect SDK behavior
             - The SDK's own bindings directory (e.g., bindings/mobile and sdks/ios for iOS)
 
             Exclude changes to:

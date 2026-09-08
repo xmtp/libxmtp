@@ -78,19 +78,7 @@ let
   # Custom emulator launch script replacing nixpkgs' androidenv.emulateApp.
   # Only defined on platforms where the Android emulator is available.
   #
-  # Why: In CI, ./dev/docker/up starts Docker services on ports that overlap
-  # with the Android emulator's default port scan range (5554-5584):
-  #   - 5555: node (gRPC)    - 5557: node-web
-  #   - 5556: node            - 5558: history-server
-  #
-  # The nixpkgs emulateApp port scanner only checks `adb devices` output,
-  # not whether ports are actually bindable. ADB's auto-discovery misidentifies
-  # Docker services on odd ports (5555, 5557) as emulators, causing the scanner
-  # to skip ports 5554 and 5556 and land on 5558 — which is occupied by the
-  # history-server. The emulator then fails to bind its console port, can't
-  # register with ADB, and `adb wait-for-device` hangs until the CI timeout.
-  #
-  # Fix: Start scanning at port 5560, above all Docker service ports.
+  # Keep the established emulator port range for local and CI runs.
   emulator = writeShellScriptBin "run-test-emulator" ''
     set -e
 

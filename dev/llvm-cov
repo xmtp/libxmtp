@@ -9,11 +9,7 @@ export RUST_BACKTRACE="full"
 
 cargo llvm-cov clean --profraw-only --workspace
 
-# no need to report as we can get all usage rolled together after the fact.
-echo "Running tests with grpc"
-time cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
-echo "Running tests with http"
-time cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_grpc --exclude xmtp_api_d14n --features http-api
+cargo llvm-cov nextest --no-fail-fast --no-report --profile ci
 
 mkdir -p coverage
 rm -rf coverage/*

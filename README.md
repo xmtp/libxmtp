@@ -205,7 +205,6 @@ libxmtp/
 [`xdbg`](./apps/xmtp_debug): comprehensive CLI for sending/load testing XMTP
 clients & network
 
-│ └ [`mls_validation_service`](./apps/mls_validation_service): MLS validation
 service
 
 ├ bindings/

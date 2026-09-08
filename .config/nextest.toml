@@ -1,12 +1,12 @@
 [profile.default]
-default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"
+default-filter = "not package(xmtp_backend) & (not test(test_stream_all_messages_does_not_lose_messages))"
 retries = { backoff = "exponential", count = 3, delay = "3s", max-delay = "20s", jitter = true }
 failure-output = "final"
 fail-fast = false
 
 [profile.ci]
 slow-timeout = "90sec"
-default-filter = "not (test(test_stream_all_messages_does_not_lose_messages)|test(test_can_stream_group_messages_for_updates))"
+default-filter = "not package(xmtp_backend) & (not (test(test_stream_all_messages_does_not_lose_messages)|test(test_can_stream_group_messages_for_updates)))"
 failure-output = "immediate-final"
 fail-fast = false
 
@@ -27,24 +27,6 @@ retries = 3
 [[profile.ci.overrides]]
 filter = 'test(/\btest_can_stream_group_messages_for_updates/)'
 retries = 3
-[profile.ci-d14n]
-slow-timeout = "90sec"
-# Commit-log tests are excluded on d14n because the pure d14n test client no-ops
-# commit-log.
-default-filter = "not (test(/\\w*commit_log*/))"
-# inherits = "ci" not supported until latest nextest release
-failure-output = "never"
-fail-fast = false
-
-# consumed by .github/workflows/ignored-tests-tracker.yml
-[profile.ci-d14n.junit]
-path = "junit.xml"
-
-[[profile.ci-d14n.overrides]]
-platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
-default-filter = "not (test(/\\w*commit_log*/))"
-threads-required = 2
-
 # Fuzz tests print their seed and must fail loudly — a retry would re-roll
 # the seed and mask the finding.
 [[profile.default.overrides]]

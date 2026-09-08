@@ -32,8 +32,6 @@ alloy-transport-http = { version = "2", default-features = false, features = ["r
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
-clap = { version = "4", features = ["derive", "env"] }
-clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["getrandom", "std"] }
@@ -47,7 +45,6 @@ either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
 foldhash = { version = "0.2", default-features = false, features = ["std"] }
 form_urlencoded = { version = "1" }
-futures-channel = { version = "0.3", features = ["sink"] }
 futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
@@ -55,7 +52,6 @@ generic-array = { version = "0.14", default-features = false, features = ["more_
 hashbrown = { version = "0.17", features = ["serde"] }
 hpke-rs = { version = "0.7", features = ["experimental", "hazmat", "serialization"] }
 hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes"] }
-hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
@@ -90,7 +86,6 @@ serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
-sha1 = { version = "0.10", features = ["compress"] }
 sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
@@ -126,8 +121,6 @@ alloy-transport-http = { version = "2", default-features = false, features = ["r
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
-clap = { version = "4", features = ["derive", "env"] }
-clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["getrandom", "std"] }
@@ -142,7 +135,6 @@ either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
 foldhash = { version = "0.2", default-features = false, features = ["std"] }
 form_urlencoded = { version = "1" }
-futures-channel = { version = "0.3", features = ["sink"] }
 futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
@@ -150,7 +142,6 @@ generic-array = { version = "0.14", default-features = false, features = ["more_
 hashbrown = { version = "0.17", features = ["serde"] }
 hpke-rs = { version = "0.7", features = ["experimental", "hazmat", "serialization"] }
 hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes"] }
-hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
@@ -186,7 +177,6 @@ serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
-sha1 = { version = "0.10", features = ["compress"] }
 sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
@@ -211,12 +201,13 @@ alloy-provider = { version = "2", default-features = false, features = ["anvil-n
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
@@ -236,12 +227,13 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
@@ -260,12 +252,13 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
@@ -287,12 +280,13 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
@@ -312,12 +306,13 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
@@ -339,12 +334,13 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
@@ -364,12 +360,13 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
@@ -390,12 +387,13 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
-hyper = { version = "1", default-features = false, features = ["client"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }

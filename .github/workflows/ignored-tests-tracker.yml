@@ -26,17 +26,11 @@ jobs:
       matrix:
         include:
           - name: native-default
-            command: just test v3
+            command: just test workspace
             junit: target/nextest/ci/junit.xml
-          - name: native-d14n
-            command: just test d14n
-            junit: target/nextest/ci-d14n/junit.xml
           - name: wasm-default
             command: just wasm test-v3
             junit: target/nextest/ci/junit.xml
-          - name: wasm-d14n
-            command: just wasm test-d14n
-            junit: target/nextest/ci-d14n/junit.xml
     steps:
       - name: Checkout
         uses: actions/checkout@v6

@@ -3,7 +3,6 @@
   xmtp,
   lib,
   cargo-llvm-cov,
-  d14n ? false,
   ...
 }:
 let
@@ -20,7 +19,6 @@ let
       xmtp.filesets.libraries
       # include xmtpv3 tests
       (commonCargoSources (root + /bindings/mobile))
-      (commonCargoSources (root + /apps/mls_validation_service))
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))
@@ -46,14 +44,12 @@ rust.cargoNextest (
   // {
     inherit src cargoArtifacts;
     doCheck = true;
-    pnameSuffix = if d14n then "nextest-d14n" else "nextest-v3";
+    pnameSuffix = "nextest";
     partitions = 1;
     partitionType = "count";
     cargoNextestPartitionsExtraArgs = "--no-tests=pass";
-    cargoExtraArgs = if d14n then "--features d14n" else "";
     # The dedicated backend workflow owns the PostgreSQL service suite.
-    cargoNextestExtraArgs =
-      (if d14n then "--profile ci-d14n" else "--profile ci") + " -E 'not package(xmtp_backend)'";
+    cargoNextestExtraArgs = "--profile ci -E 'not package(xmtp_backend)'";
     withLlvmCov = true;
     doInstallCargoArtifacts = false;
     # most tests query docker

@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       workspace: ${{ steps.filter.outputs.workspace }}
+      wasm: ${{ steps.filter.outputs.wasm }}
+      browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       node: ${{ steps.filter.outputs.node }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
       agent_sdk: ${{ steps.filter.outputs.agent_sdk }}
@@ -47,7 +49,29 @@ jobs:
               - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
+            wasm:
+              - 'apps/backend/**'
+              - 'crates/**'
+              - 'proto/**'
+              - 'bindings/wasm/**'
+              - 'Cargo.*'
+              - 'nix/**'
+              - 'flake.*'
+              - 'dev/docker/**'
+              - '.github/workflows/test-wasm.yml'
+            browser_sdk:
+              - 'apps/backend/**'
+              - 'crates/**'
+              - 'proto/**'
+              - 'bindings/wasm/**'
+              - 'sdks/js/**'
+              - 'Cargo.*'
+              - 'nix/**'
+              - 'flake.*'
+              - 'dev/docker/**'
+              - '.github/workflows/test-browser-sdk.yml'
             node:
+              - 'apps/backend/**'
               - 'proto/**'
               - 'crates/**'
               - 'bindings/node/**'
@@ -59,6 +83,7 @@ jobs:
               - 'dev/up'
               - '.github/workflows/test-node*'
             node_sdk:
+              - 'apps/backend/**'
               - 'sdks/js/node-sdk/**'
               - 'sdks/js/package.json'
               - 'sdks/js/yarn.lock'
@@ -75,6 +100,7 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-node-sdk*'
             agent_sdk:
+              - 'apps/backend/**'
               - 'sdks/js/agent-sdk/**'
               - 'sdks/js/node-sdk/**'
               - 'sdks/js/package.json'
@@ -92,6 +118,7 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-agent-sdk*'
             ios:
+              - 'apps/backend/**'
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
               - 'proto/**'
@@ -103,6 +130,7 @@ jobs:
               - 'Cargo.lock'
               - '.github/workflows/test-ios*'
             android:
+              - 'apps/backend/**'
               - 'sdks/android/**'
               - 'bindings/mobile/**'
               - 'proto/**'
@@ -113,6 +141,7 @@ jobs:
               - 'Cargo.lock'
               - '.github/workflows/test-android*'
             bindings-check:
+              - 'apps/backend/**'
               - 'bindings/mobile/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -227,7 +256,28 @@ jobs:
     uses: ./.github/workflows/test-agent-sdk.yml
     secrets: inherit
 
+  test-xdbg:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workspace == 'true'
+    uses: ./.github/workflows/test-xdbg.yml
+    secrets: inherit
+
+  test-wasm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.wasm == 'true'
+    uses: ./.github/workflows/test-wasm.yml
+    secrets: inherit
+
+  test-browser-sdk:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.browser_sdk == 'true'
+    uses: ./.github/workflows/test-browser-sdk.yml
+    secrets: inherit
+
   test-ios:
+    permissions:
+      contents: read
+      packages: write
     needs: detect-changes
     if: |
       needs.detect-changes.outputs.ios == 'true' &&
@@ -273,8 +323,11 @@ jobs:
       - test-validation
       - test-backend
       - test-workspace
+      - test-xdbg
       - test-keepalive-probe
       - test-node
+      - test-wasm
+      - test-browser-sdk
       - test-node-sdk
       - test-agent-sdk
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
