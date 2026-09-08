@@ -123,7 +123,7 @@ xmtp_common::if_native! {
 
         async fn subscribe_bidi(
             &self,
-            requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+            requests: futures::stream::BoxStream<'static, xmtp_proto::backend_v1::SubscribeRequest>,
         ) -> Result<Self::SubscribeStream, Self::Error> {
             self.stats.subscribe.count_request();
             self.inner.subscribe_bidi(requests).await

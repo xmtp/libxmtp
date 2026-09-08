@@ -16,7 +16,7 @@ use futures::StreamExt;
 use futures::stream::BoxStream;
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::{AbortHandle, MaybeSend, MaybeSync, StreamHandle};
-use xmtp_proto::types::{Topic, TopicKind};
+use xmtp_proto::types::Topic;
 
 /// Wire-outbound depth. The actor is the sole writer; a transport that stops
 /// draining backs frames up here first, then in the actor's `pending` queue,
@@ -756,37 +756,6 @@ async fn drain_after_finish<B, S, E>(
 /// `Started` — every event reaches the consumer through there.)
 async fn emit<G, W>(events: &mpsc::Sender<Event<G, W>>, event: Event<G, W>) -> bool {
     events.send(event).await.is_err()
-}
-
-/// Parse kind-prefixed wire bytes into typed `Topic`s, validating each kind byte.
-/// A malformed topic should never reach us — it means a server or wire-format bug
-/// — so log the offending bytes (a topic is at most 33 bytes: a 1-byte kind + a
-/// 32-byte id) and skip it rather than kill the connection. Shared by both
-/// backends' `TopicsLive` handling.
-pub(crate) fn parse_topics(topics: Vec<Vec<u8>>) -> Vec<Topic> {
-    topics
-        .into_iter()
-        .filter_map(|bytes| {
-            // Validate the kind byte against a borrow first, so the hex preview —
-            // the only allocation — is built solely on the malformed path; the
-            // common all-valid case does no extra work.
-            match bytes.first().map(|&b| TopicKind::try_from(b)) {
-                Some(Ok(_)) => Topic::try_from(bytes).ok(),
-                outcome => {
-                    let preview = hex::encode(&bytes[..bytes.len().min(33)]);
-                    let reason = match outcome {
-                        Some(Err(e)) => e.to_string(),
-                        _ => "empty topic".to_string(),
-                    };
-                    tracing::warn!(
-                        topic = %preview,
-                        "skipping malformed TopicsLive topic (server/wire-format bug): {reason}"
-                    );
-                    None
-                }
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

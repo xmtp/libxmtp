@@ -265,7 +265,7 @@ xmtp_common::if_native! {
 
         async fn subscribe_bidi(
             &self,
-            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+            requests: futures::stream::BoxStream<'static, crate::backend_v1::SubscribeRequest>,
         ) -> Result<Self::SubscribeStream, Self::Error> {
             (**self).subscribe_bidi(requests).await
         }
@@ -285,7 +285,7 @@ xmtp_common::if_native! {
 
         async fn subscribe_bidi(
             &self,
-            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+            requests: futures::stream::BoxStream<'static, crate::backend_v1::SubscribeRequest>,
         ) -> Result<Self::SubscribeStream, Self::Error> {
             (**self).subscribe_bidi(requests).await
         }

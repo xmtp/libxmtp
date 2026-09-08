@@ -1088,7 +1088,7 @@ where
         for id in self.outbox.purge(&unused) {
             if let Some(update) = self.ledger.pending_updates.remove(&id) {
                 for (topic, _) in update.adds {
-                    self.dirty_topics.insert(topic.clone());
+                    self.ledger.dirty_topics.insert(topic.clone());
                     self.ledger.registrations.remove(&topic);
                 }
             }

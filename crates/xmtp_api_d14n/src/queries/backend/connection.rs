@@ -24,7 +24,7 @@ fn request_frame(request: subscribe_request::Request) -> SubscribeRequest {
 fn topic_from_wire(topic: &backend_v1::Topic) -> Option<Topic> {
     // Topic::try_from checks length. Check the kind before calling Topic::kind.
     TopicKind::try_from(*topic.topic.first()?).ok()?;
-    Topic::try_from(topic.topic.as_slice()).ok()
+    Topic::try_from(topic.topic.clone()).ok()
 }
 
 fn envelope_topic(envelope: &ServerEnvelope) -> Option<Topic> {
