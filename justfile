@@ -114,12 +114,34 @@ validation: check-validation test-validation
 
 # --- BACKEND ---
 
-# Build the Phase 1 self-hosted binary without starting the test services.
+# Build the self-hosted binary without starting the test services.
 build-backend:
     nix build .#xmtp-backend
 
-test-backend:
-    cargo test --locked -p xmtp_backend
+test-backend *args="":
+    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
+
+backend-db-up:
+    docker compose -f dev/backend/compose.yml up --detach --wait
+
+backend-db-down:
+    docker compose -f dev/backend/compose.yml down
+
+[script("bash")]
+backend-schema:
+    set -euo pipefail
+    schema_tmp="$(mktemp docs/schemas/backend-v1.XXXXXX)"
+    trap 'rm -f "$schema_tmp"' EXIT
+    cargo run --locked --quiet -p xmtp_backend --example config_schema > "$schema_tmp"
+    mv "$schema_tmp" docs/schemas/backend-v1.json
+
+backend-sql-prepare:
+    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
+    cd apps/backend && DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare -- --all-targets
+
+backend-sql-check:
+    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
+    cd apps/backend && DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare --check -- --all-targets
 
 backend-image arch="x86_64":
     nix build .#backend-image-{{ arch }}-unknown-linux-musl

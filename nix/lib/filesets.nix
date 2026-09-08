@@ -53,8 +53,12 @@ let
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
+    (lib.fileset.maybeMissing (src + /apps/backend/migrations))
+    (lib.fileset.maybeMissing (src + /apps/backend/.sqlx))
     (src + /proto)
     (src + /webdriver.json)
+    (lib.fileset.maybeMissing (src + /docs/schemas/backend-v1.json))
+    (src + /dev/backend/config.toml)
     (src + /.config/nextest.toml)
     # all crates in `crates/` are treated as required library crates
     (crateSources (src + /crates))

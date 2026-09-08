@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT closed_sequence_id FROM allocation_boundary WHERE singleton",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "closed_sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "allocation_boundary",
+            "name": "closed_sequence_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f1f8d988119a09d76c261f1d565d61682d4d60d5d78a72cbedaecc8b58606300"
+}

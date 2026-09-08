@@ -155,12 +155,24 @@ where
 }
 
 #[derive(Clone)]
+/// Result of one smart-contract-wallet signature check.
+///
+/// A negative verdict is a successful check and is represented by
+/// `is_valid = false`. Provider failures use `VerifierError` instead.
 pub struct ValidationResponse {
+    /// Whether the signature is valid for the requested account and block.
     pub is_valid: bool,
+    /// The block used by the provider, when it can report one.
     pub block_number: Option<u64>,
+    /// Provider detail for a negative verdict, when available.
     pub error: Option<String>,
 }
 
+/// Routes signature checks to a verifier selected by chain ID.
+///
+/// Each configured key is an `eip155:<chain>` identifier. A missing route is a
+/// retryable configuration/provider error so callers can distinguish it from a
+/// bad signature.
 pub struct MultiSmartContractSignatureVerifier {
     verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
 }
@@ -174,6 +186,10 @@ impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
 }
 
 impl MultiSmartContractSignatureVerifier {
+    /// Build RPC verifiers from chain IDs and endpoint URLs.
+    ///
+    /// URL parsing and provider construction errors are returned before a
+    /// partially configured verifier is created.
     pub fn new(urls: HashMap<String, url::Url>) -> Result<Self, VerifierError> {
         let verifiers = urls
             .into_iter()
@@ -188,6 +204,9 @@ impl MultiSmartContractSignatureVerifier {
         Ok(Self { verifiers })
     }
 
+    /// Build RPC verifiers from already-created providers.
+    ///
+    /// The provider map is consumed and keyed by the caller's chain IDs.
     pub fn new_providers(providers: HashMap<String, DynProvider>) -> Result<Self, VerifierError> {
         let verifiers = providers
             .into_iter()
@@ -201,11 +220,16 @@ impl MultiSmartContractSignatureVerifier {
         Ok(Self { verifiers })
     }
 
+    /// Load the default chain routes, apply environment overrides, and add Anvil.
     pub fn new_from_env() -> Result<Self, VerifierError> {
         let urls: HashMap<String, Url> = serde_json::from_str(DEFAULT_CHAIN_URLS)?;
         Self::new(urls)?.upgrade()
     }
 
+    /// Load chain routes from a JSON file.
+    ///
+    /// The file must contain a map from chain ID to URL. Environment upgrades
+    /// are not applied by this constructor.
     pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, VerifierError> {
         let json = fs::read_to_string(path.as_ref())?;
         let urls: HashMap<String, Url> = serde_json::from_str(&json)?;
@@ -213,7 +237,10 @@ impl MultiSmartContractSignatureVerifier {
         Self::new(urls)
     }
 
-    /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
+    /// Replace default routes with environment overrides when present.
+    ///
+    /// This also registers the configured Anvil endpoint. A malformed chain ID
+    /// or endpoint prevents the verifier from being returned.
     pub fn upgrade(mut self) -> Result<Self, VerifierError> {
         for (id, verifier) in self.verifiers.iter_mut() {
             // TODO: coda - update the chain id env var ids to preceded with "EIP155_"
@@ -236,12 +263,14 @@ impl MultiSmartContractSignatureVerifier {
         Ok(self)
     }
 
+    /// Add or replace one chain verifier backed by an RPC URL.
     pub fn add_verifier(&mut self, id: String, url: String) -> Result<(), VerifierError> {
         self.verifiers
             .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)?));
         Ok(())
     }
 
+    /// Add or replace the local Anvil verifier route.
     pub fn add_anvil(&mut self, url: String) -> Result<(), VerifierError> {
         self.verifiers.insert(
             "eip155:31337".to_string(),

@@ -1,0 +1,18 @@
+name: xmtp-backend
+
+services:
+  primary:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: xmtp
+      POSTGRES_PASSWORD: xmtp
+      POSTGRES_DB: xmtp_backend
+    ports:
+      - "127.0.0.1:${XMTP_BACKEND_DB_PORT:-55432}:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

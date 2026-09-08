@@ -4,6 +4,13 @@ This index maps each repository-owned test to one or more entries in the [requir
 
 The detailed index is split by area. This makes the files easier to scan and keeps each review task bounded.
 
+## Phase 2 backend tests
+
+The Phase 0 counts below remain the baseline. The new backend suite and its
+owners are listed in the [Phase 2 ownership map](existing-requirements.md#phase-2-backend-ownership).
+Run it with `just backend-db-up`, `just backend-sql-check`, and `just test-backend`.
+It replaces the Phase 1 greeting test, not the client SDK suites.
+
 ## Counting model
 
 - One row represents one source test declaration, macro template, executable or ignored documentation test, or explicit manual scenario.

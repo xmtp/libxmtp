@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT active.inbox_id FROM unnest($1::text[], $2::smallint[])\n                WITH ORDINALITY AS wanted(identifier, identifier_kind, ordinality)\n            LEFT JOIN LATERAL (\n                SELECT inbox_id FROM identifier_association\n                WHERE identifier = wanted.identifier AND identifier_kind = wanted.identifier_kind\n                    AND revocation_sequence_id IS NULL\n                ORDER BY association_sequence_id DESC LIMIT 1\n            ) active ON true ORDER BY wanted.ordinality",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inbox_id",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "identifier_association",
+            "name": "inbox_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int2Array"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c256727b85e3d2869234f564a5e17e43a99dc50d22cab55e2e40cf36dfc3d7db"
+}

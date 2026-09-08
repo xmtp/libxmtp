@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM pg_stat_activity\n                WHERE datname = current_database() AND wait_event = 'advisory'\n                  AND extract(epoch FROM clock_timestamp() - xact_start)::float8 >= $1)\n                AS \"elapsed!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "elapsed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "50f4f647e5e7e26eee9daead23c590b8ff19f3ce3bcdf3b158840eac26efac74"
+}

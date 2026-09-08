@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT last_value FROM envelope_sequence",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_value",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envelope_sequence",
+            "name": "last_value"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "78ab117646d8f018c713c3c1523cb10b423b57ac844be36f620cb744282c804e"
+}

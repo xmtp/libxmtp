@@ -156,6 +156,10 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-validation.yml'
             backend:
+              - '.config/hakari.toml'
+              - 'apps/backend/.sqlx/**'
+              - 'dev/backend/**'
+              - 'docs/schemas/backend-v1.json'
               - 'flake.nix'
               - 'dev/nix-shell'
               - 'apps/backend/**'

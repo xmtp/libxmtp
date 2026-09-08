@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE identifier_association AS current SET revocation_sequence_id = $4::bigint\n        FROM unnest($1::text[], $2::smallint[]) AS r(identifier, kind)\n        WHERE current.identifier = r.identifier AND current.identifier_kind = r.kind\n            AND current.inbox_id = $3::bytea AND current.association_sequence_id < $4::bigint\n            AND (current.revocation_sequence_id IS NULL OR current.revocation_sequence_id < $4::bigint)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int2Array",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8612520a9cc3c88d5917b0dafef55b059201d65cdb798fb4439fe6b3940758a"
+}

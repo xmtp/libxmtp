@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE envelopes SET server_ns = 0, expiry_ns = 1 WHERE sequence_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b51de59c6087e6ebf1ac817279d669a15204799b3940937c8bc0a38429a47a5"
+}

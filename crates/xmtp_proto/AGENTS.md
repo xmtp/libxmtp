@@ -19,6 +19,7 @@ dev/nix-shell 'buf lint proto'          # lint owned protobuf sources
 - `types::ConversationType` is shared metadata. SQL conversions require `diesel`.
 - Protobuf sources live in the root `proto/` directory.
 - The build script generates Rust and serde code in Cargo `OUT_DIR`. Do not commit generated code.
+- `grpc_client_impls` generates typed clients without transport constructors. Backend RPC tests enable it; normal consumers do not need it.
 
 ## Conventions
 

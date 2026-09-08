@@ -11,9 +11,46 @@ publish.workspace = true
 name = "xmtp-backend"
 path = "src/main.rs"
 
+[dependencies]
+clap.workspace = true
+futures.workspace = true
+hex.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+tokio-stream = { workspace = true, features = ["net"] }
+toml.workspace = true
+tonic = { workspace = true, features = ["transport", "router", "gzip"] }
+tonic-health.workspace = true
+tonic-types.workspace = true
+tonic-web.workspace = true
+tower-http = { workspace = true, features = ["cors"] }
+tracing.workspace = true
+url.workspace = true
+xmtp_common.workspace = true
+xmtp_configuration.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_id.workspace = true
+xmtp_logging.workspace = true
+xmtp_mls_validation.workspace = true
+xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
+
 [dev-dependencies]
+alloy-primitives.workspace = true
+async-trait.workspace = true
+http.workspace = true
+jsonschema = { version = "0.55", default-features = false }
+reqwest.workspace = true
 tokio.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["grpc_client_impls"] }
 
 [lints]
 workspace = true

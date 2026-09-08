@@ -18,8 +18,11 @@ Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix
 ```bash
 just                    # list all recipes
 just backend up         # docker services. Most tests need them.
-just build-backend      # self-hosted hello-world binary through Nix.
-just test-backend       # the backend scaffold test.
+just build-backend      # self-hosted service through Nix. No database needed.
+just backend-db-up      # disposable PostgreSQL 18 for backend tests.
+just backend-sql-prepare # migrate test DB and refresh checked SQL metadata.
+just backend-sql-check  # verify checked SQL metadata against test DB.
+just test-backend       # backend unit and RPC/storage tests.
 just check              # cargo check. default-members only.
 just test               # v3 + d14n tests. default-members only.
 just lint               # rust + config + markdown. Run before commit.

@@ -51,7 +51,9 @@ rust.cargoNextest (
     partitionType = "count";
     cargoNextestPartitionsExtraArgs = "--no-tests=pass";
     cargoExtraArgs = if d14n then "--features d14n" else "";
-    cargoNextestExtraArgs = if d14n then "--profile ci-d14n" else "--profile ci";
+    # The dedicated backend workflow owns the PostgreSQL service suite.
+    cargoNextestExtraArgs =
+      (if d14n then "--profile ci-d14n" else "--profile ci") + " -E 'not package(xmtp_backend)'";
     withLlvmCov = true;
     doInstallCargoArtifacts = false;
     # most tests query docker

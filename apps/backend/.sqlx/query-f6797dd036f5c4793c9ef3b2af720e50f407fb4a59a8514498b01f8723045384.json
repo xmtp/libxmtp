@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO identifier_association AS current\n            (identifier, identifier_kind, inbox_id, association_sequence_id, revocation_sequence_id)\n        SELECT r.identifier, r.kind, $3::bytea, $4::bigint, NULL\n        FROM unnest($1::text[], $2::smallint[]) AS r(identifier, kind)\n        ON CONFLICT (identifier, identifier_kind, inbox_id) DO UPDATE\n        SET association_sequence_id = EXCLUDED.association_sequence_id, revocation_sequence_id = NULL\n        WHERE EXCLUDED.association_sequence_id > current.association_sequence_id\n            AND (current.revocation_sequence_id IS NULL\n                OR EXCLUDED.association_sequence_id > current.revocation_sequence_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int2Array",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f6797dd036f5c4793c9ef3b2af720e50f407fb4a59a8514498b01f8723045384"
+}

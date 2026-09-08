@@ -10,8 +10,10 @@ use std::num::NonZeroUsize;
 /// See: https://github.com/xmtp/libxmtp/issues/3393
 type CacheKey = [u8; 32];
 
-/// Build a collision-resistant cache key by hashing all verification parameters.
-/// All fields are borrowed — no cloning required.
+/// Build a collision-resistant key from every verification parameter.
+///
+/// Length prefixes keep variable fields unambiguous. All fields are borrowed,
+/// so key construction does not clone the account or signature.
 fn build_cache_key(
     account_id: &AccountId,
     hash: &[u8; 32],
@@ -54,6 +56,10 @@ pub struct CachedSmartContractSignatureVerifier {
 }
 
 impl CachedSmartContractSignatureVerifier {
+    /// Wrap a verifier with a bounded LRU verdict cache.
+    ///
+    /// Only checks tied to an explicit block can be cached. The caller must
+    /// provide a non-zero capacity. Verifier errors are never inserted.
     pub fn new(
         verifier: impl SmartContractSignatureVerifier + 'static,
         cache_size: NonZeroUsize,
@@ -67,6 +73,11 @@ impl CachedSmartContractSignatureVerifier {
 
 #[xmtp_common::async_trait]
 impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
+    /// Verify a signature, reusing verdicts for explicit block numbers.
+    ///
+    /// Requests without a block number always reach the wrapped verifier because
+    /// latest-chain state can change without changing the request. Cache access
+    /// is short and synchronous; the chain call runs without holding the mutex.
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
