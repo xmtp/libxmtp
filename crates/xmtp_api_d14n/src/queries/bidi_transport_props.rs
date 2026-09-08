@@ -1,36 +1,10 @@
-//! Property-based model test of the bidi transport ledger.
+//! Model the backend registration protocol over a scripted connection.
 //!
-//! The scripted tests in `bidi_transport.rs` pin named scenarios; the live
-//! fuzz in `xmtp_mls` proves the stack against the real node but cannot
-//! shrink a failure. This sits between them: proptest generates random op
-//! sequences (publish / lease / drop / serve / partial-serve / wire-kill),
-//! a deterministic in-memory server model plays the XIP-83 contract back
-//! over the same mock wire the scripted tests use, and a reference model
-//! asserts the ledger's delivery contract per lease:
-//!
-//! - strictly increasing cursors per topic, nothing at-or-below the floor
-//!   (order + exactly-once in one sweep),
-//! - a lease alive at the end holds *exactly* the log suffix above its
-//!   floor and exactly one `CatchUpComplete`,
-//! - frames only for topics the lease asked for.
-//!
-//! Because the server is a model, completeness needs no sentinel bounding —
-//! the log IS ground truth — and because everything is in-memory, proptest
-//! gets what it exists for: thousands of schedules and real shrinking to a
-//! minimal counterexample. Server-side, the model also asserts the client's
-//! wire behavior (unique wave ids per connection, no pings at a disabled
-//! keepalive).
-//!
-//! Model fidelity notes, matching behavior established against node-go
-//! (validated at ≥ `6e0feb5f`, the tag-serving line — re-check these if
-//! the server's wave semantics change) by the live fuzz: every Mutate is
-//! acked (removes-only immediately, adds via
-//! wave serve); a wave owns a topic only when its floor is below the
-//! topic's position (equal-or-higher re-adds are waveless no-ops); owned
-//! topics get no live frames until every owning wave completes (yank
-//! overlap re-serves ranges — the ledger must dedup per lease); waves die
-//! with their connection, and a reconnect's initial Mutate re-registers
-//! everything at the transport's own floors.
+//! Each update is acknowledged before its new registrations deliver messages.
+//! Targets stay fixed. Removals cancel pending work. Re-adds start a new feed.
+//! Generated schedules combine publication, leases, partial delivery, connection
+//! failures, suspend, and resume. Both properties require the complete ordered
+//! suffix above each lease floor and exactly one completion event per lease.
 
 #![allow(clippy::unwrap_used)]
 
@@ -43,29 +17,21 @@ use futures::stream::BoxStream;
 use proptest::prelude::*;
 
 use super::{
-    BidiConnection, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, MAX_MUTATE_BYTES,
-    MAX_MUTATE_TOPICS, OpenError, TopicLease, V3Binding,
+    BackendBinding, BidiConnection, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
+    MAX_MUTATE_BYTES, MAX_MUTATE_TOPICS, OpenError, TopicLease,
 };
 use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::mls_v1::subscribe_request::v1::Mutate;
-use xmtp_proto::mls_v1::{
-    GroupMessage, SubscribeRequest, SubscribeResponse, group_message, subscribe_request,
+use xmtp_proto::backend_v1::subscribe_request::Update;
+use xmtp_proto::backend_v1::{
+    self, CatchupTarget, ServerEnvelope, SubscribeRequest, SubscribeResponse, subscribe_request,
     subscribe_response,
 };
 use xmtp_proto::types::Topic;
 
 const N_TOPICS: usize = 3;
-/// Keepalive high enough that the client never pings within a test case —
-/// a Ping reaching the model is an assertion failure, not a protocol turn.
 const NO_KEEPALIVE: u32 = 3_600_000;
-/// Wall-clock bound on any settle/wait loop; hitting it IS the failure.
 const STALL: Duration = Duration::from_secs(10);
-
-// ---------------------------------------------------------------------------
-// Mock wire (same shape as the scripted suite's, self-contained here so this
-// file never conflicts with edits to `bidi_transport.rs`).
-// ---------------------------------------------------------------------------
 
 struct MockApi {
     inbound: Mutex<
@@ -112,23 +78,19 @@ impl XmtpMlsBidiStreams for MockApi {
 }
 
 impl MockServer {
-    fn send(&self, response: subscribe_response::v1::Response) {
-        // The session may die under the client mid-send (wire kill racing a
-        // reconnect); losing frames there is exactly a severed TCP stream.
+    fn send(&self, response: subscribe_response::Response) {
         let _ = self.to_client.send(Ok(SubscribeResponse {
-            version: Some(subscribe_response::Version::V1(subscribe_response::V1 {
-                response: Some(response),
-            })),
+            response: Some(response),
         }));
     }
 }
 
 type Servers = Arc<Mutex<Vec<MockServer>>>;
 
-/// A transport whose opener mints a scripted session per open, greets it
-/// with `Started` immediately (so `open`/`lease` never deadlock on the
-/// driver), and parks the server end for the driver to adopt.
-fn model_transport(chunk_cap: usize, chunk_bytes: usize) -> (BidiTransport<V3Binding>, Servers) {
+fn model_transport(
+    chunk_cap: usize,
+    chunk_bytes: usize,
+) -> (BidiTransport<BackendBinding>, Servers) {
     let servers: Servers = Arc::default();
     let sink = servers.clone();
     let transport = BidiTransport::new_with_chunk_limits(
@@ -143,10 +105,9 @@ fn model_transport(chunk_cap: usize, chunk_bytes: usize) -> (BidiTransport<V3Bin
                 to_client,
                 from_client,
             };
-            server.send(subscribe_response::v1::Response::Started(
-                subscribe_response::v1::Started {
+            server.send(subscribe_response::Response::Started(
+                subscribe_response::Started {
                     keepalive_interval_ms: NO_KEEPALIVE,
-                    capabilities: vec![],
                 },
             ));
             sink.lock().unwrap().push(server);
@@ -167,34 +128,29 @@ fn gid(topic: usize) -> [u8; 16] {
     [topic as u8 + 1; 16]
 }
 
-fn group_msg(id: u64, topic: usize) -> GroupMessage {
-    GroupMessage {
-        version: Some(group_message::Version::V1(group_message::V1 {
-            id,
-            group_id: gid(topic).to_vec(),
-            data: vec![0xda; 4],
+fn group_msg(sequence_id: u64, topic: usize) -> ServerEnvelope {
+    ServerEnvelope {
+        meta: Some(backend_v1::EnvelopeMeta {
+            cursor: Some(backend_v1::Cursor { sequence_id }),
+            topic: Some(backend_v1::Topic {
+                topic: Topic::new_group_message(gid(topic)).cloned_vec(),
+            }),
             ..Default::default()
-        })),
+        }),
+        envelope: Some(backend_v1::ClientEnvelope {
+            payload: Some(backend_v1::client_envelope::Payload::GroupMessage(
+                backend_v1::GroupMessage {
+                    data: vec![0xda; 4],
+                    ..Default::default()
+                },
+            )),
+        }),
     }
 }
 
-fn replay(mutate_id: u64, group: Vec<GroupMessage>) -> subscribe_response::v1::Response {
-    subscribe_response::v1::Response::Messages(subscribe_response::v1::Messages {
-        group_messages: group,
-        welcome_messages: vec![],
-        mutate_id,
-    })
+fn messages(envelopes: Vec<ServerEnvelope>) -> subscribe_response::Response {
+    subscribe_response::Response::Messages(subscribe_response::Messages { envelopes })
 }
-
-fn catchup_complete(mutate_id: u64) -> subscribe_response::v1::Response {
-    subscribe_response::v1::Response::CatchupComplete(subscribe_response::v1::CatchupComplete {
-        mutate_id,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Generated schedule
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy)]
 enum FloorClass {
@@ -206,20 +162,14 @@ enum FloorClass {
 
 #[derive(Debug, Clone)]
 enum Op {
-    /// Append `n` messages to `topic`'s log; live-deliver if unheld.
     Publish { topic: usize, n: u8 },
-    /// A new lease over the given topics (deduped, floors resolved against
-    /// the log at execution time).
     Lease { asks: Vec<(usize, FloorClass)> },
-    /// Deliberately drop an alive lease (picked by index modulo).
     DropLease { pick: u8 },
-    /// Serve the oldest pending wave to completion and ack it.
-    ServeWave,
-    /// Serve roughly half of the oldest pending wave, no ack — a later
-    /// `ServeWave` finishes it; a `KillWire` orphans it mid-replay.
+    ServeTopic,
     ServePartial,
-    /// Sever the wire; the transport must reconnect and re-establish.
     KillWire,
+    Suspend,
+    Resume,
 }
 
 fn floor_class() -> impl Strategy<Value = FloorClass> {
@@ -237,35 +187,16 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         3 => proptest::collection::vec((0..N_TOPICS, floor_class()), 1..3)
             .prop_map(|asks| Op::Lease { asks }),
         1 => any::<u8>().prop_map(|pick| Op::DropLease { pick }),
-        3 => Just(Op::ServeWave),
+        3 => Just(Op::ServeTopic),
         1 => Just(Op::ServePartial),
         1 => Just(Op::KillWire),
+        1 => Just(Op::Suspend),
+        1 => Just(Op::Resume),
     ]
 }
 
-// ---------------------------------------------------------------------------
-// Server model + reference expectations
-// ---------------------------------------------------------------------------
-
-struct WaveAdd {
-    topic: usize,
-    /// Highest cursor already covered for this add — floor at registration,
-    /// advanced by partial serves.
-    served_upto: u64,
-    /// Floor was provably below the topic's position: the add moved the
-    /// topic into the wave and holds its live lane until the ack.
-    owned: bool,
-}
-
-struct PendingWave {
-    id: u64,
-    adds: Vec<WaveAdd>,
-}
-
-/// One lease under test: the handle plus what the reference model expects
-/// of it.
 struct LeaseRef {
-    lease: Option<TopicLease<V3Binding>>,
+    lease: Option<TopicLease<BackendBinding>>,
     floors: HashMap<usize, u64>,
     got: HashMap<usize, Vec<u64>>,
     catch_ups: usize,
@@ -273,16 +204,15 @@ struct LeaseRef {
 }
 
 struct Driver {
-    transport: BidiTransport<V3Binding>,
+    transport: BidiTransport<BackendBinding>,
     servers: Servers,
     session: Option<MockServer>,
-    /// Per-topic message log — the server's persistent ground truth.
     log: Vec<Vec<u64>>,
     next_cursor: u64,
-    /// Per-connection state: currently subscribed topics and unserved waves.
-    subs: HashSet<usize>,
-    pending: VecDeque<PendingWave>,
-    wave_ids_seen: HashSet<u64>,
+    subs: HashMap<usize, u64>,
+    pending: VecDeque<usize>,
+    last_update: u64,
+    suspended: bool,
     leases: Vec<LeaseRef>,
     topic_index: HashMap<Vec<u8>, usize>,
     kills: usize,
@@ -305,9 +235,10 @@ impl Driver {
             session: None,
             log: vec![Vec::new(); N_TOPICS],
             next_cursor: 0,
-            subs: HashSet::new(),
+            subs: HashMap::new(),
             pending: VecDeque::new(),
-            wave_ids_seen: HashSet::new(),
+            last_update: 0,
+            suspended: false,
             leases: Vec::new(),
             topic_index,
             kills: 0,
@@ -318,67 +249,63 @@ impl Driver {
         self.log[topic].last().copied().unwrap_or(0)
     }
 
-    fn held(&self, topic: usize) -> bool {
-        self.pending
-            .iter()
-            .any(|w| w.adds.iter().any(|a| a.topic == topic && a.owned))
-    }
-
-    fn send(&self, response: subscribe_response::v1::Response) {
+    fn send(&self, response: subscribe_response::Response) {
         if let Some(session) = &self.session {
             session.send(response);
         }
     }
 
     fn on_client_frame(&mut self, frame: SubscribeRequest) {
-        let Some(subscribe_request::Version::V1(v1)) = frame.version else {
-            panic!("client sent unknown request version");
-        };
-        match v1.request.expect("client sent empty request") {
-            subscribe_request::v1::Request::Mutate(mutate) => self.on_mutate(mutate),
+        match frame.request.expect("client sent empty request") {
+            subscribe_request::Request::Update(update) => self.on_update(update),
             other => panic!("unexpected client frame: {other:?}"),
         }
     }
 
-    fn on_mutate(&mut self, mutate: Mutate) {
-        assert_ne!(mutate.mutate_id, 0, "client sent an untagged Mutate");
+    fn on_update(&mut self, update: Update) {
         assert!(
-            self.wave_ids_seen.insert(mutate.mutate_id),
-            "client reused wave id {} on one connection",
-            mutate.mutate_id
+            update.id > self.last_update,
+            "update IDs must increase on one connection"
         );
-        for removed in &mutate.removes {
-            let topic = *self
-                .topic_index
-                .get(removed)
-                .expect("client removed an unknown topic");
+        self.last_update = update.id;
+        let mut unique = HashSet::new();
+        for removed in &update.removes {
+            assert!(
+                unique.insert(removed.topic.clone()),
+                "duplicate update topic"
+            );
+            let topic = self.topic_index[&removed.topic];
             self.subs.remove(&topic);
+            self.pending.retain(|pending| *pending != topic);
         }
-        let adds: Vec<WaveAdd> = mutate
-            .adds
-            .iter()
-            .map(|sub| {
-                let topic = *self
-                    .topic_index
-                    .get(&sub.topic)
-                    .expect("client added an unknown topic");
-                self.subs.insert(topic);
-                WaveAdd {
-                    topic,
-                    served_upto: sub.id_cursor,
-                    owned: sub.id_cursor < self.position(topic),
-                }
-            })
-            .collect();
-        if adds.is_empty() {
-            // Removes-only: always-ack, echoing the minted id immediately.
-            self.send(catchup_complete(mutate.mutate_id));
-        } else {
-            self.pending.push_back(PendingWave {
-                id: mutate.mutate_id,
-                adds,
+        let mut targets = Vec::new();
+        for sub in update.adds {
+            let wire_topic = sub.topic.expect("missing add topic");
+            assert!(
+                unique.insert(wire_topic.topic.clone()),
+                "duplicate or overlapping update topic"
+            );
+            let topic = self.topic_index[&wire_topic.topic];
+            if self.subs.contains_key(&topic) {
+                continue;
+            }
+            let floor = sub.cursor.map_or(0, |cursor| cursor.sequence_id);
+            let target = self.position(topic);
+            self.subs.insert(topic, floor);
+            targets.push(CatchupTarget {
+                topic: Some(wire_topic),
+                through_sequence_id: target,
             });
+            if floor < target {
+                self.pending.push_back(topic);
+            }
         }
+        self.send(subscribe_response::Response::Applied(
+            subscribe_response::Applied {
+                id: update.id,
+                added_targets: targets,
+            },
+        ));
     }
 
     fn publish(&mut self, topic: usize, n: u8) {
@@ -386,63 +313,44 @@ impl Driver {
             self.next_cursor += 1;
             let id = self.next_cursor;
             self.log[topic].push(id);
-            if self.session.is_some() && self.subs.contains(&topic) && !self.held(topic) {
-                self.send(replay(0, vec![group_msg(id, topic)]));
+            if self.session.is_some()
+                && !self.pending.contains(&topic)
+                && let Some(position) = self.subs.get_mut(&topic)
+                && id > *position
+            {
+                *position = id;
+                self.send(messages(vec![group_msg(id, topic)]));
             }
         }
     }
 
-    /// Serve the front wave's remaining replay; ack and pop unless partial.
-    ///
-    /// Per-topic cursor order is the contract; CROSS-topic order within a
-    /// wave is not (the live fuzz confirmed the node interleaves freely).
-    /// Even waves replay in global cursor order, odd waves grouped per
-    /// topic — so the ledger's tolerance for both shapes stays exercised.
     fn serve_front(&mut self, partial: bool) {
-        let Some(wave) = self.pending.front_mut() else {
+        let Some(topic) = self.pending.pop_front() else {
             return;
         };
-        let wave_id = wave.id;
-        let mut owed: Vec<(u64, usize)> = Vec::new();
-        for (slot, add) in wave.adds.iter().enumerate() {
-            // An owning add converges to the live edge at serve time (its
-            // held publishes ride the replay). A non-owning add is a
-            // waveless no-op: it replays NOTHING — its topic's publishes
-            // flowed live from registration — and only shares the ack.
-            // Serving it a suffix would re-serve live-delivered ids from a
-            // wave that never owned them, which no real server does.
-            if !add.owned {
-                continue;
-            }
-            owed.extend(
-                self.log[add.topic]
-                    .iter()
-                    .copied()
-                    .filter(|id| *id > add.served_upto)
-                    .map(|id| (id, slot)),
-            );
-        }
-        if wave_id % 2 == 0 {
-            owed.sort_unstable();
-        }
+        let position = self
+            .subs
+            .get_mut(&topic)
+            .expect("pending topic is registered");
+        let owed: Vec<_> = self.log[topic]
+            .iter()
+            .copied()
+            .filter(|id| *id > *position)
+            .collect();
         let take = if partial { owed.len() / 2 } else { owed.len() };
         let mut frames = Vec::new();
-        for (id, slot) in &owed[..take] {
-            let add = &mut wave.adds[*slot];
-            add.served_upto = (*id).max(add.served_upto);
-            frames.push(group_msg(*id, add.topic));
+        for id in &owed[..take] {
+            *position = *id;
+            frames.push(group_msg(*id, topic));
+        }
+        if take < owed.len() {
+            self.pending.push_back(topic);
         }
         for frame in frames {
-            self.send(replay(wave_id, vec![frame]));
-        }
-        if !partial {
-            self.pending.pop_front();
-            self.send(catchup_complete(wave_id));
+            self.send(messages(vec![frame]));
         }
     }
 
-    /// Adopt a freshly opened session: per-connection server state resets;
-    /// the log survives (it is storage, not connection state).
     fn adopt_sessions(&mut self) -> bool {
         let mut adopted = false;
         loop {
@@ -458,14 +366,12 @@ impl Driver {
             self.session = Some(server);
             self.subs.clear();
             self.pending.clear();
-            self.wave_ids_seen.clear();
+            self.last_update = 0;
             adopted = true;
         }
         adopted
     }
 
-    /// Pump everything until nothing moves for a few sweeps: adopt
-    /// reconnects, fold client frames into the model, drain every lease.
     async fn settle(&mut self) {
         let deadline = tokio::time::Instant::now() + STALL;
         let mut stable = 0;
@@ -482,8 +388,6 @@ impl Driver {
                         Ok(frame) => inbound.push(frame),
                         Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                         Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                            // The transport closed the wire (e.g. last topic
-                            // retired). A later lease re-opens it.
                             self.session = None;
                             break;
                         }
@@ -502,30 +406,19 @@ impl Driver {
                     progressed = true;
                     match event {
                         None => {
-                            // The transport ended this lease. Eager polling
-                            // rules out backpressure, so only a deliberate
-                            // drop path may do this — treat as ended.
                             slot.lease = None;
                             break;
                         }
                         Some(LeaseEvent::GroupMessages(batch)) => {
                             for message in &batch {
-                                let Some(group_message::Version::V1(v1)) = &message.version else {
-                                    panic!("undecodable frame reached a lease");
-                                };
-                                let topic = *self
-                                    .topic_index
-                                    .get(
-                                        &Topic::new_group_message(&v1.group_id[..])
-                                            .to_bytes()
-                                            .into_vec(),
-                                    )
-                                    .expect("lease got an unknown topic");
-                                slot.got.entry(topic).or_default().push(v1.id);
+                                let meta = message.meta.as_ref().expect("missing metadata");
+                                let topic = self.topic_index
+                                    [&meta.topic.as_ref().expect("missing topic").topic];
+                                let id = meta.cursor.as_ref().expect("missing cursor").sequence_id;
+                                slot.got.entry(topic).or_default().push(id);
                             }
                         }
                         Some(LeaseEvent::CatchUpComplete) => slot.catch_ups += 1,
-                        Some(LeaseEvent::TopicsLive(_)) => {}
                         Some(LeaseEvent::WelcomeMessages(_)) => {
                             panic!("welcome frames in a group-only model")
                         }
@@ -541,7 +434,6 @@ impl Driver {
         }
     }
 
-    /// Wait (bounded) for the transport's reconnect to mint a new session.
     async fn await_session(&mut self) {
         let deadline = tokio::time::Instant::now() + STALL;
         while self.session.is_none() {
@@ -554,6 +446,12 @@ impl Driver {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    async fn await_session_if_needed(&mut self) {
+        if self.session.is_none() {
+            self.await_session().await;
         }
     }
 
@@ -573,7 +471,6 @@ impl Driver {
                 if self.alive_leases().len() >= 6 {
                     return;
                 }
-                // Duplicate topics collapse to the lowest floor asked.
                 let mut floors: HashMap<usize, u64> = HashMap::new();
                 for (topic, class) in asks {
                     let position = self.position(*topic);
@@ -592,9 +489,6 @@ impl Driver {
                     .iter()
                     .map(|(t, f)| (Topic::new_group_message(&gid(*t)[..]), *f))
                     .collect();
-                // lease() resolves only once the wire is up and the mutate
-                // is accepted; the opener greets new sessions with Started
-                // by itself, so this cannot deadlock on the driver.
                 let lease = self
                     .transport
                     .lease(subs, DEFAULT_LEASE_DEPTH)
@@ -617,16 +511,27 @@ impl Driver {
                 self.leases[index].dropped = true;
                 self.leases[index].lease = None; // dropping derefs its topics
             }
-            Op::ServeWave => self.serve_front(false),
+            Op::Suspend => {
+                self.transport.suspend().await.unwrap();
+                self.suspended = true;
+                self.session = None;
+                self.subs.clear();
+                self.pending.clear();
+            }
+            Op::Resume => {
+                self.suspended = false;
+                let _reply = self.transport.enqueue_resume().unwrap();
+                if !self.alive_leases().is_empty() {
+                    self.await_session_if_needed().await;
+                }
+            }
+            Op::ServeTopic => self.serve_front(false),
             Op::ServePartial => self.serve_front(true),
             Op::KillWire => {
-                if self.kills >= 2 || self.alive_leases().is_empty() {
+                if self.suspended || self.kills >= 2 || self.alive_leases().is_empty() {
                     return;
                 }
                 self.kills += 1;
-                // Dropping the session severs both halves; the transport
-                // must reconnect (it still holds topics) and re-establish
-                // at its own floors.
                 self.session = None;
                 self.subs.clear();
                 self.pending.clear();
@@ -635,10 +540,14 @@ impl Driver {
         }
     }
 
-    /// After the schedule: serve every outstanding wave (the model wire is
-    /// healthy and stays up — always-ack), then assert the ledger's
-    /// delivery contract against the log.
     async fn finish_and_check(&mut self) {
+        if self.suspended {
+            self.suspended = false;
+            let _reply = self.transport.enqueue_resume().unwrap();
+            if !self.alive_leases().is_empty() {
+                self.await_session().await;
+            }
+        }
         let deadline = tokio::time::Instant::now() + STALL;
         loop {
             self.settle().await;
@@ -647,7 +556,7 @@ impl Driver {
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "pending waves never drained"
+                "pending topics never drained"
             );
             self.serve_front(false);
         }
@@ -662,8 +571,6 @@ impl Driver {
             }
             for (topic, floor) in &slot.floors {
                 let got = slot.got.get(topic).map(|v| &v[..]).unwrap_or(&[]);
-                // One sweep proves delivery order, exactly-once, and that
-                // nothing at-or-below the floor leaked through.
                 let mut last = *floor;
                 for id in got {
                     assert!(
@@ -710,8 +617,6 @@ async fn run_schedule(ops: Vec<Op>, chunk_cap: usize, chunk_bytes: usize) {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        // Default raised for the delicate chunked-completion accounting; set
-        // PROPTEST_CASES=1 for a fast local run, or higher in a nightly lane.
         cases: std::env::var("PROPTEST_CASES")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -719,7 +624,7 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn ledger_delivers_exactly_the_asked_suffix_in_order(
         ops in proptest::collection::vec(op_strategy(), 4..36)
     ) {
@@ -730,14 +635,7 @@ proptest! {
             .block_on(run_schedule(ops, MAX_MUTATE_TOPICS, MAX_MUTATE_BYTES));
     }
 
-    /// The same model with the `Mutate` chunk cap shrunk (1 or 2), so a lease
-    /// or reconnect resume over more than `cap` topics splits into several
-    /// waves — fuzzing the multi-wave-per-lease completion accounting under
-    /// real interleaved delivery, yank overlap, and dedup. The per-lease
-    /// contract is unchanged: exactly the log suffix above the floor, and
-    /// exactly ONE `CatchUpComplete` however many chunks carried the replay
-    /// (the assertion that a premature or duplicated completion would trip).
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn chunked_ledger_delivers_exactly_the_asked_suffix_in_order(
         ops in proptest::collection::vec(op_strategy(), 4..36),
         cap in 1usize..=2,

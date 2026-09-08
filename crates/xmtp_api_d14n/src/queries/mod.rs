@@ -1,3 +1,7 @@
+#[cfg(not(target_arch = "wasm32"))]
+mod backend;
+#[cfg(not(target_arch = "wasm32"))]
+pub use backend::*;
 mod api_stats;
 #[cfg(not(target_arch = "wasm32"))]
 mod bidi;

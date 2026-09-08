@@ -139,25 +139,22 @@ xmtp_common::if_native! {
     /// [`XmtpMlsStreams`] with a client-side watchdog.
     #[xmtp_common::async_trait]
     pub trait XmtpMlsBidiStreams: MaybeSend + MaybeSync {
-        type SubscribeStream: Stream<Item = Result<crate::mls_v1::SubscribeResponse, Self::Error>>
+        type SubscribeStream: Stream<Item = Result<crate::backend_v1::SubscribeResponse, Self::Error>>
             + MaybeSend;
 
         type Error: RetryableError + 'static;
 
-        /// The URL this client's bidi surface dials
-        /// ([`Client::host`](crate::traits::Client::host)) — the wire-sharing
-        /// key: clients whose surfaces dial the same URL multiplex onto one
-        /// process-shared wire, and each URL carries its own unsupported
-        /// latch (see xmtp_mls's router callbacks).
+        /// Return the URL used for bidi connections. Combine it with the API
+        /// client's Arc identity when selecting a shared connection.
         fn host(&self) -> &str;
 
         /// Open the bidirectional stream. `requests` is the outbound
         /// client→server frame stream (typically fed by a channel; the first
-        /// frame is usually a `Mutate` naming the initial topic set); the
+        /// frame is an `Update` naming the initial topic set); the
         /// returned stream yields the server→client frames.
         async fn subscribe_bidi(
             &self,
-            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+            requests: futures::stream::BoxStream<'static, crate::backend_v1::SubscribeRequest>,
         ) -> Result<Self::SubscribeStream, Self::Error>;
     }
 }

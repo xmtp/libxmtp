@@ -1,143 +1,138 @@
-//! v3 (MLS API) binding for the XIP-83 bidirectional subscription connection.
-//!
-//! The control core lives in [`crate::queries::bidi`]; this supplies the v3 wire
-//! vocabulary (`mls_v1` frames) and surfaces messages as the raw proto
-//! `GroupMessage`/`WelcomeMessage` (v3 carries a single id cursor and the
-//! consumer decodes), via the [`BidiBinding`] trait. Native-only.
+//! Backend subscription frames for the connection actor and topic ledger.
 
-use crate::protocol::Envelope;
-use crate::queries::bidi::{BidiBinding, Connection, Event, Inbound, parse_topics};
+use crate::queries::bidi::{BidiBinding, Connection, Event, Inbound};
 use crate::queries::bidi_transport::TransportBinding;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
-use xmtp_proto::mls_v1::subscribe_request::v1::Mutate;
-use xmtp_proto::mls_v1::subscribe_request::v1::mutate::Subscription;
-use xmtp_proto::mls_v1::{
-    GroupMessage, Ping, Pong, SubscribeRequest, SubscribeResponse, WelcomeMessage,
-    subscribe_request, subscribe_response,
+use xmtp_proto::backend_v1::{
+    self, Ping, Pong, ServerEnvelope, SubscribeRequest, SubscribeResponse, subscribe_request,
+    subscribe_request::Update, subscribe_response,
 };
-use xmtp_proto::types::Topic;
+use xmtp_proto::types::{Topic, TopicKind};
 
-/// The v3 (MLS API) wire binding for a bidi subscription.
-pub struct V3Binding;
+/// The backend uses one scalar cursor per topic.
+pub struct BackendBinding;
 
-/// A v3 bidirectional subscription connection (XIP-83). See [`Connection`].
-pub type BidiConnection = Connection<V3Binding>;
-/// Events surfaced by a v3 [`BidiConnection`], in wire order.
-pub type BidiEvent = Event<GroupMessage, WelcomeMessage>;
+pub type BidiConnection = Connection<BackendBinding>;
+pub type BidiEvent = Event<ServerEnvelope, ServerEnvelope>;
 
-fn request_frame(request: subscribe_request::v1::Request) -> SubscribeRequest {
+fn request_frame(request: subscribe_request::Request) -> SubscribeRequest {
     SubscribeRequest {
-        version: Some(subscribe_request::Version::V1(subscribe_request::V1 {
-            request: Some(request),
-        })),
+        request: Some(request),
     }
 }
 
-impl BidiBinding for V3Binding {
+fn topic_from_wire(topic: &backend_v1::Topic) -> Option<Topic> {
+    // Topic::try_from checks length. Check the kind before calling Topic::kind.
+    TopicKind::try_from(*topic.topic.first()?).ok()?;
+    Topic::try_from(topic.topic.as_slice()).ok()
+}
+
+fn envelope_topic(envelope: &ServerEnvelope) -> Option<Topic> {
+    topic_from_wire(envelope.meta.as_ref()?.topic.as_ref()?)
+}
+
+impl BidiBinding for BackendBinding {
     type Request = SubscribeRequest;
     type Response = SubscribeResponse;
-    type Mutate = Mutate;
-    type GroupMessage = GroupMessage;
-    type WelcomeMessage = WelcomeMessage;
+    type Mutate = Update;
+    type GroupMessage = ServerEnvelope;
+    type WelcomeMessage = ServerEnvelope;
 
-    fn mutate_frame(mutate: Mutate) -> SubscribeRequest {
-        request_frame(subscribe_request::v1::Request::Mutate(mutate))
+    fn mutate_frame(update: Update) -> SubscribeRequest {
+        request_frame(subscribe_request::Request::Update(update))
     }
 
     fn ping_frame(nonce: u64) -> SubscribeRequest {
-        request_frame(subscribe_request::v1::Request::Ping(Ping { nonce }))
+        request_frame(subscribe_request::Request::Ping(Ping { nonce }))
     }
 
     fn pong_frame(nonce: u64) -> SubscribeRequest {
-        request_frame(subscribe_request::v1::Request::Pong(Pong { nonce }))
+        request_frame(subscribe_request::Request::Pong(Pong { nonce }))
     }
 
-    fn handle(response: SubscribeResponse) -> Inbound<GroupMessage, WelcomeMessage> {
-        let Some(subscribe_response::Version::V1(v1)) = response.version else {
-            // A version we did not speak; XIP-83 pins responses to the request
-            // version, so this is a server bug — skip, don't die.
-            tracing::warn!("bidi subscription received unknown response version");
-            return Inbound::Skip;
-        };
-        use subscribe_response::v1::Response;
-        match v1.response {
-            // Liveness is internal; the core auto-pongs and correlates probes.
-            Some(Response::Ping(ping)) => Inbound::Ping(ping.nonce),
-            Some(Response::Pong(pong)) => Inbound::Pong(pong.nonce),
+    fn handle(response: SubscribeResponse) -> Inbound<ServerEnvelope, ServerEnvelope> {
+        use subscribe_response::Response;
+        match response.response {
             Some(Response::Started(started)) => Inbound::Emit(Event::Started {
                 keepalive_interval_ms: started.keepalive_interval_ms,
-                capabilities: started.capabilities,
             }),
-            Some(Response::CatchupComplete(complete)) => Inbound::Emit(Event::CatchUpComplete {
-                mutate_id: complete.mutate_id,
+            Some(Response::Applied(applied)) => Inbound::Emit(Event::Applied {
+                id: applied.id,
+                targets: applied
+                    .added_targets
+                    .into_iter()
+                    .filter_map(|target| {
+                        Some((
+                            topic_from_wire(target.topic.as_ref()?)?,
+                            target.through_sequence_id,
+                        ))
+                    })
+                    .collect(),
             }),
-            Some(Response::TopicsLive(live)) => Inbound::Emit(Event::TopicsLive {
-                topics: parse_topics(live.topics),
-            }),
-            Some(Response::Messages(messages)) => Inbound::Messages {
-                group: messages.group_messages,
-                welcome: messages.welcome_messages,
-                mutate_id: messages.mutate_id,
-            },
-            // An unset response case: a frame kind a newer server added
-            // (prost decodes an unknown oneof tag as `None`), or an empty
-            // frame. Skipping keeps the wire alive, but warn so a mandatory
-            // frame a future server sends WITHOUT gating it behind a
-            // `Started.capabilities` bit surfaces in metrics instead of being
-            // dropped invisibly — the XIP-83 forward-compat contract is that
-            // any new response frame a client must act on is capability-gated.
+            Some(Response::Messages(messages)) => {
+                let mut group = Vec::new();
+                let mut welcome = Vec::new();
+                for envelope in messages.envelopes {
+                    match envelope_topic(&envelope).map(|topic| topic.kind()) {
+                        Some(TopicKind::GroupMessagesV1) => group.push(envelope),
+                        Some(TopicKind::WelcomeMessagesV1) => welcome.push(envelope),
+                        _ => tracing::warn!("subscription envelope has no supported topic"),
+                    }
+                }
+                Inbound::Messages { group, welcome }
+            }
+            Some(Response::Ping(ping)) => Inbound::Ping(ping.nonce),
+            Some(Response::Pong(pong)) => Inbound::Pong(pong.nonce),
             None => {
-                tracing::warn!("bidi subscription dropping an unknown or unset response frame");
+                tracing::warn!("subscription response has no known frame");
                 Inbound::Skip
             }
         }
     }
 }
 
-impl TransportBinding for V3Binding {
-    /// v3 resumes a topic from a single message id (`Subscription.id_cursor`).
+impl TransportBinding for BackendBinding {
     type Cursor = u64;
 
     fn build_mutate(
         adds: impl IntoIterator<Item = (Topic, u64)>,
         removes: impl IntoIterator<Item = Topic>,
-        mutate_id: u64,
-    ) -> Mutate {
-        Mutate {
+        id: u64,
+    ) -> Update {
+        Update {
+            id,
             adds: adds
                 .into_iter()
-                .map(|(topic, cursor)| Subscription {
-                    topic: topic.to_bytes().into_vec(),
-                    id_cursor: cursor,
+                .map(|(topic, sequence_id)| backend_v1::TopicQuery {
+                    topic: Some(backend_v1::Topic {
+                        topic: topic.to_bytes().into_vec(),
+                    }),
+                    cursor: Some(backend_v1::Cursor { sequence_id }),
                 })
                 .collect(),
             removes: removes
                 .into_iter()
-                .map(|topic| topic.to_bytes().into_vec())
+                .map(|topic| backend_v1::Topic {
+                    topic: topic.to_bytes().into_vec(),
+                })
                 .collect(),
-            history_only: false,
-            mutate_id,
         }
     }
 
-    // Topic and cursor extraction are the shared [`Envelope`] machinery, which
-    // covers every message shape (including the welcome-pointer variant) in
-    // one place.
-    fn group_topic(msg: &GroupMessage) -> Option<Topic> {
-        msg.topic().ok()
+    fn group_topic(envelope: &ServerEnvelope) -> Option<Topic> {
+        envelope_topic(envelope)
     }
 
-    fn welcome_topic(msg: &WelcomeMessage) -> Option<Topic> {
-        msg.topic().ok()
+    fn welcome_topic(envelope: &ServerEnvelope) -> Option<Topic> {
+        envelope_topic(envelope)
     }
 
-    // v3 sequence ids ARE the wire resume cursor (`Subscription.id_cursor`).
-    fn group_cursor(msg: &GroupMessage) -> Option<u64> {
-        msg.cursor().ok().map(|cursor| cursor.sequence_id)
+    fn group_cursor(envelope: &ServerEnvelope) -> Option<u64> {
+        Some(envelope.meta.as_ref()?.cursor.as_ref()?.sequence_id)
     }
 
-    fn welcome_cursor(msg: &WelcomeMessage) -> Option<u64> {
-        msg.cursor().ok().map(|cursor| cursor.sequence_id)
+    fn welcome_cursor(envelope: &ServerEnvelope) -> Option<u64> {
+        Self::group_cursor(envelope)
     }
 
     fn advance(position: &mut u64, delivered: u64) {
@@ -154,9 +149,8 @@ impl TransportBinding for V3Binding {
 }
 
 impl BidiConnection {
-    /// Open the stream and send `initial` as the first Mutate (it names the
-    /// initial topic set with per-topic resume cursors; XIP-83 client req 3).
-    pub async fn open<A>(api: &A, initial: Mutate) -> Result<Self, A::Error>
+    /// Open the backend subscription with the initial topic update.
+    pub async fn open<A>(api: &A, initial: Update) -> Result<Self, A::Error>
     where
         A: XmtpMlsBidiStreams,
         A::SubscribeStream: 'static,
@@ -178,8 +172,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use xmtp_proto::api::ApiClientError;
-    use xmtp_proto::mls_v1::subscribe_request::v1::mutate::Subscription;
-    use xmtp_proto::mls_v1::{group_message, welcome_message};
+    use xmtp_proto::backend_v1::subscribe_request::Update as Mutate;
     use xmtp_proto::types::{Topic, TopicKind};
 
     /// A scripted peer: captures every frame the client sends and lets the test
@@ -242,11 +235,9 @@ mod tests {
     }
 
     impl MockServer {
-        fn send(&self, response: subscribe_response::v1::Response) {
+        fn send(&self, response: subscribe_response::Response) {
             self.send_raw(SubscribeResponse {
-                version: Some(subscribe_response::Version::V1(subscribe_response::V1 {
-                    response: Some(response),
-                })),
+                response: Some(response),
             });
         }
 
@@ -254,12 +245,9 @@ mod tests {
             self.to_client.send(Ok(response)).unwrap();
         }
 
-        async fn next_request(&mut self) -> subscribe_request::v1::Request {
+        async fn next_request(&mut self) -> subscribe_request::Request {
             let frame = self.from_client.recv().await.expect("client closed");
-            let Some(subscribe_request::Version::V1(v1)) = frame.version else {
-                panic!("client sent unknown request version");
-            };
-            v1.request.expect("client sent empty request")
+            frame.request.expect("client sent empty request")
         }
     }
 
@@ -272,73 +260,34 @@ mod tests {
         }
     }
 
-    fn started(keepalive: u32, capabilities: Vec<i32>) -> subscribe_response::v1::Response {
-        subscribe_response::v1::Response::Started(subscribe_response::v1::Started {
+    fn started(keepalive: u32) -> subscribe_response::Response {
+        subscribe_response::Response::Started(subscribe_response::Started {
             keepalive_interval_ms: keepalive,
-            capabilities,
         })
     }
 
-    fn catchup_complete(mutate_id: u64) -> subscribe_response::v1::Response {
-        subscribe_response::v1::Response::CatchupComplete(subscribe_response::v1::CatchupComplete {
-            mutate_id,
+    fn applied(id: u64) -> subscribe_response::Response {
+        subscribe_response::Response::Applied(subscribe_response::Applied {
+            id,
+            added_targets: vec![],
         })
     }
 
-    fn wire_topic(kind: TopicKind, identifier: &[u8]) -> Vec<u8> {
-        // The production constructor, so these tests can't drift from the real
-        // kind-prefixed wire layout.
-        kind.create(identifier).into()
-    }
-
-    fn typed_topic(kind: TopicKind, identifier: &[u8]) -> Topic {
-        Topic::try_from(wire_topic(kind, identifier)).unwrap()
-    }
-
-    fn group_msg(id: u64, data: &[u8]) -> GroupMessage {
-        GroupMessage {
-            version: Some(group_message::Version::V1(group_message::V1 {
-                id,
-                created_ns: id,
-                group_id: b"group".to_vec(),
-                data: data.to_vec(),
-                sender_hmac: vec![],
-                should_push: false,
-                is_commit: false,
-            })),
-        }
-    }
-
-    fn welcome_msg(id: u64, installation_key: &[u8]) -> WelcomeMessage {
-        WelcomeMessage {
-            version: Some(welcome_message::Version::V1(welcome_message::V1 {
-                id,
-                created_ns: id,
-                installation_key: installation_key.to_vec(),
-                data: b"welcome".to_vec(),
-                hpke_public_key: vec![],
-                wrapper_algorithm: 0,
-                welcome_metadata: vec![],
-            })),
+    fn wire_topic(kind: TopicKind, identifier: &[u8]) -> backend_v1::Topic {
+        backend_v1::Topic {
+            topic: kind.create(identifier).to_bytes().into_vec(),
         }
     }
 
     fn initial_mutate() -> Mutate {
-        Mutate {
-            adds: vec![
-                Subscription {
-                    topic: wire_topic(TopicKind::GroupMessagesV1, b"group"),
-                    id_cursor: 5,
-                },
-                Subscription {
-                    topic: wire_topic(TopicKind::WelcomeMessagesV1, b"installation"),
-                    id_cursor: 0,
-                },
+        BackendBinding::build_mutate(
+            [
+                (TopicKind::GroupMessagesV1.create(b"group"), 5),
+                (TopicKind::WelcomeMessagesV1.create(b"installation"), 0),
             ],
-            // Adds must carry a nonzero wave id (0 is the live delivery tag).
-            mutate_id: 11,
-            ..Default::default()
-        }
+            [],
+            11,
+        )
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -346,18 +295,16 @@ mod tests {
         let (api, mut server) = mock_pair();
         let mut conn = BidiConnection::open(&api, initial_mutate()).await?;
 
-        let subscribe_request::v1::Request::Mutate(sent) = server.next_request().await else {
+        let subscribe_request::Request::Update(sent) = server.next_request().await else {
             panic!("first frame must be the initial Mutate");
         };
         assert_eq!(sent, initial_mutate());
 
-        // A capability value from a future server revision survives verbatim.
-        server.send(started(30_000, vec![7]));
+        server.send(started(30_000));
         assert_eq!(
             conn.next().await,
             Some(BidiEvent::Started {
                 keepalive_interval_ms: 30_000,
-                capabilities: vec![7],
             })
         );
     }
@@ -368,19 +315,18 @@ mod tests {
         let mut conn = BidiConnection::open(&api, Mutate::default()).await?;
         server.next_request().await; // initial mutate
 
-        server.send(subscribe_response::v1::Response::Ping(Ping { nonce: 42 }));
-        let subscribe_request::v1::Request::Pong(pong) = server.next_request().await else {
+        server.send(subscribe_response::Response::Ping(Ping { nonce: 42 }));
+        let subscribe_request::Request::Pong(pong) = server.next_request().await else {
             panic!("server ping must be answered with a pong");
         };
         assert_eq!(pong.nonce, 42);
 
         // The ping/pong never reaches the consumer: the next event is the Started.
-        server.send(started(15_000, vec![]));
+        server.send(started(15_000));
         assert_eq!(
             conn.next().await,
             Some(BidiEvent::Started {
                 keepalive_interval_ms: 15_000,
-                capabilities: vec![],
             })
         );
     }
@@ -394,10 +340,10 @@ mod tests {
         // `probe` sends a client Ping and awaits its Pong; drive the server side
         // concurrently to answer it.
         let server_side = async {
-            let subscribe_request::v1::Request::Ping(ping) = server.next_request().await else {
+            let subscribe_request::Request::Ping(ping) = server.next_request().await else {
                 panic!("probe must send a Ping");
             };
-            server.send(subscribe_response::v1::Response::Pong(Pong {
+            server.send(subscribe_response::Response::Pong(Pong {
                 nonce: ping.nonce,
             }));
         };
@@ -405,12 +351,11 @@ mod tests {
         assert!(matches!(result, Ok(())), "probe should resolve on its pong");
 
         // The correlating pong was consumed internally, never surfaced.
-        server.send(started(10_000, vec![]));
+        server.send(started(10_000));
         assert_eq!(
             conn.next().await,
             Some(BidiEvent::Started {
                 keepalive_interval_ms: 10_000,
-                capabilities: vec![],
             })
         );
     }
@@ -426,97 +371,25 @@ mod tests {
             ..Default::default()
         };
         conn.mutate(m.clone()).await?;
-        let subscribe_request::v1::Request::Mutate(sent) = server.next_request().await else {
+        let subscribe_request::Request::Update(sent) = server.next_request().await else {
             panic!("mutate must reach the wire");
         };
         assert_eq!(sent, m);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn skips_unknown_version_frames_and_survives() {
+    async fn skips_unknown_frames_and_survives() {
         let (api, mut server) = mock_pair();
         let mut conn = BidiConnection::open(&api, Mutate::default()).await?;
         server.next_request().await; // initial mutate
 
-        // A version we don't speak (here: no version at all) is skipped, not fatal.
-        server.send_raw(SubscribeResponse { version: None });
-        server.send(started(20_000, vec![]));
+        // Prost maps an unknown response kind to an absent oneof.
+        server.send_raw(SubscribeResponse { response: None });
+        server.send(started(20_000));
         assert_eq!(
             conn.next().await,
             Some(BidiEvent::Started {
                 keepalive_interval_ms: 20_000,
-                capabilities: vec![],
-            })
-        );
-    }
-
-    /// Wire order is preserved across the catch-up seam, and each delivery
-    /// batch surfaces with its frame's wave tag intact: the wave's replay
-    /// carries the initial Mutate's id, the post-seam live frame carries 0.
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn preserves_wire_order_of_history_markers_and_live() {
-        let (api, mut server) = mock_pair();
-        let mut conn = BidiConnection::open(&api, initial_mutate()).await?;
-        server.next_request().await;
-
-        let live_topics = vec![
-            wire_topic(TopicKind::GroupMessagesV1, b"group"),
-            wire_topic(TopicKind::WelcomeMessagesV1, b"installation"),
-        ];
-
-        server.send(subscribe_response::v1::Response::Messages(
-            subscribe_response::v1::Messages {
-                group_messages: vec![group_msg(6, b"hist")],
-                welcome_messages: vec![welcome_msg(1, b"installation")],
-                mutate_id: 11,
-            },
-        ));
-        server.send(subscribe_response::v1::Response::TopicsLive(
-            subscribe_response::v1::TopicsLive {
-                topics: live_topics,
-            },
-        ));
-        server.send(catchup_complete(11));
-        server.send(subscribe_response::v1::Response::Messages(
-            subscribe_response::v1::Messages {
-                group_messages: vec![group_msg(7, b"live")],
-                welcome_messages: vec![],
-                mutate_id: 0,
-            },
-        ));
-
-        assert_eq!(
-            conn.next().await,
-            Some(BidiEvent::GroupMessages {
-                messages: vec![group_msg(6, b"hist")],
-                mutate_id: 11,
-            })
-        );
-        assert_eq!(
-            conn.next().await,
-            Some(BidiEvent::WelcomeMessages {
-                messages: vec![welcome_msg(1, b"installation")],
-                mutate_id: 11,
-            })
-        );
-        assert_eq!(
-            conn.next().await,
-            Some(BidiEvent::TopicsLive {
-                topics: vec![
-                    typed_topic(TopicKind::GroupMessagesV1, b"group"),
-                    typed_topic(TopicKind::WelcomeMessagesV1, b"installation"),
-                ],
-            })
-        );
-        assert_eq!(
-            conn.next().await,
-            Some(BidiEvent::CatchUpComplete { mutate_id: 11 })
-        );
-        assert_eq!(
-            conn.next().await,
-            Some(BidiEvent::GroupMessages {
-                messages: vec![group_msg(7, b"live")],
-                mutate_id: 0,
             })
         );
     }
@@ -580,15 +453,15 @@ mod tests {
             let mut pong_nonce = None;
             for _ in 0..2 {
                 match server.next_request().await {
-                    subscribe_request::v1::Request::Mutate(sent) => {
+                    subscribe_request::Request::Update(sent) => {
                         assert_eq!(sent, expected);
                         saw_mutate = true;
                     }
-                    subscribe_request::v1::Request::Ping(ping) => pong_nonce = Some(ping.nonce),
+                    subscribe_request::Request::Ping(ping) => pong_nonce = Some(ping.nonce),
                     other => panic!("unexpected frame: {other:?}"),
                 }
             }
-            server.send(subscribe_response::v1::Response::Pong(Pong {
+            server.send(subscribe_response::Response::Pong(Pong {
                 nonce: pong_nonce.expect("probe must send a ping"),
             }));
             saw_mutate
@@ -629,12 +502,11 @@ mod tests {
         );
 
         // After `Started` advertises a cadence, the default tracks it.
-        server.send(started(5_000, vec![]));
+        server.send(started(5_000));
         assert_eq!(
             conn.next().await,
             Some(BidiEvent::Started {
                 keepalive_interval_ms: 5_000,
-                capabilities: vec![],
             })
         );
         assert_eq!(
@@ -702,16 +574,13 @@ mod tests {
         // Despite the wedged wire, a server frame is still read and surfaced.
         to_client
             .send(Ok(SubscribeResponse {
-                version: Some(subscribe_response::Version::V1(subscribe_response::V1 {
-                    response: Some(started(7_000, vec![])),
-                })),
+                response: Some(started(7_000)),
             }))
             .unwrap();
         assert_eq!(
             conn.next().await,
             Some(BidiEvent::Started {
                 keepalive_interval_ms: 7_000,
-                capabilities: vec![],
             })
         );
     }
@@ -733,9 +602,7 @@ mod tests {
         for _ in 0..(MAX_PENDING_FRAMES + WIRE_BUFFER + 2) {
             to_client
                 .send(Ok(SubscribeResponse {
-                    version: Some(subscribe_response::Version::V1(subscribe_response::V1 {
-                        response: Some(subscribe_response::v1::Response::Ping(Ping { nonce: 1 })),
-                    })),
+                    response: Some(subscribe_response::Response::Ping(Ping { nonce: 1 })),
                 }))
                 .unwrap();
         }
@@ -831,7 +698,7 @@ mod tests {
         let driver = async {
             let req = server.next_request().await;
             assert!(
-                matches!(req, subscribe_request::v1::Request::Ping(_)),
+                matches!(req, subscribe_request::Request::Ping(_)),
                 "probe must put a ping on the wire"
             );
             conn.finish().await
@@ -859,7 +726,7 @@ mod tests {
         // Park the actor: overfill the event buffer so its emit blocks, which
         // stops command intake.
         for nonce in 0..(EVENT_BUFFER as u64 + 2) {
-            server.send(catchup_complete(nonce));
+            server.send(applied(nonce));
         }
         // Saturate the command buffer. The actor drains a bounded handful of
         // these before it parks, so the loop terminates well under the bound.

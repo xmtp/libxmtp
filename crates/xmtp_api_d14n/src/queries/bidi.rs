@@ -1,24 +1,12 @@
-//! Backend-agnostic XIP-83 bidirectional subscription *connection* (native-only).
+//! The native bidirectional connection actor owns both stream halves.
 //!
-//! This is the control core shared by the v3 and d14n backends: it owns a single
-//! bidi stream end-to-end and is the **sole writer** of the request half. It
-//! auto-answers server `Ping`s, correlates client liveness probes, multiplexes
-//! caller commands onto the wire, and surfaces only real subscription events —
-//! keepalive never reaches the consumer. It also polices liveness on its own:
-//! a wire with no inbound frames for the silence budget gets one watchdog ping,
-//! and if that too goes unanswered the actor tears down — so a half-open link
-//! surfaces as end-of-events instead of a stream that hangs forever.
+//! It sends all request frames, answers server pings, and matches probe pongs.
+//! It forwards subscription events in wire order. The binding supplies frame
+//! types and splits envelope batches. The actor also checks silence, bounds
+//! outbound backlog, and drains after request half-close.
 //!
-//! Everything backend-specific (wire types, frame construction, and turning an
-//! inbound frame into consumer events — including d14n's `OriginatorEnvelope`
-//! extraction) lives behind the [`BidiBinding`] trait.
-//! The control logic — probe + timeout, the non-blocking select loop, the
-//! give-up cap, `finish()`/half-close, and ownership teardown — lives here, once.
-//!
-//! Owning *both* halves is the point. The actor holds the wire-outbound sender
-//! and the inbound stream; when inbound dies it drops both, so the request half
-//! tears down with it and any later `mutate`/`probe` fails with `Closed` by
-//! channel ownership — never by silently enqueueing into a stream nothing reads.
+//! When the response stream ends, the actor releases both halves. Later sends
+//! fail through the closed command channel. The lease ledger owns reconnect.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -39,8 +27,7 @@ pub(crate) const COMMAND_BUFFER: usize = 64;
 /// Actor→caller event depth; large enough that a brief consumer stall doesn't
 /// stall wire reads (and thus pong liveness).
 pub(crate) const EVENT_BUFFER: usize = 1024;
-/// XIP-83 client req 2 fallback keepalive, used until the server's `Started`
-/// frame advertises its own cadence.
+/// Default keepalive until Started supplies the server interval.
 pub(crate) const DEFAULT_KEEPALIVE_MS: u32 = 30_000;
 /// `N` from XIP-83 client req 2 (recommended 2–3): the *default* probe deadline
 /// is this many keepalive intervals — generous enough not to false-positive a
@@ -92,14 +79,11 @@ pub trait BidiBinding: Send + 'static {
     type Request: Send + 'static;
     /// Inbound wire frame (server → client).
     type Response: Send + 'static;
-    /// The backend's `Mutate` payload (v3: single `id_cursor`; d14n: vector cursor).
+    /// The backend update payload.
     type Mutate: Send;
-    /// Consumer-facing group message (v3: raw proto; d14n: unified,
-    /// post-extract). `MaybeSync` because the transport ledger shares
-    /// withheld frames between holders via `Arc` inside its actor.
+    /// Encrypted group envelope for the consumer.
     type GroupMessage: MaybeSend + MaybeSync;
-    /// Consumer-facing welcome message (v3: raw proto; d14n: unified,
-    /// post-extract). `MaybeSync` for the same reason as `GroupMessage`.
+    /// Encrypted welcome envelope for the consumer.
     type WelcomeMessage: MaybeSend + MaybeSync;
 
     /// Wrap a `Mutate` as an outbound request frame.
@@ -127,14 +111,8 @@ pub enum Inbound<G, W> {
     /// A single consumer event to surface (handshake / markers).
     Emit(Event<G, W>),
     /// A delivery batch — the actor emits `GroupMessages` then
-    /// `WelcomeMessages`, each only if non-empty, both carrying the frame's
-    /// wave tag. Kept distinct from `Emit` so a frame carrying both kinds
-    /// needs no extra allocation.
-    Messages {
-        group: Vec<G>,
-        welcome: Vec<W>,
-        mutate_id: u64,
-    },
+    /// `WelcomeMessages`. Empty batches produce no event.
+    Messages { group: Vec<G>, welcome: Vec<W> },
     /// Nothing to do — unknown version or an informational/undecodable frame.
     Skip,
 }
@@ -144,20 +122,14 @@ pub enum Inbound<G, W> {
 /// and welcome message types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event<G, W> {
-    /// First frame on every stream; carries the server's keepalive cadence.
-    Started {
-        keepalive_interval_ms: u32,
-        capabilities: Vec<i32>,
-    },
-    /// A `Mutate`'s adds are fully caught up; echoes the Mutate's `mutate_id`.
-    CatchUpComplete { mutate_id: u64 },
-    /// These topics just crossed from catch-up to live.
-    TopicsLive { topics: Vec<Topic> },
-    /// A group-message delivery batch. `mutate_id` is the catch-up wave that
-    /// produced it (`0` = the live stream) — XIP-83 delivery tags.
-    GroupMessages { messages: Vec<G>, mutate_id: u64 },
-    /// A welcome delivery batch; tagged like [`Event::GroupMessages`].
-    WelcomeMessages { messages: Vec<W>, mutate_id: u64 },
+    /// The first response supplies the server keepalive interval.
+    Started { keepalive_interval_ms: u32 },
+    /// An accepted update supplies fixed targets for newly added topics.
+    Applied { id: u64, targets: Vec<(Topic, u64)> },
+    /// Group envelopes in wire order.
+    GroupMessages { messages: Vec<G> },
+    /// Welcome envelopes in wire order.
+    WelcomeMessages { messages: Vec<W> },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -319,23 +291,8 @@ impl<B: BidiBinding> Connection<B> {
     /// Half-close the request half — signal that we are done sending. The
     /// outbound stream ends, so `mutate` and `probe` thereafter return `Closed`;
     /// any live delivery already in flight keeps arriving until the server closes
-    /// its side. Opened with a `history_only` Mutate, this is the bounded-sync
-    /// trigger (XIP-83): the server finishes the in-flight catch-up wave, emits
-    /// its `TopicsLive` / `CatchUpComplete` markers, and closes the stream, so the
-    /// consumer drains [`Self::next`] to `None` and stops. Returns `Closed` if the
-    /// actor has already stopped.
-    ///
-    /// Draining to `None` relies on the server actually closing its side. After
-    /// `finish` there is no `probe` escape hatch (it returns `Closed`), so a
-    /// consumer that doesn't trust the peer to honor the half-close should bound
-    /// its post-`finish` [`Self::next`] with a timeout rather than awaiting `None`
-    /// indefinitely.
-    ///
-    /// Not meant to race a concurrent `mutate`/`probe` from another task on the
-    /// same handle: ordering between two tasks' channel sends is undefined, so a
-    /// `mutate` racing `finish` may still report `Ok` and then be dropped. The
-    /// guarantee is for the sequential caller — once `finish` *returns*, a later
-    /// `mutate`/`probe` from that caller sees `Closed`.
+    /// its side. Half-close ends the session. It does not wait for catch-up
+    /// targets. Use the returned targets to decide when to cancel a bounded sync.
     pub async fn finish(&self) -> Result<(), BidiError> {
         // Latch closed only *after* the send is delivered. A cancelled `finish`
         // (future dropped mid-send) never delivered `Finish`, so it must not
@@ -716,32 +673,12 @@ async fn emit_instruction<G, W>(
 ) -> bool {
     match instruction {
         Inbound::Emit(event) => emit(events, event).await,
-        Inbound::Messages {
-            group,
-            welcome,
-            mutate_id,
-        } => {
-            if !group.is_empty()
-                && emit(
-                    events,
-                    Event::GroupMessages {
-                        messages: group,
-                        mutate_id,
-                    },
-                )
-                .await
-            {
+        Inbound::Messages { group, welcome } => {
+            if !group.is_empty() && emit(events, Event::GroupMessages { messages: group }).await {
                 return true;
             }
             if !welcome.is_empty()
-                && emit(
-                    events,
-                    Event::WelcomeMessages {
-                        messages: welcome,
-                        mutate_id,
-                    },
-                )
-                .await
+                && emit(events, Event::WelcomeMessages { messages: welcome }).await
             {
                 return true;
             }
@@ -987,12 +924,10 @@ mod tests {
             match response {
                 ms if ms < 100_000 => Inbound::Emit(Event::Started {
                     keepalive_interval_ms: ms as u32,
-                    capabilities: vec![],
                 }),
                 MSG_FRAME => Inbound::Messages {
                     group: vec![()],
                     welcome: vec![],
-                    mutate_id: 0,
                 },
                 _ => Inbound::Skip,
             }
