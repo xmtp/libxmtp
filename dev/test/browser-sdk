@@ -29,7 +29,7 @@ function ctrl_c() {
 
 function run() {
   cd "$WORKSPACE_PATH"
-  nix build .#bindings_wasm
+  nix build .#wasm-bindings
 
   if [ ! -d "$DIR/xmtp-js" ]; then
     git clone git@github.com:xmtp/xmtp-js.git "$DIR/xmtp-js"

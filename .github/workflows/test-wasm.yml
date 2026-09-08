@@ -24,6 +24,6 @@ jobs:
       - name: Start backend
         run: just backend up
       - name: Run WASM tests
-        run: just wasm test-v3
+        run: just wasm test-ci
       - name: Run WASM integration tests
         run: just wasm test-integration

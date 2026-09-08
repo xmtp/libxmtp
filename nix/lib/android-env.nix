@@ -97,7 +97,7 @@ let
       NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot-save -gpu swiftshader_indirect -memory 4096 -partition-size 8192"
     fi
 
-    # Scan ports 5560-5584 to avoid conflicts with Docker services (5555-5558)
+    # Scan ports 5560-5584 to avoid conflicts with Docker services (5050, 6010, 8474, 8545)
     echo "Looking for a free TCP port in range 5560-5584" >&2
     port=""
     for i in $(seq 5560 2 5584); do

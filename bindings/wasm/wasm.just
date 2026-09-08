@@ -30,36 +30,18 @@ format: install
 
 wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types"
 
-# WASM bindings Rust tests (v3 + d14n)
-test *args="": (test-v3 args) (test-d14n args)
-
-# WASM bindings Rust tests (v3)
-test-v3 *args="":
+# WASM bindings Rust tests
+test *args="":
     XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci --cargo-profile wasm-test --target wasm32-unknown-unknown \
       {{ wasm_packages }} {{ args }}
 
-# WASM bindings Rust tests (d14n)
-test-d14n *args="":
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci-d14n --cargo-profile wasm-test --target wasm32-unknown-unknown \
-      --features d14n \
-      {{ wasm_packages }} {{ args }}
+# Run WASM tests through the Nix cache.
+nix-test:
+    nix build --no-link .#wasm-nextest.{{ nix_system }} --option sandbox relaxed
 
-# nix derivation for wasm v3 tests (no local incremental builds, but uses cachix)
-nix-test-v3:
-    nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}.wasm-v3
-
-# nix derivation for wasm d14n tests (no local incremental builds, but uses cachix)
-nix-test-d14n:
-    nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}.wasm-d14n
-
-# nix derivation for v3 and d14n tests
-nix-test: nix-test-v3 nix-test-d14n
-
-# CI version of wasm tests (no local incremental compilation, but uses cachix)
-test-ci:
-    nix build --no-link .#nextest.{{ nix_system }}.wasm-v3 --option sandbox relaxed
-    nix build --no-link .#nextest.{{ nix_system }}.wasm-d14n --option sandbox relaxed
-    ../../dev/ci/warm-deps .#nextest.{{ nix_system }}.wasm-v3 .#nextest.{{ nix_system }}.wasm-d14n
+# Run and cache the WASM test dependencies in CI.
+test-ci: nix-test
+    ../../dev/ci/warm-deps .#wasm-nextest.{{ nix_system }}
 
 # WASM JS integration tests
 [script("bash")]

@@ -26,6 +26,14 @@ in
     )
   );
 
+  flake.wasm-nextest = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      pkgs.callPackage ./package/wasm-nextest.nix { }
+    )
+  );
+
   flake.cargo-clippy = lib.genAttrs systems (
     system:
     withSystem system (
