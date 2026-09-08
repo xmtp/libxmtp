@@ -209,3 +209,42 @@ async fn three_silent_intervals_end_the_stream_with_a_retryable_error() {
     assert!(error.is_retryable());
     assert!(subscription.next().await.is_none());
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn silent_second_wire_ends_the_complete_subscription() {
+    let cursors = (0..=BACKEND_DEFAULT_MAX_STATIC_TOPICS)
+        .map(|index| {
+            let mut id = [0; 32];
+            id[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            (Topic::new_welcome_message(id.into()), Cursor(index as u64))
+        })
+        .collect();
+    let mut calls = 0;
+    let mut mock = MockNetworkClient::new();
+    mock.expect_stream().times(2).returning(move |_, _, _| {
+        calls += 1;
+        let frames: BoxDynStream<'static, _> = if calls == 1 {
+            Box::pin(stream::iter([started(1000), messages(21)]).chain(
+                xmtp_common::time::interval_stream(Duration::from_millis(1)).map(|_| keepalive()),
+            ))
+        } else {
+            Box::pin(stream::iter([started(1)]).chain(stream::pending()))
+        };
+        Ok(http::Response::new(BytesStream::new(
+            frames.map(|frame| Ok(frame.encode_to_vec().into())),
+        )))
+    });
+    let client = BackendClient::new(mock);
+    let mut subscription = client
+        .subscribe_welcome_messages_with_cursors(&cursors)
+        .await?;
+    let message = timeout(Duration::from_secs(1), subscription.next()).await???;
+    assert_eq!(message.sequence_id(), 21);
+    let error = timeout(Duration::from_secs(1), subscription.next())
+        .await??
+        .unwrap_err();
+    assert!(matches!(error, ApiClientError::Expired(_)));
+    assert!(error.is_retryable());
+    assert!(subscription.next().now_or_never().unwrap().is_none());
+}

@@ -52,3 +52,6 @@ pub const BACKEND_DEFAULT_MAX_UPDATE_BURST: u32 = 100;
 pub const BACKEND_DEFAULT_MAX_PING_FRAMES_PER_SECOND: u32 = 10;
 /// Default client ping token-bucket burst.
 pub const BACKEND_DEFAULT_MAX_PING_BURST: u32 = 100;
+
+/// Default interval between stream keepalive frames, in milliseconds.
+pub const BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS: u64 = 30_000;

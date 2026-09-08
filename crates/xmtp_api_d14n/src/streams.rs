@@ -10,7 +10,8 @@ use xmtp_common::{
     time::{Duration, timeout},
 };
 use xmtp_configuration::{
-    BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS, BACKEND_DEFAULT_MAX_STATIC_TOPICS,
+    BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS, BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
+    BACKEND_DEFAULT_MAX_STATIC_TOPICS,
 };
 use xmtp_proto::{
     api::{ApiClientError, Client, QueryStreamExt},
@@ -20,7 +21,6 @@ use xmtp_proto::{
 };
 
 const SILENT_INTERVALS: u32 = 3;
-const DEFAULT_KEEPALIVE_MS: u32 = 30_000;
 
 impl<C: Client> BackendClient<C> {
     async fn newest_cursors(
@@ -85,7 +85,7 @@ impl<C: Client> BackendClient<C> {
             let stream = stream::unfold(
                 (
                     stream,
-                    Duration::from_millis(DEFAULT_KEEPALIVE_MS.into()),
+                    Duration::from_millis(BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS),
                     false,
                 ),
                 |(mut stream, mut interval, ended)| async move {
@@ -136,7 +136,17 @@ impl<C: Client> BackendClient<C> {
             );
             streams.push(Box::pin(stream) as BoxDynStream<'static, _>);
         }
-        Ok(Box::pin(stream::select_all(streams)))
+        // A wire error invalidates the complete subscription. Reopen all topics from durable cursors.
+        Ok(Box::pin(stream::unfold(
+            Some(stream::select_all(streams)),
+            |streams| async move {
+                let mut streams = streams?;
+                let item: Result<Vec<wire::ServerEnvelope>, ApiClientError> =
+                    streams.next().await?;
+                let remaining = if item.is_err() { None } else { Some(streams) };
+                Some((item, remaining))
+            },
+        )))
     }
 }
 fn malformed(field: &str) -> ApiClientError {
