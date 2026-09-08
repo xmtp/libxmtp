@@ -20,11 +20,7 @@ impl GroupMessageMetadata {
         GroupMessageMetadataBuilder::default()
     }
 
-    pub fn originator_id(&self) -> u32 {
-        self.cursor.originator_id
-    }
-
     pub fn sequence_id(&self) -> u64 {
-        self.cursor.sequence_id
+        self.cursor.0
     }
 }

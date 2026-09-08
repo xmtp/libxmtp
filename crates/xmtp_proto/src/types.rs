@@ -4,12 +4,9 @@ mod app_version;
 mod backend_envelope;
 mod conversation_type;
 mod cursor;
-mod cursor_list;
-mod global_cursor;
 mod group_message;
 mod ids;
 mod message_metadata;
-mod orphaned_envelope;
 mod topic;
 mod topic_cursor;
 mod welcome_message;
@@ -18,17 +15,13 @@ pub use app_version::*;
 pub use backend_envelope::*;
 pub use conversation_type::*;
 pub use cursor::*;
-pub use cursor_list::*;
-pub use global_cursor::*;
 pub use group_message::*;
 pub use ids::*;
 pub use message_metadata::*;
-pub use orphaned_envelope::*;
 pub use topic::*;
 pub use topic_cursor::*;
 pub use welcome_message::*;
 
-pub type OriginatorId = u32;
 pub type SequenceId = u64;
 
 #[cfg(test)]

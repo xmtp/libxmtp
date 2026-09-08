@@ -35,11 +35,7 @@ impl WelcomeMessage {
 
 impl WelcomeMessage {
     pub fn sequence_id(&self) -> u64 {
-        self.cursor.sequence_id
-    }
-
-    pub fn originator_id(&self) -> u32 {
-        self.cursor.originator_id
+        self.cursor.0
     }
 
     pub fn timestamp(&self) -> i64 {
@@ -231,21 +227,16 @@ mod test {
     use xmtp_common::Generate;
 
     #[rstest]
-    #[case(Cursor::new(123, 456u32), 123, 456u32)]
-    #[case(Cursor::new(0, 0u32), 0, 0u32)]
-    #[case(Cursor::new(u64::MAX, u32::MAX), u64::MAX, u32::MAX)]
+    #[case(Cursor(123), 123)]
+    #[case(Cursor(0), 0)]
+    #[case(Cursor(u64::MAX), u64::MAX)]
     #[xmtp_common::test]
-    async fn test_accessor_methods(
-        #[case] cursor: Cursor,
-        #[case] expected_seq: u64,
-        #[case] expected_orig: u32,
-    ) {
+    async fn test_accessor_methods(#[case] cursor: Cursor, #[case] expected_seq: u64) {
         use xmtp_common::Generate;
 
         let mut welcome_message = WelcomeMessage::generate();
         welcome_message.cursor = cursor;
         assert_eq!(welcome_message.sequence_id(), expected_seq);
-        assert_eq!(welcome_message.originator_id(), expected_orig);
     }
 
     #[xmtp_common::test]

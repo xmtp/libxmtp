@@ -20,10 +20,8 @@ mod error;
 mod query;
 pub mod short_hex;
 pub mod stream;
-mod vector_clock;
 pub use boxed_client::*;
 pub use error::*;
-pub use vector_clock::*;
 
 pub trait HasStats {
     fn aggregate_stats(&self) -> AggregateStats;
