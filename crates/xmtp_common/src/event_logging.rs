@@ -59,7 +59,6 @@ pub enum Event {
         left_inboxes,
         metadata_changes,
         cursor,
-        originator_id,
         icon = "😮‍💨"
     )]
     MLSProcessedStagedCommit,
@@ -109,7 +108,7 @@ pub enum Event {
     #[context(group_id, hash, icon = "🛑")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
-    #[context(group_id, cursor, originator_id, icon = "📍")]
+    #[context(group_id, cursor, icon = "📍")]
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================

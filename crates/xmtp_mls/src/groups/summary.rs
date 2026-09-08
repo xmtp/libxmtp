@@ -529,10 +529,7 @@ mod tests {
         // A sync that fails to process some messages is still a successful sync
         // of the group as a whole — it stays Ok and prints the success line.
         let mut process = ProcessSummary::default();
-        process.errored(
-            Cursor::new(7u64, 0u32),
-            GroupMessageProcessingError::InvalidPayload,
-        );
+        process.errored(Cursor(7u64), GroupMessageProcessingError::InvalidPayload);
         let mut summary = SyncSummary::default();
         summary.add_process(process);
 
@@ -551,10 +548,7 @@ mod tests {
     #[xmtp_common::test]
     fn source_prefers_other_over_per_message_error() {
         let mut process = ProcessSummary::default();
-        process.errored(
-            Cursor::new(7u64, 0u32),
-            GroupMessageProcessingError::InvalidPayload,
-        );
+        process.errored(Cursor(7u64), GroupMessageProcessingError::InvalidPayload);
         let mut summary = SyncSummary::default();
         summary.add_process(process);
         summary.add_publish_err(GroupError::GroupInactive);

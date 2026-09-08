@@ -79,6 +79,7 @@ thiserror.workspace = true
 time.workspace = true
 tls_codec.workspace = true
 tokio.workspace = true
+tonic.workspace = true
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
@@ -101,6 +102,7 @@ xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls_common.workspace = true
+xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 
 # Optional/Features
@@ -171,8 +173,6 @@ ctor.workspace = true
 mockito = "1.7.2"
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-# Building the real UNIMPLEMENTED status shape in the bidi latch tests.
-tonic.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

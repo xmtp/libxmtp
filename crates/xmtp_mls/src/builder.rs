@@ -18,7 +18,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::{TrackedStatsClient, protocol::XmtpQuery};
+use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
@@ -225,7 +225,6 @@ where
         };
         let task = xmtp_db::tasks::NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .created_at_ns(now)
             .next_attempt_at_ns(now)
             .build(proto)?;
@@ -244,7 +243,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     /// returns an error if the client failed to build as offline
     pub fn build_offline(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi + XmtpQuery + 'static,
+        ApiClient: XmtpApi + 'static,
         Db: xmtp_db::XmtpDb + 'static,
         S: XmtpMlsStorageProvider + 'static,
     {
@@ -257,7 +256,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     #[tracing::instrument(err, skip_all, fields(operation = "mls.build_client"))]
     pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi + XmtpQuery + 'static,
+        ApiClient: XmtpApi + 'static,
         Db: xmtp_db::XmtpDb + 'static,
         S: XmtpMlsStorageProvider + 'static,
     {

@@ -20,7 +20,7 @@ pub const MULTI_NODE_TIMEOUT_MS: u64 = 30_000;
 pub struct DockerUrls;
 impl DockerUrls {
     /// Address to the locally running Anvil <https://getfoundry.sh/anvil/overview/>
-    pub const ANVIL: &'static str = "http://localhost:8545";
+    pub const ANVIL: &'static str = "http://127.0.0.1:8545";
 }
 
 /// Urls to the Grpc Backends
@@ -146,4 +146,4 @@ impl GrpcUrlsToxic {
 /// Local backend URL for client tests.
 pub const BACKEND_TEST_URL: &str = "http://localhost:5050";
 /// Local backend proxy URL for fault tests.
-pub const BACKEND_TEST_TOXIC_URL: &str = "http://localhost:6030";
+pub const BACKEND_TEST_TOXIC_URL: &str = "http://127.0.0.1:6010";

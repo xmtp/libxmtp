@@ -12004,6 +12004,7 @@ dependencies = [
  "xmtp_id",
  "xmtp_macro",
  "xmtp_mls_common",
+ "xmtp_mls_validation",
  "xmtp_proto",
  "zeroize",
 ]

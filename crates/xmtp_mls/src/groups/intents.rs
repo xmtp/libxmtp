@@ -1220,10 +1220,8 @@ pub(crate) mod tests {
     use crate::context::XmtpSharedContext;
     use crate::groups::send_message_opts::SendMessageOpts;
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
-    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProviderRef;
-    use xmtp_proto::types::TopicKind;
 
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
@@ -1350,11 +1348,11 @@ pub(crate) mod tests {
         let messages = group
             .context
             .api()
-            .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
+            .query_group_messages(group.group_id)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);
-        messages.group_messages().unwrap()
+        messages
     }
 
     fn verify_commit_updates_leaf_node(

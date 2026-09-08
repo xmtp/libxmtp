@@ -65,8 +65,7 @@ use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
-    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
@@ -227,10 +226,8 @@ pub enum UpdateAdminListType {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EnableProposalsOptions {
     /// Skip the pre-flight `all_members_support_proposals` check. The
-    /// key-package capability advertisement is the pre-d14n
-    /// negotiation mechanism; post-d14n every client is guaranteed to
-    /// support proposals by version floor alone, so the per-member
-    /// scan stops adding signal. Setting `force = true` bypasses it on
+    /// key-package capability advertisement can be omitted when the
+    /// version floor guarantees that every member supports proposals. Setting `force = true` bypasses it on
     /// both the pre-flight pass and the bootstrap-time re-check.
     ///
     /// Callers using this MUST be confident every member is at >=
@@ -717,10 +714,6 @@ where
     /// tell "this installation has nothing published" apart from "we couldn't
     /// reach the server".
     ///
-    /// A single batch round-trip is attempted first; the batch fetch fails
-    /// wholesale when *any* requested installation has no published key package,
-    /// so on that specific error we fall back to bounded per-installation
-    /// fetches that tolerate the gaps.
     async fn installation_extensions(
         &self,
         query_ids: Vec<Vec<u8>>,
@@ -730,38 +723,9 @@ where
         }
         let store = crate::mls_store::MlsStore::new(self.context.clone());
 
-        // Cap the fallback fan-out: this path fires when the group holds
-        // installations without published key packages, and large groups can
-        // hold hundreds of installations.
-        const MAX_CONCURRENT_KEY_PACKAGE_FETCHES: usize = 16;
-
-        let verified = match store
-            .get_key_packages_for_installation_ids(query_ids.clone())
-            .await
-        {
-            Ok(key_packages) => key_packages,
-            Err(e) if Self::is_missing_key_package(&e) => {
-                use futures::stream::{StreamExt, TryStreamExt};
-                futures::stream::iter(query_ids.into_iter().map(|id| {
-                    let store = &store;
-                    async move {
-                        match store
-                            .get_key_packages_for_installation_ids(vec![id.clone()])
-                            .await
-                        {
-                            Ok(mut found) => Ok(found.remove(id.as_slice()).map(|kp| (id, kp))),
-                            Err(e) if Self::is_missing_key_package(&e) => Ok(None),
-                            Err(e) => Err(GroupError::from(e)),
-                        }
-                    }
-                }))
-                .buffer_unordered(MAX_CONCURRENT_KEY_PACKAGE_FETCHES)
-                .try_filter_map(|entry| async move { Ok(entry) })
-                .try_collect()
-                .await?
-            }
-            Err(e) => return Err(e.into()),
-        };
+        let verified = store
+            .get_key_packages_for_installation_ids(query_ids)
+            .await?;
 
         Ok(verified
             .into_iter()
@@ -779,17 +743,6 @@ where
                 Some((id, extensions))
             })
             .collect())
-    }
-
-    /// True when a key-package fetch failed specifically because an installation
-    /// has no published key package — the batch API reports this as a count
-    /// mismatch. Distinct from transient/infrastructure failures, which callers
-    /// want surfaced rather than silently reported as "unknown capabilities".
-    fn is_missing_key_package(err: &crate::mls_store::MlsStoreError) -> bool {
-        matches!(
-            err,
-            crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::MismatchedKeyPackages { .. })
-        )
     }
 
     /// Check if the group has proposals enabled (proposal-by-reference flow).
@@ -835,8 +788,7 @@ where
     ///
     /// See [`EnableProposalsOptions`] for the two knobs:
     /// - `force`: skip the pre-flight key-package capability check. Use
-    ///   after d14n cuts over, when capability advertisement is
-    ///   redundant with the version floor.
+    ///   when the version floor guarantees proposal support.
     /// - `min_version`: override the `MIN_SUPPORTED_PROTOCOL_VERSION`
     ///   floor written into the migrated group. Defaults to
     ///   [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
@@ -953,8 +905,7 @@ where
         // process the bootstrap commit so we don't ship step A — the
         // legacy GMM bump — for a migration that's about to fail at
         // step B and leave below-floor peers permanently paused. Gated
-        // by `options.force`: post-d14n the capability advertisement
-        // becomes redundant with the version floor and callers can
+        // by `options.force`: when the version floor guarantees support, callers can
         // explicitly opt out of the per-member scan.
         // (2) `proposals_enabled` early-exits if the group is already
         // migrated; calling `enable_proposals()` twice is a user error
@@ -1575,7 +1526,8 @@ where
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
             sequence_id: 0,
-            originator_id: 0,
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push,
@@ -1868,7 +1820,8 @@ where
             .get_inbox_ids(requests)
             .await?
             .into_iter()
-            .filter_map(|(k, v)| Some((k.try_into().ok()?, v)))
+            .zip(account_identifiers.iter().cloned())
+            .filter_map(|(inbox, identifier)| inbox.map(|inbox| (identifier, inbox)))
             .collect();
 
         // get current number of users in group
@@ -1964,7 +1917,8 @@ where
             .await?;
 
         let ids = inbox_id_map
-            .values()
+            .iter()
+            .flatten()
             .map(AsRef::as_ref)
             .collect::<Vec<&str>>();
         self.remove_members(ids.as_slice()).await
@@ -3032,16 +2986,8 @@ where
 
     pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
-        let msgs = db.get_last_cursor_for_originator(
-            self.group_id,
-            EntityKind::ApplicationMessage,
-            Originators::APPLICATION_MESSAGES,
-        )?;
-        let commits = db.get_last_cursor_for_originator(
-            self.group_id,
-            EntityKind::CommitMessage,
-            Originators::MLS_COMMITS,
-        )?;
+        let msgs = db.get_last_cursor(self.group_id, EntityKind::ApplicationMessage)?;
+        let commits = db.get_last_cursor(self.group_id, EntityKind::CommitMessage)?;
         Ok([msgs, commits])
     }
 

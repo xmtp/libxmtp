@@ -12,8 +12,7 @@ use xmtp_db::{
     XmtpMlsStorageProvider,
     sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
 };
-use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
-use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
+use xmtp_proto::backend_v1::CommitLogEntry as CommitLogEntryProto;
 
 use xmtp_proto::types::GroupId;
 pub(crate) trait CommitLogKeyCrypto {
@@ -128,12 +127,13 @@ pub(crate) async fn maybe_share_private_key(
 
 pub(crate) async fn derive_consensus_public_key(
     context: &impl XmtpSharedContext,
-    commit_log_response: &QueryCommitLogResponse,
+    group_id: &[u8],
+    entries: &[CommitLogEntryProto],
 ) -> Result<Option<Vec<u8>>, CommitLogError> {
     let provider = context.mls_provider();
-    let group_id = GroupId::try_from(commit_log_response.group_id.as_slice())?;
+    let group_id = GroupId::try_from(group_id)?;
     // Find the first entry with a valid signature and extract its public key
-    for entry in &commit_log_response.commit_log_entries {
+    for entry in entries {
         if let Some(signature) = &entry.signature
             && provider
                 .crypto()
@@ -150,7 +150,7 @@ pub(crate) async fn derive_consensus_public_key(
 
     tracing::warn!(
         "No valid signature found in commit log response for group {:?}",
-        hex::encode(&commit_log_response.group_id)
+        hex::encode(group_id)
     );
     Ok(None)
 }
@@ -204,7 +204,7 @@ pub(crate) fn get_or_create_signing_key(
 #[cfg(test)]
 mod tests {
     use xmtp_db::MlsProviderExt;
-    use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
+    use xmtp_proto::backend_v1::CommitLogEntry as CommitLogEntryProto;
 
     use super::*;
     use crate::tester;
@@ -248,7 +248,6 @@ mod tests {
             .unwrap();
 
         let commit_entry = CommitLogEntryProto {
-            sequence_id: 1,
             serialized_commit_log_entry: message.to_vec(),
             signature: Some(
                 xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
@@ -275,7 +274,6 @@ mod tests {
 
         // Entry without signature should fail
         let unsigned_entry = CommitLogEntryProto {
-            sequence_id: 1,
             serialized_commit_log_entry: message.to_vec(),
             signature: None,
         };
@@ -326,7 +324,6 @@ mod tests {
             .unwrap();
 
         let first_entry = CommitLogEntryProto {
-            sequence_id: 1,
             serialized_commit_log_entry: first_message.to_vec(),
             signature: Some(
                 xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
@@ -337,7 +334,6 @@ mod tests {
         };
 
         let second_entry = CommitLogEntryProto {
-            sequence_id: 2,
             serialized_commit_log_entry: second_message.to_vec(),
             signature: Some(
                 xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
@@ -347,15 +343,12 @@ mod tests {
             ),
         };
 
-        let response = xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse {
-            group_id: group.group_id.to_vec(),
-            commit_log_entries: vec![first_entry, second_entry],
-            paging_info: None,
-        };
+        let entries = vec![first_entry, second_entry];
 
-        let result = derive_consensus_public_key(&alix.context, &response)
-            .await
-            .unwrap();
+        let result =
+            derive_consensus_public_key(&alix.context, group.group_id.as_slice(), &entries)
+                .await
+                .unwrap();
         assert!(result.is_some());
         let consensus_key = result.unwrap();
         // Should return the FIRST valid public key, not the second
@@ -389,14 +382,12 @@ mod tests {
 
         // First entry has no signature (should be skipped)
         let unsigned_entry = CommitLogEntryProto {
-            sequence_id: 1,
             serialized_commit_log_entry: b"unsigned commit".to_vec(),
             signature: None,
         };
 
         // Second entry has valid signature (should be used)
         let valid_entry = CommitLogEntryProto {
-            sequence_id: 2,
             serialized_commit_log_entry: valid_message.to_vec(),
             signature: Some(
                 xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
@@ -406,15 +397,12 @@ mod tests {
             ),
         };
 
-        let response = xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse {
-            group_id: group.group_id.to_vec(),
-            commit_log_entries: vec![unsigned_entry, valid_entry],
-            paging_info: None,
-        };
+        let entries = vec![unsigned_entry, valid_entry];
 
-        let result = derive_consensus_public_key(&alix.context, &response)
-            .await
-            .unwrap();
+        let result =
+            derive_consensus_public_key(&alix.context, group.group_id.as_slice(), &entries)
+                .await
+                .unwrap();
         assert!(result.is_some());
         // Should derive from the second entry (first valid one)
         assert_eq!(result.unwrap(), valid_public_key);
@@ -452,7 +440,6 @@ mod tests {
 
         // First entry with invalid signature (should be skipped)
         let invalid_entry = CommitLogEntryProto {
-            sequence_id: 1,
             serialized_commit_log_entry: b"invalid commit".to_vec(),
             signature: Some(
                 xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
@@ -464,7 +451,6 @@ mod tests {
 
         // Second entry with valid signature (should be used)
         let valid_entry = CommitLogEntryProto {
-            sequence_id: 2,
             serialized_commit_log_entry: valid_message.to_vec(),
             signature: Some(
                 xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {
@@ -474,15 +460,12 @@ mod tests {
             ),
         };
 
-        let response = xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse {
-            group_id: group.group_id.to_vec(),
-            commit_log_entries: vec![invalid_entry, valid_entry],
-            paging_info: None,
-        };
+        let entries = vec![invalid_entry, valid_entry];
 
-        let result = derive_consensus_public_key(&alix.context, &response)
-            .await
-            .unwrap();
+        let result =
+            derive_consensus_public_key(&alix.context, group.group_id.as_slice(), &entries)
+                .await
+                .unwrap();
         assert!(result.is_some());
         let consensus_key = result.unwrap();
         // Should derive from the second entry (first valid one), not the invalid first one

@@ -21,7 +21,6 @@ use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use xmtp_common::RetryableError;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::Originators;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
@@ -140,12 +139,8 @@ where
 {
     /// Get the last cursor in the database for welcomes
     fn last_sequence_id(&self, db: &impl DbQuery) -> Result<i64, StorageError> {
-        let last = db.get_last_cursor_for_originator(
-            self.context.installation_id(),
-            EntityKind::Welcome,
-            self.welcome.originator_id(),
-        )?;
-        Ok(last.sequence_id as i64)
+        let last = db.get_last_cursor(self.context.installation_id(), EntityKind::Welcome)?;
+        Ok(last.0 as i64)
     }
 
     /// Update the cursor in the database
@@ -369,7 +364,7 @@ where
         // This prevents incorrectly treating backup/restore or groups without sequence_ids as re-adds
         let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
             g.membership_state == GroupMembershipState::PendingRemove
-                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.sequence_id as i64) > seq)
+                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.0 as i64) > seq)
         });
 
         let mls_group = OpenMlsGroup::from_welcome_logged(
@@ -587,7 +582,8 @@ where
             authority_id: added_content_type.authority_id,
             reference_id: None,
             sequence_id: cursor,
-            originator_id: Originators::MLS_COMMITS as i64,
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,
@@ -620,13 +616,10 @@ where
             group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
         }
 
-        db.update_cursor(
-            group.group_id,
-            EntityKind::CommitMessage,
-            //TODO:d14n this must change before D14n-only
-            //Originator must be included in welcome
-            Cursor::mls_commits(cursor as u64),
-        )?;
+        // The welcome joins after this commit. Both kinds start at that position.
+        for kind in [EntityKind::ApplicationMessage, EntityKind::CommitMessage] {
+            db.update_cursor(group.group_id, kind, Cursor(cursor as u64))?;
+        }
         MlsGroup::<C>::mark_readd_requests_as_responded(
             &storage,
             &group.group_id,
@@ -638,8 +631,8 @@ where
             inbox_id = %current_inbox_id,
             installation_id = %self.context.installation_id(),
             group_id = %group.group_id,
-            welcome_id = welcome.cursor.sequence_id,
-            originator_id = welcome.cursor.originator_id,
+            welcome_id = welcome.cursor.0,
+
             cursor = cursor,
             "updated message cursor from welcome metadata"
         );

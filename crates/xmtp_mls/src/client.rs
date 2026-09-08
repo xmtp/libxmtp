@@ -76,6 +76,21 @@ pub enum Network {
     Prod,
 }
 
+/// Timeout for waiting until a registration publish can be read.
+#[derive(Debug, Clone)]
+pub struct VisibilityConfirmationOptions {
+    pub timeout_ms: u64,
+}
+
+const REGISTRATION_INITIAL_BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
+const REGISTRATION_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
+
+impl Default for VisibilityConfirmationOptions {
+    fn default() -> Self {
+        Self { timeout_ms: 30_000 }
+    }
+}
+
 #[derive(Debug, Error, ErrorCode)]
 pub enum ClientError {
     #[error(transparent)]
@@ -174,14 +189,9 @@ pub enum ClientError {
     Conversion(#[from] xmtp_proto::ConversionError),
     /// Registration not visible.
     ///
-    /// Registration was not visible on the required number of nodes within the timeout. Not retryable.
-    #[error("Registration not visible on required nodes: {failed_nodes:?}")]
-    RegistrationNotVisible { failed_nodes: Vec<u32> },
-    /// Envelopes not yet visible.
-    ///
-    /// Registration envelopes haven't propagated to the node yet. Retryable.
-    #[error("Envelopes not yet visible on node {node_id}")]
-    EnvelopesNotYetVisible { node_id: u32 },
+    /// Registration has no publish cursor or is not visible before the timeout. Not retryable.
+    #[error("Registration is not visible")]
+    RegistrationNotVisible,
     /// Client is closed.
     ///
     /// Operation was attempted on a client that has been shut down via
@@ -224,7 +234,6 @@ impl xmtp_common::RetryableError for ClientError {
             // See xmtp/libxmtp#3394.
             ClientError::SignatureValidation(e) => retryable!(e),
             ClientError::Generic(err) => err.contains("database is locked"),
-            ClientError::EnvelopesNotYetVisible { .. } => true,
             _ => false,
         }
     }
@@ -454,8 +463,8 @@ where
                 ))
             })
             .try_collect()?;
-        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
-        let mut new_inbox_ids = HashMap::default();
+        let cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
+        let mut new_inbox_ids: HashMap<&Identifier, Option<String>> = HashMap::new();
 
         let missing: Vec<_> = identifiers
             .iter()
@@ -463,21 +472,22 @@ where
             .collect();
 
         if !missing.is_empty() {
-            let identifiers = identifiers.iter().map(Into::into).collect();
-            new_inbox_ids = self.context.api().get_inbox_ids(identifiers).await?;
+            let requests = missing
+                .iter()
+                .map(|identifier| (*identifier).into())
+                .collect();
+            let results = self.context.api().get_inbox_ids(requests).await?;
+            new_inbox_ids = missing.into_iter().zip(results).collect();
         }
 
         let inbox_ids = identifiers
             .iter()
             .map(|ident| {
                 let cache_key = format!("{ident}");
-                if let Some(inbox_id) = cached_inbox_ids.remove(&cache_key) {
-                    return Some(inbox_id);
+                if let Some(inbox_id) = cached_inbox_ids.get(&cache_key) {
+                    return Some(inbox_id.clone());
                 }
-                if let Some(inbox_id) = new_inbox_ids.remove(&ident.into()) {
-                    return Some(inbox_id);
-                }
-                None
+                new_inbox_ids.get(ident).cloned().flatten()
             })
             .collect();
         Ok(inbox_ids)
@@ -979,7 +989,8 @@ where
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
                         sequence_id: conversation_item.sequence_id?,
-                        originator_id: conversation_item.originator_id?,
+                        envelope_hash: None,
+                        expiry_ns: None,
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
@@ -1040,17 +1051,16 @@ where
             .await?;
 
         // Step 3: Upload key package first (prevents race condition)
-        self.context
-            .api()
-            .upload_key_package(kp_bytes, true)
-            .await?;
+        self.context.api().upload_key_package(kp_bytes).await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        let registration_cursor = self
-            .context
-            .api()
-            .publish_identity_update(identity_update)
-            .await?;
+        let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
+            self.context.api(),
+            &self.context.db(),
+            identity_update,
+            &self.context.scw_verifier(),
+        )
+        .await?;
 
         // Step 5: Fetch and store in local DB (needed for group operations)
         let inbox_id = self.inbox_id().to_string();
@@ -1080,13 +1090,46 @@ where
 
         // Mark identity as ready
         let mut stored_identity = StoredIdentity::try_from(self.identity())?;
-        if let Some(cursor) = registration_cursor {
-            stored_identity.registration_cursor_originator_id = Some(cursor.originator_id as i64);
-            stored_identity.registration_cursor_sequence_id = Some(cursor.sequence_id as i64);
-        }
+        stored_identity.registration_cursor_sequence_id = Some(registration_cursor.0 as i64);
         stored_identity.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
+    }
+
+    /// Wait for the registration publish to become visible in the serving database.
+    /// Only NOT_FOUND is polled. The timeout also bounds an in-flight request.
+    pub async fn wait_for_registration_visible(
+        &self,
+        options: VisibilityConfirmationOptions,
+    ) -> Result<(), ClientError> {
+        use xmtp_common::time::{Duration, sleep, timeout};
+        if !self.identity().is_ready() {
+            return Err(ClientError::RegistrationNotVisible);
+        }
+        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
+        let sequence_id = stored
+            .and_then(|identity| identity.registration_cursor_sequence_id)
+            .and_then(|sequence_id| u64::try_from(sequence_id).ok())
+            .filter(|sequence_id| *sequence_id != 0)
+            .ok_or(ClientError::RegistrationNotVisible)?;
+        timeout(Duration::from_millis(options.timeout_ms), async {
+            let mut delay = REGISTRATION_INITIAL_BACKOFF;
+            loop {
+                match self.context.api().get_envelope(sequence_id).await {
+                    Ok(_) => return Ok(()),
+                    Err(error)
+                        if xmtp_proto::api::grpc_status(&error)
+                            .is_some_and(|status| status.code() == tonic::Code::NotFound) =>
+                    {
+                        sleep(delay).await;
+                        delay = (delay * 2).min(REGISTRATION_MAX_BACKOFF);
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })
+        .await
+        .map_err(|_| ClientError::RegistrationNotVisible)?
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
@@ -1243,24 +1286,12 @@ where
     ) -> Result<HashMap<Identifier, bool>, ClientError> {
         let requests = account_identifiers.iter().map(Into::into).collect();
 
-        // Get the identities that are on the network, set those to true
-        let mut can_message: HashMap<Identifier, bool> = self
-            .context
-            .api()
-            .get_inbox_ids(requests)
-            .await?
-            .into_keys()
-            .filter_map(|ident| Some((ident.try_into().ok()?, true)))
-            .collect();
-
-        // Fill in the rest with false
-        for ident in account_identifiers {
-            if !can_message.contains_key(ident) {
-                can_message.insert(ident.clone(), false);
-            }
-        }
-
-        Ok(can_message)
+        let results = self.context.api().get_inbox_ids(requests).await?;
+        Ok(account_identifiers
+            .iter()
+            .cloned()
+            .zip(results.into_iter().map(|inbox_id| inbox_id.is_some()))
+            .collect())
     }
 }
 
@@ -1341,15 +1372,13 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_mls_error() {
         tester!(client);
-        let result = client
-            .context
-            .api()
-            .upload_key_package(vec![1, 2, 3], false)
-            .await;
+        let result = client.context.api().upload_key_package(vec![1, 2, 3]).await;
 
         assert!(result.is_err());
-        let error_string = result.err().unwrap().to_string();
-        assert!(error_string.contains("invalid identity") || error_string.contains("EndOfStream"));
+        assert!(matches!(
+            result,
+            Err(xmtp_api::ApiError::InvalidEnvelope(_))
+        ));
     }
 
     #[xmtp_common::test]
@@ -1719,7 +1748,6 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 3);
     }
 
-    #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
     #[xmtp_common::test]
     async fn test_sync_100_allowed_groups_performance() {
         tester!(alix);
@@ -2068,6 +2096,37 @@ pub(crate) mod tests {
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
         assert_eq!(item[0].state, ConsentState::Allowed);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn registration_visibility_deadline_bounds_a_severed_connection() {
+        use super::VisibilityConfirmationOptions;
+        toxiproxy_test(async || {
+            tester!(alix, proxy, disable_workers);
+            alix.wait_for_registration_visible(VisibilityConfirmationOptions::default())
+                .await
+                .unwrap();
+            alix.for_each_proxy(async |proxy| proxy.disable().await.unwrap())
+                .await;
+            let started = xmtp_common::time::Instant::now();
+            let result = xmtp_common::time::timeout(
+                Duration::from_secs(2),
+                alix.wait_for_registration_visible(VisibilityConfirmationOptions {
+                    timeout_ms: 250,
+                }),
+            )
+            .await;
+            let elapsed = started.elapsed();
+            alix.for_each_proxy(async |proxy| proxy.enable().await.unwrap())
+                .await;
+            assert!(elapsed < Duration::from_secs(2));
+            assert!(
+                result.unwrap().is_err(),
+                "a severed registration read must fail"
+            );
+        })
+        .await;
     }
 
     #[xmtp_common::timeout(Duration::from_secs(100))]

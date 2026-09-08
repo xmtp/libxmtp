@@ -8,7 +8,7 @@ use crate::{
 };
 use thiserror::Error;
 use xmtp_api::{ApiError, XmtpApi};
-use xmtp_api_d14n::protocol::{EnvelopeError, XmtpQuery};
+use xmtp_api_d14n::envelope::EnvelopeError;
 use xmtp_common::RetryableError;
 use xmtp_db::{
     XmtpDb,
@@ -63,10 +63,9 @@ where
         let mut messages = self
             .context
             .api()
-            .query_at(TopicKind::GroupMessagesV1.create(self.group_id), None)
+            .query_group_messages(self.group_id)
             .await
-            .map_err(xmtp_api::dyn_err)?
-            .group_messages()?;
+            .map_err(xmtp_api::dyn_err)?;
 
         let last_message = messages
             .pop()

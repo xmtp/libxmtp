@@ -128,7 +128,7 @@ pub async fn create_dm_with_consent(
             membership_state: GroupMembershipState::Allowed,
             message_disappear_from_ns: None,
             message_disappear_in_ns: None,
-            originator_id: None,
+
             paused_for_version: None,
             rotated_at_ns: now_ns(),
             sequence_id: None,

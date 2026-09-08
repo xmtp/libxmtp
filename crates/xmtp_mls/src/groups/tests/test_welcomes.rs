@@ -11,7 +11,6 @@ use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
 use crate::identity::create_credential;
 use crate::tester;
-use xmtp_configuration::Originators;
 use xmtp_db::DbQuery;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::group::ConversationType;
@@ -35,14 +34,12 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
-        group.group_id,
-        &[EntityKind::CommitMessage],
-        None,
-    )?;
+    let alix2_refresh_state = alix2
+        .context
+        .db()
+        .latest_cursor_for_id(group.group_id, &[EntityKind::CommitMessage])?;
 
-    assert_eq!(alix2_refresh_state.len(), 1);
-    assert!(*alix2_refresh_state.values().last().unwrap() > 0);
+    assert!(alix2_refresh_state.0 > 0);
 }
 
 #[track_caller]
@@ -56,8 +53,8 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
         .unwrap()
         .values()
         .next()
-        .unwrap()
-        .cursor(&Originators::MLS_COMMITS);
+        .copied()
+        .unwrap();
 
     assert_eq!(
         msg.cursor(),
@@ -79,16 +76,15 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
         .unwrap()
         .values()
         .next()
-        .unwrap()
-        .cursor(&Originators::MLS_COMMITS);
+        .copied()
+        .unwrap();
     assert_eq!(
         cursor, other_cursor,
         "commit entry in refresh state cursor store must be equal"
     );
 }
 
-// it is very important for this behavior to be true,
-// in order to maintain dependency consistency in d14n
+// All members must derive the same state from the joining commit.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_inviting_members_results_in_consistent_state() {
     use EntityKind::CommitMessage;
