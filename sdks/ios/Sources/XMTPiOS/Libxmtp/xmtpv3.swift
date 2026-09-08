@@ -14156,9 +14156,6 @@ public enum FfiSyncMetric: Equatable, Hashable {
     case `init`
     case syncGroupCreated
     case syncGroupWelcomesProcessed
-    case requestReceived
-    case payloadSent
-    case payloadProcessed
     case hmacSent
     case hmacReceived
     case consentSent
@@ -14190,19 +14187,13 @@ public struct FfiConverterTypeFfiSyncMetric: FfiConverterRustBuffer {
         
         case 3: return .syncGroupWelcomesProcessed
         
-        case 4: return .requestReceived
+        case 4: return .hmacSent
         
-        case 5: return .payloadSent
+        case 5: return .hmacReceived
         
-        case 6: return .payloadProcessed
+        case 6: return .consentSent
         
-        case 7: return .hmacSent
-        
-        case 8: return .hmacReceived
-        
-        case 9: return .consentSent
-        
-        case 10: return .consentReceived
+        case 7: return .consentReceived
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -14224,32 +14215,20 @@ public struct FfiConverterTypeFfiSyncMetric: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .requestReceived:
+        case .hmacSent:
             writeInt(&buf, Int32(4))
         
         
-        case .payloadSent:
+        case .hmacReceived:
             writeInt(&buf, Int32(5))
         
         
-        case .payloadProcessed:
+        case .consentSent:
             writeInt(&buf, Int32(6))
         
         
-        case .hmacSent:
-            writeInt(&buf, Int32(7))
-        
-        
-        case .hmacReceived:
-            writeInt(&buf, Int32(8))
-        
-        
-        case .consentSent:
-            writeInt(&buf, Int32(9))
-        
-        
         case .consentReceived:
-            writeInt(&buf, Int32(10))
+            writeInt(&buf, Int32(7))
         
         }
     }
