@@ -18,15 +18,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    d14n_migration_cutover (id) {
-        id -> Integer,
-        cutover_ns -> BigInt,
-        last_checked_ns -> BigInt,
-        has_migrated -> Bool,
-    }
-}
-
-diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -40,7 +31,6 @@ diesel::table! {
         published_in_epoch -> Nullable<BigInt>,
         should_push -> Bool,
         sequence_id -> Nullable<BigInt>,
-        originator_id -> Nullable<BigInt>,
     }
 }
 
@@ -59,8 +49,9 @@ diesel::table! {
         version_minor -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        originator_id -> BigInt,
         sequence_id -> BigInt,
+        envelope_hash -> Nullable<Binary>,
+        expiry_ns -> Nullable<BigInt>,
         inserted_at_ns -> BigInt,
         expire_at_ns -> Nullable<BigInt>,
         should_push -> Bool,
@@ -85,29 +76,10 @@ diesel::table! {
         paused_for_version -> Nullable<Text>,
         maybe_forked -> Bool,
         fork_details -> Text,
-        originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
         has_pending_leave_request -> Nullable<Bool>,
-    }
-}
-
-diesel::table! {
-    icebox (originator_id, sequence_id) {
-        originator_id -> BigInt,
-        sequence_id -> BigInt,
-        group_id -> Binary,
-        envelope_payload -> Binary,
-    }
-}
-
-diesel::table! {
-    icebox_dependencies (envelope_originator_id, envelope_sequence_id, dependency_originator_id, dependency_sequence_id) {
-        envelope_originator_id -> BigInt,
-        envelope_sequence_id -> BigInt,
-        dependency_originator_id -> BigInt,
-        dependency_sequence_id -> BigInt,
     }
 }
 
@@ -118,7 +90,6 @@ diesel::table! {
         credential_bytes -> Binary,
         rowid -> Nullable<Integer>,
         next_key_package_rotation_ns -> Nullable<BigInt>,
-        registration_cursor_originator_id -> Nullable<BigInt>,
         registration_cursor_sequence_id -> Nullable<BigInt>,
     }
 }
@@ -137,7 +108,6 @@ diesel::table! {
         sequence_id -> BigInt,
         server_timestamp_ns -> BigInt,
         payload -> Binary,
-        originator_id -> Integer,
     }
 }
 
@@ -219,11 +189,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    refresh_state (entity_id, entity_kind, originator_id) {
+    refresh_state (entity_id, entity_kind) {
         entity_id -> Binary,
         entity_kind -> Integer,
         sequence_id -> BigInt,
-        originator_id -> Integer,
     }
 }
 
@@ -243,7 +212,6 @@ diesel::table! {
     tasks (id) {
         id -> Integer,
         originating_message_sequence_id -> BigInt,
-        originating_message_originator_id -> Integer,
         created_at_ns -> BigInt,
         expires_at_ns -> BigInt,
         attempts -> Integer,
@@ -269,18 +237,14 @@ diesel::table! {
 
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
-diesel::joinable!(icebox -> groups (group_id));
 diesel::joinable!(message_deletions -> group_messages (id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
-    d14n_migration_cutover,
     group_intents,
     group_messages,
     groups,
-    icebox,
-    icebox_dependencies,
     identity,
     identity_cache,
     identity_updates,

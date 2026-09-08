@@ -9,7 +9,6 @@ use xmtp_db::{
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
     group_intent::{IntentKind, IntentState, QueryGroupIntent},
     group_message::{MsgQueryArgs, QueryGroupMessage, RelationQuery},
-    icebox::QueryIcebox,
     identity::QueryIdentity,
     identity_update::QueryIdentityUpdates,
     key_package_history::QueryKeyPackageHistory,
@@ -18,7 +17,7 @@ use xmtp_db::{
     pending_remove::QueryPendingRemove,
     prelude::{QueryDms, QueryGroupVersion},
     processed_device_sync_messages::QueryDeviceSyncMessages,
-    proto::types::{Cursor, GlobalCursor},
+    proto::types::Cursor,
     readd_status::QueryReaddStatus,
     refresh_state::{EntityKind, QueryRefreshState},
     remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
@@ -124,7 +123,6 @@ where
                 results.push(self.bench_message_deletion_queries());
                 results.push(self.bench_device_sync_queries());
                 results.push(self.bench_task_queries());
-                results.push(self.bench_icebox_queries());
                 results.push(self.bench_readd_status_queries());
                 results.push(self.bench_pending_remove_queries());
                 results.push(self.bench_identity_queries());
@@ -276,13 +274,13 @@ where
             )?;
 
             // Cursor-based query
-            let cursor = Cursor::new(message.sequence_id as u64, message.originator_id as u32);
+            let cursor = Cursor(message.sequence_id as u64);
             bench!(self, get_group_message_by_cursor(&group.id, cursor))?;
 
             // Delivery status updates (non-destructive operations should be safe to benchmark)
             bench!(
                 self,
-                set_delivery_status_to_published(&message_id, 0, Cursor::new(0, 0u32), None)
+                set_delivery_status_to_published(&message_id, 0, Cursor(0), None)
             )?;
             bench!(self, set_delivery_status_to_failed(&message_id))?;
         }
@@ -294,7 +292,7 @@ where
         bench!(self, delete_expired_messages())?;
 
         // Messages newer than (with empty hashmap for baseline)
-        let empty_cursors: HashMap<Vec<u8>, GlobalCursor> = HashMap::new();
+        let empty_cursors: HashMap<Vec<u8>, Cursor> = HashMap::new();
         bench!(self, messages_newer_than(&empty_cursors))?;
 
         Ok(())
@@ -337,7 +335,7 @@ where
         bench!(self, has_duplicate_dm(&group.id))?;
 
         // Find group by sequence ID (using a dummy cursor)
-        let cursor = Cursor::new(0, 0u32);
+        let cursor = Cursor(0);
         bench!(self, find_group_by_sequence_id(cursor))?;
 
         Ok(())
@@ -461,13 +459,13 @@ where
         // Get refresh state
         bench!(
             self,
-            get_refresh_state(&group.id, EntityKind::ApplicationMessage, 0)
+            get_refresh_state(&group.id, EntityKind::ApplicationMessage)
         )?;
 
-        // Get last cursor for originators
+        // Get the last cursor
         bench!(
             self,
-            get_last_cursor_for_originators(&group.id, EntityKind::ApplicationMessage, &[0, 10])
+            get_last_cursor(&group.id, EntityKind::ApplicationMessage)
         )?;
 
         // Get last cursor for IDs
@@ -478,15 +476,11 @@ where
         // Update cursor (this is idempotent with same/lower values)
         bench!(
             self,
-            update_cursor(
-                group.id,
-                EntityKind::ApplicationMessage,
-                Cursor::new(0, 0u32)
-            )
+            update_cursor(group.id, EntityKind::ApplicationMessage, Cursor(0))
         )?;
 
         // Latest cursor for ID
-        bench!(self, latest_cursor_for_id(&group.id, &entities, None))?;
+        bench!(self, latest_cursor_for_id(&group.id, &entities))?;
 
         // Get remote log cursors
         bench!(self, get_remote_log_cursors(&[group.id.as_slice()]))?;
@@ -634,20 +628,6 @@ where
 
         // Get next task
         bench!(self, get_next_task())?;
-
-        Ok(())
-    }
-
-    fn bench_icebox_queries(&mut self) -> Result<()> {
-        // Past dependents with empty cursors
-        let empty_cursors: Vec<Cursor> = vec![];
-        bench!(self, past_dependents(&empty_cursors))?;
-
-        // Future dependents with empty cursors
-        bench!(self, future_dependents(&empty_cursors))?;
-
-        // Prune icebox
-        bench!(self, prune_icebox())?;
 
         Ok(())
     }

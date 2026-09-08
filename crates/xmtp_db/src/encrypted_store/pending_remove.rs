@@ -129,7 +129,6 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_add_pending_remove() {
         with_connection(|conn| {
-            // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "123".to_string(),
                 group_id: GroupId::ONE,
@@ -146,7 +145,6 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn test_delete_pending_remove_user() {
         with_connection(|conn| {
-            // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "1".to_string(),
                 group_id: GroupId::ONE,

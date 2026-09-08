@@ -13,13 +13,11 @@
 pub mod association_state;
 pub mod consent_record;
 pub mod conversation_list;
-pub mod d14n_migration_cutover;
 pub mod database;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
-pub mod icebox;
 pub mod identity;
 pub mod identity_cache;
 pub mod identity_update;
@@ -39,9 +37,6 @@ mod schema_gen;
 pub mod store;
 pub mod tasks;
 pub mod user_preferences;
-
-#[cfg(test)]
-mod migration_test;
 
 pub use self::db_connection::DbConnection;
 use diesel::{migration::Migration, result::DatabaseErrorKind};
@@ -294,7 +289,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
 
     type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
-    fn init(&self) -> Result<(), ConnectionError> {
+    fn init(&self) -> Result<(), StorageError> {
         self.conn().raw_query(|conn| {
             self.validate(conn).map_err(|e| {
                 diesel::result::Error::DatabaseError(
@@ -302,6 +297,23 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     Box::new(e.to_string()),
                 )
             })?;
+            #[derive(QueryableByName)]
+            struct MigrationTable {
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                name: String,
+            }
+            let migration_table = sql_query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__diesel_schema_migrations'",
+            ).get_result::<MigrationTable>(conn).optional()?;
+            if let Some(table) = migration_table {
+                debug_assert_eq!(table.name, "__diesel_schema_migrations");
+                let baseline = MIGRATIONS.final_migration();
+                let applied = conn.applied_migrations()
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+                if applied.iter().any(|version| version.to_string() != baseline) {
+                    return Ok(Err(StorageError::PreTransitionDatabase));
+                }
+            }
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
@@ -312,7 +324,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                 return Ok(Err(ConnectionError::InvalidVersion {
                     expected: last_migration,
                     found: db_version,
-                }));
+                }.into()));
             }
 
             let sqlite_version =

@@ -20,8 +20,6 @@ pub struct StoredIdentity {
     rowid: Option<i32>,
     pub next_key_package_rotation_ns: Option<i64>,
     #[builder(default)]
-    pub registration_cursor_originator_id: Option<i64>,
-    #[builder(default)]
     pub registration_cursor_sequence_id: Option<i64>,
 }
 
@@ -40,7 +38,7 @@ impl StoredIdentity {
             credential_bytes,
             rowid: None,
             next_key_package_rotation_ns: None,
-            registration_cursor_originator_id: None,
+
             registration_cursor_sequence_id: None,
         }
     }
@@ -165,7 +163,6 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
 
                 let pull_in = crate::tasks::NewTask::builder()
                     .originating_message_sequence_id(0)
-                    .originating_message_originator_id(0)
                     .expires_at_ns(crate::tasks::NEVER_EXPIRES)
                     .max_attempts(i32::MAX)
                     .build(TaskProto {
@@ -250,7 +247,6 @@ pub(crate) mod tests {
         use xmtp_proto::xmtp::mls::database::{KpRotation, Task as TaskProto, task::Task};
         crate::tasks::NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .expires_at_ns(crate::tasks::NEVER_EXPIRES)
             .max_attempts(i32::MAX)
             .next_attempt_at_ns(0)

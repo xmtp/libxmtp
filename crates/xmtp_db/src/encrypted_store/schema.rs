@@ -24,7 +24,6 @@ diesel::table! {
     version_minor -> Nullable<Integer>,
     authority_id -> Nullable<Text>,
     sequence_id -> Nullable<BigInt>, // null when a group has no messages
-    originator_id -> Nullable<BigInt>,
   }
 }
 

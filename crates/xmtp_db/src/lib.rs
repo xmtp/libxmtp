@@ -43,13 +43,11 @@ pub mod prelude {
     pub use super::association_state::QueryAssociationStateCache;
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
-    pub use super::d14n_migration_cutover::QueryMigrationCutover;
     pub use super::group::QueryDms;
     pub use super::group::QueryGroup;
     pub use super::group::QueryGroupVersion;
     pub use super::group_intent::QueryGroupIntent;
     pub use super::group_message::QueryGroupMessage;
-    pub use super::icebox::QueryIcebox;
     pub use super::identity::QueryIdentity;
     pub use super::identity_cache::QueryIdentityCache;
     pub use super::identity_update::QueryIdentityUpdates;
@@ -335,7 +333,7 @@ pub mod test_util {
             history
         }
 
-        /// print refresh state, group messages, and icebox tables of the database to stdout in
+        /// print refresh state and group message tables of the database to stdout in
         /// column format.
         pub fn print_db(&self) {
             // matches
@@ -378,9 +376,8 @@ pub mod test_util {
             t.column(4).set_header("sender_inbox_id");
             t.column(5).set_header("delivery_status");
             t.column(6).set_header("content_type");
-            t.column(7).set_header("originator_id");
-            t.column(8).set_header("sequence_id");
-            t.column(9).set_header("message");
+            t.column(7).set_header("sequence_id");
+            t.column(8).set_header("message");
             let rows: Vec<Vec<String>> = msgs
                 .iter()
                 .map(|m| {
@@ -392,7 +389,6 @@ pub mod test_util {
                         m.sender_inbox_id.clone(),
                         format!("{:?}", m.delivery_status),
                         m.content_type.to_string(),
-                        m.originator_id.to_string(),
                         m.sequence_id.to_string(),
                         format_msg(m),
                     ]
@@ -411,43 +407,14 @@ pub mod test_util {
                 .unwrap_or_default();
             t.column(0).set_header("entity_id");
             t.column(1).set_header("entity_kind");
-            t.column(2).set_header("originator_id");
-            t.column(3).set_header("sequence_id");
+            t.column(2).set_header("sequence_id");
             let rows: Vec<Vec<String>> = states
                 .iter()
                 .map(|s| {
                     vec![
                         hex::encode(&s.entity_id)[..16.min(s.entity_id.len() * 2)].to_string(),
                         format!("{:?}", s.entity_kind),
-                        s.originator_id.to_string(),
                         s.sequence_id.to_string(),
-                    ]
-                })
-                .collect();
-            if rows.is_empty() {
-                println!("(empty)");
-            } else {
-                t.println(rows);
-            }
-
-            let mut t = AsciiTable::default();
-            t.column(0).set_header("originator_id");
-            t.column(1).set_header("sequence_id");
-            t.column(2).set_header("group_id");
-            t.column(3).set_header("envelope_payload");
-            println!("\n=== icebox ===");
-            let ice: Vec<crate::icebox::Icebox> = self
-                .raw_query(|c| crate::schema::icebox::table.load(c))
-                .unwrap_or_default();
-            let rows: Vec<Vec<String>> = ice
-                .iter()
-                .map(|i| {
-                    vec![
-                        i.originator_id.to_string(),
-                        i.sequence_id.to_string(),
-                        hex::encode(i.group_id)[..16].to_string(),
-                        hex::encode(&i.envelope_payload)[..20.min(i.envelope_payload.len() * 2)]
-                            .to_string(),
                     ]
                 })
                 .collect();

@@ -4,10 +4,7 @@ use xmtp_common::ErrorCode;
 
 use crate::group_intent::GroupIntentError;
 
-use super::{
-    refresh_state::EntityKind,
-    sql_key_store::{self, SqlKeyStoreError},
-};
+use super::sql_key_store::{self, SqlKeyStoreError};
 use xmtp_common::{BoxDynError, RetryableError, retryable};
 use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
@@ -15,6 +12,11 @@ pub struct Mls;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum StorageError {
+    /// The database was created before the backend transition. Not retryable.
+    #[error(
+        "This database predates the backend transition. Delete the database file and create a new client."
+    )]
+    PreTransitionDatabase,
     /// Diesel connection error.
     ///
     /// Failed to connect to SQLite. Retryable.
@@ -175,11 +177,6 @@ pub enum NotFound {
     /// Intent does not exist. Retryable.
     #[error("Intent with id {0} not found")]
     IntentById(i32),
-    /// Refresh state not found.
-    ///
-    /// No refresh state matching criteria. Retryable.
-    #[error("refresh state with id {id} of kind {1} originating from node {2} not found", id = hex::encode(_0))]
-    RefreshStateByIdKindAndOriginator(Vec<u8>, EntityKind, i32),
     /// Cipher salt not found.
     ///
     /// Database encryption salt missing. Retryable.
@@ -265,7 +262,8 @@ impl RetryableError for StorageError {
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
             Self::GroupIntent(e) => retryable!(e),
-            Self::MigrationError(_)
+            Self::PreTransitionDatabase
+            | Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)
             | Self::DbDeserialize

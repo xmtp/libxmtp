@@ -1,6 +1,6 @@
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
-use xmtp_proto::types::{CursorList, GroupId};
+use xmtp_proto::types::{Cursor, GroupId};
 
 use crate::group_intent::PayloadHash;
 
@@ -11,13 +11,13 @@ pub enum GroupIntentError {
     ///
     /// Intent has multiple dependencies in same epoch. Retryable.
     #[error(
-        "intent {} for group {group_id} has invalid dependencies={}. one message cannot have more than 1 dependency in same epoch",
+        "intent {} for group {group_id} has invalid dependencies={:?}. one message cannot have more than 1 dependency in same epoch",
         hex::encode(payload_hash),
         cursors
     )]
     MoreThanOneDependency {
         payload_hash: PayloadHash,
-        cursors: CursorList,
+        cursors: Vec<Cursor>,
         group_id: GroupId,
     },
     /// No dependency found.

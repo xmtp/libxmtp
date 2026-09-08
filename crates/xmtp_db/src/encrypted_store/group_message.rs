@@ -70,10 +70,12 @@ pub struct StoredGroupMessage {
     pub authority_id: String,
     /// The ID of a referenced message
     pub reference_id: Option<Vec<u8>>,
-    /// The Originator Node ID
-    pub originator_id: i64,
     /// The Message SequenceId
     pub sequence_id: i64,
+    /// Canonical envelope hash assigned by the backend.
+    pub envelope_hash: Option<Vec<u8>>,
+    /// Backend retention metadata. This does not control message deletion.
+    pub expiry_ns: Option<i64>,
     /// Time in nanoseconds the message was inserted into the database
     /// This field is automatically set by the database
     pub inserted_at_ns: i64,
@@ -88,7 +90,7 @@ pub struct StoredGroupMessage {
 
 impl StoredGroupMessage {
     pub fn cursor(&self) -> Cursor {
-        Cursor::new(self.sequence_id as u64, self.originator_id as u32)
+        Cursor(self.sequence_id as u64)
     }
 }
 
@@ -109,8 +111,11 @@ struct NewStoredGroupMessage {
     pub version_minor: i32,
     pub authority_id: String,
     pub reference_id: Option<Vec<u8>>,
-    pub originator_id: i64,
     pub sequence_id: i64,
+    /// Canonical envelope hash assigned by the backend.
+    pub envelope_hash: Option<Vec<u8>>,
+    /// Backend retention metadata. This does not control message deletion.
+    pub expiry_ns: Option<i64>,
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
     pub should_push: bool,
@@ -133,8 +138,9 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             version_minor: msg.version_minor,
             authority_id: msg.authority_id.clone(),
             reference_id: msg.reference_id.clone(),
-            originator_id: msg.originator_id,
             sequence_id: msg.sequence_id,
+            envelope_hash: msg.envelope_hash.clone(),
+            expiry_ns: msg.expiry_ns,
             expire_at_ns: msg.expire_at_ns,
             should_push: msg.should_push,
             idempotency_key: msg.idempotency_key.clone(),
@@ -636,7 +642,7 @@ pub trait QueryGroupMessage {
     /// caller folding these into per-group state must never mix groups.
     fn messages_newer_than(
         &self,
-        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::Cursor>,
     ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
     /// Clear messages from the database with optional filtering.
@@ -801,7 +807,7 @@ where
 
     fn messages_newer_than(
         &self,
-        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::Cursor>,
     ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
         (**self).messages_newer_than(cursors_by_group)
     }
@@ -1273,8 +1279,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
-                .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
-                .filter(dsl::originator_id.eq(cursor.originator_id as i64))
+                .filter(dsl::sequence_id.eq(cursor.0 as i64))
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
@@ -1298,8 +1303,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 .set((
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
-                    dsl::sequence_id.eq(cursor.sequence_id as i64),
-                    dsl::originator_id.eq(cursor.originator_id as i64),
+                    dsl::sequence_id.eq(cursor.0 as i64),
                     dsl::expire_at_ns.eq(message_expire_at_ns),
                 ))
                 .execute(conn)
@@ -1364,22 +1368,14 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     #[xmtp_common::db_span]
     fn messages_newer_than(
         &self,
-        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+        cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::Cursor>,
     ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError> {
-        use diesel::BoolExpressionMethods;
-        use diesel::ExpressionMethods;
-        use diesel::prelude::*;
-
-        let mut all_cursors = Vec::new();
-
-        // Convert the HashMap into a Vec for batching
+        // Each group contributes two bind parameters and one OR branch.
+        const GROUPS_PER_QUERY: usize = 100;
         let groups: Vec<_> = cursors_by_group.iter().collect();
-
-        // Process groups in batches of 100
-        for batch in groups.chunks(100) {
-            // Build the WHERE clause using Diesel's query builder
-            // Start with a false condition that we'll OR with real conditions
-            let mut batch_filter = Box::new(dsl::group_id.eq(&[] as &[u8]))
+        let mut result = Vec::new();
+        for batch in groups.chunks(GROUPS_PER_QUERY) {
+            let mut filter = Box::new(dsl::group_id.eq(&[] as &[u8]))
                 as Box<
                     dyn BoxableExpression<
                             group_messages::table,
@@ -1387,64 +1383,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                             SqlType = diesel::sql_types::Bool,
                         >,
                 >;
-
-            for (group_id, global_cursor) in batch {
-                if global_cursor.is_empty() {
-                    // No cursor for this group - include all messages
-                    batch_filter = Box::new(batch_filter.or(dsl::group_id.eq(group_id)));
-                } else {
-                    // Build condition for this group: group_id matches AND (originator conditions)
-                    let known_originators: Vec<i64> =
-                        global_cursor.keys().map(|k| *k as i64).collect();
-
-                    // Start with false condition for originator checks
-                    let mut originator_filter = Box::new(dsl::originator_id.eq(-1i64))
-                        as Box<
-                            dyn BoxableExpression<
-                                    group_messages::table,
-                                    Sqlite,
-                                    SqlType = diesel::sql_types::Bool,
-                                >,
-                        >;
-
-                    // For each known originator, add: originator_id = X AND sequence_id > Y
-                    for (orig_id, seq_id) in global_cursor.iter() {
-                        originator_filter = Box::new(
-                            originator_filter.or(dsl::originator_id
-                                .eq(*orig_id as i64)
-                                .and(dsl::sequence_id.gt(*seq_id as i64))),
-                        );
-                    }
-
-                    // Also include messages from unknown originators
-                    originator_filter = Box::new(
-                        originator_filter.or(dsl::originator_id.ne_all(known_originators)),
-                    );
-
-                    // Combine: this group AND (originator conditions)
-                    batch_filter = Box::new(
-                        batch_filter.or(dsl::group_id.eq(group_id).and(originator_filter)),
-                    );
-                }
+            for (group, cursor) in batch {
+                filter = Box::new(
+                    filter.or(dsl::group_id
+                        .eq(group)
+                        .and(dsl::sequence_id.gt(cursor.0 as i64))),
+                );
             }
-
-            // Execute the query
-            let messages: Vec<(GroupId, i64, i64)> = self.raw_query(|conn| {
+            let rows: Vec<(GroupId, i64)> = self.raw_query(|conn| {
                 dsl::group_messages
-                    .select((dsl::group_id, dsl::originator_id, dsl::sequence_id))
-                    .filter(batch_filter)
+                    .select((dsl::group_id, dsl::sequence_id))
+                    .filter(filter)
                     .load(conn)
             })?;
-
-            for (group_id, originator_id, sequence_id) in messages {
-                all_cursors.push((
-                    group_id,
-                    Cursor::new(sequence_id as u64, originator_id as u32),
-                ));
-            }
+            result.extend(
+                rows.into_iter()
+                    .map(|(group, sequence)| (group, Cursor(sequence as u64))),
+            );
         }
-
-        Ok(all_cursors)
+        Ok(result)
     }
 
     #[xmtp_common::db_span]

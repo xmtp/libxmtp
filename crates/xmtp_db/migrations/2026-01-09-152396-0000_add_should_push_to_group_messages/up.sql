@@ -1,2 +1,0 @@
-ALTER TABLE group_messages
-ADD COLUMN should_push BOOLEAN NOT NULL DEFAULT TRUE;

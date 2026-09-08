@@ -25,7 +25,9 @@ pub(crate) fn generate_message(
         authority_id: "unknown".to_string(),
         reference_id: None,
         sequence_id: 0,
-        originator_id: 0,
+        envelope_hash: None,
+        expiry_ns: None,
+
         expire_at_ns,
         inserted_at_ns: 0, // Will be set by database
         should_push: true,
@@ -594,7 +596,9 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
         authority_id: "unknown".to_string(),
         reference_id,
         sequence_id: 0,
-        originator_id: 0,
+        envelope_hash: None,
+        expiry_ns: None,
+
         expire_at_ns: None,
         inserted_at_ns: 0, // Will be set by database
         should_push: true,
