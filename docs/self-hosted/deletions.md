@@ -26,6 +26,7 @@ approximate. Items marked **verify** need a check by the implementer before the 
 14. [Keep List](#14-keep-list)
 15. [Cargo Dependencies](#15-cargo-dependencies)
 16. [Unverified Items](#16-unverified-items)
+17. [Message History Server](#17-message-history-server)
 
 ## 1. Executive Summary
 
@@ -484,11 +485,11 @@ objects; the charter requires app code to keep working.
 | `bindings/wasm/src/client/backend.rs` | `ClientBundleBuilder`, `AuthCallback`, `MessageBackendBuilder` | about 60 | Repoint at the renamed crate |
 | `bindings/mobile/src/mls.rs:139-170` | `create_client(v3_host, gateway_host, ...)`; the doc comment at line 139 says `gateway_host` enables d14n | about 45 | Single host. This is a uniffi surface change; regenerate `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift` and the Kotlin bindings. |
 | `bindings/mobile/src/mls/gateway_auth.rs`, `bindings/node/src/client/gateway_auth.rs`, `bindings/wasm/src/client/gateway_auth.rs` | Auth FFI | about 280 | Keep the shape |
-| `sdks/ios/Sources/XMTPiOS/XMTPEnvironment.swift` | `enum XMTPEnvironment`, `customLocalAddress`, `customHistorySyncUrl` | about 60 | Keep the type; values become URLs |
-| `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPEnvironment.kt` | Same, Kotlin | about 25 | Same |
+| `sdks/ios/Sources/XMTPiOS/XMTPEnvironment.swift` | `enum XMTPEnvironment`, `customLocalAddress`, `customHistorySyncUrl` | about 60 | Keep the type; values become URLs. Drop `customHistorySyncUrl`, `getHistorySyncUrl()`, and `getHistorySyncUrlFromEnvironment()` (section 17) |
+| `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPEnvironment.kt` | Same, Kotlin | about 25 | Same; drop `getHistorySyncUrl()` |
 | `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:508`, `Dm.kt:506`, `Conversations.kt:158` | `// TODO: Handle multiple ... with d14n` | 3 | Delete the comments |
 | `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableGroup.kt:35`, `sdks/ios/Sources/XMTPiOS/UnstableGroup.swift:24` | "Post-d14n" comments | 2 | Reword |
-| `sdks/android/dev/local/docker-compose.yml` | Android-local stack: `node`, `validation`, `anvil`, `history-server`, `db`, `mlsdb` | about 50 | Rewrite for the `backend` service |
+| `sdks/android/dev/local/docker-compose.yml` | Android-local stack: `node`, `validation`, `anvil`, `history-server`, `db`, `mlsdb` | about 50 | Rewrite for the `backend` service; drop `history-server` (section 17) |
 
 `crates/xmtp_mls_common` (11,397 lines) has no backend-specific code. Keep all of it.
 
@@ -504,11 +505,12 @@ identity history, not backend code. Keep it.
 | Service | File | Action |
 | --- | --- | --- |
 | `node` (line 5), `node-web` (27), `validation` (46), `anvil` (57), `mlsdb` (78) | `docker-compose.yml` | Delete; `node-web` takes `dev/docker/envoy.yaml` and `anvil` takes `dev/docker/anvil.Dockerfile` |
-| `db` (72), `history-server` (65), `toxiproxy` (84) | `docker-compose.yml` | Keep; add `backend` |
+| `history-server` (65) | `docker-compose.yml` | Delete with the archive transfer (section 17) |
+| `db` (72), `toxiproxy` (84) | `docker-compose.yml` | Keep; add `backend` |
 | `redis`, `replicationdb`, `chain`, `register-node-native`, `enable-node-native`, `xmtpd`, `gateway` | `docker-compose-d14n.yml` | Delete the file |
 
 `dev/docker/toxiproxy/config.json` lists 6 proxies (`node-go`, `grpc-web`, `xmtpd`, `gateway`,
-`history-server`, `anvil`); only `history-server` and a new `backend` proxy survive. Delete
+`history-server`, `anvil`); only a new `backend` proxy survives. Delete
 `dev/docker/compose-v3` and `dev/docker/up-v3`. Simplify `dev/docker/compose`, `dev/docker/up`
 (lines 18-29 handle the validation image), and `dev/docker/local.env` (39 lines of xmtpd and
 anvil keys).
@@ -606,8 +608,8 @@ Each step removes the dependents of the next.
 10. Collapse env and URL config (section 11), then the binding option types, then regenerate
     the uniffi Swift and Kotlin surfaces.
 11. Docker: delete `dev/docker/docker-compose-d14n.yml`; in `dev/docker/docker-compose.yml`
-    remove `node`, `node-web`, `validation`, `mlsdb`, `anvil`; add `backend`; keep `db`,
-    `toxiproxy`, `history-server`.
+    remove `node`, `node-web`, `validation`, `mlsdb`, `anvil`; add `backend`; keep `db`
+    and `toxiproxy`. `history-server` goes in section 17.
 
 Also in Phase 3: `crates/xmtp_mls/src/groups/tests/test_message_dependencies.rs` (d14n-only
 `depends_on` tests; the file itself is deleted in the Phase 0 test PR, its `if_d14n!` gate
@@ -629,7 +631,7 @@ Things that look deletable but must stay.
 | Protos `xmtp.mls.message_contents`, `xmtp.message_contents`, `xmtp.mls.database`, `xmtp.device_sync.*`, `xmtp.identity.*` (about 33,800) | MLS payloads, local storage, device sync, identity. Not backend wire formats. |
 | `crates/xmtp_mls_common` (11,397) | App-data registry, TLS codecs, group metadata, inbox id. |
 | `crates/xmtp_archive` (1,153) | Archive format. |
-| `crates/xmtp_mls/src/worker/device_sync/` (3,092) and the `history-server` docker service | Device sync stays. The history server is kept as a separate service for now. |
+| `crates/xmtp_mls/src/worker/device_sync/` minus the archive-transfer paths (section 17) | Device sync stays. Consent and HMAC sync ride MLS messages in the sync group and never touch the history server. Only the server-backed archive transfer goes. |
 | `apps/db_tools`, `apps/error_glossary`, `apps/keepalive-probe` (retarget), `apps/xmtp_debug` (retarget) | Sections 10. |
 | `crates/xmtp_mls/src/groups/app_data/migration.rs`, `crates/xmtp_mls_common/src/app_data/migration.rs` | App-data schema migration, not network migration. |
 | `crates/xmtp_db/migrations/` | Clients start with a clean DB, but the chain still runs from empty. Delete only the cutover table migration. |
@@ -709,3 +711,127 @@ Items the implementer must check. Do not treat them as decided.
 8. `xmtp_api_grpc` `grpc_client/client.rs:341`: confirmed a test-only import of `PublishRequest`; remove in Phase 3 step 3.
 9. `identity.api.v1` HTTP annotations: the generated Rust file does not reference the `grpc.gateway` types; the claim that the source `.proto` carries them comes from `docs/self-hosted/existing/proto.md` section 2.1, not from this checkout.
 10. Phase line totals are approximate. The Phase 3 total (43,000) sums section 3, 4, 6, 7, and 11 and includes replaced code that leaves the tree; recount after step 3.
+
+## 17. Message History Server
+
+The owner decided to remove the message history server and the `historySyncUrl` config.
+This section replaces the earlier "kept as a separate service for now" note in section 14.
+
+### 17.1 What the server does, and what it does not
+
+The server is a dumb store for one encrypted blob: the bulk archive (groups and messages)
+that bootstraps a new installation. It never sees plaintext.
+
+Consent records and HMAC keys **do not use it**. Both are `PreferenceUpdate` protobufs sent
+as ordinary MLS messages into the sync group through `send_device_sync_message`
+(`crates/xmtp_mls/src/worker/device_sync/mod.rs:291`). Removing the server does not affect
+them. `sdks/ios/Tests/XMTPTests/HistorySyncTests.swift:389` and
+`sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt:315`
+already assert this split.
+
+Most of the decoupling landed in `147871e3a` (Device Sync V3 Part 3, #3148). That commit
+deleted `device_sync_server_url` from `ClientBuilder` and `XmtpMlsLocalContext`, and removed
+automatic sync requests on new installations. There are now 0 occurrences of
+`history_sync_url` in `crates/`. The URL is a per-call `String` argument on
+`send_sync_request` and `send_sync_archive`, so no client config change is needed.
+
+### 17.2 Rust
+
+| Path | What | Action |
+| --- | --- | --- |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs:445-514` | `send_archive`; the only upload (`:475-476`) | Delete |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs:516-570` | `send_sync_request`, `send_sync_archive` | Delete |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs:572-589` | `is_reply_requested_by_installation` | Delete |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs:591-659` | `process_archive_with_pin`, `list_available_archives` | Delete |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs:661-729` | `process_archive`; the only download (`:685`) | Delete |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs:371-414` | `Request` and `Reply` arms of `process_message` | Delete |
+| `crates/xmtp_mls/src/worker/tasks.rs:352-391` | `SendSyncArchive` task branch | Delete |
+| `crates/xmtp_archive/src/exporter.rs:61-97` | `ArchiveExporter::post_to_url` | Delete |
+| `crates/xmtp_common/src/http.rs` (86) | Sole reqwest constructor; its doc comment names the history server as its only caller | Delete with the `reqwest` dependency of `xmtp_mls` and `xmtp_archive`. Retires the Android rustls workaround. **verify** no other caller |
+| `crates/xmtp_mls/src/worker/device_sync/mod.rs:83-84` | `DeviceSyncError::Reqwest` | Delete |
+| `crates/xmtp_archive/src/lib.rs:31-32` | `ArchiveError::Reqwest` | Delete |
+| `crates/xmtp_configuration/src/common/api.rs:19-24` | `DeviceSyncUrls`; already test-only | Delete |
+| `crates/xmtp_common/src/event_logging.rs:170-179` | `DeviceSyncArchiveUploadStart`, `DeviceSyncArchiveUploadFailure`, `DeviceSyncArchiveUploadComplete`, and `DeviceSyncNoServerUrl`, which is already dead (declared, never emitted) | Delete |
+| `crates/xmtp_common/src/event_logging.rs:147,150` | `DeviceSyncArchiveDownloading`, `DeviceSyncPayloadDownloadFailure` | Delete |
+| `crates/xmtp_common/src/event_logging.rs` | `DeviceSyncArchiveImport*`, `DeviceSyncArchiveProcessingStart`, `DeviceSyncArchiveNotRequested`, `DeviceSyncV1Archive` | Keep the import events if the local-file path reuses them; delete the rest. **verify** |
+| `crates/xmtp_mls/src/worker/device_sync/worker.rs` | `SyncMetric::{PayloadSent, PayloadProcessed, PayloadTaskScheduled, ConsentPayloadSent, ConsentPayloadProcessed, MessagesPayloadSent, MessagesPayloadProcessed}` | Delete. Keep `ConsentSent`/`ConsentReceived`/`HmacSent`/`HmacReceived` |
+
+**Keep.** `crates/xmtp_archive` stays as the local file backup format, which is already
+server-free: `ArchiveExporter::new`, `export_to_file`, `write_to_file`, `ArchiveImporter`,
+and `insert_importer` (`worker/device_sync/archive.rs`). The sync group, the sync worker
+loop (`sync_init`, `evt_new_sync_group_from_welcome`, `evt_new_sync_group_msg`,
+`evt_cycle_hmac`), `preference_sync.rs`, `consent_sync.rs`, and
+`crates/xmtp_db/src/encrypted_store/processed_device_sync_messages.rs` all stay.
+
+### 17.3 Protos
+
+This narrows the "Keep" row for `xmtp.device_sync.*` in section 7.2. The package stays;
+these messages go.
+
+| Proto | Messages | Action |
+| --- | --- | --- |
+| `proto/device_sync/content.proto` | `DeviceSyncRequest` (49), `DeviceSyncReply` (57), `DeviceSyncKeyType` (74) | Delete, with the `request` and `reply` fields of the `DeviceSyncContent` oneof (13, 15). `DeviceSyncKeyType` has no other consumer |
+| `proto/mls/database/task.proto` | `SendSyncArchive` (55-59) and its oneof arm (15) | Delete |
+
+Keep `PreferenceUpdates`, `PreferenceUpdate`, `HmacKeyUpdate`, `ConsentSave`,
+`DeviceSyncAcknowledge`, and `ArchiveOptions`. Reserve the removed field numbers rather than
+reusing them; old installations still send them.
+
+### 17.4 Bindings and SDKs
+
+Remove `send_sync_request`, `send_sync_archive`, `process_sync_archive`, and
+`list_available_archives` from all three bindings:
+`bindings/mobile/src/mls/device_sync/mod.rs:19-74`, `bindings/node/src/device_sync.rs:163-223`,
+`bindings/wasm/src/device_sync.rs:183-246`. In each file the block runs from
+`send_sync_request` up to `create_archive`, which stays.
+
+Keep `create_archive`, `import_archive`, and `archive_metadata` on all three. This is the
+local file backup path and it is the replacement for the server.
+
+| SDK | Remove |
+| --- | --- |
+| JS | `HistorySyncUrls` (`node-sdk/src/constants.ts:24-32`, `browser-sdk/src/constants.ts:24-32`) and its export at `browser-sdk/src/index.ts:11`; `historySyncUrl` from `node-sdk/src/types.ts:76` and `browser-sdk/src/types/options.ts:67`, which is already dead — `createClient.ts` never reads it; `#getDefaultServerUrl` (`node-sdk/src/Client.ts:1108`, `browser-sdk/src/Client.ts:957`) and the four archive-transfer methods |
+| iOS | `getHistorySyncUrlFromEnvironment()` and `customHistorySyncUrl` (`XMTPEnvironment.swift:14-16,26`), `getHistorySyncUrl()` (`:64-72`), `sendSyncRequest`/`sendSyncArchive` (`Client.swift:992-998,1047-1054`), and the `XMTPEnvironment.customHistorySyncUrl` wiring in `XMTPTestHelpers/TestHelpers.swift:15-16,93-94` |
+| Android | `getHistorySyncUrl()` (`XMTPEnvironment.kt:32-36`) and `sendSyncRequest`/`sendSyncArchive` (`Client.kt:860-878`) |
+
+Keep `disableDeviceSync` and `FfiDeviceSyncMode`. Disabling device sync is orthogonal to the
+URL and is not affected.
+
+### 17.5 Infrastructure and tests
+
+| Path | Action |
+| --- | --- |
+| `dev/docker/docker-compose.yml:65-71` | Delete the `history-server` service and its entry in the dependency list at `:101` |
+| `dev/docker/toxiproxy/config.json:27-29` | Delete the `history-server` proxy |
+| `sdks/android/dev/local/docker-compose.yml:37` | Delete the `history-server` service |
+| `.github/workflows/test-ios.yml:13,27,62` | Delete `history_url` and `XMTP_HISTORY_SERVER_ADDRESS` |
+| `sdks/android/library/src/androidTest/.../HistorySyncTlsTest.kt` | Delete. It exists only to cover the TLS upload leg |
+| `sdks/android/library/src/androidTest/.../HistorySyncTest.kt` | Delete the transfer tests; keep `testDisablingHistoryTransferDoesNotTransfer` reworked against local-file backup, or delete if redundant |
+| `sdks/ios/Tests/XMTPTests/HistorySyncTests.swift` | Same |
+| `sdks/js/{node,browser}-sdk/test/DeviceSync.test.ts` | Delete the archive-transfer cases; keep the consent and HMAC cases |
+| `sdks/js/node-sdk/test/helpers.ts:119,148`, `sdks/js/agent-sdk/src/util/test.ts:33` | Drop the `historySyncUrl` argument. It is ignored today, so these tests never pointed at the local server through it |
+| `crates/xmtp_mls/src/worker/device_sync/tests.rs` | Delete the archive tests at `:28,78,136,172,221,451,454`; keep the consent, HMAC, and sync-group tests |
+| `bindings/mobile/src/mls/device_sync/tests.rs:803,885`, `bindings/mobile/src/mls/tests/streaming.rs:414` | Same |
+
+### 17.6 Docs
+
+| Path | Edit |
+| --- | --- |
+| `docs/self-hosted/existing/libxmtp-api-callers.md:1094-1096` | Already stale: documents `LOCAL_ADDRESS`, `DEV_ADDRESS`, `PRODUCTION_ADDRESS` with a wrong production hostname. Delete the block |
+| `docs/self-hosted/tests/existing-tests/xmtp-mls-client-workers.md:117`, `docs/self-hosted/tests/existing-requirements.md:497` | MLS-REQ-063 covers the device-sync request/reply. Retire the requirement |
+| `sdks/js/node-sdk/src/types.ts:74`, `sdks/js/browser-sdk/src/types/options.ts:65` | Links to `docs.xmtp.org/.../history-sync`; go with the option |
+
+### 17.7 Behavior change
+
+A new installation loses bulk history transfer: messages sent before it existed. It still
+receives consent state, the HMAC key, every group it is welcomed into, and all messages sent
+after it joins. Local file backup covers the gap, but needs a manual user step — export on
+the old device, move the file, import on the new one.
+
+Since #3148 the transfer is already manual and integrator-driven, so no automatic behavior
+regresses.
+
+Two smaller consequences. Deleting the download closes an open hole: `worker.rs:685` issues a
+GET to whatever host a peer's reply message names, with no allowlist. Old installations that
+still send `DeviceSyncRequest` must be ignored without error, not treated as malformed —
+keep an arm that drops unknown `DeviceSyncContent` variants.

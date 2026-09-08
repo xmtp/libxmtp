@@ -59,7 +59,7 @@ Ephemeral documents produced in Phase 0 live in `docs/self-hosted`: the existing
 
 ## Phases
 
-### Phase 0: Mise en place
+### Phase 0: Preparation
 
 - Dispatch sub-agents to research the existing implementations in `libxmtp`, `xmtp-node-go`, `xmtpd`, and `proto`, and catalog all current behaviors and requirements of the existing endpoints in a detailed wiki at `docs/self-hosted/existing`. Required content: the input parameters of each endpoint and their exact formats (serialization, bindings of fields to database tables), the database schema, what conditions trigger errors and how errors are surfaced to the client, limits applied to endpoints, rate limiting, and anything else relevant to future implementers. All claims cite function names and file paths. The goal is a complete and accurate specification of the relevant parts of the existing services.
 - Interrogate the proposed `proto/backend/v1/backend.proto`. Will it lead to a performant backend that can handle all needs of the new client? Analyze the expected callers of each backend API in `libxmtp` and ensure their core business requirements can be met.
@@ -95,35 +95,68 @@ Specs 001 and 002 must be completed and approved before this phase begins. This 
 - No caller quotas, authentication, or authorization. Phase 6 adds them. Exception: per-stream Update and client Ping token buckets protect the stream protocol in Phase 2 (10 frames/s each, burst 100).
 - Establish, and include in the spec, a concise TOML config format for all server configuration. Config files may reference environment variables for secrets. The format should have a defined schema that can be publicly hosted and referenced by config files that support Taplo schemas.
 
-### Phase 3: Integration
+### Phase 3: Client Support And Cleanup
 
 Replace all backend selection in `xmtp_mls` with the self-hosted backend. This requires updates to every binding in `bindings/`, every SDK in `sdks/`, and the CLIs in `apps/`. The diff is large and changes the test harness of every client SDK. `docs/self-hosted/deletions.md` gives the order of the deletions in this phase.
 
-- The single-client protocol becomes the only native stream path. Remove the opt-in flag, legacy stream stack, and XIP-83 wave protocol. No compatibility adapter is required for the undeployed backend schema.
-- Redesign the client ledger around one ordered ingestion path and safe durable cursor per topic. Remove wave/lease replay positions and the per-kind total-order watermark. Local application streams share ingestion and retain independent callbacks.
-- Expose application catch-up status from fixed targets and completed processing. Bounded background sync uses a dedicated instance of the same stream, includes groups discovered from enrolled welcomes, and cancels after its finite work completes.
-- Application developers choose topics and filters, including denied topics. Consent and membership are inputs to that choice, not streaming authorization rules. Explicit interest removal invalidates stale callbacks and fetch work.
-- Implement the spec 001 client obligations: keyed key-package results with absence, batch chunking, identity and commit-log query paging, static-subscription splitting, and status-based retry classification. Preserve public SDK methods and stream callbacks.
+- Update client creation options, removing anything to do with d14n or other deprecated/removed features. A backend URL is a new required config option with no default. `env` should transition to a String, and would only be used informationally and for selecting database file name if no explicit `dbPath` was specified.
+- Remove `historySyncUrl` from all client configuration options, and any downstream support for the history sync server. We still want device sync that is message-based, or file-based restores, but we don't need any server-based history sync. It's mostly gone already anyways.
+- Update stream/subscription implementation for both Native and WASM to support the new backend with a minimal change set. Remove/replace XIP-83 support with the native backend API. At this phase, the backend will NOT be in line with spec 004. Keep things as close to the existing implementation as is practical. Streaming overhaul happens in Phase 
+- Update API clients (xmtp_api, xmtp_api_d14n) to exclusively support the new backend. Remove all dead proto code, and all dead code related to v3 or d14n. Leave the auth middleware and readonly/read-write client middlewares. We will be using and extending the auth middleware in a later phase.
+- Implement the spec 001 client obligations: keyed key-package results with absence, batch chunking, identity and commit-log query paging, static-subscription splitting, and status-based retry classification. Anything else required to make the client tests pass against a self-hosted backend and preserve correct behavior. Preserve public SDK methods and stream callbacks.
 - Preserve canonical envelope bytes for publish retries and hash matching. An oversized publish response can follow a committed write; response failure does not prove rollback.
 - `apps/xmtp_debug` stays as an app. Its backend selection and other dead functionality are deleted as the code they depend on goes.
 - The SCW verifier tests start a local `anvil` from Rust instead of the Docker service.
+- Audit all scripts in the dev folder and justfile and remove any scripts or configuration that is now dead code.
+- Remove the `node`, `node-web`, `validation`, `anvil`, and `mlsdb` services from `dev/docker/docker-compose.yml` and have CI pass. Remove docker-compose-d14n.yml entirely. A new `backend` service, built from the Phase 2 backend, serves the SDK tests and reuses the existing `db` service (now upgraded to Postgres 18).
 
-We should be able to remove the `node`, `node-web`, `validation`, `anvil`, and `mlsdb` services from `dev/docker/docker-compose.yml` and have CI pass. A new `backend` service, built from the Phase 2 backend, serves the SDK tests and reuses the existing `db` service.
+### Phase 4: Polish
 
-### Phase 4: Metrics, benchmarks, performance
+**4.1: Docs Site**
+- A new docs site backed entirely by this repo.
+- Would take a subset of the docs from the existing https://github.com/xmtp/docs-xmtp-org. Hopefully greatly simplified for easier maintenance
+- All markdown files and docs code lives inside this repo
 
+**4.2: Message Pruning**
+
+- Add deletion of expired rows from the database as a job that runs hourly (with a lock to prevent overlap). Ensure query is fast and indexed. Every row carries an expiry set at publish time. Group application messages, welcomes, and key packages use 90 days (the fixed duration called 3 months). Identity updates, commit-log entries, and group messages marked as commits or proposals never expire.
+- Before this phase, expiry is metadata only: no pruning. Define newest-watermark behavior and the interaction between pruning and the tailer/streams.
+
+**4.3: Authentication**
+- Provide backend configuration options for JWT authentication. Allow configuration of approved public keys or JWKs URLs, audiences, and required scopes. If authentication is required, reject requests missing an auth token or with an invalid token. 
+- Allow client applications to provide auth tokens for callers, attached to all gRPC requests as headers using the auth middleware. Refresh the token on unauthorized responses.
+
+**4.4: Rate Limiting**
+- Add support for rate-limiting using an in-memory token bucket rate limiter. Create a mapping of rate limit costs to request types, such that each request (or mutation of a bidi stream) consumes a certain number of tokens. If authentication is enabled, user identifier for rate limiting is the `sub` claim from the JWT. If auth is disabled, use the client IP. Reject requests that exceed rate limits.
+
+**4.5: Metrics And Telemetry**
 - Full OpenTelemetry and Prometheus metrics for the backend. Reuse metric names, labels, and conventions from `xmtpd` and `xmtp-node-go` where applicable.
-- Backend benchmarks for all core database operations, including runs against a database preloaded with 1M messages. Ensure all supported queries use database indexes.
-- Attempt to optimize the schema for both read and write performance: how to unlock parallel writes without breaking total ordering per topic, how to reduce index size for common queries, how to use indexes more efficiently for the most important queries, and whether safe, low-maintenance partitioning can serve the common pattern (most queries read relatively new messages).
 
-### Phase 5: Message pruning
+**4.6: Benchmarks And Performance**
+- Backend benchmarks for all core database operations, including runs against a database preloaded with 100k, 1M, and 10M messages. Ensure all supported queries use database indexes and return quickly. Ensure benchmarks are run with a good diversity of queries (small topic list, large topic list, high cursors, low cursors). Prepare a detailed benchmark report.
+- Attempt to optimize the schema for both read and write performance: how to unlock parallel writes without breaking total ordering per topic, how to reduce index size for common queries, how to use indexes more efficiently for the most important queries, and whether safe, low-maintenance partitioning can serve the common pattern (most queries read relatively new messages). Test changes against benchmarks.
 
-- Figure out how to expire messages from the backend database.
-- Every row carries an expiry set at publish time. Group application messages, welcomes, and key packages use 90 days (the fixed duration called 3 months). Identity updates, commit-log entries, and group messages marked as commits or proposals never expire.
-- Before this phase, expiry is metadata only: no pruning and no read-time expiry filter. Add the expiry index with the pruning implementation. Define newest-watermark behavior, key-package absence, and duplicate retries after row deletion.
-- Define what a client does with a cursor that points below expired rows before retention is enabled in production.
+**4.7: Push Subscriptions**
+- Port key functionality from xmtp/example-notification-server-go into the backend, allowing for clients to register push subscriptions
+- Update Rust SDK to have native support for registering push subscriptions
 
-### Phase 6: Authentication and rate limiting
+**4.8: Self Publishing SDK Versions**
+- If someone forks this repo, how do they release their own version of the Node, Android, iOS, or Browser SDKs in a way that they can use in their own app.
+- Will need to test this end-to-end across all SDKs
+- Update documentation with guides for how to do this across all languages
 
-- Allow client applications to provide auth tokens for callers, attached to all gRPC requests as headers.
-- Take a similar rate limiting approach.
+**4.9: Integration Test Suite**
+- Create a more aggressive fork/integration test suite that can catch real-world issues and runs in CI
+- Adapted from the old fork suite
+
+### Phase 5: Extras
+
+**5.1: Overhaul Message Fetching**
+
+- Complete overhaul of the streaming code to take advantage of the new backend streaming APIs
+- https://plan.ref.tools/W6p6z0HV0nVruZwI
+
+**5.2: Codegen SDKs**
+
+- Hollow out our iOS/Android/Browser/Node SDKs to be primarily codegen driven via Uniffi. Goal is a 90% reduction in lines of code.
+- Goal here is to dramatically simplify making SDK changes, and to make the release process much much easier.
