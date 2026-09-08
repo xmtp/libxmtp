@@ -8,7 +8,8 @@
 //! Each lease keeps a monotonic delivery position above its requested floor.
 //! A lease that needs older messages removes and re-adds the held topic.
 //! Until the remove acknowledgement, only old holders receive queued messages.
-//! After the add acknowledgement, all holders receive the new registration.
+//! At that boundary, current interest determines the re-add cursor and holders.
+//! After the add acknowledgement, those holders receive the new registration.
 //! The delivery positions discard overlap without storing message buffers.
 //!
 //! A connection failure keeps leases alive. Reconnect uses the current topic
@@ -16,6 +17,8 @@
 //! the connection and keeps this state. Resume waits for all acknowledgements
 //! and targets. A slow lease is closed so its consumer can recover from storage.
 //!
+//! The ledger has no durable-progress feedback, so reopen cost is proportional
+//! to the history since each lease floor; reducing this cost is a Phase 5 item.
 //! The consumer owns durable progress. This module does not decode MLS data
 //! or promise exactly-once callbacks across a process crash.
 
@@ -428,16 +431,14 @@ struct TopicRegistration<C> {
     target: Option<u64>,
     delivered: C,
     holders: HashSet<LeaseId>,
-    state: RegistrationState<C>,
+    state: RegistrationState,
 }
 
-enum RegistrationState<C> {
+enum RegistrationState {
     Adding,
     Active,
     /// Old holders receive queued frames until the remove acknowledgement.
-    Removing {
-        pending_readd: Option<(C, HashSet<LeaseId>)>,
-    },
+    Removing,
 }
 
 /// The enclosing lease and topic map identify this obligation.
@@ -639,22 +640,14 @@ where
         let mut removes = Vec::new();
         for (topic, floor) in subs {
             self.dirty_topics.insert(topic.clone());
-            let cursor = self.resume_cursor(&topic).unwrap_or(floor);
             let Some(registration) = self.registrations.get_mut(&topic) else {
                 adds.push((topic, floor));
                 continue;
             };
             match &mut registration.state {
-                RegistrationState::Removing { pending_readd } => {
-                    let (requested, waiting) =
-                        pending_readd.get_or_insert_with(|| (cursor, HashSet::new()));
-                    *requested = B::meet(*requested, cursor);
-                    waiting.insert(id);
-                }
+                RegistrationState::Removing => {}
                 _ if !B::covers(&floor, &registration.delivered) => {
-                    registration.state = RegistrationState::Removing {
-                        pending_readd: Some((cursor, HashSet::from([id]))),
-                    };
+                    registration.state = RegistrationState::Removing;
                     removes.push(topic);
                 }
                 _ => {
@@ -670,6 +663,7 @@ where
     /// Apply ordered acknowledgement boundaries and return topics to re-add.
     fn applied(&mut self, id: u64, targets: Vec<(Topic, u64)>) -> Vec<(Topic, B::Cursor)> {
         let Some(update) = self.pending_updates.remove(&id) else {
+            tracing::warn!(id, "received Applied for an unknown update");
             return Vec::new();
         };
         let targets: HashMap<_, _> = targets.into_iter().collect();
@@ -759,12 +753,6 @@ where
             }
             if let Some(registration) = self.registrations.get_mut(topic) {
                 registration.holders.remove(&id);
-                if let RegistrationState::Removing {
-                    pending_readd: Some((_, waiting)),
-                } = &mut registration.state
-                {
-                    waiting.remove(&id);
-                }
             }
         }
         removes
@@ -920,16 +908,24 @@ where
 {
     async fn run(mut self) {
         loop {
+            // A finite snapshot lets queued leases share an update without
+            // letting a continuous command producer starve wire events.
+            let queued = self.deferred.len() + self.cmds.len();
+            for _ in 0..queued {
+                let cmd = self
+                    .deferred
+                    .pop_front()
+                    .or_else(|| self.cmds.try_recv().ok());
+                let Some(cmd) = cmd else { break };
+                if let Flow::Shutdown = self.command(cmd).await {
+                    return;
+                }
+            }
             self.flush_outbox();
             let flow = match self.next_step().await {
                 Step::Retry => Flow::Continue,
                 Step::Cmd(None) => self.shutdown(),
-                Step::Cmd(Some(Cmd::Lease { subs, depth, reply })) => {
-                    self.lease(subs, depth, reply).await
-                }
-                Step::Cmd(Some(Cmd::Deref(id))) => self.deref(id),
-                Step::Cmd(Some(Cmd::Suspend { reply })) => self.suspend(reply),
-                Step::Cmd(Some(Cmd::Resume { reply })) => self.resume(reply).await,
+                Step::Cmd(Some(cmd)) => self.command(cmd).await,
                 Step::Wire(Some(event)) => self.wire_event(event),
                 Step::Wire(None) => self.wire_died(),
                 Step::Reconnect => self.reconnect().await,
@@ -937,6 +933,15 @@ where
             if let Flow::Shutdown = flow {
                 return;
             }
+        }
+    }
+
+    async fn command(&mut self, cmd: Cmd<B>) -> Flow {
+        match cmd {
+            Cmd::Lease { subs, depth, reply } => self.lease(subs, depth, reply).await,
+            Cmd::Deref(id) => self.deref(id),
+            Cmd::Suspend { reply } => self.suspend(reply),
+            Cmd::Resume { reply } => self.resume(reply).await,
         }
     }
 
@@ -1192,7 +1197,7 @@ where
                 leases = self.ledger.leases.len(),
                 pending_updates = self.ledger.pending_updates.len(),
                 retry_in_ms = retry_in.as_millis() as u64,
-                "bidi transport: wire died; reconnecting from last-seen positions"
+                "bidi transport: wire died; reopening from lease floors"
             );
         }
         self.settle_idle_waiters();
@@ -1326,11 +1331,9 @@ where
         let mut to_remove = Vec::new();
         for topic in removes {
             if let Some(registration) = self.ledger.registrations.get_mut(&topic)
-                && !matches!(registration.state, RegistrationState::Removing { .. })
+                && !matches!(registration.state, RegistrationState::Removing)
             {
-                registration.state = RegistrationState::Removing {
-                    pending_readd: None,
-                };
+                registration.state = RegistrationState::Removing;
                 to_remove.push(topic);
             }
         }
@@ -1339,11 +1342,90 @@ where
             .extend(self.ledger.prepare_removes(to_remove));
     }
 
+    /// Combine a same-kind prefix without changing queued frames or ack state.
+    /// Duplicate topics and add/remove boundaries stay in separate updates.
+    fn coalesced_prefix(&self) -> Option<(usize, PendingUpdate<B::Cursor>)> {
+        if self.outbox.updates.len() < 2 {
+            return None;
+        }
+        let (first_id, _) = self.outbox.updates.front()?;
+        let first = self.ledger.pending_updates.get(first_id)?;
+        let adds_only = !first.adds.is_empty() && first.removes.is_empty();
+        let removes_only = first.adds.is_empty() && !first.removes.is_empty();
+        if !adds_only && !removes_only {
+            return None;
+        }
+        let mut topics: HashSet<_> = first
+            .adds
+            .iter()
+            .map(|(topic, _)| topic)
+            .chain(first.removes.iter())
+            .collect();
+        let mut bytes: usize = topics.iter().map(|topic| topic_wire_cost(topic)).sum();
+        let mut count = 1;
+        for (id, _) in self.outbox.updates.iter().skip(1) {
+            let Some(next) = self.ledger.pending_updates.get(id) else {
+                break;
+            };
+            if (adds_only && (next.adds.is_empty() || !next.removes.is_empty()))
+                || (removes_only && (next.removes.is_empty() || !next.adds.is_empty()))
+            {
+                break;
+            }
+            let next_topics: Vec<_> = next
+                .adds
+                .iter()
+                .map(|(topic, _)| topic)
+                .chain(next.removes.iter())
+                .collect();
+            let next_bytes: usize = next_topics.iter().map(|topic| topic_wire_cost(topic)).sum();
+            if topics.len() + next_topics.len() > self.ledger.chunk_cap
+                || bytes + next_bytes > self.ledger.chunk_bytes
+                || next_topics.iter().any(|topic| topics.contains(topic))
+            {
+                break;
+            }
+            topics.extend(next_topics);
+            bytes += next_bytes;
+            count += 1;
+        }
+        if count == 1 {
+            return None;
+        }
+        let mut merged = PendingUpdate {
+            adds: Vec::new(),
+            removes: Vec::new(),
+        };
+        for (id, _) in self.outbox.updates.iter().take(count) {
+            let update = self.ledger.pending_updates.get(id)?;
+            merged.adds.extend(update.adds.iter().cloned());
+            merged.removes.extend(update.removes.iter().cloned());
+        }
+        Some((count, merged))
+    }
+
+    /// Commit a coalesced acknowledgement ID only after the wire accepts it.
+    /// Backpressure leaves the original queue and pending IDs intact.
     fn flush_outbox(&mut self) {
         let Some(wire) = self.conn.as_ref() else {
             return;
         };
-        while let Some((id, update)) = self.outbox.updates.pop_front() {
+        while let Some((id, _)) = self.outbox.updates.front() {
+            let id = *id;
+            if let Some((count, merged)) = self.coalesced_prefix() {
+                let update = B::build_mutate(merged.adds.clone(), merged.removes.clone(), id);
+                if wire.try_mutate(update).is_err() {
+                    return;
+                }
+                for (old_id, _) in self.outbox.updates.drain(..count) {
+                    self.ledger.pending_updates.remove(&old_id);
+                }
+                self.ledger.pending_updates.insert(id, merged);
+                continue;
+            }
+            let Some((id, update)) = self.outbox.updates.pop_front() else {
+                break;
+            };
             match wire.try_mutate(update) {
                 Ok(()) => {}
                 Err(TryMutateError::Full(update)) | Err(TryMutateError::Closed(update)) => {
@@ -1432,6 +1514,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::super::{BackendBinding, BidiConnection};
     use super::*;
+    use prost::Message;
 
     use futures::StreamExt;
     use futures::stream::BoxStream;
@@ -2350,7 +2433,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn wire_death_reconnects_from_last_seen_positions() {
+    async fn wire_death_reopens_from_lease_floors() {
         let (transport, servers) = transport();
         let mut alpha = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
         let mut server = take_server(&servers);
@@ -3055,6 +3138,33 @@ mod tests {
         );
     }
 
+    fn ledger_task(
+        ledger: Ledger<BackendBinding>,
+        outbox: Outbox<Mutate>,
+    ) -> LedgerTask<BackendBinding> {
+        let (cmds, receiver) = mpsc::unbounded_channel();
+        LedgerTask {
+            opener: Box::new(
+                |_| -> BoxDynFuture<'static, Result<Connection<BackendBinding>, OpenError>> {
+                    Box::pin(std::future::pending())
+                },
+            ),
+            cmds: receiver,
+            lease_cmds: cmds.downgrade(),
+            ledger,
+            conn: None,
+            reconnect_delay: RECONNECT_INITIAL_DELAY,
+            reconnect_at: tokio::time::Instant::now(),
+            wire_opened_at: None,
+            wire_span: None,
+            suspended: false,
+            wire_opens: 0,
+            resume_notify: vec![],
+            outbox,
+            deferred: std::collections::VecDeque::new(),
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn deref_purges_only_the_dropped_leases_unsent_updates() {
         let mut ledger = Ledger::<BackendBinding>::default();
@@ -3074,27 +3184,7 @@ mod tests {
         outbox
             .updates
             .extend(ledger.prepare_adds(vec![(g4.clone(), 0)]));
-        let (cmds, receiver) = mpsc::unbounded_channel();
-        let mut task = LedgerTask {
-            opener: Box::new(
-                |_| -> BoxDynFuture<'static, Result<Connection<BackendBinding>, OpenError>> {
-                    Box::pin(std::future::pending())
-                },
-            ),
-            cmds: receiver,
-            lease_cmds: cmds.downgrade(),
-            ledger,
-            conn: None,
-            reconnect_delay: RECONNECT_INITIAL_DELAY,
-            reconnect_at: tokio::time::Instant::now(),
-            wire_opened_at: None,
-            wire_span: None,
-            suspended: false,
-            wire_opens: 0,
-            resume_notify: vec![],
-            outbox,
-            deferred: std::collections::VecDeque::new(),
-        };
+        let mut task = ledger_task(ledger, outbox);
         let removed: HashSet<_> = task.drop_leases(vec![alpha]).into_iter().collect();
         assert_eq!(removed, HashSet::from([g1, g4]));
         let remaining: Vec<_> = task.outbox.updates.iter().map(|(id, _)| *id).collect();
@@ -3501,5 +3591,372 @@ mod tests {
             servers.lock().unwrap().is_empty(),
             "a refused lease must open no extra wire"
         );
+    }
+
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn queued_leases_coalesce_during_dial_and_deliver_once() {
+        const QUEUED_LEASES: usize = 150;
+        const REGISTRATION_UPDATES: usize = 2;
+        let (dial_started, started) = oneshot::channel();
+        let (release, dial_gate) = oneshot::channel();
+        let dial = Arc::new(Mutex::new(Some((dial_started, dial_gate))));
+        let servers: Servers = Arc::default();
+        let sink = servers.clone();
+        let transport = BidiTransport::new(
+            move |initial| {
+                let (started, gate) = dial.lock().unwrap().take().expect("only one dial");
+                let (api, server) = mock_pair();
+                sink.lock().unwrap().push(server);
+                started.send(()).unwrap();
+                async move {
+                    gate.await.unwrap();
+                    BidiConnection::open(&api, initial)
+                        .await
+                        .map_err(OpenError::new)
+                }
+            },
+            false,
+        );
+        let (reply, opening) = oneshot::channel();
+        transport
+            .cmds
+            .send(Cmd::Lease {
+                subs: vec![(group_topic(b"anchor"), 0)],
+                depth: 8,
+                reply,
+            })
+            .unwrap();
+        started.await?;
+        let mut replies = Vec::new();
+        for index in 0..QUEUED_LEASES {
+            let (reply, lease) = oneshot::channel();
+            transport
+                .cmds
+                .send(Cmd::Lease {
+                    subs: vec![(group_topic(&index.to_le_bytes()), 0)],
+                    depth: 8,
+                    reply,
+                })
+                .unwrap();
+            replies.push(lease);
+        }
+        release.send(()).unwrap();
+        let mut anchor = tokio::time::timeout(WAIT, opening).await???;
+        let mut leases = Vec::new();
+        for reply in replies {
+            leases.push(tokio::time::timeout(WAIT, reply).await???);
+        }
+        let mut server = take_server(&servers);
+        let initial = server.next_mutate().await;
+        let batch = server.next_mutate().await;
+        assert_eq!(initial.adds.len(), 1);
+        assert_eq!(batch.adds.len(), QUEUED_LEASES);
+        assert!(initial.id < batch.id);
+        assert!(initial.removes.is_empty() && batch.removes.is_empty());
+        let topics: HashSet<_> = batch
+            .adds
+            .iter()
+            .map(|query| query.topic.as_ref().unwrap().topic.clone())
+            .collect();
+        assert_eq!(topics.len(), QUEUED_LEASES);
+        assert_eq!(
+            topics,
+            (0..QUEUED_LEASES)
+                .map(|index| group_topic(&index.to_le_bytes()).cloned_vec())
+                .collect()
+        );
+        for update in [&initial, &batch] {
+            let targets = update
+                .adds
+                .iter()
+                .map(|query| {
+                    (
+                        Topic::try_from(query.topic.as_ref().unwrap().topic.clone()).unwrap(),
+                        1,
+                    )
+                })
+                .collect();
+            server.ack(update.id, targets);
+        }
+        let first: Vec<_> = (0..QUEUED_LEASES)
+            .map(|index| group_msg(1, &index.to_le_bytes()))
+            .collect();
+        server.send(messages(vec![group_msg(1, b"anchor")], vec![]));
+        server.send(messages(first.clone(), vec![]));
+        let second: Vec<_> = (0..QUEUED_LEASES)
+            .map(|index| group_msg(2, &index.to_le_bytes()))
+            .collect();
+        server.send(messages(first, vec![]));
+        server.send(messages(second, vec![]));
+        for (index, lease) in leases.iter_mut().enumerate() {
+            match recv(lease).await {
+                Some(LeaseEvent::GroupMessages(got)) => {
+                    assert_eq!(got, vec![group_msg(1, &index.to_le_bytes())])
+                }
+                _ => panic!("each lease must receive its first message"),
+            }
+            assert!(matches!(
+                recv(lease).await,
+                Some(LeaseEvent::CatchUpComplete)
+            ));
+            match recv(lease).await {
+                Some(LeaseEvent::GroupMessages(got)) => {
+                    assert_eq!(got, vec![group_msg(2, &index.to_le_bytes())])
+                }
+                _ => panic!("replay must not repeat the first message"),
+            }
+            assert!(lease.events.try_recv().is_err());
+        }
+        assert!(matches!(
+            recv(&mut anchor).await,
+            Some(LeaseEvent::GroupMessages(_))
+        ));
+        assert!(matches!(
+            recv(&mut anchor).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        tokio::time::timeout(WAIT, transport.resume()).await??;
+        assert_eq!(server.updates.len(), REGISTRATION_UPDATES);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), server.from_client.recv())
+                .await
+                .is_err(),
+            "150 queued leases need exactly two registration updates including the opening lease"
+        );
+
+        drop(leases);
+        let removes = server.next_mutate().await;
+        assert!(removes.id > batch.id);
+        assert!(removes.adds.is_empty());
+        assert_eq!(removes.removes.len(), QUEUED_LEASES);
+        server.ack_empty(removes.id);
+        tokio::time::timeout(WAIT, transport.resume()).await??;
+        assert_eq!(server.updates.len(), REGISTRATION_UPDATES + 1);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), server.from_client.recv())
+                .await
+                .is_err(),
+            "all queued derefs must share one remove update"
+        );
+    }
+
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn unknown_applied_warns_without_disturbing_delivery() {
+        let log = xmtp_common::traced_test::TestWriter::new();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(log.clone())
+            .with_ansi(false)
+            .without_time()
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let (transport, servers) = transport();
+        let mut lease = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+        let mut server = take_server(&servers);
+        let update = server.next_mutate().await;
+        let unknown_id = update.id + 1;
+        server.send(subscribe_response::Response::Applied(
+            subscribe_response::Applied {
+                id: unknown_id,
+                added_targets: vec![],
+            },
+        ));
+        server.ack(update.id, vec![(group_topic(b"g1"), 2)]);
+        server.send(messages(
+            vec![group_msg(1, b"g1"), group_msg(2, b"g1")],
+            vec![],
+        ));
+        match recv(&mut lease).await {
+            Some(LeaseEvent::GroupMessages(got)) => {
+                assert_eq!(got, vec![group_msg(1, b"g1"), group_msg(2, b"g1")])
+            }
+            _ => panic!("an unknown acknowledgement must not disturb delivery"),
+        }
+        assert!(matches!(
+            recv(&mut lease).await,
+            Some(LeaseEvent::CatchUpComplete)
+        ));
+        server.send(subscribe_response::Response::Applied(
+            subscribe_response::Applied {
+                id: update.id,
+                added_targets: vec![],
+            },
+        ));
+        server.send(messages(
+            vec![group_msg(2, b"g1"), group_msg(3, b"g1")],
+            vec![],
+        ));
+        match recv(&mut lease).await {
+            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![group_msg(3, b"g1")]),
+            _ => panic!("a repeated acknowledgement must preserve the delivery guard"),
+        }
+        let output = log.as_string();
+        let warnings: Vec<_> = output
+            .lines()
+            .filter(|line| line.contains("received Applied for an unknown update"))
+            .collect();
+        assert_eq!(warnings.len(), 2);
+        for id in [unknown_id, update.id] {
+            assert!(
+                warnings
+                    .iter()
+                    .any(|line| line.contains("WARN") && line.contains(&format!("id={id}")))
+            );
+        }
+        assert!(lease.events.try_recv().is_err());
+    }
+
+    #[rstest::rstest]
+    #[case::topic_cap(false)]
+    #[case::byte_budget(true)]
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bool) {
+        let mut ledger = Ledger::<BackendBinding>::default();
+        if byte_limited {
+            ledger.chunk_bytes = 2 * topic_wire_cost(&group_topic(b"a"));
+        } else {
+            ledger.chunk_cap = 2;
+        }
+        let (_, initial) = ledger
+            .prepare_adds(vec![(group_topic(b"anchor"), 0)])
+            .remove(0);
+        let (api, mut server) = mock_pair();
+        let wire = BidiConnection::open(&api, initial).await.unwrap();
+        let mut task = ledger_task(ledger, Outbox::default());
+        task.conn = Some(wire);
+        for name in [b"a", b"b", b"c"] {
+            task.outbox
+                .updates
+                .extend(task.ledger.prepare_adds(vec![(group_topic(name), 0)]));
+        }
+        for name in [b"d", b"e", b"f"] {
+            task.outbox
+                .updates
+                .extend(task.ledger.prepare_removes(vec![group_topic(name)]));
+        }
+        for _ in 0..2 {
+            task.outbox
+                .updates
+                .extend(task.ledger.prepare_adds(vec![(group_topic(b"g"), 0)]));
+        }
+        task.flush_outbox();
+        assert!(task.outbox.is_empty());
+        let first = server.next_mutate().await;
+        server.ack_empty(first.id);
+        task.ledger
+            .applied(first.id, vec![(group_topic(b"anchor"), 0)]);
+        let expected = [
+            (2, vec![b"a", b"b"], vec![]),
+            (4, vec![b"c"], vec![]),
+            (5, vec![], vec![b"d", b"e"]),
+            (7, vec![], vec![b"f"]),
+            (8, vec![b"g"], vec![]),
+            (9, vec![b"g"], vec![]),
+        ];
+        assert_eq!(
+            task.ledger
+                .pending_updates
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            expected.iter().map(|(id, _, _)| *id).collect()
+        );
+        let mut last_id = first.id;
+        for (id, adds, removes) in expected {
+            let update = server.next_mutate().await;
+            assert_eq!(update.id, id);
+            assert!(update.id > last_id);
+            last_id = update.id;
+            assert_eq!(
+                update
+                    .adds
+                    .iter()
+                    .map(|add| add.topic.as_ref().unwrap().topic.clone())
+                    .collect::<Vec<_>>(),
+                adds.iter()
+                    .map(|name| group_topic(*name).cloned_vec())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                update
+                    .removes
+                    .iter()
+                    .map(|topic| topic.topic.clone())
+                    .collect::<Vec<_>>(),
+                removes
+                    .iter()
+                    .map(|name| group_topic(*name).cloned_vec())
+                    .collect::<Vec<_>>()
+            );
+            assert!(update.adds.is_empty() || update.removes.is_empty());
+            assert!(update.adds.len() + update.removes.len() <= task.ledger.chunk_cap);
+            assert!(update.encoded_len() <= task.ledger.chunk_bytes);
+            server.ack_empty(id);
+            task.ledger.applied(
+                id,
+                adds.iter().map(|name| (group_topic(*name), 0)).collect(),
+            );
+        }
+        assert!(task.ledger.pending_updates.is_empty());
+    }
+
+    #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+    async fn coalescing_commits_ack_ids_only_after_wire_acceptance() {
+        let mut ledger = Ledger::<BackendBinding>::default();
+        let (_, initial) = ledger
+            .prepare_adds(vec![(group_topic(b"anchor"), 0)])
+            .remove(0);
+        let (api, mut server) = mock_pair();
+        let wire = BidiConnection::open(&api, initial).await?;
+        for index in 0..super::super::bidi::COMMAND_BUFFER {
+            let (_, update) = ledger
+                .prepare_removes(vec![group_topic(&index.to_le_bytes())])
+                .remove(0);
+            assert!(wire.try_mutate(update).is_ok());
+        }
+        let mut task = ledger_task(ledger, Outbox::default());
+        task.conn = Some(wire);
+        let (first_id, first) = task
+            .ledger
+            .prepare_adds(vec![(group_topic(b"a"), 0)])
+            .remove(0);
+        let (second_id, second) = task
+            .ledger
+            .prepare_adds(vec![(group_topic(b"b"), 0)])
+            .remove(0);
+        task.outbox
+            .updates
+            .extend([(first_id, first), (second_id, second)]);
+        task.flush_outbox();
+        assert_eq!(
+            task.outbox
+                .updates
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            vec![first_id, second_id]
+        );
+        assert_eq!(task.ledger.pending_updates[&first_id].adds.len(), 1);
+        assert_eq!(task.ledger.pending_updates[&second_id].adds.len(), 1);
+
+        for _ in 0..=super::super::bidi::COMMAND_BUFFER {
+            server.next_mutate().await;
+        }
+        task.flush_outbox();
+        assert!(task.outbox.is_empty());
+        let merged = server.next_mutate().await;
+        assert_eq!(merged.id, first_id);
+        assert_eq!(
+            merged
+                .adds
+                .iter()
+                .map(|add| add.topic.as_ref().unwrap().topic.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                group_topic(b"a").cloned_vec(),
+                group_topic(b"b").cloned_vec()
+            ]
+        );
+        assert_eq!(task.ledger.pending_updates[&first_id].adds.len(), 2);
+        assert!(!task.ledger.pending_updates.contains_key(&second_id));
     }
 }
