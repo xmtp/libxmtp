@@ -8,7 +8,8 @@ pub fn filter_directive(level: &str) -> EnvFilter {
         .unwrap_or(LevelFilter::INFO);
 
     let filter = format!(
-        "xmtp_mls={level},xmtp_mls_common={level},xmtp_id={level},\
+        "xmtp_backend={level},xmtp_mls_validation={level},\
+        xmtp_mls={level},xmtp_mls_common={level},xmtp_id={level},\
         xmtp_api={level},xmtp_api_grpc={level},xmtp_proto={level},\
         xmtp_common={level},xmtp_api_d14n={level},\
         xmtp_content_types={level},xmtp_cryptography={level},\

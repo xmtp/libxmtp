@@ -12,6 +12,11 @@ fn with_environment(literal: Schema) -> Schema {
     json_schema!({"anyOf": [literal, {"type": "string", "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"}]})
 }
 
+/// Allow the shared level names or a level supplied by an environment reference.
+pub(super) fn log_level(generator: &mut SchemaGenerator) -> Schema {
+    with_environment(generator.subschema_for::<super::LogLevel>())
+}
+
 /// Constrain database URLs without resolving environment values in the schema.
 pub(super) fn postgres_url(_: &mut SchemaGenerator) -> Schema {
     with_environment(json_schema!({

@@ -11,8 +11,32 @@ services:
       - "127.0.0.1:${XMTP_BACKEND_DB_PORT:-55432}:5432"
     tmpfs:
       - /var/lib/postgresql
+    volumes:
+      - ./postgres/primary-init.sh:/docker-entrypoint-initdb.d/primary-init.sh:ro
+    command: ["postgres", "-c", "wal_keep_size=256MB"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U xmtp -d xmtp_backend"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  replica:
+    image: postgres:18.6
+    user: postgres
+    environment:
+      PGPASSWORD: replicator
+    depends_on:
+      primary:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${XMTP_BACKEND_REPLICA_PORT:-55433}:5432"
+    tmpfs:
+      - /var/lib/postgresql:mode=1777
+    volumes:
+      - ./postgres/replica-start.sh:/replica-start.sh:ro
+    entrypoint: ["bash", "/replica-start.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
       interval: 1s
       timeout: 3s
       retries: 30

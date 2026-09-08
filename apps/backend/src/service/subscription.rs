@@ -12,13 +12,28 @@ impl api::subscription_service_server::SubscriptionService for Backend {
 
     /// Handle the bidirectional subscription endpoint.
     ///
-    /// Subscription delivery is not implemented in this backend build, so the
-    /// endpoint returns `UNIMPLEMENTED` without consuming the request stream.
+    /// The session owns ordered interests and delivery until half-close or
+    /// cancellation. Preserve the server-generated request identity and tracing
+    /// context when the session moves into its background task.
     async fn subscribe(
         &self,
-        _: Request<Streaming<api::SubscribeRequest>>,
+        request: Request<Streaming<api::SubscribeRequest>>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
-        Err(Status::unimplemented("subscriptions are not available"))
+        let hub = self
+            .streams
+            .clone()
+            .ok_or_else(|| Status::unavailable("stream service unavailable"))?;
+        let request_id = request
+            .extensions()
+            .get::<crate::server::request_logger::RequestId>()
+            .map(|id| id.0)
+            .unwrap_or_else(uuid::Uuid::new_v4);
+        Ok(Response::new(Box::pin(crate::stream::native(
+            hub,
+            self.config.clone(),
+            request.into_inner(),
+            request_id,
+        )?)))
     }
 
     /// Handle the static subscription endpoint.

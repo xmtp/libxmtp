@@ -18,6 +18,11 @@ use std::sync::OnceLock;
 
 static INIT: OnceLock<()> = OnceLock::new();
 
+#[cfg(not(target_arch = "wasm32"))]
+mod capture;
+#[cfg(not(target_arch = "wasm32"))]
+pub use capture::LogCapture;
+
 /// Build the test logging layer(s).
 ///
 /// Honors `STRUCTURED` (json) and `SHOW_SPAN_FIELDS`; otherwise emits a compact

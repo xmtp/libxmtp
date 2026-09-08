@@ -18,6 +18,7 @@ use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
 
+pub(crate) mod request_logger;
 #[cfg(test)]
 mod tests;
 
@@ -42,7 +43,11 @@ pub async fn initialize(
     let verifier = CachedSmartContractSignatureVerifier::new(verifier, capacity)?;
     let store = Store::connect(&config).await?;
     config.retention.validate_at(store.clock_ns().await?)?;
-    Ok(Backend::new(store, config, verifier))
+    let streams =
+        crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
+    let mut backend = Backend::new(store, config, verifier);
+    backend.streams = Some(streams);
+    Ok(backend)
 }
 
 /// Configure gRPC, gRPC-Web, health, size limits, and graceful shutdown.
@@ -79,6 +84,9 @@ pub async fn serve(
         .set_serving::<IdentityServiceServer<Backend>>()
         .await;
     reporter
+        .set_serving::<SubscriptionServiceServer<Backend>>()
+        .await;
+    reporter
         .set_service_status("", tonic_health::ServingStatus::Serving)
         .await;
     let cors = CorsLayer::new()
@@ -89,11 +97,22 @@ pub async fn serve(
             "grpc-status".parse().expect("static header"),
             "grpc-message".parse().expect("static header"),
             "grpc-status-details-bin".parse().expect("static header"),
+            "x-request-id".parse().expect("static header"),
         ]);
+    let streams = backend.streams.clone();
+    let shutdown = async move {
+        shutdown.await;
+        if let Some(streams) = streams {
+            streams.stop();
+        }
+    };
     Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
         .layer(cors)
+        .layer(request_logger::RequestLoggerLayer(
+            backend.config.server.request_logger,
+        ))
         .layer(GrpcWebLayer::new())
         .add_service(health)
         .add_service(query)

@@ -30,6 +30,9 @@ local database connections; `RUST_TEST_THREADS` overrides that value.
 Never silently skip database tests when the database is unavailable.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.
+Replica tests that pause replay use `test_support::replica::with_paused_replay`
+under the replay mutex. Run this suite with `cargo test`; that mutex is process-local.
+Use a total deadline for stream termination, not a new deadline for each frame.
 
 Keep one mutable migration through completion of Phase 6. Recreate only the
 disposable backend database after schema edits. Startup never deletes a database.
@@ -45,6 +48,13 @@ gRPC statuses. The API layer owns wire conversion and request normalization.
 Important functions need `///` RustDoc explaining purpose, invariants, and relevant
 errors or cancellation. Keep local implementation notes in `//` comments.
 Use module-local `tests.rs` or `tests/`, including for real RPC and storage tests.
+
+Short synchronous backend locks use `parking_lot::Mutex`, which has no poisoning
+state. Keep guards short and never hold one across an await point.
+
+Basic logs use `xmtp_logging`. Set `server.log_level` (default `info`) or override
+with `--log-level`. `server.request_logger` defaults to true and logs completion,
+including stream termination. Never log payloads, topic values, or auth headers.
 
 Nix outputs: `xmtp-backend`, `backend-image`, and
 `backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`

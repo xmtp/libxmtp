@@ -5,6 +5,7 @@ pub mod db;
 pub mod error;
 pub mod server;
 pub mod service;
+mod stream;
 #[cfg(test)]
 mod test_support;
 mod validation;

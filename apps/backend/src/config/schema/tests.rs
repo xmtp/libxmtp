@@ -14,6 +14,31 @@ fn validator() -> jsonschema::Validator {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_logging_levels_and_switch() {
+    let validator = validator();
+    for level in [
+        "off",
+        "error",
+        "warn",
+        "info",
+        "debug",
+        "trace",
+        "env:LOG_LEVEL",
+    ] {
+        assert!(validator.is_valid(&json!({"database": {"url": "env:DB"}, "server": {"log_level": level, "request_logger": false}})));
+    }
+    assert!(
+        !validator
+            .is_valid(&json!({"database": {"url": "env:DB"}, "server": {"log_level": "verbose"}}))
+    );
+    assert!(
+        !validator.is_valid(
+            &json!({"database": {"url": "env:DB"}, "server": {"request_logger": "false"}})
+        )
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
     let validator = validator();
     let example: toml::Value =

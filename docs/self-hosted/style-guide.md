@@ -26,6 +26,8 @@ See `justfile` for the commands.
 
 ## 2. Async and runtime
 
+- Use `parking_lot::Mutex` for short synchronous backend state access. Never hold
+  its guard across `.await`. Non-poisoning locks do not make panicking code safe.
 - **Read clocks and sleep through `crates/xmtp_common/src/time.rs`**, which re-exports `Duration` / `Instant` / `SystemTime` from `std` on native and `web_time` on
   wasm. A plain `std::time::Duration` stays valid as a value type in a constant or signature (`crates/xmtp_configuration/src/common/mls.rs`,
   `crates/xmtp_mls/src/context.rs`); it is `Instant`, `SystemTime`, and the timer functions that must come from `xmtp_common::time`.
@@ -53,6 +55,8 @@ See `justfile` for the commands.
   `Client::builder`, `ClientBuilder::new` — these helpers pin webpki roots on Android, where a default client aborts the process on its first TLS connection.
 
 ## 3. Logging and tracing
+
+- Backend request-completion summaries belong in transport middleware, not repeated handler logs. Stream-interest logs contain counts and request correlation, never topic values or payloads.
 
 - `tracing` only: `println!` / `eprintln!` belong solely in `apps/*` binaries (CLI output), never in a library crate. `crates/xmtp_logging` owns the
   whole pipeline (see `crates/xmtp_logging/AGENTS.md`). Never add a second subscriber or pull `tracing-subscriber` into a new crate.

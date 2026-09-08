@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT last_sequence_id FROM topic_watermark WHERE topic = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_sequence_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "topic_watermark",
+            "name": "last_sequence_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "87f8d595fb252f910a20586a6520311df029c77b12250127631dea149e3dfd9a"
+}
