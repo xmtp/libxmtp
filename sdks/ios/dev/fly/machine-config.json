@@ -59,12 +59,6 @@
         "--config",
         "/config.toml"
       ],
-      "files": [
-        {
-          "guest_path": "/config.toml",
-          "raw_value": "IzpzY2hlbWEgaHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL3htdHAvbGlieG10cC9zZWxmLWhvc3RlZC9kb2NzL3NjaGVtYXMvYmFja2VuZC12MS5qc29uCltzZXJ2ZXJdCmxpc3RlbiA9ICIwLjAuMC4wOjUwNTAiCmxvZ19sZXZlbCA9ICJpbmZvIgoKW2RhdGFiYXNlXQp1cmwgPSAiZW52OlhNVFBfREFUQUJBU0VfVVJMIgoKW2NoYWluc10KImVpcDE1NTozMTMzNyIgPSAiZW52OlhNVFBfQ0hBSU5fMzEzMzdfVVJMIgoKIyBUZXN0IHN0YWNrIG9ubHkuIEEgbG93IHJvdyBjYXAgbWFrZXMgZXZlcnkgbXVsdGktdG9waWMgcmVhZCBwYWdlIHRocm91Z2gKIyBgaGFzX21vcmVgIGluIHRoZSBTREsgc3VpdGVzIChBUEktMDcxIGNsYW1wcyBhIGxhcmdlciBjbGllbnQgYGxpbWl0YCkuCltsaW1pdHNdCm1heF9xdWVyeV9saW1pdCA9IDUwCg=="
-        }
-      ],
       "depends_on": [
         {
           "name": "db",

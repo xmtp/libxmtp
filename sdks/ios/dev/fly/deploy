@@ -28,7 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_IMAGE="${2:?Pass the backend image for the commit under test}"
 MACHINE_CONFIG="$(mktemp)"
 trap 'rm -f "$MACHINE_CONFIG"' EXIT
-jq --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image else . end)' \
+BACKEND_CONFIG="$(base64 < "${SCRIPT_DIR}/../../../../dev/backend/local.toml" | tr -d '\n')"
+jq --arg cfg "$BACKEND_CONFIG" --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \
     "${SCRIPT_DIR}/machine-config.json" > "$MACHINE_CONFIG"
 
 FLY_ORG="${FLY_ORG:-xmtp-labs}"

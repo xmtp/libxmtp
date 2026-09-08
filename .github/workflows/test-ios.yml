@@ -5,15 +5,34 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: read
 
 jobs:
-  push-backend:
-    uses: ./.github/workflows/push-backend.yml
-    secrets: inherit
+  wait-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Wait for the commit image
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+        run: |
+          for i in $(seq 1 240); do
+            if docker manifest inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Waiting for the backend image ($i/240)"
+            sleep 15
+          done
+          echo "::error::Backend image was not published: $BACKEND_IMAGE"
+          exit 1
 
   deploy-backend:
-    needs: push-backend
+    needs: wait-backend
     runs-on: ubuntu-latest
     timeout-minutes: 10
     name: Deploy Backend
@@ -25,7 +44,7 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - uses: ./.github/actions/setup-nix
         with:
-          disk-key: rust
+          nix-disk: "false"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Deploy test infrastructure
@@ -43,7 +62,7 @@ jobs:
         run: |
           BACKEND_HOST="${{ steps.deploy.outputs.app_name }}.fly.dev"
           for i in $(seq 1 60); do
-            if dev/nix-shell "grpc-health-probe -addr=${BACKEND_HOST}:443 -tls"; then
+            if nix run nixpkgs#grpc-health-probe -- -addr="${BACKEND_HOST}:443" -tls; then
               echo "Services ready"
               exit 0
             fi

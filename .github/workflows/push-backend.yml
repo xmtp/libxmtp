@@ -3,7 +3,10 @@ name: Publish backend image
 on:
   push:
   pull_request:
-  workflow_call:
+
+concurrency:
+  group: backend-image-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -16,20 +19,34 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: rust
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@just
-      - name: Build image
-        run: just backend image
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check for the commit image
+        id: image
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+        run: |
+          if docker manifest inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/setup-nix
+        if: steps.image.outputs.exists != 'true'
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+        if: steps.image.outputs.exists != 'true'
+      - name: Build image
+        if: steps.image.outputs.exists != 'true'
+        run: just backend image
       - name: Publish commit image
+        if: steps.image.outputs.exists != 'true'
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
@@ -38,4 +55,9 @@ jobs:
           docker push "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}"
       - name: Publish branch image
         if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
-        run: docker push ghcr.io/xmtp/backend:self-hosted
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+        run: |
+          docker pull "$BACKEND_IMAGE"
+          docker tag "$BACKEND_IMAGE" ghcr.io/xmtp/backend:self-hosted
+          docker push ghcr.io/xmtp/backend:self-hosted
