@@ -1,7 +1,6 @@
 //! Backend subscription transport for the retained client wrapper (native-only).
 
-use crate::V3Client;
-use crate::protocol::CursorStore;
+use crate::BackendClient;
 use futures::StreamExt;
 use prost::Message;
 use prost::bytes::Bytes;
@@ -13,10 +12,9 @@ use xmtp_proto::backend_v1::{SubscribeRequest, SubscribeResponse};
 const SUBSCRIBE_PATH: &str = "/xmtp.backend.v1.SubscriptionService/Subscribe";
 
 #[xmtp_common::async_trait]
-impl<C, Store> XmtpMlsBidiStreams for V3Client<C, Store>
+impl<C> XmtpMlsBidiStreams for BackendClient<C>
 where
     C: Client,
-    Store: CursorStore,
 {
     type SubscribeStream = XmtpStream<SubscribeResponse>;
 
@@ -57,7 +55,6 @@ where
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use crate::protocol::NoCursorStore;
     use futures::stream;
     use xmtp_common::BoxDynStream;
     use xmtp_proto::api::BytesStream;
@@ -109,7 +106,7 @@ mod tests {
                 Ok(http::Response::new(BytesStream::new(stream::iter(frames))))
             });
 
-        let client = V3Client::new(mock, NoCursorStore);
+        let client = BackendClient::new(mock);
         let outbound = stream::iter(vec![
             req(subscribe_request::Request::Update(Update {
                 id: 1,
@@ -167,7 +164,7 @@ mod tests {
         mock.expect_bidi_stream()
             .return_once(|_req, _path, _body| Err(ApiClientError::client(Boom)));
 
-        let client = V3Client::new(mock, NoCursorStore);
+        let client = BackendClient::new(mock);
         let outbound = stream::iter(vec![ping_req(1)]).boxed();
 
         // `XmtpStream` isn't `Debug`, so match instead of `unwrap_err`.

@@ -187,15 +187,15 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     /// Publish each atomic unit and return metadata in envelope order.
     #[xmtp_common::rpc_span]
     pub async fn publish_units(&self, units: Vec<PublishUnit>) -> Result<Vec<wire::EnvelopeMeta>> {
-        let chunks = chunk_publish(&units)?;
-        let mut responses: Vec<_> = stream::iter(
-            chunks
-                .into_iter()
-                .enumerate()
-                .map(|(index, chunk)| async move {
-                    Ok::<_, ApiError>((index, self.publish_chunk(chunk).await?))
-                }),
-        )
+        let chunks = chunk_publish(&units)?
+            .into_iter()
+            .map(<[_]>::to_vec)
+            .collect::<Vec<_>>();
+        let mut responses: Vec<_> = stream::iter(chunks.into_iter().enumerate().map(
+            |(index, chunk)| async move {
+                Ok::<_, ApiError>((index, self.publish_chunk(&chunk).await?))
+            },
+        ))
         .buffer_unordered(MAX_PUBLISH_CHUNKS_IN_FLIGHT)
         .try_collect()
         .await?;
@@ -254,7 +254,10 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         let results: Vec<Vec<_>> = stream::iter(
             topics
                 .chunks(BACKEND_DEFAULT_MAX_QUERY_TOPICS)
-                .map(|chunk| self.query_chunk(chunk.to_vec(), limit)),
+                .map(<[_]>::to_vec)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|chunk| self.query_chunk(chunk, limit)),
         )
         .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
         .try_collect()
@@ -370,7 +373,10 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         let results: Vec<Vec<_>> = stream::iter(
             topics
                 .chunks(cap)
-                .map(|chunk| self.newest_chunk(chunk, full)),
+                .map(<[_]>::to_vec)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|chunk| async move { self.newest_chunk(&chunk, full).await }),
         )
         .buffer_unordered(MAX_READ_CHUNKS_IN_FLIGHT)
         .try_collect()

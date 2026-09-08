@@ -12,7 +12,6 @@ mod bidi_transport_props;
 mod boxed_streams;
 mod builder;
 pub mod stream;
-mod v3;
 
 pub use api_stats::*;
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,4 +20,3 @@ pub use bidi::*;
 pub use bidi_transport::*;
 pub use boxed_streams::*;
 pub use builder::*;
-pub use v3::*;

@@ -10,7 +10,6 @@ pub use queries::*;
 pub mod middleware;
 pub use middleware::*;
 pub mod definitions;
-pub mod protocol;
 pub use definitions::XmtpApiClient;
 #[cfg(any(test, feature = "test-utils"))]
 mod test;

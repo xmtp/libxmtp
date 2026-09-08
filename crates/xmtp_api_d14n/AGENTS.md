@@ -12,10 +12,10 @@ dev/nix-shell 'cargo clippy -p xmtp_api_d14n --all-targets -- -D warnings'
 requires one host URL and keeps the auth callback, auth handle, app version,
 and read-only option. The wrapper in `xmtp_api` owns retries and request limits.
 
-Static streams use backend frames and scalar topic cursors. The files in
-`queries/{bidi,bidi_transport,bidi_transport_props}.rs` and `queries/v3/` stay
-until the transport task replaces their frame types. `protocol/mod.rs` contains
-only the types that these files still need. Do not use them in new code.
+Static streams and bidi streams use backend frames and scalar topic cursors.
+`queries/backend/` holds the backend binding and transport implementation.
+`queries/{bidi,bidi_transport,bidi_transport_props}.rs` hold the shared transport
+and its tests. The legacy protocol and client modules have been removed.
 
 Tests use a mock transport. Fault tests can use `ToxicTestClientCreator` with
 the local `backend` proxy. Backend test URLs come from `xmtp_configuration`.
