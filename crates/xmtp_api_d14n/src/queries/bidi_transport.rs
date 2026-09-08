@@ -2380,13 +2380,17 @@ mod tests {
         );
         assert_eq!(
             resume.adds[0].cursor.as_ref().unwrap().sequence_id,
-            2,
+            0,
             "resume at the meet of last-seen and the lease floor"
         );
 
         second.ack(resume.id, vec![(group_topic(b"g1"), 3)]);
         second.send(messages(
-            vec![group_msg(2, b"g1"), group_msg(3, b"g1")],
+            vec![
+                group_msg(1, b"g1"),
+                group_msg(2, b"g1"),
+                group_msg(3, b"g1"),
+            ],
             vec![],
         ));
         match recv(&mut alpha).await {
@@ -2489,7 +2493,7 @@ mod tests {
         assert_eq!(resume.adds.len(), 1);
         assert_eq!(
             resume.adds[0].cursor.as_ref().unwrap().sequence_id,
-            1,
+            0,
             "resume at the meet of the kept position and floor"
         );
         second.ack(resume.id, vec![(group_topic(b"g1"), 2)]);
@@ -2499,7 +2503,10 @@ mod tests {
             "Applied alone does not meet the target"
         );
 
-        second.send(messages(vec![group_msg(2, b"g1")], vec![]));
+        second.send(messages(
+            vec![group_msg(1, b"g1"), group_msg(2, b"g1")],
+            vec![],
+        ));
         match recv(&mut alpha).await {
             Some(LeaseEvent::GroupMessages(got)) => {
                 assert_eq!(got, vec![group_msg(2, b"g1")])
