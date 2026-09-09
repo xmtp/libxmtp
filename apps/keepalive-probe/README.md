@@ -5,7 +5,7 @@ A standalone probe for XMTP gRPC **connection health** — it holds connections 
 Two modes:
 
 - **idle** (default): open *N* bare HTTP/2 connections and measure how long each survives — isolates pure transport keepalive behavior.
-- **subscribe** (`--subscribe-group <hex>`): hold *N* real `MlsApi/SubscribeGroupMessages` streams, logging every payload and every disconnect — the herald-shaped test.
+- **subscribe** (`--subscribe-group <hex>`): hold *N* real `SubscriptionService/Subscribe` streams, logging every payload and every disconnect — the herald-shaped test.
 
 Run with `--continual` to make it a never-exiting daemon (retries through everything, drains on SIGINT/SIGTERM) suitable for running as a non-essential sidecar next to a real client.
 
@@ -25,44 +25,44 @@ The defaults mirror libxmtp's real channel config in
 | `--ka-timeout` | `20s` | `keep_alive_timeout` ← the #70 knob |
 | `--ka-while-idle` | `true` | `keep_alive_while_idle` |
 | `--connect-timeout` | `10s` | `connect_timeout` |
-| `--endpoint` | `https://grpc.dev.xmtp.network:443` | node-sdk `ApiUrls.dev` |
+| `--endpoint` | `https://grpc.dev.xmtp.network:443` | Probe CLI default; override for your backend |
 
 ## Usage
 
 ```sh
 # single connection, default (libxmtp) config — smoke test
-cargo run -p keepalive-probe -- --count 1 --duration 120s
+dev/nix-shell 'cargo run -p keepalive-probe -- --count 1 --duration 120s'
 
 # the experiment: 1000 idle connections for 30 min
-cargo run -p keepalive-probe -- --count 1000 --duration 1800s --stagger 5ms
+dev/nix-shell 'cargo run -p keepalive-probe -- --count 1000 --duration 1800s --stagger 5ms'
 
 # sweep the #70 knob: does a longer keepalive timeout stop the deaths?
-cargo run -p keepalive-probe -- --count 200 --duration 1800s --ka-timeout 30s
+dev/nix-shell 'cargo run -p keepalive-probe -- --count 200 --duration 1800s --ka-timeout 30s'
 
 # control: no idle pings at all
-cargo run -p keepalive-probe -- --count 200 --duration 1800s --ka-while-idle false
+dev/nix-shell 'cargo run -p keepalive-probe -- --count 200 --duration 1800s --ka-while-idle false'
 ```
 
 Stops at `--duration` or on Ctrl-C; either way it prints a summary. `RUST_LOG=debug` for more detail.
 
-## Subscribe mode (real V3 streams) — `--subscribe-group`
+## Backend subscription mode — `--subscribe-group`
 
-Instead of an idle connection, hold a real `MlsApi/SubscribeGroupMessages` stream per connection and log every payload + every disconnect. This is the herald-shaped test (herald holds subscribe streams), and it discriminates a *one-directional black hole* (return path drops → stream disconnects, client-side, no server error) from an idle-transport issue. Subscribe is unauthenticated — the V3 backend doesn't gate it.
+Instead of an idle connection, hold a real `SubscriptionService/Subscribe` stream per connection and log every payload + every disconnect. This is the herald-shaped test (herald holds subscribe streams), and it discriminates a *one-directional black hole* (return path drops → stream disconnects, client-side, no server error) from an idle-transport issue. The stream adds the group topic after `Started` and replies to server `Ping` frames.
 
-**Local first** (point at a local node-go, make a group with `xdbg`):
+**Local first** (point at the local backend, make a group with `xdbg`):
 
 ```sh
-# 1. run node-go locally (V3 gRPC on http://localhost:5556)
+# 1. start the backend
+just backend up
 # 2. seed identities, then a group (group creation needs members)
-cargo run -p xdbg -- --backend local generate --entity identity --amount 10
-cargo run -p xdbg -- --backend local generate --entity group --amount 1
+dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 generate --entity identity --amount 10'
+dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 generate --entity group --amount 1'
 # 3. grab a group id (hex) — export prints/writes the local groups
-cargo run -p xdbg -- --backend local export --entity group --out /tmp/groups.json
+dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 export --entity group --out /tmp/groups.json'
 # 4. hold a few streams to it and watch for disconnects
-cargo run -p keepalive-probe -- \
-  --endpoint http://localhost:5556 --subscribe-group <hex-group-id> --count 4 --duration 1h
+dev/nix-shell 'cargo run -p keepalive-probe -- --endpoint http://127.0.0.1:5050 --subscribe-group <hex-group-id> --count 4 --duration 1h'
 # 5. send a message to the group with xdbg → probe logs "payload received"
-# 6. kill / pause the local node → probe logs "DISCONNECTED: ..." with the reason + lifetime
+# 6. stop or pause the local backend → probe logs "DISCONNECTED: ..." with the reason + lifetime
 ```
 
 Against dev: `--endpoint https://grpc.dev.xmtp.network:443 --subscribe-group <id>`. `http://` = plaintext h2 (local), `https://` = TLS. The keepalive flags apply to the stream's channel just like idle mode.
@@ -87,4 +87,4 @@ Excluded from `default-members` (like `xdbg`), so it doesn't build in the defaul
 - **clippy gate:** `nix/package/keepalive-probe-check.nix`, run by `.github/workflows/test-keepalive-probe.yml` on changes to the crate or its deps.
 - **image:** `apps/keepalive-probe/docker/Dockerfile`, built + pushed to `ghcr.io/xmtp/keepalive-probe` by `.github/workflows/push-keepalive-probe.yml` (sha + `latest` tags).
 
-Run locally with `cargo run -p keepalive-probe -- …`.
+Run commands from the repository root through `dev/nix-shell`.

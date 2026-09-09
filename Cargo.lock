@@ -5509,12 +5509,14 @@ dependencies = [
  "rustls",
  "tokio",
  "tokio-rustls",
+ "tokio-stream",
  "tonic",
  "tonic-prost",
  "tracing",
  "tracing-subscriber",
  "url",
  "webpki-roots",
+ "xmtp_configuration",
  "xmtp_proto",
 ]
 
