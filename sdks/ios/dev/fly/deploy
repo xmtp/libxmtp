@@ -34,7 +34,7 @@ MACHINE_CONFIG_DIR="$(mktemp -d)"
 MACHINE_CONFIG="${MACHINE_CONFIG_DIR}/machine-config.json"
 trap 'rm -rf "$MACHINE_CONFIG_DIR"' EXIT
 BACKEND_CONFIG="$(base64 < "${SCRIPT_DIR}/../../../../dev/backend/local.toml" | tr -d '\n')"
-jq --arg cfg "$BACKEND_CONFIG" --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \
+jq --arg cfg "$BACKEND_CONFIG" --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image | .env.XMTP_REPLICA_URL = .env.XMTP_DATABASE_URL | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \
     "${SCRIPT_DIR}/machine-config.json" > "$MACHINE_CONFIG"
 
 FLY_ORG="${FLY_ORG:-xmtp-labs}"

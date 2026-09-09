@@ -19,7 +19,7 @@ Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix
 just                    # list all recipes
 just backend up         # docker services. Most tests need them.
 just backend build      # self-hosted service through Nix. No database needed.
-just backend db-up      # disposable PostgreSQL 18 for backend tests.
+just backend db-up      # disposable PostgreSQL 18 primary and replica.
 just backend sql-prepare # migrate test DB and refresh checked SQL metadata.
 just backend sql-check  # verify checked SQL metadata against test DB.
 just backend test       # backend unit and RPC/storage tests.
@@ -35,7 +35,10 @@ just docs format-check  # site formatting.
 just docs test          # site build-tool tests.
 ```
 
-The SDK stack contains `db`, `backend`, `anvil`, and `toxiproxy`.
+The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
+`anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
+`just backend db-up` starts only `db` and `replica`, without an image build.
+`just backend logs [services...]` shows service logs.
 Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
 `just test` excludes backend database tests; run them with `just backend test`.
 

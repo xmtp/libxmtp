@@ -1,0 +1,109 @@
+name: libxmtp
+
+services:
+  db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: xmtp
+      POSTGRES_PASSWORD: xmtp
+      POSTGRES_DB: xmtp_backend
+    ports:
+      - "127.0.0.1:${XMTP_BACKEND_DB_PORT:-55432}:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./postgres/primary-init.sh:/docker-entrypoint-initdb.d/primary-init.sh:ro
+    command: ["postgres", "-c", "wal_keep_size=256MB"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  replica:
+    image: postgres:18.6
+    user: postgres
+    environment:
+      PGPASSWORD: replicator
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${XMTP_BACKEND_REPLICA_PORT:-55433}:5432"
+    tmpfs:
+      - /var/lib/postgresql:mode=1777
+    volumes:
+      - ./postgres/replica-start.sh:/replica-start.sh:ro
+    entrypoint: ["bash", "/replica-start.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    image: ghcr.io/xmtp/backend:self-hosted      # loaded from `nix build .#backend-image-<arch>` by `just backend up`
+    depends_on:
+      db: { condition: service_healthy }
+      replica: { condition: service_healthy }
+      tempo: { condition: service_started }
+    environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
+    volumes: ["../backend/local.toml:/config.toml:ro"]
+    command: ["--config", "/config.toml"]
+    ports: ["5050:5050", "127.0.0.1:9464:9464"]
+    healthcheck:
+      test: ["CMD", "/bin/grpc-health-probe", "-addr=127.0.0.1:5050"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+  anvil:            # chain for the backend's SCW verification and for the existing SCW tests
+    image: ghcr.io/foundry-rs/foundry:stable
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--base-fee", "100"]
+    ports: ["8545:8545"]
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    depends_on: { backend: { condition: service_healthy } }
+    ports: ["8474:8474", "6010:6010"]
+    volumes: ["./toxiproxy/config.json:/etc/toxiproxy/config.json:ro"]
+    entrypoint: ["/toxiproxy"]
+    command: ["-host=0.0.0.0", "-config=/etc/toxiproxy/config.json"]
+
+  tempo:
+    image: grafana/tempo:3.0.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes: ["./tempo/tempo.yaml:/etc/tempo.yaml:ro"]
+    tmpfs: [/var/tempo:mode=1777]
+    ports: ["127.0.0.1:3200:3200", "127.0.0.1:4317:4317", "127.0.0.1:4318:4318"]
+    # No healthcheck: this distroless image has no shell, wget, or curl.
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    tmpfs: [/prometheus:mode=1777]
+    ports: ["127.0.0.1:9090:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs: [/var/lib/grafana:mode=1777]
+    ports: ["127.0.0.1:3000:3000"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

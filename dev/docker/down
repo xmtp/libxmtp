@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec docker compose -f "$script_dir/docker-compose.yml" -p libxmtp down "$@"
+exec docker compose -f "$script_dir/compose.yml" -p libxmtp down "$@"

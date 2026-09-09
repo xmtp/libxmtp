@@ -188,6 +188,7 @@ jobs:
               - '.config/hakari.toml'
               - 'apps/backend/.sqlx/**'
               - 'dev/backend/**'
+              - 'dev/docker/**'
               - 'docs/schemas/backend-v1.json'
               - 'flake.nix'
               - 'dev/nix-shell'

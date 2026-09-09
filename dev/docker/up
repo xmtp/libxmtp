@@ -1,4 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec docker compose -f "$script_dir/docker-compose.yml" -p libxmtp up --detach --remove-orphans --wait "$@"
+if docker ps --filter label=com.docker.compose.project=xmtp-backend --format '{{.Ports}}' | grep -q ':55432->'; then
+  echo 'Port 55432 is used by the old stack. Run docker compose -p xmtp-backend down once.' >&2
+fi
+exec docker compose -f "$script_dir/compose.yml" -p libxmtp up --detach --remove-orphans --wait "$@"

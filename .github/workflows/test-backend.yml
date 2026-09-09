@@ -71,7 +71,7 @@ jobs:
           actual_arch="$(docker image inspect ghcr.io/xmtp/backend:self-hosted --format '{{.Architecture}}')"
           test "$actual_arch" = "$EXPECTED_ARCH"
       # This smoke test proves the image starts, serves gRPC health, and reaches
-      # PostgreSQL. It runs no chain call, and the database compose has no anvil,
+      # PostgreSQL. It runs no chain call, and the database subset has no anvil,
       # so the chain URL points at a name that does not resolve. A smart-contract
       # wallet test needs the full stack from `just backend up`.
       - name: Run backend image
@@ -80,9 +80,10 @@ jobs:
         run: |
           just backend db-up
           docker run --detach --name backend-smoke --platform "$PLATFORM" \
-            --network xmtp-backend_default -p 127.0.0.1:55050:5050 \
+            --network libxmtp_default -p 127.0.0.1:55050:5050 \
             -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
-            -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@primary:5432/xmtp_backend \
+            -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@db:5432/xmtp_backend \
+            -e XMTP_REPLICA_URL=postgres://xmtp:xmtp@replica:5432/xmtp_backend \
             -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
             ghcr.io/xmtp/backend:self-hosted --config /config.toml
           dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
