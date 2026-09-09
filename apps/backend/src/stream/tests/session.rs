@@ -178,6 +178,55 @@ async fn removal_acknowledgement_separates_old_and_new_registrations() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_history_allows_publish_with_one_shared_connection() {
+    let server = TestServer::new(|config| {
+        config.database.max_connections = 1;
+        config.database.replica_url = None;
+    })
+    .await?;
+    let observer = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with((*server.backend.store.primary.connect_options()).clone())
+        .await?;
+    let meta = server.publish(vec![envelope(96, 1)]).await?.remove(0);
+    let topic = meta.topic.unwrap();
+    let mut stream = Native::open(&server).await?;
+    let mut blocker = observer.begin().await?;
+    sqlx::query("LOCK TABLE envelopes IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await?;
+    stream
+        .update(1, vec![support::query_topic(topic.clone(), 0)], vec![])
+        .await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(_)));
+    // The first history query is the earliest database wait controlled by
+    // the session tests. The snapshot's BEGIN has completed at this point.
+    xmtp_common::wait_for_eq(
+        || async {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+                AND wait_event_type = 'Lock' AND query LIKE 'SELECT wanted.ordinal%')",
+            )
+            .fetch_one(&observer)
+            .await
+            .unwrap()
+        },
+        true,
+    )
+    .await?;
+    stream.update(2, vec![], vec![topic]).await?;
+    assert!(matches!(stream.next().await?, Frame::Applied(applied) if applied.id == 2));
+    blocker.rollback().await?;
+
+    let published = server.publish(vec![envelope(96, 2)]).await?;
+    assert_eq!(published.len(), 1);
+    assert!(published[0].cursor.as_ref().unwrap().sequence_id > 0);
+    drop(stream);
+    observer.close().await;
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn removal_restarts_a_mixed_history_turn_without_losing_surviving_topics() {
     let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
     let metas = server

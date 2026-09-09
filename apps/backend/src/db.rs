@@ -5,7 +5,7 @@ mod read;
 pub(crate) mod stream;
 
 use crate::{config::Config, error::Error};
-use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 
 mod model;
 pub(crate) use model::*;
@@ -64,8 +64,27 @@ async fn connect_pool(url: &str, config: &Config) -> Result<PgPool, Error> {
             let timeout = timeout.clone();
             Box::pin(async move { configure(connection, &timeout).await })
         })
+        .after_release(|connection, _| Box::pin(release(connection)))
         .connect(url)
         .await?)
+}
+
+/// Roll back transactions that SQLx did not record before pool reuse.
+/// A cancelled `begin` can send BEGIN before SQLx increments its transaction
+/// depth, so its drop guard queues no rollback. The pool's ping only drains
+/// responses. Probe with one simple query: timestamps differ in an explicit
+/// transaction. A probe error makes SQLx close an aborted connection hard.
+async fn release(connection: &mut PgConnection) -> Result<bool, sqlx::Error> {
+    let in_transaction: bool =
+        sqlx::raw_sql("SELECT transaction_timestamp() <> statement_timestamp()")
+            .fetch_one(&mut *connection)
+            .await?
+            .try_get(0)?;
+    if in_transaction {
+        sqlx::raw_sql("ROLLBACK").execute(connection).await?;
+        tracing::warn!("rolled back an open transaction on pool release");
+    }
+    Ok(true)
 }
 
 /// Open the tailer's dedicated selected-read connection outside the request pool.
