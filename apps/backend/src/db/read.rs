@@ -10,6 +10,7 @@ impl Store {
     /// Each topic contributes at most `limit + 1` candidates, then the final
     /// page is cut to the total limit. The page and `has_more` are computed by
     /// one SQL statement, so they describe the same read snapshot.
+    #[xmtp_common::db_span]
     pub(crate) async fn query(
         &self,
         queries: &[TopicCursor],
@@ -63,6 +64,7 @@ impl Store {
     /// Watermarks and payload rows are joined in one query on the read pool.
     /// With a replica, the result can lag the primary but cannot reorder a
     /// topic. Topics without a watermark are omitted.
+    #[xmtp_common::db_span]
     pub(crate) async fn newest_envelopes(
         &self,
         topics: &[Vec<u8>],
@@ -84,6 +86,7 @@ impl Store {
     ///
     /// The read pool and watermark join match `newest_envelopes`; this method
     /// only projects the fields needed for a metadata-only response.
+    #[xmtp_common::db_span]
     pub(crate) async fn newest_metadata(
         &self,
         topics: &[Vec<u8>],
@@ -105,6 +108,7 @@ impl Store {
     ///
     /// The read pool determines visibility. `None` has no special cause: the
     /// ID may be absent, aborted, expired, or not yet replicated.
+    #[xmtp_common::db_span]
     pub(crate) async fn get(&self, id: i64) -> Result<Option<StoredEnvelope>, Error> {
         Ok(sqlx::query_as!(
             StoredEnvelope,
@@ -121,7 +125,8 @@ impl Store {
     /// The query preserves input order and returns one optional value per input.
     /// It uses the read pool, so a replica can temporarily return an older
     /// projection while replication catches up.
-    pub(crate) async fn lookup(
+    #[xmtp_common::db_span]
+    pub(crate) async fn inbox_ids(
         &self,
         identifiers: &[String],
         kinds: &[i16],

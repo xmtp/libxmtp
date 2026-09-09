@@ -295,3 +295,96 @@ fn write_config(name: &str, source: &str) -> ConfigFile {
         .expect("write test config");
     guard
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn telemetry_defaults_endpoint_precedence_and_export_options() {
+    let config: Config = toml::from_str(MINIMAL)?;
+    assert_eq!(config.telemetry.metrics_listen, "0.0.0.0:9464");
+    assert_eq!(config.server.log_format, LogFormat::Text);
+    assert!(config.telemetry.with_endpoint_fallback(None)?.is_none());
+    let fallback = config
+        .telemetry
+        .with_endpoint_fallback(Some("http://tempo:4317".into()))?
+        .unwrap();
+    assert_eq!(fallback.endpoint.as_deref(), Some("http://tempo:4317"));
+    assert_eq!(fallback.service_name.as_deref(), Some("xmtp-backend"));
+    assert!(!fallback.logs);
+    let config: Config = toml::from_str(&format!(
+        "{MINIMAL}\n[server]\nlog_format = 'json'\n[telemetry]\nmetrics_listen = ''\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
+    ))?;
+    config.validate()?;
+    assert_eq!(config.server.log_format, LogFormat::Json);
+    let logging = config
+        .telemetry
+        .with_endpoint_fallback(Some("malformed-fallback-secret".into()))?
+        .unwrap();
+    assert_eq!(logging.endpoint.as_deref(), Some("http://collector:4317"));
+    assert_eq!(logging.service_name.as_deref(), Some("custom"));
+    assert!(logging.logs);
+    assert_eq!(logging.sample_ratio, 0.25);
+    assert_eq!(
+        logging.resource_attributes,
+        vec![("deployment.environment".into(), "test".into())]
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_contents() {
+    assert!(toml::from_str::<Config>(&format!("{MINIMAL}\n[telemetry]\nunknown = true")).is_err());
+    for key in ["service.name", "service.version"] {
+        let config: Config = toml::from_str(&format!(
+            "{MINIMAL}\n[telemetry.resource_attributes]\n'{key}' = 'override'"
+        ))?;
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("telemetry.resource_attributes"));
+        assert!(error.contains(key));
+    }
+    for endpoint in [
+        "secret-invalid",
+        "ftp://secret",
+        "http://[secret",
+        "http://host/secret value",
+    ] {
+        let mut config: Config = toml::from_str(MINIMAL)?;
+        config.telemetry.otlp_endpoint = Some(endpoint.into());
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("telemetry.otlp_endpoint"));
+        assert!(!error.contains(endpoint));
+        config.telemetry.otlp_endpoint = None;
+        let error = config
+            .telemetry
+            .with_endpoint_fallback(Some(endpoint.into()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("OTEL_EXPORTER_OTLP_ENDPOINT"));
+        assert!(!error.contains(endpoint));
+    }
+    for ratio in [-0.1, 1.1, f64::NAN, f64::INFINITY] {
+        let mut config: Config = toml::from_str(MINIMAL)?;
+        config.telemetry.sample_ratio = ratio;
+        assert!(config.validate().is_err());
+    }
+    let bad = write_config(
+        "telemetry-endpoint",
+        &format!("{MINIMAL}\n[telemetry]\notlp_endpoint = 'env:PATH'"),
+    );
+    let error = Config::load(&bad.0).unwrap_err().to_string();
+    assert!(error.contains("telemetry.otlp_endpoint"));
+    assert!(!error.contains(&std::env::var("PATH")?));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn telemetry_string_values_resolve_environment_references_once() {
+    let file = write_config(
+        "telemetry-env",
+        &format!(
+            "{MINIMAL}\n[telemetry]\nservice_name = 'env:PATH'\nresource_attributes = {{ custom = 'env:PATH' }}"
+        ),
+    );
+    let config = Config::load(&file.0)?;
+    assert_eq!(config.telemetry.service_name, std::env::var("PATH")?);
+    assert_eq!(
+        config.telemetry.resource_attributes["custom"],
+        std::env::var("PATH")?
+    );
+}

@@ -106,7 +106,7 @@ async fn https_passthrough_preserves_streaming_headers_and_status_details() {
         .header("access-control-request-method", "POST")
         .header(
             "access-control-request-headers",
-            "authorization,content-type,x-app-version,x-libxmtp-version",
+            "authorization,content-type,x-app-version,x-libxmtp-version,traceparent,tracestate",
         )
         .send()
         .await?;
@@ -117,6 +117,8 @@ async fn https_passthrough_preserves_streaming_headers_and_status_details() {
         "content-type",
         "x-app-version",
         "x-libxmtp-version",
+        "traceparent",
+        "tracestate",
     ] {
         assert!(allowed.split(',').any(|value| value.trim() == header));
     }

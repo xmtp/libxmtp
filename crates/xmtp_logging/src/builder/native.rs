@@ -36,13 +36,14 @@ impl XmtpLoggingBuilder {
         // so a bad endpoint errors here and leaves `install` retryable. Only built
         // when an endpoint is set, to avoid an exporter spamming localhost.
         let mut guards = Guards::default();
+        let tracer = crate::telemetry::switch::SwitchTracer::default();
         let otel_initial: Option<BoxLayer> = match cfg.telemetry {
             Some(t) if t.endpoint.is_some() => {
-                let (trace_layer, appender, guard) = build_telemetry_layer(t)?;
+                let (initial_tracer, appender, guard) = build_telemetry_layer(t)?;
+                tracer.set(Some(initial_tracer));
                 guards.telemetry = Some(guard);
-                // Both the trace exporter and the logs appender ride the single
-                // telemetry slot; a Vec<BoxLayer> is itself a Layer<Registry>.
-                Some(vec![trace_layer, appender].boxed())
+                // Only the appender needs a reloadable layer.
+                Some(appender)
             }
             _ => None,
         };
@@ -87,11 +88,20 @@ impl XmtpLoggingBuilder {
         // Slot 4: reloadable telemetry layer (seeded with the pre-built exporter).
         let (otel_layer, otel_handle) = reload::Layer::new(otel_initial);
 
+        // Reloading the OTel layer hides its context-access downcast. Keep it
+        // fixed and replace its tracer when telemetry changes.
+        let trace_filter = tracer.clone();
+        let trace_layer = tracing_opentelemetry::layer()
+            .with_tracer(tracer.clone())
+            .with_filter(tracing_subscriber::filter::dynamic_filter_fn(
+                move |_, _| trace_filter.enabled(),
+            ));
         let layers: Vec<BoxLayer> = vec![
             filter_layer.boxed(),
             primary_layer,
             file_layer.boxed(),
             otel_layer.boxed(),
+            trace_layer.boxed(),
             #[cfg(feature = "metrics")]
             crate::span_metrics::SpanMetricsLayer.boxed(),
         ];
@@ -107,6 +117,7 @@ impl XmtpLoggingBuilder {
             native_filters,
             file_handle,
             otel_handle,
+            tracer,
             guards,
         );
 

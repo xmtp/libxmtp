@@ -37,6 +37,24 @@ impl api::publish_service_server::PublishService for Backend {
         request: Request<api::PublishRequest>,
     ) -> Result<Response<api::PublishResponse>, Status> {
         let request = request.into_inner();
+        let attempt = crate::telemetry::PublishAttempt::new(request.envelopes.len());
+        let result = self.publish_batch(request).await;
+        if let Ok((response, stored, duplicate)) = &result
+            && response.get_ref().encoded_len() <= self.config.limits.max_response_bytes
+        {
+            attempt.succeeded(*stored, *duplicate);
+        }
+        // Tonic rejects oversized responses after commit. The guard counts them as rejected.
+        result.map(|(response, _, _)| response)
+    }
+}
+
+impl Backend {
+    /// Keep response origins until the whole request succeeds or fails.
+    async fn publish_batch(
+        &self,
+        request: api::PublishRequest,
+    ) -> Result<(Response<api::PublishResponse>, usize, usize), Status> {
         let PublishBatch {
             mut pending,
             parsed,
@@ -58,11 +76,20 @@ impl api::publish_service_server::PublishService for Backend {
         )
         .await
         .map_err(|_| Status::deadline_exceeded("publish timed out"))??;
+        let duplicate = positions
+            .iter()
+            .filter(|&&position| pending[position].duplicate.is_some())
+            .count();
+        let stored = positions.len() - duplicate;
         let envelope_metas = positions
             .into_iter()
             .map(|position| metas[position].clone().into())
             .collect();
-        Ok(Response::new(api::PublishResponse { envelope_metas }))
+        Ok((
+            Response::new(api::PublishResponse { envelope_metas }),
+            stored,
+            duplicate,
+        ))
     }
 }
 
@@ -72,6 +99,7 @@ impl Backend {
     /// This step performs no cryptographic or identity validation. It collapses
     /// identical canonical envelopes, records the first parse error, and keeps
     /// enough metadata for the database layer to restore response order.
+    #[xmtp_common::span(prefix = "publish")]
     fn parse_publish(&self, request: api::PublishRequest) -> Result<PublishBatch, Status> {
         let limits = &self.config.limits;
         if request.encoded_len() > limits.max_request_bytes {
@@ -175,6 +203,7 @@ impl Backend {
     /// its head for the locked comparison during commit. Other payload kinds
     /// use shared structural validation, and verifier retryability is preserved
     /// for transport mapping.
+    #[xmtp_common::span(prefix = "publish")]
     async fn validate_publish(
         &self,
         pending: &mut [PendingEnvelope],
@@ -221,10 +250,14 @@ impl Backend {
             } else {
                 Vec::new()
             };
-            item.validation = validate_envelope(parsed, &history, &self.verifier)
-                .await
-                .map(|result| result.as_ref().map(projection))
-                .map_err(AdmissionError::from);
+            item.validation = validate_envelope(
+                parsed,
+                &history,
+                crate::validation::ObservedVerifier(&self.verifier),
+            )
+            .await
+            .map(|result| result.as_ref().map(projection))
+            .map_err(AdmissionError::from);
         }
         Ok(())
     }

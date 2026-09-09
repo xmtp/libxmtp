@@ -3,6 +3,12 @@ use crate::test_support::TestServer;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn statement_timeout_during_barrier_acquisition_preserves_proof_and_allows_retry() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "db::boundary::tests::statement_timeout_during_barrier_acquisition_preserves_proof_and_allows_retry",
+    ) else {
+        return;
+    };
+    let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Info);
     let server = TestServer::new(|config| {
         config.database.max_statement_timeout_ms = 100;
         config.publishing.max_barrier_wait_ms = 1_000;
@@ -21,7 +27,11 @@ async fn statement_timeout_during_barrier_acquisition_preserves_proof_and_allows
     sqlx::query!("SELECT nextval('envelope_sequence')")
         .fetch_one(&mut *publisher)
         .await?;
-    let attempt = advance(pool, 1_000).await;
+    let attempt = tracing::instrument::WithSubscriber::with_subscriber(
+        advance(pool, 1_000),
+        capture.dispatch(),
+    )
+    .await;
     let previous =
         sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
             .fetch_one(pool)
@@ -32,6 +42,22 @@ async fn statement_timeout_during_barrier_acquisition_preserves_proof_and_allows
     assert_eq!(attempt.unwrap(), None);
     assert_eq!(previous, 0);
     assert_eq!(retry, Some(1));
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_boundary_advances_total",
+            &[("result", "lock_timeout")]
+        ),
+        1.0
+    );
+    assert_eq!(
+        capture
+            .output()
+            .matches("allocation barrier lock timed out")
+            .count(),
+        1
+    );
+    assert!(capture.output().contains("WARN"));
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -26,6 +26,7 @@ pub(crate) struct HistoryConnection {
 
 impl HistoryConnection {
     /// Reserve one request-pool connection, including during cancellation cleanup.
+    #[xmtp_common::db_span]
     pub(crate) async fn acquire(
         pool: &PgPool,
         slot: tokio::sync::OwnedSemaphorePermit,
@@ -38,6 +39,7 @@ impl HistoryConnection {
 
     /// Read candidates and payloads from one read-only snapshot. Commit the
     /// transaction before releasing this guard for normal connection reuse.
+    #[xmtp_common::db_span]
     pub(crate) async fn snapshot(&mut self) -> Result<Transaction<'_, Postgres>, Error> {
         snapshot_connection(
             self.connection
@@ -49,6 +51,12 @@ impl HistoryConnection {
 
     /// Return a completed snapshot's connection to the pool for reuse.
     pub(crate) fn release(mut self) {
+        let _span = tracing::info_span!(
+            "release",
+            operation = "db.release",
+            otel.name = "db.release"
+        )
+        .entered();
         self.connection.take();
     }
 }
@@ -79,6 +87,7 @@ impl Drop for HistoryConnection {
 
 /// Keep one tailer connection across snapshots so a disconnect cannot be hidden
 /// by pool replacement. Recovery must establish a fresh closed boundary.
+#[xmtp_common::db_span]
 pub(crate) async fn snapshot_connection(
     connection: &mut PgConnection,
 ) -> Result<Transaction<'_, Postgres>, Error> {
@@ -88,6 +97,7 @@ pub(crate) async fn snapshot_connection(
 }
 
 /// Read the replicated proof of settled allocations in the caller's snapshot.
+#[xmtp_common::db_span]
 pub(crate) async fn boundary(tx: &mut Transaction<'_, Postgres>) -> Result<i64, Error> {
     sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
         .fetch_optional(&mut **tx)
@@ -96,6 +106,7 @@ pub(crate) async fn boundary(tx: &mut Transaction<'_, Postgres>) -> Result<i64, 
 }
 
 /// Return one visible head per input position, including zero for absent topics.
+#[xmtp_common::db_span]
 pub(crate) async fn heads(pool: &PgPool, topics: &[Vec<u8>]) -> Result<Vec<i64>, Error> {
     Ok(sqlx::query!(
         r#"SELECT COALESCE(w.last_sequence_id, 0) AS "head!"
@@ -111,6 +122,7 @@ pub(crate) async fn heads(pool: &PgPool, topics: &[Vec<u8>]) -> Result<Vec<i64>,
 }
 
 /// Select bounded forward candidates without using the closed boundary as a ceiling.
+#[xmtp_common::db_span]
 pub(crate) async fn forward(
     tx: &mut Transaction<'_, Postgres>,
     after: i64,
@@ -128,6 +140,7 @@ pub(crate) async fn forward(
 }
 
 /// Probe bounded missing ranges in sequence order. A full page is not exhaustion.
+#[xmtp_common::db_span]
 pub(crate) async fn gaps(
     tx: &mut Transaction<'_, Postgres>,
     ranges: &[(i64, i64)],
@@ -150,6 +163,7 @@ pub(crate) async fn gaps(
 }
 
 /// Probe topics in caller-supplied fair order. Return sizes before allocating payloads.
+#[xmtp_common::db_span]
 pub(crate) async fn history(
     tx: &mut Transaction<'_, Postgres>,
     ranges: &[Range],
@@ -169,6 +183,7 @@ pub(crate) async fn history(
 
 /// Load only candidates already admitted to the caller's byte budget. The same
 /// transaction must own candidate selection, or absence would not be conclusive.
+#[xmtp_common::db_span]
 pub(crate) async fn payloads(
     tx: &mut Transaction<'_, Postgres>,
     ids: &[i64],

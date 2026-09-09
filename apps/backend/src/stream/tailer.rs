@@ -1,4 +1,6 @@
+use super::StreamEnd;
 use super::{ENVELOPE_OVERHEAD, Registry};
+use crate::telemetry;
 use crate::{
     config::{Config, FETCH_BUFFER_BYTES},
     db::{self, stream::Candidate},
@@ -9,6 +11,7 @@ use sqlx::PgPool;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::{sync::Notify, task::JoinHandle};
 use tonic::Status;
+use tracing::Instrument;
 use xmtp_common::time::{Duration, Instant, sleep};
 
 const GAP_BATCH: usize = 128;
@@ -42,6 +45,7 @@ pub(super) async fn start(
     let wait = config.publishing.max_barrier_wait_ms;
     let max_gaps = config.streams.max_gap_ranges;
     let statement_ms = config.database.max_statement_timeout_ms;
+    telemetry::tailer_restarted();
     let first = bootstrap(&primary, &read, wait, interval, statement_ms).await?;
     registry.ready();
     Ok(tokio::spawn(async move {
@@ -67,7 +71,13 @@ pub(super) async fn start(
                 result = tailer => result.err().unwrap_or_else(|| Status::unavailable("tailer stopped")),
                 _ = &mut boundary.0 => Status::unavailable("boundary maintenance failed"),
             };
-            registry.fail_all(failure);
+            let reason = if failure.code() == tonic::Code::ResourceExhausted {
+                StreamEnd::Capacity
+            } else {
+                StreamEnd::Tailer
+            };
+            registry.fail_all(failure, reason);
+            telemetry::tailer_restarted();
             drop(boundary);
             loop {
                 sleep(interval).await;
@@ -84,6 +94,7 @@ pub(super) async fn start(
 
 /// Establish a new closed boundary and wait for its visibility on the selected
 /// database. No subscriptions may start during this wait.
+#[xmtp_common::span(prefix = "tailer")]
 async fn bootstrap(
     primary: &PgPool,
     read: &PgPool,
@@ -196,7 +207,39 @@ async fn poll(
     forward: i64,
     gaps: &[(i64, i64)],
 ) -> Result<PollResult, Error> {
-    let started = Instant::now();
+    let span = tracing::info_span!(
+        "tailer.poll",
+        operation = "tailer.poll",
+        otel.name = "tailer.poll",
+        rows = tracing::field::Empty,
+        gaps = tracing::field::Empty
+    );
+    async {
+        let result = poll_snapshot(connection, forward, gaps).await;
+        let (rows, gaps) = match &result {
+            Ok((_, gaps, rows, _, _)) => (rows.len(), gaps.len()),
+            Err(_) => (0, gaps.len()),
+        };
+        tracing::Span::current()
+            .record("rows", rows)
+            .record("gaps", gaps);
+        telemetry::tailer_polled(result.is_ok());
+        if result.is_ok() {
+            telemetry::tailer_gaps_observed(gaps);
+        } else {
+            tracing::error!("tailer poll failed");
+        }
+        result
+    }
+    .instrument(span)
+    .await
+}
+
+async fn poll_snapshot(
+    connection: &mut sqlx::PgConnection,
+    forward: i64,
+    gaps: &[(i64, i64)],
+) -> Result<PollResult, Error> {
     let mut tx = db::stream::snapshot_connection(connection).await?;
     let boundary = db::stream::boundary(&mut tx).await?;
     let mut page = PollPage {
@@ -237,6 +280,7 @@ async fn poll(
             break;
         }
     }
+    let gap_rows = page.selected.len();
     let mut next_forward = forward;
     if complete {
         let candidates = db::stream::forward(&mut tx, forward, FORWARD_ROWS).await?;
@@ -267,12 +311,7 @@ async fn poll(
         return Err(Error::Invariant("tailer candidate disappeared in snapshot"));
     }
     tx.commit().await?;
-    tracing::trace!(
-        rows = rows.len(),
-        gaps = page.gaps.len(),
-        duration_ms = started.elapsed().as_millis() as u64,
-        "tailer snapshot complete"
-    );
+    telemetry::tailer_rows_read(rows.len() - gap_rows, gap_rows);
     Ok((
         next_forward,
         page.gaps.into_iter().collect(),

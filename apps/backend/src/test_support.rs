@@ -1,5 +1,6 @@
 use crate::{Backend, api, config::Config, server};
 mod database;
+pub(crate) mod metrics;
 pub use database::TestDatabase;
 pub(crate) mod grpc_web;
 pub(crate) mod native;

@@ -188,7 +188,7 @@ async fn static_initial_log_and_completion_share_request_id_and_body_counts() {
     let bytes = request.encoded_len() + 5;
     let inner =
         api::subscription_service_server::SubscriptionServiceServer::new(server.backend.clone());
-    let layer = crate::server::request_logger::RequestLoggerLayer(true).layer(inner);
+    let layer = crate::server::telemetry::GrpcTelemetryLayer(true).layer(inner);
     let mut client = tonic::client::Grpc::new(layer);
     let capture = LogCapture::new(Level::Info);
     let response = client.server_streaming(tonic::Request::new(request), "/xmtp.backend.v1.SubscriptionService/SubscribeStatic".parse()?,

@@ -24,6 +24,11 @@ fn replica(config: &mut Config) {
 #[xmtp_common::test(unwrap_try = true)]
 async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     let _replay = REPLAY.lock().await;
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::replica::paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows",
+    ) else {
+        return;
+    };
     let server = TestServer::new(replica).await?;
     let read = server.backend.store.read.clone();
     let (meta, mut stream) = with_paused_replay(&read, async {
@@ -58,10 +63,27 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     assert!(
         matches!(stream.next().await?, Frame::Applied(applied) if applied.added_targets[0].through_sequence_id == 0)
     );
+        // The production sampler must observe unapplied WAL within two sample intervals.
+        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(10), xmtp_common::wait_for_some(|| async {
+            (support::metrics::value(&metrics, "xmtp_replica_replay_delay_seconds", &[]) > 0.0 && support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "primary")]) == id as f64).then_some(())
+        })).await?.ok_or("replica delay was not sampled")?;
+        assert_eq!(support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "primary")]), id as f64);
+        assert_eq!(support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "read")]), 0.0);
         Ok((meta, stream))
     }).await?;
     let rows = stream.messages(1).await?;
     assert_eq!(rows[0].meta, Some(meta));
+    xmtp_common::wait_for_eq(
+        || async { support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "read")]) },
+        1.0,
+    )
+    .await?;
+    xmtp_common::wait_for_eq(
+        || async { support::metrics::value(&metrics, "xmtp_replica_replay_delay_seconds", &[]) },
+        0.0,
+    )
+    .await?;
+    assert!(metrics.render().contains("pool=\"read\""));
     drop(stream);
     server.stop().await?;
 }
@@ -227,6 +249,11 @@ async fn late_gap_rows_precede_forward_rows_on_the_same_topic() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn replica_connection_loss_fails_existing_sessions_before_recovery() {
     let _replay = REPLAY.lock().await;
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::replica::replica_connection_loss_fails_existing_sessions_before_recovery",
+    ) else {
+        return;
+    };
     let server = TestServer::new(replica).await?;
     let mut stream = Native::open(&server).await?;
     let mut connection = server.backend.store.read.acquire().await?;
@@ -242,6 +269,18 @@ async fn replica_connection_loss_fails_existing_sessions_before_recovery() {
         .code(),
         Code::Unavailable
     );
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(&metrics, "xmtp_stream_ended_total", &[("reason", "tailer")])
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
+    assert!(support::metrics::value(&metrics, "xmtp_tailer_restarts_total", &[]) >= 2.0);
     drop(connection);
     drop(stream);
     server.stop().await?;

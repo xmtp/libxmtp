@@ -9,7 +9,54 @@ use support::{
 use tonic::Code;
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn closed_request_pool_ends_the_session_with_one_database_failure() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::closed_request_pool_ends_the_session_with_one_database_failure",
+    ) else {
+        return;
+    };
+    let server = TestServer::new(|_| {}).await?;
+    let mut stream = Native::open(&server).await?;
+    // The tailer holds a separate connection. Only request reads lose their pool.
+    server.backend.store.read.close().await;
+    let topic = support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[89; 32]);
+    stream
+        .update(1, vec![support::query_topic(topic, 0)], vec![])
+        .await?;
+    assert_eq!(
+        terminal(&mut stream.output).await?.unwrap().code(),
+        Code::Unavailable
+    );
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "database")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
+    drop(stream);
+    server.stop().await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_ended_total", &[]),
+        1.0
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn empty_session_acknowledges_updates_and_ping_then_ends_on_half_close() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::empty_session_acknowledges_updates_and_ping_then_ends_on_half_close",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|_| {}).await?;
     let mut stream = Native::open(&server).await?;
     stream.update(1, vec![], vec![]).await?;
@@ -20,11 +67,44 @@ async fn empty_session_acknowledges_updates_and_ping_then_ends_on_half_close() {
     assert!(matches!(stream.next().await?, Frame::Pong(pong) if pong.nonce == 77));
     drop(stream.input);
     assert!(terminal(&mut stream.output).await?.is_none());
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_ended_total", &[("reason", "client")]),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
+    for frame in ["started", "applied", "pong"] {
+        assert_eq!(
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_frames_sent_total",
+                &[("frame", frame)]
+            ),
+            1.0
+        );
+    }
+    for frame in ["update", "ping"] {
+        assert_eq!(
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_frames_received_total",
+                &[("frame", frame)]
+            ),
+            1.0
+        );
+    }
     server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn fixed_target_history_hands_off_to_live_in_order() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::fixed_target_history_hands_off_to_live_in_order",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
     let metas = server
         .publish((0..100).map(|value| envelope(1, value)).collect())
@@ -59,7 +139,41 @@ async fn fixed_target_history_hands_off_to_live_in_order() {
         matches!(stream.next().await?, Frame::Applied(applied) if applied.added_targets.is_empty())
     );
     assert_eq!(rows.last().unwrap().meta, Some(later[0].clone()));
+    server.publish(vec![envelope(1, 101)]).await?;
+    assert_eq!(
+        stream.messages(1).await?[0]
+            .meta
+            .as_ref()
+            .unwrap()
+            .cursor
+            .as_ref()
+            .unwrap()
+            .sequence_id,
+        102
+    );
     drop(stream);
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_envelopes_sent_total", &[]),
+        102.0
+    );
+    assert!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_stream_envelopes_sent_total",
+            &[("phase", "catch_up")]
+        ) >= 100.0
+    );
+    let live = support::metrics::value(
+        &metrics,
+        "xmtp_stream_envelopes_sent_total",
+        &[("phase", "live")],
+    );
+    assert!(live >= 1.0);
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_delivery_lag_seconds_count", &[]),
+        live
+    );
+    assert!(support::metrics::value(&metrics, "xmtp_stream_delivery_lag_seconds_sum", &[]) >= 0.0);
     server.stop().await?;
 }
 
@@ -374,6 +488,11 @@ async fn removed_history_stays_within_database_and_worker_bounds_under_churn() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn structural_update_errors_close_the_session() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::structural_update_errors_close_the_session",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|_| {}).await?;
     let topic = support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[4; 32]);
     for request in [
@@ -407,11 +526,31 @@ async fn structural_update_errors_close_the_session() {
             Code::InvalidArgument
         );
     }
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "invalid")],
+            )
+        },
+        4.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
     server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn unmatched_server_challenge_expires_despite_other_inbound_traffic() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::unmatched_server_challenge_expires_despite_other_inbound_traffic",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|config| {
         config.streams.keepalive_interval_ms = 20;
         config.streams.max_pong_wait_ms = 1_000;
@@ -433,11 +572,31 @@ async fn unmatched_server_challenge_expires_despite_other_inbound_traffic() {
         Code::DeadlineExceeded
     );
     drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "keepalive")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
     server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn ping_and_update_use_independent_buckets() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::ping_and_update_use_independent_buckets",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|config| {
         config.limits.max_ping_burst = 2;
         config.limits.max_update_burst = 2;
@@ -458,6 +617,17 @@ async fn ping_and_update_use_independent_buckets() {
         Code::ResourceExhausted
     );
     drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "rate_limited")],
+            )
+        },
+        1.0,
+    )
+    .await?;
     server.stop().await?;
 }
 
@@ -566,6 +736,11 @@ async fn applied_control_can_exceed_the_data_frame_target() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn slow_live_consumer_fails_without_blocking_other_sessions() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::slow_live_consumer_fails_without_blocking_other_sessions",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
     let mut slow = Native::open(&server).await?;
     let topic = support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[34; 32]);
@@ -582,6 +757,17 @@ async fn slow_live_consumer_fails_without_blocking_other_sessions() {
         terminal(&mut slow.output).await?.unwrap().code(),
         Code::ResourceExhausted
     );
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "backpressure")],
+            )
+        },
+        1.0,
+    )
+    .await?;
     drop(slow);
     drop(healthy);
     server.stop().await?;
@@ -622,6 +808,11 @@ async fn pending_target_capture_does_not_block_ping_or_half_close() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_gap_capacity_fails_before_discarding_recovery_state() {
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::session::unknown_gap_capacity_fails_before_discarding_recovery_state",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|config| {
         config.streams.max_gap_ranges = 1;
         config.streams.poll_interval_ms = 10;
@@ -661,5 +852,20 @@ async fn unknown_gap_capacity_fails_before_discarding_recovery_state() {
     );
     barrier.commit().await?;
     drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "capacity")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
     server.stop().await?;
 }

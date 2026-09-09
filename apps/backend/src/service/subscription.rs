@@ -25,7 +25,7 @@ impl api::subscription_service_server::SubscriptionService for Backend {
             .ok_or_else(|| Status::unavailable("stream service unavailable"))?;
         let request_id = request
             .extensions()
-            .get::<crate::server::request_logger::RequestId>()
+            .get::<crate::server::telemetry::RequestId>()
             .map(|id| id.0)
             .unwrap_or_else(uuid::Uuid::new_v4);
         Ok(Response::new(Box::pin(crate::stream::native(
@@ -50,7 +50,7 @@ impl api::subscription_service_server::SubscriptionService for Backend {
             .ok_or_else(|| Status::unavailable("stream service unavailable"))?;
         let request_id = request
             .extensions()
-            .get::<crate::server::request_logger::RequestId>()
+            .get::<crate::server::telemetry::RequestId>()
             .map(|id| id.0)
             .unwrap_or_else(uuid::Uuid::new_v4);
         Ok(Response::new(Box::pin(crate::stream::static_subscription(

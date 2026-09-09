@@ -1,6 +1,6 @@
 use super::{PendingEnvelope, Store, StoredMeta, identity::apply_projection};
 use crate::error::{AdmissionError, Error};
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 
 #[cfg(test)]
 mod tests;
@@ -13,6 +13,7 @@ impl Store {
     /// This pass runs before validation. `commit_publish` repeats it after
     /// acquiring locks, because a copy may commit while validation is running.
     /// The stored metadata remains attached to every original request position.
+    #[xmtp_common::db_span]
     pub(crate) async fn find_duplicates(
         &self,
         pending: &mut [PendingEnvelope],
@@ -32,6 +33,7 @@ impl Store {
     /// failed. A non-duplicate validation error or stale head aborts the whole
     /// transaction. The transaction timeout bounds database work; dropping the
     /// transaction rolls it back and releases its locks.
+    #[xmtp_common::db_span]
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],
@@ -51,20 +53,7 @@ impl Store {
                 })
                 .collect();
         }
-        let mut tx = self
-            .primary
-            .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
-            .await
-            .map_err(Error::from)?;
-        let transaction_timeout = format!("{max_duration_ms}ms");
-        sqlx::query!(
-            "SELECT set_config('transaction_timeout', $1, true)",
-            transaction_timeout
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(Error::from)?;
-        lock(&mut tx, pending).await?;
+        let mut tx = locks(&self.primary, pending, max_duration_ms).await?;
         // A committed copy overrides an earlier validation failure. Retain its
         // original metadata before checking admission for the remaining inputs.
         duplicates(&mut tx, pending).await?;
@@ -117,6 +106,27 @@ impl Store {
             })
             .collect()
     }
+}
+
+/// Measure BEGIN and lock acquisition before the duplicate and validation rechecks.
+#[xmtp_common::span(prefix = "publish")]
+async fn locks(
+    pool: &PgPool,
+    pending: &[PendingEnvelope],
+    max_duration_ms: u64,
+) -> Result<Transaction<'static, Postgres>, Error> {
+    let mut tx = pool
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
+        .await?;
+    let transaction_timeout = format!("{max_duration_ms}ms");
+    sqlx::query!(
+        "SELECT set_config('transaction_timeout', $1, true)",
+        transaction_timeout
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    lock(&mut tx, pending).await?;
+    Ok(tx)
 }
 
 /// Find stored rows by the request's `(topic, message_hash)` keys.

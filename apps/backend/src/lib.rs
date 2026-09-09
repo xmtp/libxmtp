@@ -6,6 +6,7 @@ pub mod error;
 pub mod server;
 pub mod service;
 mod stream;
+pub mod telemetry;
 #[cfg(test)]
 mod test_support;
 mod validation;

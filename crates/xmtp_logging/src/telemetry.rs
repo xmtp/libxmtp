@@ -12,6 +12,8 @@ use std::time::Duration;
 
 /// Instrumentation scope for libxmtp spans.
 pub const SCOPE: &str = "libxmtp";
+pub(crate) mod switch;
+
 const OTLP_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Owns the providers. Keep this guard until all operation spans close.
@@ -22,6 +24,10 @@ pub struct TelemetryGuard {
 }
 
 impl TelemetryGuard {
+    pub(crate) fn tracer(&self) -> opentelemetry_sdk::trace::Tracer {
+        self.tracer_provider.tracer(SCOPE)
+    }
+
     /// Flush queued telemetry without stopping export. The wait is bounded.
     pub fn force_flush(&self) {
         if !self.stopped.load(std::sync::atomic::Ordering::Acquire) {

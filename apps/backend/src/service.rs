@@ -11,7 +11,7 @@ use xmtp_id::scw_verifier::CachedSmartContractSignatureVerifier;
 
 #[derive(Clone)]
 pub struct Backend {
-    pub store: Store,
+    pub store: Arc<Store>,
     pub config: Arc<Config>,
     pub verifier: Arc<CachedSmartContractSignatureVerifier>,
     pub(crate) streams: Option<Arc<crate::stream::StreamHub>>,
@@ -28,7 +28,7 @@ impl Backend {
         verifier: CachedSmartContractSignatureVerifier,
     ) -> Self {
         Self {
-            store,
+            store: Arc::new(store),
             config: Arc::new(config),
             verifier: Arc::new(verifier),
             streams: None,

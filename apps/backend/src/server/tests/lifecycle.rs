@@ -76,9 +76,18 @@ async fn blocked_publish(
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "server::tests::lifecycle::shutdown_fails_streams_immediately_and_drains_an_admitted_publish",
+    ) else {
+        return;
+    };
     let mut server = TestServer::new(|config| config.server.max_drain_duration_ms = 2_000).await?;
     let mut stream = Native::open(&server).await?;
     let (blocker, publish) = blocked_publish(&server).await?;
+    assert_eq!(
+        crate::test_support::metrics::value(&metrics, "xmtp_backend_ready", &[]),
+        1.0
+    );
     server.shutdown();
     assert_eq!(
         timeout(Duration::from_millis(500), stream.output.message())
@@ -107,12 +116,36 @@ async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
         Some(1)
     );
     drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            crate::test_support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "shutdown")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        crate::test_support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
+    assert_eq!(
+        crate::test_support::metrics::value(&metrics, "xmtp_backend_ready", &[]),
+        0.0
+    );
     server.stop().await?;
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_deadline_cancels_unfinished_unary_work_without_a_commit() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "server::tests::lifecycle::shutdown_deadline_cancels_unfinished_unary_work_without_a_commit",
+    ) else {
+        return;
+    };
     let mut server = TestServer::new(|config| config.server.max_drain_duration_ms = 100).await?;
     let (blocker, publish) = blocked_publish(&server).await?;
     let started = Instant::now();
@@ -131,12 +164,25 @@ async fn shutdown_deadline_cancels_unfinished_unary_work_without_a_commit() {
             .await?,
         Some(0)
     );
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        1.0
+    );
     server.stop().await?;
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn shutdown_also_ends_a_static_subscription() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "server::tests::lifecycle::shutdown_also_ends_a_static_subscription",
+    ) else {
+        return;
+    };
     let mut server = TestServer::new(|_| {}).await?;
     let topic =
         crate::test_support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[99; 32]);
@@ -149,6 +195,10 @@ async fn shutdown_also_ends_a_static_subscription() {
         .await?
         .into_inner();
     assert!(stream.message().await?.is_some());
+    assert_eq!(
+        crate::test_support::metrics::value(&metrics, "xmtp_backend_ready", &[]),
+        1.0
+    );
     server.shutdown();
     assert_eq!(
         timeout(Duration::from_secs(1), stream.message())
@@ -158,5 +208,28 @@ async fn shutdown_also_ends_a_static_subscription() {
         tonic::Code::Unavailable
     );
     drop(stream);
+    xmtp_common::wait_for_eq(
+        || async {
+            crate::test_support::metrics::value(
+                &metrics,
+                "xmtp_stream_ended_total",
+                &[("reason", "shutdown")],
+            )
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_stream_sessions",
+            &[("kind", "static")]
+        ),
+        0.0
+    );
+    assert_eq!(
+        crate::test_support::metrics::value(&metrics, "xmtp_backend_ready", &[]),
+        0.0
+    );
     server.stop().await?;
 }

@@ -94,3 +94,20 @@ pub(super) fn socket_address(_: &mut SchemaGenerator) -> Schema {
 
 #[cfg(test)]
 mod tests;
+
+/// Allow stdout encoding through the same environment mechanism as log levels.
+pub(super) fn log_format(generator: &mut SchemaGenerator) -> Schema {
+    with_environment(generator.subschema_for::<super::LogFormat>())
+}
+
+pub(super) fn metrics_address(generator: &mut SchemaGenerator) -> Schema {
+    json_schema!({"anyOf": [socket_address(generator), {"const": ""}]})
+}
+
+pub(super) fn optional_http_url(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"anyOf": [with_environment(json_schema!({"type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+[^\\s]*$"})), {"type": "null"}]})
+}
+
+pub(super) fn resource_attributes(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": "object", "propertyNames": {"not": {"enum": ["service.name", "service.version"]}}, "additionalProperties": {"type": "string"}})
+}

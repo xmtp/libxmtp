@@ -118,3 +118,49 @@ pub(crate) fn scw_count(update: &IdentityUpdate) -> usize {
         .filter(|value| matches!(value.signature, Some(signature::Signature::Erc6492(_))))
         .count()
 }
+
+/// Add backend telemetry at the verifier boundary, including identity validation.
+pub(crate) struct ObservedVerifier<'a>(
+    pub &'a xmtp_id::scw_verifier::CachedSmartContractSignatureVerifier,
+);
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ObservedVerifier<'_> {
+    async fn is_valid_signature(
+        &self,
+        account_id: xmtp_id::associations::AccountId,
+        hash: [u8; 32],
+        signature: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        self.verify(account_id, hash, signature, block_number).await
+    }
+}
+impl ObservedVerifier<'_> {
+    /// Preserve the verifier result and its retryability while recording its outcome.
+    #[xmtp_common::span(prefix = "scw")]
+    async fn verify(
+        &self,
+        account_id: xmtp_id::associations::AccountId,
+        hash: [u8; 32],
+        signature: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        use crate::telemetry::{self, VerificationResult};
+        use xmtp_common::RetryableError;
+        use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+        let result = self
+            .0
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await;
+        telemetry::scw_verified(match &result {
+            Ok(response) if response.is_valid => VerificationResult::Valid,
+            Ok(_) => VerificationResult::Invalid,
+            Err(error) if error.is_retryable() => VerificationResult::Error,
+            Err(_) => VerificationResult::Invalid,
+        });
+        result
+    }
+}

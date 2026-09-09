@@ -2,12 +2,14 @@
 
 Status: approved on 2026-09-04, with the owner decisions in the review record.
 
+Telemetry amendment reviewed on 2026-09-09: [Phase 4.5: Metrics And Telemetry](https://plan.ref.tools/0cBzvHLvgoCqyGmp).
+
 Spec 001 defines the public API. This spec defines storage, transaction boundaries, read routing, and service operation. Spec 003 defines validation and trust limits. Spec 004 defines streaming behavior. Requirements use `ARC-nnn`; “must” is required.
 
 ## 1. Service and shared logic
 
 - ARC-001: The backend is one Rust binary behind a load balancer. Durable state lives in Postgres. Subscription state, queues, and caches are disposable. Reconnecting clients need no state from the previous instance. An open transport stays on its serving instance; reconnects need no instance affinity.
-- ARC-002: Serve native gRPC, gRPC-Web, and standard gRPC health directly through Tonic on one port. TLS terminates at the trusted load balancer, which passes HTTPS requests through without gRPC-Web conversion. The plaintext listener accepts HTTP/1.1 and HTTP/2. CORS and proxy behavior must satisfy spec 001. No version or metadata endpoint is served.
+- ARC-002: Serve native gRPC, gRPC-Web, and standard gRPC health directly through Tonic on one port. TLS terminates at the trusted load balancer, which passes HTTPS requests through without gRPC-Web conversion. The plaintext listener accepts HTTP/1.1 and HTTP/2. CORS and proxy behavior must satisfy spec 001. No version or metadata endpoint is served. The metrics listener uses a separate port. The gRPC port serves no additional endpoint.
 - ARC-003: Shutdown stops new requests, fails open streams with `UNAVAILABLE`, and drains unary requests within the configured deadline. A missing response does not prove that a publish rolled back.
 - ARC-004: Package the service as a Nix-built container. Builds must not require a live database.
 - ARC-005: Use sqlx with compile-time checked queries and a committed offline query cache. Embed migrations and apply them at startup under a database advisory lock. Do not report readiness until migrations and database initialization succeed.
@@ -42,7 +44,7 @@ Use three domain tables, one singleton boundary table, and one global positive b
 - ARC-031: Hold one transaction advisory lock per distinct topic until commit or rollback. Acquire distinct lock keys in one global order. A hash collision may serialize unrelated topics but must not create inconsistent lock order. Reserve a separate lock domain for global locks.
 - ARC-032: Identity publishes first hold a global identity transaction lock. Identity update sequence order therefore equals commit order across inboxes. Other topics retain only per-topic order.
 - ARC-033: Per-topic locks make per-topic sequence order equal commit order. Every read from the primary or the single configured replica sees a committed topic prefix. This does not imply that global sequence order equals global commit order.
-- ARC-034: Advance each inserted topic's watermark only to a greater sequence ID. An unexpected failure of this guard aborts the whole transaction with `INTERNAL` and an error log. It must not terminate the process or return partial success. Operational metrics are added in Phase 4.
+- ARC-034: Advance each inserted topic's watermark only to a greater sequence ID. An unexpected failure of this guard aborts the whole transaction with `INTERNAL` and an error log. It must not terminate the process or return partial success. Count storage invariant failures in database error metrics.
 - ARC-035: Use the database transaction-start timestamp (`CURRENT_TIMESTAMP`) for `server_ns`. New rows in one publish transaction share that value, including when insertion waits for locks. Do not read the previous timestamp to clamp it. Equal or backwards timestamps are allowed; sequence IDs, not timestamps, determine order. Check arithmetic when computing finite expiry.
 - ARC-036: Publish transactions use `READ COMMITTED`. Duplicate rechecks, identity-head checks, and watermark updates use fresh statements after lock acquisition. Data read before the locks must be rechecked as specified below.
 
@@ -134,11 +136,70 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 - ARC-092: Preserve existing validation behavior, including group-message trailing bytes and the absence of an added ciphersuite allow-list. Spec 003 records what checks do and do not run.
 - ARC-093: Fold identity history for each publish without an association-state cache. Historical signature conversion can call chain RPC; only the state fold itself is pure CPU work. Keep the separate SCW signature-verdict cache defined in spec 003.
 
-### Basic logging
+### Metrics, logs, and traces
 
-- ARC-094: Use the shared logging pipeline. The configured log level defaults to INFO; a command-line log-level override takes precedence. Full OpenTelemetry configuration remains Phase 4 work.
+- ARC-094: Use the shared logging pipeline for stdout and optional OTLP gRPC export. The log level defaults to INFO; a command-line override takes precedence. Stdout uses text by default or one JSON object per line when configured. The stdout level must not suppress INFO operation spans, span duration metrics, or trace export. The request-logger switch controls only completion events. Metrics and request spans remain active.
 - ARC-095: When the request logger is enabled and INFO is admitted by the log level, emit one completion event per gRPC request. Include the method path, duration in milliseconds, consumed request-body bytes, emitted response-body bytes, and a server-generated request ID. Response counts exclude queued or unpolled bytes and do not confirm client receipt. HTTP headers and trailers are excluded; gRPC-Web trailers encoded in body data are included. Count bytes without buffering payloads or trusting Content-Length. For bidirectional streams, count all consumed inbound frames; completion means the response body ends, fails, or is cancelled, not that response headers were sent. Exclude CORS preflight from request events.
 - ARC-096: Emit an INFO event for each accepted stream-interest mutation with its added and removed topic counts. Do not log topic values, payloads, authorization headers, or keys. Mutation events remain independent of the request-logger toggle and use the request correlation context.
+- ARC-097: Export traces only when an OTLP endpoint is configured. If the key is absent, use `OTEL_EXPORTER_OTLP_ENDPOINT` when set. This is the sole implicit environment fallback and an explicit exception to ARC-101.
+  - A malformed resolved endpoint fails startup. The error names the key or environment variable and must not include the resolved value. An unreachable endpoint must not prevent serving, metrics, or stdout logs. Count each failed export batch. After the request drain, flush and stop export within a separate five-second bound.
+  - Export service identity as `service.name` (default `xmtp-backend`) and the build version as `service.version`. Reject either key in extra resource attributes. The root sample ratio must be finite and between zero and one, inclusive. OTLP logs are disabled by default and no log exporter is built when disabled.
+- ARC-098: The optional telemetry section configures a separate Prometheus text listener, default `0.0.0.0:9464`. An empty listen address disables only the listener; metrics remain recorded in process. An occupied address fails startup and the error names that address. Install the recorder before logging. Publish readiness zero and build version before database initialization; change readiness in the same call that reports health Serving or NotServing.
+  - Request metrics cover response-body completion, failure, or cancellation, including native and gRPC-Web streams. Preserve the actual status from headers or trailers. With no status, a dropped body is Cancelled and an ended body is Unknown. Decrement in-flight exactly once. Exclude preflight and health from all gRPC metrics; retain health completion events and server-generated request IDs. Use `grpc_type`, `grpc_service`, `grpc_method`, and, for completion count and duration, `grpc_code`. Match only the four backend services and standard health routes; unknown paths use the single unknown service and method label. Subscribe is `bidi_stream`, SubscribeStatic is `server_stream`, and other methods are `unary`.
+  - Sample pools, sequence IDs, replica replay delay, process resources, runtime activity, and occupied fetch permits every five seconds. Report the read pool and read sequence only when a distinct read pool exists. An empty envelope table reports sequence zero. Equal receive and replay WAL positions report delay zero; otherwise report the age of the last replayed transaction, and omit the sample when that timestamp is absent. Each database query obeys the configured statement timeout. A failed sample increments its error counter, retains the previous affected gauge values, and does not stop later sampling.
+  - Count every publish input position once by response origin: stored, duplicate, or rejected when the request fails. Count every registered stream termination once with a fixed reason. Remove registry gauges once even during recovery failure. Measure delivery lag only for live envelopes at outbound admission, clamp negative lag to zero, and measure outbound waiting only when capacity was unavailable. A new recovery generation resets tailer readiness and gap count until recovery succeeds. Count barrier lock timeouts and emit one warning for each. Describe every backend metric from one catalogue.
+- ARC-099: Accept W3C `traceparent` and `tracestate`, including CORS preflight that names these headers. Install propagation even when export is off. With trace export enabled, the incoming context is the request span parent. Request spans identify the server kind, gRPC system, bounded service and method, and final gRPC status. Completion events include the status name and a trace ID only when a valid incoming or generated trace context exists.
+  - No metric label, span field, or log field may derive from a topic, inbox ID, installation ID, group ID, cursor, payload, or request header. The only exceptions are W3C trace context and the server-generated request ID. Operation names and status reasons have bounded vocabularies. Never use request data as a metric name or label.
+
+The required operation span names are `db.commit_publish`, `db.find_duplicates`, `db.history`, `db.query`, `db.newest_envelopes`, `db.newest_metadata`, `db.get`, `db.inbox_ids`, `db.advance`, `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `tailer.poll`, `tailer.bootstrap`, `scw.verify`, `stream.update`, `stream.fetch`. A completed `tailer.poll` span includes INFO-level `rows` and `gaps` fields.
+
+### Backend metric catalogue
+
+Shared logging emits operation-span and export-failure metrics. The backend catalogue describes these metrics. The process collector describes its platform-specific `process_*` metrics.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `xmtp_operation_duration_seconds` | histogram | Operation span duration by operation and status. |
+| `xmtp_telemetry_export_failures_total` | counter | Failed telemetry export batches. |
+| `grpc_server_started_total` | counter | gRPC requests started. |
+| `grpc_server_handled_total` | counter | gRPC requests completed. |
+| `grpc_server_handling_seconds` | histogram | gRPC response body lifetime. |
+| `grpc_server_in_flight` | gauge | gRPC requests in flight. |
+| `grpc_server_request_bytes_total` | counter | Consumed gRPC request body bytes. |
+| `grpc_server_response_bytes_total` | counter | Emitted gRPC response body bytes. |
+| `xmtp_telemetry_sampler_errors_total` | counter | Failed telemetry samples. |
+| `xmtp_db_pool_connections` | gauge | Database pool connections by state. |
+| `xmtp_db_pool_max_connections` | gauge | Database pool connection limit. |
+| `xmtp_db_released_open_transactions_total` | counter | Open transactions rolled back on pool release. |
+| `xmtp_db_errors_total` | counter | Database errors mapped to RPC statuses. |
+| `xmtp_sequence_id` | gauge | Greatest committed envelope sequence id. |
+| `xmtp_replica_replay_delay_seconds` | gauge | Replica replay delay while WAL remains unapplied. |
+| `xmtp_publish_envelopes_total` | counter | Publish input positions by response origin. |
+| `xmtp_publish_rejections_total` | counter | Rejected publishes by validation reason. |
+| `xmtp_scw_verifications_total` | counter | Smart contract wallet verification results. |
+| `xmtp_stream_sessions` | gauge | Registered stream sessions. |
+| `xmtp_stream_topics_registered` | gauge | Registered stream topic interests. |
+| `xmtp_stream_frames_sent_total` | counter | Stream frames admitted to the outbound queue. |
+| `xmtp_stream_frames_received_total` | counter | Stream frames received. |
+| `xmtp_stream_envelopes_sent_total` | counter | Stream envelopes admitted by delivery phase. |
+| `xmtp_stream_updates_total` | counter | Stream interest update results. |
+| `xmtp_stream_ended_total` | counter | Stream sessions ended by reason. |
+| `xmtp_stream_delivery_lag_seconds` | histogram | Live envelope age at outbound admission. |
+| `xmtp_stream_outbound_wait_seconds` | histogram | Time waiting for outbound capacity. |
+| `xmtp_stream_fetch_workers_in_use` | gauge | Occupied stream fetch permits. |
+| `xmtp_stream_fetch_wait_seconds` | histogram | Time waiting for a stream fetch permit. |
+| `xmtp_tailer_polls_total` | counter | Tailer poll results. |
+| `xmtp_tailer_rows_total` | counter | Tailer rows read by source. |
+| `xmtp_tailer_gap_ranges` | gauge | Unresolved tailer gap ranges. |
+| `xmtp_tailer_restarts_total` | counter | Tailer recovery generations started. |
+| `xmtp_tailer_ready` | gauge | Whether stream recovery is ready. |
+| `xmtp_boundary_advances_total` | counter | Allocation boundary advance results. |
+| `xmtp_backend_ready` | gauge | Whether the backend reports Serving. |
+| `xmtp_backend_info` | gauge | Backend build version. |
+| `tokio_runtime_workers` | gauge | Tokio runtime worker threads. |
+| `tokio_runtime_alive_tasks` | gauge | Tokio runtime alive tasks. |
+| `tokio_runtime_global_queue_depth` | gauge | Tokio runtime global queue depth. |
+| `tokio_runtime_worker_busy_seconds_total` | gauge | Cumulative busy seconds across Tokio workers. |
 
 ## 8. Configuration
 
@@ -153,11 +214,22 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 listen = "0.0.0.0:5050"
 # Basic logging through the shared pipeline. CLI --log-level overrides this.
 log_level = "info"  # off, error, warn, info, debug, trace
+log_format = "text" # text or json
 # Emit one INFO completion event per gRPC request, including long-lived streams.
 request_logger = true
 # How long shutdown waits for in-flight unary requests before the process exits (ARC-003).
 # Open streams fail with UNAVAILABLE at once; only unary requests get this budget.
 max_drain_duration_ms = 10000
+
+[telemetry]
+# Separate Prometheus listener. Empty disables the listener only.
+metrics_listen = "0.0.0.0:9464"
+# Optional OTLP gRPC export. Absent uses OTEL_EXPORTER_OTLP_ENDPOINT, if set.
+# otlp_endpoint = "http://tempo:4317"
+otlp_logs = false
+service_name = "xmtp-backend"
+sample_ratio = 1.0
+resource_attributes = { "deployment.environment" = "local" }
 
 [database]
 # Primary connection string. Required. `env:NAME` reads the variable at startup (ARC-101).
@@ -275,7 +347,7 @@ The raw repository URL is the public schema publication target. Publish and vali
 - ARC-111: Concurrency tests cover topic ordering, identical publish races, mixed duplicate/new failures, and identity history changing during validation. A full duplicate at the identity cap succeeds. Unexpected uniqueness errors never produce partial success.
 - ARC-112: Exercise late commits after boundary attempts, replica replay pauses, gap/forward snapshot races, and startup during an open publish. Each committed row is delivered in topic order or the affected stream explicitly fails before recovery state is lost.
 - ARC-113: Cover idempotent adds, registration and target capture, fair batched catch-up, removal/re-add, native half-close, static continuation, slow consumers, large envelopes, oversized responses, and tailer/database failure. Direct service gRPC-Web tests include preflight and incremental delivery; an HTTPS load-balancer smoke test covers pass-through without conversion or buffering.
-- ARC-114: Test each important behavior once on its owning platform. Backend tests own protocol semantics; binding tests own conversion and SDK lifecycle. Phase 4 owns benchmarks, vacuum tuning, and full telemetry. Phase 5 owns pruning. Phase 6 owns caller authentication and quotas.
+- ARC-114: Test each important behavior once on its owning platform. Backend tests own protocol semantics; binding tests own conversion and SDK lifecycle. Phase 4.5 adds metrics, trace propagation, and optional trace export. Backend tests cover telemetry configuration, status and byte accounting, metric ownership, label hygiene, and bounded shutdown. Phase 4.6 owns benchmarks and vacuum tuning. Phase 5 owns pruning. Phase 6 owns caller authentication and quotas.
 
 Supported database failover must preserve acknowledged commits and fence the old primary. Promoting a replica that loses acknowledged data or restoring an old backup is an operator recovery event; durable client cursors cannot repair it. The backend does not implement a database failover manager.
 

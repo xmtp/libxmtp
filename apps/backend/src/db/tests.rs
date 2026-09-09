@@ -8,6 +8,11 @@ use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_begin_returns_a_clean_connection() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "db::tests::cancelled_begin_returns_a_clean_connection",
+    ) else {
+        return;
+    };
     let database = TestDatabase::new()?;
     let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
     config.database.max_connections = 1;
@@ -42,6 +47,14 @@ async fn cancelled_begin_returns_a_clean_connection() {
     tx.rollback().await?;
     drop(connection);
     store.primary.close().await;
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_db_released_open_transactions_total",
+            &[]
+        ),
+        1.0
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
